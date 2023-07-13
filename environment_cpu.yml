@@ -9,6 +9,7 @@ dependencies:
   - python=3.9
   - pytorch
   - cpuonly
+  - torchdata
   - torchvision
   - lightning
   - imageio
