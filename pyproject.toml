@@ -20,7 +20,7 @@ dependencies = [
     "torch>=2.0.0",
     "torchdata",
     "torchvision",
-    "lightning",
+    "lightning<=2.0.1",
     "imageio",
     "imageio-ffmpeg",
     "av",

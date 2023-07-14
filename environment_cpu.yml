@@ -8,10 +8,10 @@ channels:
 dependencies:
   - python=3.9
   - pytorch
+  - lightning=2.0.1
   - cpuonly
   - torchdata
   - torchvision
-  - lightning
   - imageio
   - av
   - ffmpeg
