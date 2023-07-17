@@ -18,14 +18,16 @@ classifiers = [
 ]
 dependencies = [
     "torch>=2.0.0",
+    "torchdata",
     "torchvision",
-    "lightning",
+    "pydantic<2.0",
+    "lightning==2.0.5",
     "imageio",
     "imageio-ffmpeg",
     "av",
     "albumentations",
     "hydra-core",
-    "sleap-io>=0.0.6"
+    "sleap-io>=0.0.7"
 ]
 dynamic = ["version", "readme"]
 
