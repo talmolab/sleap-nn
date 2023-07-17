@@ -11,6 +11,6 @@ def test_providers(minimal_instance):
         minimal_instance: minimal_instance testing fixture
     """
     l = LabelsReader.from_filename(minimal_instance)
-    image, instance = next(iter(l))
+    instance, image = next(iter(l))
     assert image.shape == torch.Size([384, 384, 1])
     assert instance.shape == torch.Size([2, 2])
