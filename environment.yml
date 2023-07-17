@@ -9,7 +9,8 @@ channels:
 dependencies:
   - python=3.9
   - pytorch-cuda=11.8
-  - lightning=2.0.1
+  - pydantic<2.0
+  - lightning=2.0.5 # due to dependency conflict Lightning Issue (#18027)
   - cudnn
   - pytorch
   - torchdata
