@@ -29,11 +29,11 @@ class LabelsReader(dp.IterDataPipe):
     def __iter__(self):
         """Return a sample containing the following elements.
 
-        - a torch.Tensor representing an instance
-        - a torch.Tensor representing the corresponding image
+        "image": a torch.Tensor containing full raw frame image.
+        "instance": A single instance of the corresponding image.
         """
         for lf in self.labels:
             for inst in lf:
                 instance = torch.from_numpy(inst.numpy())
                 image = torch.from_numpy(lf.image)
-                yield instance, image
+                yield {"image": image, "instance": instance}
