@@ -16,6 +16,7 @@ dependencies:
   - av
   - ffmpeg
   - albumentations
+  - kornia
   - matplotlib
   - pip
   - pip:

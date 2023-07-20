@@ -26,6 +26,7 @@ dependencies = [
     "imageio-ffmpeg",
     "av",
     "albumentations",
+    "kornia",
     "hydra-core",
     "sleap-io>=0.0.7"
 ]
