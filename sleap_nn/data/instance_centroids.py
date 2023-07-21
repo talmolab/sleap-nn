@@ -86,7 +86,7 @@ class InstanceCentroidFinder(dp.IterDataPipe):
         self.anchor_ind = anchor_ind
 
     def __iter__(self):
-        """Add `"centroids"` key to sample."""
+        """Add `"centroids"` key to example."""
         for example in self.source_dp:
             example["centroids"] = find_centroids(
                 example["instances"], anchor_ind=self.anchor_ind

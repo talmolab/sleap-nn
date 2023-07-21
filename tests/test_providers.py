@@ -12,6 +12,6 @@ def test_providers(minimal_instance):
     """
     l = LabelsReader.from_filename(minimal_instance)
     sample = next(iter(l))
-    instance, image = sample["instance"], sample["image"]
-    assert image.shape == torch.Size([384, 384, 1])
-    assert instance.shape == torch.Size([2, 2])
+    instances, image = sample["instances"], sample["image"]
+    assert image.shape == torch.Size([1, 1, 384, 384])
+    assert instances.shape == torch.Size([1, 2, 2, 2])

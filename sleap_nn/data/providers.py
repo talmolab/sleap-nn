@@ -28,7 +28,7 @@ class LabelsReader(dp.IterDataPipe):
         return cls(labels)
 
     def __iter__(self):
-        """Return an example dictionary containing the following elements:
+        """Return an example dictionary containing the following elements.
 
         "image": A torch.Tensor containing full raw frame image as a uint8 array
             of shape (1, channels, height, width).
