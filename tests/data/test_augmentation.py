@@ -9,8 +9,7 @@ import torch
 
 
 def test_kornia_augmentation(minimal_instance: sio.Labels):
-    """Test the Kornia augmentations"""
-
+    """Test the Kornia augmentations."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
     org_img = lf.image

@@ -1,3 +1,4 @@
+"""Handle rotation and scaling augmentations."""
 from typing import List, Tuple, Union
 import torchdata.datapipes.iter as dp
 import torch
@@ -5,7 +6,7 @@ import kornia.augmentation as K
 
 
 class KorniaAugmenter(dp.IterDataPipe):
-    """DataPipe for applying Rotation and Scaling augmentations using Kornia
+    """DataPipe for applying Rotation and Scaling augmentations using Kornia.
 
     This DataPipe will generate augmented samples containing the augmented frame and an sleap_io.Instance
     from sleap_io.Labels instance.
@@ -25,8 +26,7 @@ class KorniaAugmenter(dp.IterDataPipe):
         probability: float = 0.5,
         scale: Tuple[float, float] = (0.1, 0.3),
     ):
-        """Initialize the class variables with the DataPipe and the augmenter with rotation and scaling"""
-
+        """Initialize the class variables with the DataPipe and the augmenter with rotation and scaling."""
         self.source_dp = source_dp
         self.datapipe = self.source_dp.map(self.normalize)
         self.augmenter = K.AugmentationSequential(
@@ -38,18 +38,17 @@ class KorniaAugmenter(dp.IterDataPipe):
 
     @classmethod
     def normalize(self, data):
-        """Function to normalize the image
+        """Function to normalize the image.
 
         This function will convert the image to type Double and normalizes it.
 
         Args:
-            data: A dictionary sample (`image and key-points`) from the LabelsReader class
+            data: A dictionary sample (`image and key-points`) from the LabelsReader class.
 
         Returns:
-            A dictionary with the normalized image and instance
+            A dictionary with the normalized image and instance.
 
         """
-
         image = data["image"]
         instance = data["instance"]
         image = image.type(torch.DoubleTensor)
@@ -57,8 +56,7 @@ class KorniaAugmenter(dp.IterDataPipe):
         return {"image": image, "instance": instance}
 
     def __iter__(self):
-        """Returns a dictionary sample with the augmented image and the transformed instance"""
-
+        """Returns a dictionary sample with the augmented image and the transformed instance."""
         for dict in self.datapipe:
             image = dict["image"]
             instance = dict["instance"]
