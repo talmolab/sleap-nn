@@ -3,6 +3,7 @@ import torchdata.datapipes.iter as dp
 import lightning.pytorch as pl
 import torch
 import sleap_io as sio
+import numpy as np
 
 
 class LabelsReader(dp.IterDataPipe):
@@ -27,13 +28,28 @@ class LabelsReader(dp.IterDataPipe):
         return cls(labels)
 
     def __iter__(self):
-        """Return a sample containing the following elements.
+        """Return an example dictionary containing the following elements:
 
-        "image": a torch.Tensor containing full raw frame image.
-        "instance": A single instance of the corresponding image.
+        "image": A torch.Tensor containing full raw frame image as a uint8 array
+            of shape (1, channels, height, width).
+        "instances": Keypoint coordinates for all instances in the frame as a
+            float32 torch.Tensor of shape (1, num_instances, num_nodes, 2).
         """
         for lf in self.labels:
+            image = np.transpose(lf.image, (2, 0, 1))  # HWC -> CHW
+
+            instances = []
             for inst in lf:
-                instance = torch.from_numpy(inst.numpy())
-                image = torch.from_numpy(lf.image)
-                yield {"image": image, "instance": instance}
+                instances.append(inst.numpy())
+            instances = np.stack(instances, axis=0)
+
+            # Add singleton time dimension for single frames.
+            image = np.expand_dims(image, axis=0)  # (1, C, H, W)
+            instances = np.expand_dims(
+                instances, axis=0
+            )  # (1, num_instances, num_nodes, 2)
+
+            yield {
+                "image": torch.from_numpy(image),
+                "instances": torch.from_numpy(instances),
+            }
