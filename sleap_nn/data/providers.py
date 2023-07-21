@@ -36,4 +36,6 @@ class LabelsReader(dp.IterDataPipe):
             for inst in lf:
                 instance = torch.from_numpy(inst.numpy())
                 image = torch.from_numpy(lf.image)
-                yield instance, image
+                # kornia takes input with shape (batch, channels, height, width)
+                image = image.permute(2, 0, 1)
+                yield {"image": image, "instance": instance}
