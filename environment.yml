@@ -14,7 +14,6 @@ dependencies:
   - cudnn
   - pytorch
   - kornia
-  - torchdata
   - torchvision
   - imageio
   - av
