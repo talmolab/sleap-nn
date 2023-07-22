@@ -18,7 +18,6 @@ dependencies:
   - imageio
   - av
   - ffmpeg
-  - albumentations
   - matplotlib
   - pip
   - pip:
