@@ -8,12 +8,6 @@ from sleap_nn.data.instance_centroids import (
 
 
 def test_instance_centroids(minimal_instance):
-    """Test InstanceCentroidFinder
-
-    Args:
-        minimal_instance: minimal_instance testing fixture
-    """
-
     # Undefined anchor_ind
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
