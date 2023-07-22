@@ -1,12 +1,11 @@
-"""Handle importing of sleap data."""
-import torchdata.datapipes.iter as dp
-import lightning.pytorch as pl
+"""This module implements pipeline blocks for reading input data such as labels."""
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 import torch
 import sleap_io as sio
 import numpy as np
 
 
-class LabelsReader(dp.IterDataPipe):
+class LabelsReader(IterDataPipe):
     """Datapipe for reading frames from Labels object.
 
     This DataPipe will produce examples containing a frame and an sleap_io.Instance
@@ -51,5 +50,5 @@ class LabelsReader(dp.IterDataPipe):
 
             yield {
                 "image": torch.from_numpy(image),
-                "instances": torch.from_numpy(instances),
+                "instances": torch.from_numpy(instances.astype("float32")),
             }

@@ -1,9 +1,6 @@
 """Handle calculation of instance centroids."""
-import torchdata.datapipes.iter as dp
-import lightning.pytorch as pl
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 from typing import Optional
-import sleap_io as sio
-import numpy as np
 import torch
 
 
@@ -64,13 +61,14 @@ def find_centroids(
     return centroids
 
 
-class InstanceCentroidFinder(dp.IterDataPipe):
+class InstanceCentroidFinder(IterDataPipe):
     """Datapipe for finding centroids of instances.
 
     This DataPipe will produce examples that contain a 'centroids' key.
 
     Attributes:
-        source_dp: The previous `DataPipe` with samples that contain an `instances` key.
+        source_dp: The input `IterDataPipe` with examples that contain an `"instances"`
+            key.
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the midpoint of the bounding box
             is used instead.
@@ -78,7 +76,7 @@ class InstanceCentroidFinder(dp.IterDataPipe):
 
     def __init__(
         self,
-        source_dp: dp.IterDataPipe,
+        source_dp: IterDataPipe,
         anchor_ind: Optional[int] = None,
     ):
         """Initialize InstanceCentroidFinder with the source `DataPipe."""

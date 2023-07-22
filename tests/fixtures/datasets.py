@@ -5,7 +5,7 @@ from pathlib import Path
 @pytest.fixture
 def sleap_data_dir(pytestconfig):
     """Dir path to sleap data."""
-    return Path(pytestconfig.rootdir) / "tests/data"
+    return Path(pytestconfig.rootdir) / "tests/assets"
 
 
 @pytest.fixture
