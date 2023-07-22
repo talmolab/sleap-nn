@@ -13,6 +13,7 @@ dependencies:
   - lightning=2.0.5 # due to dependency conflict Lightning Issue (#18027)
   - cudnn
   - pytorch
+  - kornia
   - torchdata
   - torchvision
   - imageio
