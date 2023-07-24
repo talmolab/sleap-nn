@@ -1,6 +1,7 @@
 import attr
 from typing import Tuple, Dict, Any, Optional, Union
 import torch
+from torch.distributions import Uniform
 import torchdata.datapipes as dp
 import kornia as K
 from kornia.augmentation._2d.geometric.base import GeometricAugmentationBase2D
@@ -8,6 +9,7 @@ from kornia.augmentation._2d.intensity.base import IntensityAugmentationBase2D
 from kornia.core import Tensor
 from kornia.constants import Resample, SamplePadding
 from kornia.geometry.transform import warp_affine
+from kornia.augmentation.utils.param_validation import _range_bound
 
 
 class RandomUniformNoise(IntensityAugmentationBase2D):
@@ -63,11 +65,8 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
         super().__init__(
             p=p, p_batch=p_batch, same_on_batch=same_on_batch, keepdim=keepdim
         )
-        self.flags = {"min_val": noise[0], "max_val": noise[1]}
+        self.flags = {"uniform_noise": _range_bound(noise, 'uniform_noise', bounds=(0.0, 255.0))/255.0}
         self.clip_output = clip_output
-
-    def generate_parameters(self, shape: Tuple[int, ...]) -> Dict[str, Tensor]:
-        return {}
 
     def apply_transform(
         self,
@@ -81,7 +80,7 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
         else:
             uniform_noise = (
                 torch.FloatTensor(input.shape)
-                .uniform_(flags["min_val"] / 255.0, flags["max_val"] / 255.0)
+                .uniform_(flags["uniform_noise"][0], flags["uniform_noise"][1])
                 .to(input.device)
             )
             self._params["uniform_noise"] = uniform_noise
@@ -92,7 +91,7 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
         return input + uniform_noise
 
 
-class RandomTranslationPx(GeometricAugmentationBase2D):
+class RandomTranslatePx(GeometricAugmentationBase2D):
     """Data transformer for applying random pixel translations by pixel value to input images.
 
     This is a custom Kornia augmentation inheriting from `GeometricAugmentationBase2D`.
@@ -121,14 +120,14 @@ class RandomTranslationPx(GeometricAugmentationBase2D):
     Examples:
         >>> rng = torch.manual_seed(0)
         >>> img = torch.rand(1, 1, 2, 2)
-        >>> transformer = RandomTranslationPx(translate_px={"x": (-1, 1), "y": (-1, 1)}, p=1.)
+        >>> transformer = RandomTranslatePx(translate_px={"x": (-1, 1), "y": (-1, 1)}, p=1.)
         >>> transformer(img)
         tensor([[[[0.2515, 0.0253],
                   [0.0910, 0.0083]]]])
 
     To apply the exact augmentation again, you may take advantage of the previous parameter state:
         >>> input = torch.rand(1, 3, 32, 32)
-        >>> aug = RandomTranslationPx(translate_px={"x": (-10, 10), "y": (-5, 5)}, p=1.)
+        >>> aug = RandomTranslatePx(translate_px={"x": (-10, 10), "y": (-5, 5)}, p=1.)
         >>> (aug(input) == aug(input, params=aug._params)).all()
         tensor(True)
 
@@ -191,3 +190,83 @@ class RandomTranslationPx(GeometricAugmentationBase2D):
             tfm_matrix = transform[:, :2, :].to(input.device)
             self._params["translate_px"] = tfm_matrix
         return warp_affine(input, tfm_matrix, dsize=input.shape[-2:])
+
+class RandomBrightnessAdd(IntensityAugmentationBase2D):
+    """
+    Randomly adds brightness of input images.
+
+    This class applies random brightness augmentation to input images. The brightness adjustment is performed by adding
+    a random value uniformly sampled from the specified range to the entire input image. The input images are expected
+    to have values between 0 and 1, and the brightness range is specified as a tuple of integers between 0 and 255. The
+    generated brightness values are divided by 255.0 to bring them into the appropriate range.
+
+    Args:
+        brightness: A tuple representing the range of brightness adjustment.
+            The values are integers between 0 and 255. The brightness adjustment is performed by adding a random
+            value uniformly sampled from this range to the input image.
+        p: Probability for applying the augmentation to each element in the batch. Default: 0.5.
+        p_batch: Probability for applying the augmentation to the entire batch. Default: 1.0.
+        clip_output: If True, clip the output tensor to the [0, 1] range after the brightness
+            augmentation. If False, the output tensor may have values outside the range. Default: True.
+        same_on_batch: If True, apply the same transformation across the entire batch.
+            Default: False.
+        keepdim: If True, keep the output shape the same as input. If False, broadcast the output to
+            the batch form. Default: False.
+
+    Shape:
+        - Input: (B, C, H, W) where B is the batch size, C is the number of channels, H is the height, and W is the width.
+        - Output: (B, C, H, W) if keepdim is True, otherwise (C, H, W).
+
+    Returns:
+        Tensor: Randomly brightness-adjusted tensor with the same shape as the input.
+
+    Example:
+        >>> input = torch.rand(4, 3, 256, 256)  # Batch of 4 RGB images of size 256x256
+        >>> brightness_augmenter = RandomBrightnessAdd(brightness=(30, 70), p=0.8)
+        >>> output = brightness_augmenter(input)
+    """
+
+    def __init__(
+        self,
+        brightness: Tuple[int, int],
+        p: float = 0.5,
+        p_batch: float = 1.0,
+        clip_output: bool = True,
+        same_on_batch: bool = False,
+        keepdim: bool = False,
+    ):
+        super().__init__(
+            p=p, p_batch=p_batch, same_on_batch=same_on_batch, keepdim=keepdim
+        )
+        self.flags = {
+            "brightness": _range_bound(brightness, "brightness", bounds=(0.0, 255.0))
+            / 255.0
+        }
+        self.clip_output = clip_output
+
+    def apply_transform(
+        self,
+        input: Tensor,
+        params: Dict[str, Tensor],
+        flags: Dict[str, Any],
+        transform: Optional[Tensor] = None,
+    ) -> Tensor:
+        # Generate random brightness values for each element in the batch.
+        batch_size = input.size(0)
+        if "brightness" in params:
+            brightness = self._params["brightness"]
+        else:
+            brightness = (
+                torch.FloatTensor(batch_size)
+                .uniform_(flags["brightness"][0], flags["brightness"][1])
+                .to(input.device)
+                .to(input.dtype)
+            )
+            self._params["brightness"] = brightness
+        # Add the brightness values to the entire input image.
+        output = input + brightness.view(batch_size, 1, 1, 1)
+
+        # Clip the output to ensure it remains in the [0, 1] range.
+        if self.clip_output:
+            return torch.clamp(output, 0.0, 1.0)
+        return output
