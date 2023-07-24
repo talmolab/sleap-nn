@@ -11,12 +11,11 @@ dependencies:
   - pydantic<=2.0
   - lightning=2.0.5 # due to dependency conflict Lightning Issue (#18027)
   - cpuonly
-  - torchdata
+  - kornia
   - torchvision
   - imageio
   - av
   - ffmpeg
-  - albumentations
   - matplotlib
   - pip
   - pip:
