@@ -1,22 +1,14 @@
 import attr
 from typing import Tuple, Dict, Any, Optional, Union
 import torch
-from torch.distributions import Uniform
 import torchdata.datapipes as dp
 import kornia as K
 from kornia.augmentation._2d.geometric.base import GeometricAugmentationBase2D
 from kornia.augmentation._2d.intensity.base import IntensityAugmentationBase2D
-from kornia.core import Tensor, as_tensor, stack
+from kornia.core import Tensor
 from kornia.constants import Resample, SamplePadding
-from kornia.augmentation import random_generator as rg
-from kornia.geometry.transform import get_translation_matrix2d, warp_affine
-from kornia.augmentation.random_generator.base import RandomGeneratorBase
-from kornia.augmentation.utils import (
-    _adapted_rsampling,
-    _common_param_check,
-    _range_bound,
-)
-from kornia.utils.helpers import _extract_device_dtype
+from kornia.geometry.transform import warp_affine
+
 
 class RandomUniformNoise(IntensityAugmentationBase2D):
     """Data transformer for applying random uniform noise to input images.
@@ -26,8 +18,11 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
     min_val and max_val must satisfy 0 <= min_val <= max_val <= 255.
 
     Note: min_val and max_val are int/float between 0 and 255, but Kornia expects
-    images to be in float. Thus, min_val/max_val are normalized. The input image
+    images to be in float. Thus, min_val/max_val are normalized and the input image
     is expected to be a float tensor between 0 and 1.
+
+    Note: Inverse transform is not implemented and re-applying the same transformation
+    in the example below does not work when included in an AugmentationSequential class.
 
     Args:
         noise: 2-tuple (min_val, max_val).
@@ -98,6 +93,49 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
 
 
 class RandomTranslationPx(GeometricAugmentationBase2D):
+    """Data transformer for applying random pixel translations by pixel value to input images.
+
+    This is a custom Kornia augmentation inheriting from `GeometricAugmentationBase2D`.
+    Random pixel translations along the x and y axes are applied to the entire input image.
+    The translations are uniformly sampled from the specified ranges (inclusive).
+
+    Note: Inverse transform is not implemented and re-applying the same transformation
+    in the example below does not work when included in an AugmentationSequential class.
+
+    Args:
+        translate_px: dictionary containing the ranges for random translations along x and y axes.
+            It should have the format: {"x": (min_x, max_x), "y": (min_y, max_y)}.
+        resample: the resampling algorithm to use during the transformation. Can be a string
+            representing the resampling mode (e.g., "nearest", "bilinear", etc.), an integer
+            representing the corresponding OpenCV resampling mode, or a Resample enum value.
+        same_on_batch: if True, applies the same transformation across the entire batch.
+        align_corners: if True, keeps the corners aligned during resampling.
+        padding_mode: the padding mode to use during resampling. Can be a string representing the
+            padding mode (e.g., "zeros", "border", etc.), an integer representing the corresponding
+            PyTorch padding mode, or a SamplePadding enum value.
+        p: probability for applying the augmentation. This parameter controls the augmentation
+            probabilities element-wise for a batch.
+        keepdim: whether to keep the output shape the same as the input (True) or broadcast it to
+            the batch form (False).
+
+    Examples:
+        >>> rng = torch.manual_seed(0)
+        >>> img = torch.rand(1, 1, 2, 2)
+        >>> transformer = RandomTranslationPx(translate_px={"x": (-1, 1), "y": (-1, 1)}, p=1.)
+        >>> transformer(img)
+        tensor([[[[0.2515, 0.0253],
+                  [0.0910, 0.0083]]]])
+
+    To apply the exact augmentation again, you may take advantage of the previous parameter state:
+        >>> input = torch.rand(1, 3, 32, 32)
+        >>> aug = RandomTranslationPx(translate_px={"x": (-10, 10), "y": (-5, 5)}, p=1.)
+        >>> (aug(input) == aug(input, params=aug._params)).all()
+        tensor(True)
+
+    Ref: `kornia.augmentation._2d.geometric.translate
+    <https://kornia.readthedocs.io/en/latest/_modules/kornia/augmentation/_2d/geometric/translate.html#RandomTranslate>`_.
+    """
+
     def __init__(
         self,
         translate_px: Dict[str, Tuple[int, int]],
@@ -116,15 +154,19 @@ class RandomTranslationPx(GeometricAugmentationBase2D):
             "align_corners": align_corners,
         }
 
-    def compute_transformation(self, input: Tensor, params: Dict[str, Tensor], flags: Dict[str, Any]) -> Tensor:
+    def compute_transformation(
+        self, input: Tensor, params: Dict[str, Tensor], flags: Dict[str, Any]
+    ) -> Tensor:
         batch_size = input.shape[0]
         translations = torch.empty((batch_size, 2), dtype=torch.float32)
         translations[:, 0] = (
-            torch.rand(batch_size) * (self.translate_px["x"][1] - self.translate_px["x"][0])
+            torch.rand(batch_size)
+            * (self.translate_px["x"][1] - self.translate_px["x"][0])
             + self.translate_px["x"][0]
         )
         translations[:, 1] = (
-            torch.rand(batch_size) * (self.translate_px["y"][1] - self.translate_px["y"][0])
+            torch.rand(batch_size)
+            * (self.translate_px["y"][1] - self.translate_px["y"][0])
             + self.translate_px["y"][0]
         )
 
@@ -137,6 +179,15 @@ class RandomTranslationPx(GeometricAugmentationBase2D):
         return trans_matrix
 
     def apply_transform(
-        self, input: Tensor, params: Dict[str, Tensor], flags: Dict[str, Any], transform: Optional[Tensor] = None
+        self,
+        input: Tensor,
+        params: Dict[str, Tensor],
+        flags: Dict[str, Any],
+        transform: Optional[Tensor] = None,
     ) -> Tensor:
-        return warp_affine(input, transform[:, :2, :], dsize=input.shape[-2:])
+        if "translate_px" in params:
+            tfm_matrix = params["translate_px"]
+        else:
+            tfm_matrix = transform[:, :2, :].to(input.device)
+            self._params["translate_px"] = tfm_matrix
+        return warp_affine(input, tfm_matrix, dsize=input.shape[-2:])
