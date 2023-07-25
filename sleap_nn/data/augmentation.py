@@ -1,16 +1,107 @@
 import attr
-from typing import Tuple, Dict, Any, Optional, Union
+from typing import Tuple, Dict, Any, Optional, Union, Text, List
 import torch
 from torch.distributions import Uniform
 import torchdata.datapipes as dp
 import kornia as K
+from kornia.core import Tensor
+from kornia.augmentation.container import AugmentationSequential
 from kornia.augmentation._2d.geometric.base import GeometricAugmentationBase2D
 from kornia.augmentation._2d.intensity.base import IntensityAugmentationBase2D
-from kornia.core import Tensor
 from kornia.constants import Resample, SamplePadding
 from kornia.geometry.transform import warp_affine
 from kornia.augmentation.utils.param_validation import _range_bound
 
+@attr.s(auto_attribs=True)
+class AugmentationConfig:
+    """Parameters for configuring an augmentation stack.
+
+    The augmentations will be applied in the the order of the attributes.
+
+    Attributes:
+        rotate: If True, rotational augmentation will be applied. Rotation is relative
+            to the center of the image. See `imgaug.augmenters.geometric.Affine`.
+        rotation_min_angle: Minimum rotation angle in degrees in [-180, 180].
+        rotation_max_angle: Maximum rotation angle in degrees in [-180, 180].
+        translate: If True, translational augmentation will be applied. The values are
+            sampled independently for x and y coordinates. See
+            `imgaug.augmenters.geometric.Affine`.
+        translate_min: Minimum translation in integer pixel units.
+        translate_max: Maximum translation in integer pixel units.
+        scale: If True, scaling augmentation will be applied. See
+            `imgaug.augmenters.geometric.Affine`.
+        scale_min: Minimum scaling factor.
+        scale_max: Maximum scaling factor.
+        uniform_noise: If True, uniformly distributed noise will be added to the image.
+            This is effectively adding a different random value to each pixel to
+            simulate shot noise. See `imgaug.augmenters.arithmetic.AddElementwise`.
+        uniform_noise_min_val: Minimum value to add.
+        uniform_noise_max_val: Maximum value to add.
+        gaussian_noise: If True, normally distributed noise will be added to the image.
+            This is similar to uniform noise, but can provide a tigher bound around a
+            mean noise magnitude. This is applied independently to each pixel.
+            See `imgaug.augmenters.arithmetic.AdditiveGaussianNoise`.
+        gaussian_noise_mean: Mean of the distribution to sample from.
+        gaussian_noise_stddev: Standard deviation of the distribution to sample from.
+        contrast: If True, gamma constrast adjustment will be applied to the image.
+            This scales all pixel values by `x ** gamma` where `x` is the pixel value in
+            the [0, 1] range. Values in [0, 255] are first scaled to [0, 1]. See
+            `imgaug.augmenters.contrast.GammaContrast`.
+        contrast_min_gamma: Minimum gamma to use for augmentation. Reasonable values are
+            in [0.5, 2.0].
+        contrast_max_gamma: Maximum gamma to use for augmentation. Reasonable values are
+            in [0.5, 2.0].
+        brightness: If True, the image brightness will be augmented. This adjustment
+            simply adds the same value to all pixels in the image to simulate broadfield
+            illumination change. See `imgaug.augmenters.arithmetic.Add`.
+        brightness_min_val: Minimum value to add to all pixels.
+        brightness_max_val: Maximum value to add to all pixels.
+        random_crop: If `True`, performs random crops on the image. This is useful for
+            training efficiently on large resolution images, but may fail to learn
+            global structure beyond the crop size. Random cropping will be applied after
+            the augmentations above.
+        random_crop_width: Width of random crops.
+        random_crop_height: Height of random crops.
+        random_flip: If `True`, images will be randomly reflected. The coordinates of
+            the instances will be adjusted accordingly. Body parts that are left/right
+            symmetric must be marked on the skeleton in order to be swapped correctly.
+        flip_horizontal: If `True`, flip images left/right when randomly reflecting
+            them. If `False`, flipping is down up/down instead.
+    """
+
+    rotate: bool = True                     # False
+    rotation_min_angle: float = -180
+    rotation_max_angle: float = 180
+    translate: bool = True                  # False
+    translate_min: int = -5
+    translate_max: int = 5
+    scale: bool = True                      # False
+    scale_min: float = 0.9
+    scale_max: float = 1.1
+    uniform_noise: bool = True              # False
+    uniform_noise_min_val: float = 0.0
+    uniform_noise_max_val: float = 10.0
+    gaussian_noise: bool = True             # False
+    gaussian_noise_mean: float = 5.0
+    gaussian_noise_stddev: float = 1.0
+    contrast: bool = True                   # False
+    contrast_min_gamma: float = 0.5
+    contrast_max_gamma: float = 2.0
+    brightness: bool = True                 # False
+    brightness_min_val: float = 0.0
+    brightness_max_val: float = 10.0
+    random_crop: bool = False
+    random_crop_height: int = 256
+    random_crop_width: int = 256
+    random_flip: bool = False
+    flip_horizontal: bool = True
+    dropout_patches: bool = True
+    dropout_min_scale: float = 0.02
+    dropout_max_scale: float = 0.33
+    dropout_ratio_min: float = 0.3
+    dropout_ratio_max: float = 3.3
+    mixup: bool = True
+    mixup_lambda_val: float = None
 
 class RandomUniformNoise(IntensityAugmentationBase2D):
     """Data transformer for applying random uniform noise to input images.
@@ -270,77 +361,146 @@ class RandomBrightnessAdd(IntensityAugmentationBase2D):
         if self.clip_output:
             return torch.clamp(output, 0.0, 1.0)
         return output
-"""This module implements data pipeline blocks for augmentations."""
-from typing import Optional
-from torch.utils.data.datapipes.datapipe import IterDataPipe
-import kornia.augmentation as K
 
 
+from torchdata.datapipes.iter import IterDataPipe
+
+@attr.s(auto_attribs=True)
 class KorniaAugmenter(IterDataPipe):
-    """DataPipe for applying rotation and scaling augmentations using Kornia.
+    """Data transformer based on the `kornia` library.
 
-    This DataPipe will apply augmentations to images and instances in examples from the
-    input pipeline.
+    This class can generate a `torchdata.datapipes.map.MapDataPipe` from an existing one that generates
+    image and instance data. Element of the output dataset will have a set of
+    augmentation transformations applied.
 
     Attributes:
-        source_dp: The input `IterDataPipe` with examples that contain `"instances"` and
-            `"image"` keys.
-        rotation: Angles in degrees as a scalar float of the amount of rotation. A
-            random angle in `(-rotation, rotation)` will be sampled and applied to both
-            images and keypoints. Set to 0 to disable rotation augmentation.
-        scale: A scaling factor as a scalar float specifying the amount of scaling. A
-            random factor between `(1 - scale, 1 + scale)` will be sampled and applied
-            to both images and keypoints. If `None`, no scaling augmentation will be
-            applied.
-        probability: Probability of applying the transformations.
-
-    Notes:
-        This block expects the "image" and "instances" keys to be present in the input
-        examples.
-
-        The `"image"` key should contain a torch.Tensor of dtype torch.float32
-        and of shape `(..., C, H, W)`, i.e., rank >= 3.
-
-        The `"instances"` key should contain a torch.Tensor of dtype torch.float32 and
-        of shape `(..., n_instances, n_nodes, 2)`, i.e., rank >= 3.
-
-        The augmented versions will be returned with the same keys and shapes.
+        augmenter: An instance of `kornia.augmentation.container.AugmentationSequential` that will be applied to
+            each element of the input dataset.
+        image_key: Name of the example key where the image is stored. Defaults to
+            "image".
+        instances_key: Name of the example key where the instance points are stored.
+            Defaults to "instances".
     """
 
-    def __init__(
-        self,
-        source_dp: IterDataPipe,
-        rotation: float = 15.0,
-        scale: Optional[float] = 0.05,
-        probability: float = 0.5,
-    ):
-        """Initialize the block and the augmentation pipeline."""
-        self.source_dp = source_dp
-        self.rotation = rotation
-        self.scale = (1 - scale, 1 + scale)
-        self.probability = probability
-        self.augmenter = K.AugmentationSequential(
-            K.RandomAffine(
-                degrees=self.rotation,
-                scale=self.scale,
-                p=self.probability,
+    input_dp: IterDataPipe
+    augmenter: AugmentationSequential
+    image_key: str = "image"
+    instances_key: str = "instances"
+
+    @classmethod
+    def from_config(
+        cls,
+        input_dp: IterDataPipe,
+        config: AugmentationConfig,
+        image_key: Text = "image",
+        instances_key: Text = "instances",
+    ) -> "KorniaAugmenter":
+        """Create an augmenter from a set of configuration parameters.
+
+        Args:
+            input_dp: A `dp.IterDataPipe` instance.
+            config: An `AugmentationConfig` instance with the desired parameters.
+            image_key: Name of the example key where the image is stored. Defaults to
+                "image".
+            instances_key: Name of the example key where the instance points are stored.
+                Defaults to "instances".
+
+        Returns:
+            An instance of `KorniaAugmenter` with the specified augmentation
+            configuration.
+        """
+        aug_stack = []
+        if config.rotate:
+            aug_stack.append(
+                K.augmentation.RandomAffine(
+                    degrees=(config.rotation_min_angle, config.rotation_max_angle),
+                    p=1.0
+                )
+            )
+        if config.translate:
+            aug_stack.append(
+                RandomTranslatePx(
+                    translate_px={
+                        "x": (config.translate_min, config.translate_max),
+                        "y": (config.translate_min, config.translate_max)
+                    },
+                    p=1.0
+                )
+            )
+        if config.scale:
+            aug_stack.append(
+                K.augmentation.RandomAffine(
+                    degrees=0,
+                    scale=(config.scale_min, config.scale_max),
+                    p=1.0
+                )
+            )
+        if config.uniform_noise:
+            aug_stack.append(
+                RandomUniformNoise(
+                    noise=(config.uniform_noise_min_val, config.uniform_noise_max_val),
+                    p=1.0
+                )
+            )
+        if config.gaussian_noise:
+            aug_stack.append(
+                K.augmentation.RandomGaussianNoise(
+                    mean=config.gaussian_noise_mean, std=config.gaussian_noise_stddev
+                )
+            )
+        if config.contrast:
+            aug_stack.append(
+                K.augmentation.RandomContrast(
+                    contrast=(config.contrast_min_gamma, config.contrast_max_gamma),
+                    p=1.0
+                )
+            )
+        if config.brightness:
+            aug_stack.append(
+                RandomBrightnessAdd(
+                    brightness=(config.brightness_min_val, config.brightness_max_val),
+                    p=1.0
+                )
+            )
+        if config.dropout_patches:
+            aug_stack.append(
+                K.augmentation.RandomErasing(
+                    scale=(config.dropout_min_scale, config.dropout_max_scale),
+                    ratio=(config.dropout_ratio_min, config.dropout_ratio_max),
+                    p=1.0
+                )
+            )
+        if config.mixup:
+            aug_stack.append(
+                K.augmentation.RandomMixUpV2(
+                    lambda_val=config.mixup_lambda_val,
+                    p=1.0
+                )
+            )
+
+        return cls(
+            input_dp=input_dp,
+            augmenter=AugmentationSequential(
+                *aug_stack,
+                data_keys=["input", "keypoints"],
                 keepdim=True,
-                same_on_batch=True,
+                same_on_batch=True
             ),
-            data_keys=["input", "keypoints"],
-            keepdim=True,
-            same_on_batch=True,
+            image_key=image_key,
+            instances_key=instances_key,
         )
 
+    @property
+    def input_keys(self) -> List[Text]:
+        """Return the keys that incoming elements are expected to have."""
+        return [self.image_key, self.instances_key]
+
+    @property
+    def output_keys(self) -> List[Text]:
+        """Return the keys that outgoing elements will have."""
+        return self.input_keys
+    
     def __iter__(self):
-        """Return an example dictionary with the augmented image and instance."""
-        for ex in self.source_dp:
-            img = ex["image"]
-            pts = ex["instances"]
-            pts_shape = pts.shape
-            pts = pts.reshape(-1, pts_shape[-2], pts_shape[-1])
-            img, pts = self.augmenter(img, pts)
-            pts = pts.reshape(pts_shape)
-            ex["image"] = img
-            ex["instances"] = pts
-            yield ex
+        for instance, image in self.input_dp:
+            aug_image, aug_instance = self.augmenter(image, instance)
+            yield aug_instance, aug_image
