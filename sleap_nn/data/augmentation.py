@@ -477,6 +477,14 @@ class KorniaAugmenter(IterDataPipe):
                     p=1.0
                 )
             )
+        if config.random_crop:
+            aug_stack.append(
+                K.augmentation.RandomCrop(
+                    size=(config.random_crop_height, config.random_crop_width),
+                    pad_if_needed=True,
+                    p=1.0
+                )
+            )
 
         return cls(
             input_dp=input_dp,
