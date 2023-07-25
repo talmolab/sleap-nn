@@ -18,17 +18,16 @@ classifiers = [
 ]
 dependencies = [
     "torch>=2.0.0",
-    "torchdata",
     "torchvision",
     "pydantic<2.0",
     "lightning==2.0.5",
     "imageio",
     "imageio-ffmpeg",
     "av",
-    "albumentations",
     "kornia",
     "hydra-core",
-    "sleap-io>=0.0.7"
+    "sleap-io>=0.0.7",
+    "kornia"
 ]
 dynamic = ["version", "readme"]
 
@@ -44,7 +43,8 @@ dev = [
     "pydocstyle",
     "toml",
     "twine",
-    "build"
+    "build",
+    "ipython"
 ]
 
 [project.scripts]
