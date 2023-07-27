@@ -14,7 +14,6 @@ def make_centered_bboxes(
 
     To be used with `kornia.geometry.transform.crop_and_resize`in the following (clockwise)
     order: top-left, top-right, bottom-right and bottom-left.
-    The coordinates must be in the x, y order.
     """
     half_h = box_height / 2
     half_w = box_width / 2
@@ -58,16 +57,17 @@ class InstanceCropper(IterDataPipe):
         self.crop_height = crop_height
 
     def __iter__(self):
-        """Add `"centroids"` key to example."""
+        """Generate instance cropped examples."""
         for example in self.source_dp:
             image = example["image"]
             instances = example["instances"]
             centroids = example["centroids"]
             for instance, centroid in zip(instances[0], centroids[0]):
+                # Generate bounding boxes from centroid
                 bboxes = torch.unsqueeze(
                     make_centered_bboxes(centroid, self.crop_height, self.crop_width), 0
                 )
-                # Crop.
+
                 box_size = (self.crop_width, self.crop_height)
 
                 instance_images = crop_and_resize(
