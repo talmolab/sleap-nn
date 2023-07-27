@@ -1,6 +1,5 @@
 """Handle cropping of instances."""
-import torchdata.datapipes.iter as dp
-import lightning.pytorch as pl
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 from typing import Optional
 import sleap_io as sio
 from kornia.geometry.transform import crop_and_resize
@@ -36,7 +35,7 @@ def make_centered_bboxes(
     return corners
 
 
-class InstanceCropper(dp.IterDataPipe):
+class InstanceCropper(IterDataPipe):
     """Datapipe for cropping instances.
 
     This DataPipe will produce examples that are instance cropped.
@@ -49,7 +48,7 @@ class InstanceCropper(dp.IterDataPipe):
 
     def __init__(
         self,
-        source_dp: dp.IterDataPipe,
+        source_dp: IterDataPipe,
         crop_width: int,
         crop_height: int,
     ):
@@ -65,19 +64,11 @@ class InstanceCropper(dp.IterDataPipe):
             instances = example["instances"]
             centroids = example["centroids"]
             for instance, centroid in zip(instances[0], centroids[0]):
-                print(instance)
-                print(centroid)
                 bboxes = torch.unsqueeze(
                     make_centered_bboxes(centroid, self.crop_height, self.crop_width), 0
                 )
-
-                print(f"make  {bboxes}")
-
                 # Crop.
                 box_size = (self.crop_width, self.crop_height)
-                print(f" boxes {bboxes.shape}")
-                print(f" image {image.shape}")
-                print(f" box_size {box_size}")
 
                 instance_images = crop_and_resize(
                     image,
@@ -92,9 +83,8 @@ class InstanceCropper(dp.IterDataPipe):
                     "instance_image": instance_images,
                     "image": image,
                     "bbox": bboxes,
-                    "instances": instances,
+                    "instances": instance,
                     "centered_instances": center_instances,
-                    "centroids": centroids,
+                    "centroids": centroid,
                 }
-                # TODO return instance-wise examples
                 yield example
