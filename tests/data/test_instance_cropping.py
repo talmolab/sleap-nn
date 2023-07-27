@@ -15,22 +15,29 @@ def test_instance_cropper(minimal_instance):
     # test bounding box calculation
     gt = torch.Tensor(
         [
-            [72.4970, 130.5748],
-            [172.4970, 130.5748],
-            [172.4970, 230.5748],
-            [72.4970, 230.5748],
+            [72.49704742431640625, 130.57481384277343750],
+            [172.49703979492187500, 130.57481384277343750],
+            [172.49703979492187500, 230.57481384277343750],
+            [72.49704742431640625, 230.57481384277343750],
         ]
-    ).int()
-    bbox = make_centered_bboxes(sample["centroids"], 100, 100).int()
+    )
+    bbox = make_centered_bboxes(sample["centroids"], 100, 100)
     assert torch.equal(gt, bbox)
 
     # test samples
-    gt = torch.Tensor([[92, 202], [152, 158]]).int()
-    instance = sample["instances"].int()
+    gt = torch.Tensor(
+        [
+            [92.65220642089843750, 202.72598266601562500],
+            [152.34188842773437500, 158.42364501953125000],
+        ]
+    )
+    instance = sample["instances"]
     assert torch.equal(instance, gt)
-    gt = torch.Tensor([122, 180]).int()
-    centroid = sample["centroids"].int()
-    assert torch.equal(centroid, gt)
-    gt = torch.Tensor([[20, 72], [79, 27]]).int()
-    centered_instance = sample["centered_instances"].int()
+    gt = torch.Tensor(
+        [
+            [20.15515899658203125, 72.15116882324218750],
+            [79.84484100341796875, 27.84883117675781250],
+        ]
+    )
+    centered_instance = sample["centered_instances"]
     assert torch.equal(centered_instance, gt)

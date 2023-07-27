@@ -64,27 +64,24 @@ class InstanceCropper(IterDataPipe):
             centroids = example["centroids"]
             for instance, centroid in zip(instances[0], centroids[0]):
                 # Generate bounding boxes from centroid
-                bboxes = torch.unsqueeze(
+                bbox = torch.unsqueeze(
                     make_centered_bboxes(centroid, self.crop_height, self.crop_width), 0
                 )
 
                 box_size = (self.crop_width, self.crop_height)
 
-                instance_images = crop_and_resize(
+                instance_image = crop_and_resize(
                     image,
-                    boxes=bboxes,
+                    boxes=bbox,
                     size=box_size,
                 )
 
-                point = bboxes[0][0]
-                center_instances = torch.sub(instance, point)
+                point = bbox[0][0]
+                center_instance = torch.sub(instance, point)
 
-                example = {
-                    "instance_image": instance_images,
-                    "image": image,
-                    "bbox": bboxes,
-                    "instances": instance,
-                    "centered_instances": center_instances,
-                    "centroids": centroid,
+                instance_example = {
+                    "instance_image": instance_image,
+                    "bbox": bbox[0],
+                    "instance": center_instance,
                 }
-                yield example
+                yield instance_example
