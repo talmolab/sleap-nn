@@ -21,23 +21,17 @@ def test_instance_cropper(minimal_instance):
             [72.49704742431640625, 230.57481384277343750],
         ]
     )
-    bbox = make_centered_bboxes(sample["centroids"], 100, 100)
+
+    centroid = torch.Tensor([122.49704742431640625000, 180.57481384277343750000])
+    bbox = make_centered_bboxes(centroid, 100, 100)
     assert torch.equal(gt, bbox)
 
     # test samples
-    gt = torch.Tensor(
-        [
-            [92.65220642089843750, 202.72598266601562500],
-            [152.34188842773437500, 158.42364501953125000],
-        ]
-    )
-    instance = sample["instances"]
-    assert torch.equal(instance, gt)
     gt = torch.Tensor(
         [
             [20.15515899658203125, 72.15116882324218750],
             [79.84484100341796875, 27.84883117675781250],
         ]
     )
-    centered_instance = sample["centered_instances"]
+    centered_instance = sample["instance"]
     assert torch.equal(centered_instance, gt)
