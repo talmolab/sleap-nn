@@ -20,7 +20,7 @@ def test_uniform_noise(minimal_instance):
     aug_img = aug(img)
 
     assert torch.is_tensor(aug_img)
-    assert img.shape == (1, 1, 384, 384)
+    assert aug_img.shape == (1, 1, 384, 384)
 
     # Testing the _params parameter.
     new_aug_img = aug(img, params=aug._params)
@@ -30,8 +30,9 @@ def test_uniform_noise(minimal_instance):
 
     # Testing without clipping output.
     aug = RandomUniformNoise(noise=(0.0, 0.04), p=1.0, clip_output=False)
+    aug_img = aug(img)
     assert torch.is_tensor(aug_img)
-    assert img.shape == (1, 1, 384, 384)
+    assert aug_img.shape == (1, 1, 384, 384)
 
 
 def test_kornia_augmentation(minimal_instance):
