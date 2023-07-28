@@ -11,7 +11,19 @@ def test_kornia_augmentation(minimal_instance):
     """Test the Kornia augmentations."""
     p = LabelsReader.from_filename(minimal_instance)
     p = Normalizer(p)
-    p = KorniaAugmenter(p, rotation=90, probability=1.0, scale=0.05)
+    p = KorniaAugmenter(
+        p,
+        crop_hw=(384, 384),
+        crop_p=1.0,
+        affine_p=1.0,
+        uniform_noise_p=1.0,
+        gaussian_noise_p=1.0,
+        contrast_p=1.0,
+        brightness_p=1.0,
+        erase_p=1.0,
+        mixup_p=1.0,
+        mixup_lambda=(0.0, 1.0),
+    )
 
     sample = next(iter(p))
     img, pts = sample["image"], sample["instances"]
