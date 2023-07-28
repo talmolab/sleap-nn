@@ -1,11 +1,37 @@
 """Module for testing augmentations with Kornia"""
 
-from sleap_nn.data.augmentation import KorniaAugmenter
+from sleap_nn.data.augmentation import KorniaAugmenter, RandomUniformNoise
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.normalization import Normalizer
 from torch.utils.data import DataLoader
 import torch
 
+
+def test_uniform_noise(minimal_instance):
+    """Test the RandomUniformNoise class."""
+    p = LabelsReader.from_filename(minimal_instance)
+    p = Normalizer(p)
+
+    sample = next(iter(p))
+    img = sample["image"]
+
+    # Testing forward pass.
+    aug = RandomUniformNoise(noise=(0.0, 0.04), p=1.0)
+    aug_img = aug(img)
+
+    assert torch.is_tensor(aug_img)
+    assert img.shape == (1, 1, 384, 384)
+    
+    # Testing the _params parameter.
+    new_aug_img = aug(img, params=aug._params)
+    assert torch.is_tensor(new_aug_img)
+    assert new_aug_img.shape == (1, 1, 384, 384)
+    assert (new_aug_img == aug_img).all()
+
+    # Testing without clipping output.
+    aug = RandomUniformNoise(noise=(0.0, 0.04), p=1.0, clip_output=False)
+    assert torch.is_tensor(aug_img)
+    assert img.shape == (1, 1, 384, 384)
 
 def test_kornia_augmentation(minimal_instance):
     """Test the Kornia augmentations."""

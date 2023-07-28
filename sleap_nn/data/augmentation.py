@@ -50,7 +50,7 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
 
     def __init__(
         self,
-        noise: Tuple[int, int],
+        noise: Tuple[float, float],
         p: float = 0.5,
         p_batch: float = 1.0,
         clip_output: bool = True,
