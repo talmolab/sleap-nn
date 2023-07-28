@@ -1,3 +1,4 @@
+"""This module implements data pipeline blocks for augmentation operations."""
 from typing import Tuple, Dict, Any, Optional, Union, Text
 import torch
 from torchdata.datapipes.iter import IterDataPipe
@@ -56,6 +57,7 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
         same_on_batch: bool = False,
         keepdim: bool = False,
     ) -> None:
+        """Initialize the class."""
         super().__init__(
             p=p, p_batch=p_batch, same_on_batch=same_on_batch, keepdim=keepdim
         )
@@ -71,6 +73,7 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
         flags: Dict[str, Any],
         transform: Optional[Tensor] = None,
     ) -> Tensor:
+        """Compute the uniform noise, add, and clamp output."""
         if "uniform_noise" in params:
             uniform_noise = params["uniform_noise"]
         else:
@@ -247,6 +250,7 @@ class KorniaAugmenter(IterDataPipe):
         )
 
     def __iter__(self):
+        """Return an example dictionary with the augmented image and instances."""
         for ex in self.source_dp:
             inst_shape = ex["instances"].shape  # (B, num_instances, num_nodes, 2)
             image, instances = ex["image"], ex["instances"].reshape(
