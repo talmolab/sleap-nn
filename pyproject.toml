@@ -19,6 +19,7 @@ classifiers = [
 dependencies = [
     "torch>=2.0.0",
     "torchvision",
+    "torchdata",
     "pydantic<2.0",
     "lightning==2.0.5",
     "imageio",
@@ -27,7 +28,6 @@ dependencies = [
     "kornia",
     "hydra-core",
     "sleap-io>=0.0.7",
-    "kornia"
 ]
 dynamic = ["version", "readme"]
 
