@@ -12,6 +12,10 @@ def test_instance_cropper(minimal_instance):
     datapipe = InstanceCropper(datapipe, 100, 100)
     sample = next(iter(datapipe))
 
+    # test shapes
+    assert sample["instance"].shape == (2, 2)
+    assert sample["instance_image"].shape == (1, 1, 100, 100)
+    assert sample["bbox"].shape == (1, 4, 2)
     # test bounding box calculation
     gt = torch.Tensor(
         [

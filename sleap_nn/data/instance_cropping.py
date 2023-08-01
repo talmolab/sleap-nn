@@ -82,12 +82,9 @@ class InstanceCropper(IterDataPipe):
                 point = bbox[0][0]
                 center_instance = instance - point
 
-                print(f" instance_image shape - {instance_image.shape}")
-                print(f" bbox shape - {bbox.shape}")
-                print(f" instance shape - {instance.shape}")
                 instance_example = {
                     "instance_image": instance_image,  # (frames, channels, crop_height, crop_width)
-                    "bbox": bbox[0],  # (frames, 4, 2)
+                    "bbox": bbox,  # (frames, 4, 2)
                     "instance": center_instance,  # (n_instances, 2)
                 }
                 yield instance_example
