@@ -41,8 +41,6 @@ def test_kornia_augmentation(minimal_instance):
     p = Normalizer(p)
     p = KorniaAugmenter(
         p,
-        crop_hw=(384, 384),
-        crop_p=1.0,
         affine_p=1.0,
         uniform_noise_p=1.0,
         gaussian_noise_p=1.0,
@@ -51,8 +49,11 @@ def test_kornia_augmentation(minimal_instance):
         erase_p=1.0,
         mixup_p=1.0,
         mixup_lambda=(0.0, 1.0),
+        crop_hw=(384, 384),
+        crop_p=1.0,
     )
 
+    # Test all augmentations.
     sample = next(iter(p))
     img, pts = sample["image"], sample["instances"]
 
@@ -60,3 +61,16 @@ def test_kornia_augmentation(minimal_instance):
     assert torch.is_tensor(pts)
     assert img.shape == (1, 1, 384, 384)
     assert pts.shape == (1, 2, 2, 2)
+
+    # Test RandomCrop value error.
+    p = LabelsReader.from_filename(minimal_instance)
+    p = Normalizer(p)
+    try:
+        p = KorniaAugmenter(
+            p,
+            crop_hw=(0, 0),
+            crop_p=1.0,
+        )
+        assert False, "KorniaAugmenter RandomCrop failed to catch the size value error."
+    except ValueError as e:
+        pass

@@ -14,7 +14,6 @@ dependencies:
   - cudnn
   - pytorch
   - torchvision
-  - torchdata
   - imageio
   - av
   - ffmpeg

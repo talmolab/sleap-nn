@@ -12,7 +12,6 @@ dependencies:
   - lightning=2.0.5 # due to dependency conflict Lightning Issue (#18027)
   - cpuonly
   - torchvision
-  - torchdata
   - imageio
   - av
   - ffmpeg

@@ -1,7 +1,7 @@
 """This module implements data pipeline blocks for augmentation operations."""
 from typing import Tuple, Dict, Any, Optional, Union, Text
 import torch
-from torchdata.datapipes.iter import IterDataPipe
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 import kornia as K
 from kornia.core import Tensor
 from kornia.augmentation.container import AugmentationSequential
@@ -146,8 +146,6 @@ class KorniaAugmenter(IterDataPipe):
     def __init__(
         self,
         source_dp: IterDataPipe,
-        crop_hw: Tuple[int, int],
-        crop_p: float = 1.0,
         rotation: Optional[float] = 15.0,
         scale: Optional[float] = 0.05,
         translate: Optional[Tuple[float, float]] = (0.02, 0.02),
@@ -166,11 +164,11 @@ class KorniaAugmenter(IterDataPipe):
         erase_p: float = 0.5,
         mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
         mixup_p: float = 0.5,
+        crop_hw: Tuple[int, int] = (0, 0),
+        crop_p: float = 0.0,
     ):
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
-        self.crop_hw = crop_hw
-        self.crop_p = crop_p
         self.rotation = rotation
         self.scale = (1 - scale, 1 + scale)
         self.translate = translate
@@ -189,61 +187,93 @@ class KorniaAugmenter(IterDataPipe):
         self.erase_p = erase_p
         self.mixup_lambda = mixup_lambda
         self.mixup_p = mixup_p
+        self.crop_hw = crop_hw
+        self.crop_p = crop_p
+
+        aug_stack = []
+        if self.affine_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomAffine(
+                    degrees=self.rotation,
+                    translate=self.translate,
+                    scale=self.scale,
+                    p=self.affine_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+        if self.uniform_noise_p > 0:
+            aug_stack.append(
+                RandomUniformNoise(
+                    noise=self.uniform_noise,
+                    p=self.uniform_noise_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+        if self.gaussian_noise_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomGaussianNoise(
+                    mean=self.gaussian_noise_mean,
+                    std=self.gaussian_noise_std,
+                    p=self.gaussian_noise_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+        if self.contrast_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomContrast(
+                    contrast=self.contrast,
+                    p=self.contrast_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+        if self.brightness_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomBrightness(
+                    brightness=self.brightness,
+                    p=self.brightness_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+        if self.erase_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomErasing(
+                    scale=self.erase_scale,
+                    ratio=self.erase_ratio,
+                    p=self.erase_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+        if self.mixup_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomMixUpV2(
+                    lambda_val=self.mixup_lambda,
+                    p=self.mixup_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+        if self.crop_p > 0:
+            if self.crop_hw[0] > 0 and self.crop_hw[1] > 0:
+                aug_stack.append(
+                    K.augmentation.RandomCrop(
+                        size=self.crop_hw,
+                        pad_if_needed=True,
+                        p=self.crop_p,
+                        keepdim=True,
+                        same_on_batch=True,
+                    )
+                )
+            else:
+                raise ValueError(f"crop_hw height and width must be greater than 0.")
 
         self.augmenter = AugmentationSequential(
-            K.augmentation.RandomAffine(
-                degrees=self.rotation,
-                translate=self.translate,
-                scale=self.scale,
-                p=self.affine_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
-            RandomUniformNoise(
-                noise=self.uniform_noise,
-                p=self.uniform_noise_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
-            K.augmentation.RandomGaussianNoise(
-                mean=self.gaussian_noise_mean,
-                std=self.gaussian_noise_std,
-                p=self.gaussian_noise_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
-            K.augmentation.RandomContrast(
-                contrast=self.contrast,
-                p=self.contrast_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
-            K.augmentation.RandomBrightness(
-                brightness=self.brightness,
-                p=self.brightness_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
-            K.augmentation.RandomErasing(
-                scale=self.erase_scale,
-                ratio=self.erase_ratio,
-                p=self.erase_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
-            K.augmentation.RandomMixUpV2(
-                lambda_val=self.mixup_lambda,
-                p=self.mixup_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
-            K.augmentation.RandomCrop(
-                size=self.crop_hw,
-                pad_if_needed=True,
-                p=self.crop_p,
-                keepdim=True,
-                same_on_batch=True,
-            ),
+            *aug_stack,
             data_keys=["input", "keypoints"],
             keepdim=True,
             same_on_batch=True,
