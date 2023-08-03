@@ -5,6 +5,7 @@ from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.normalization import Normalizer
 from torch.utils.data import DataLoader
 import torch
+import pytest
 
 
 def test_uniform_noise(minimal_instance):
@@ -65,12 +66,11 @@ def test_kornia_augmentation(minimal_instance):
     # Test RandomCrop value error.
     p = LabelsReader.from_filename(minimal_instance)
     p = Normalizer(p)
-    try:
+    with pytest.raises(
+        ValueError, match="crop_hw height and width must be greater than 0."
+    ):
         p = KorniaAugmenter(
             p,
             crop_hw=(0, 0),
             crop_p=1.0,
         )
-        assert False, "KorniaAugmenter RandomCrop failed to catch the size value error."
-    except ValueError as e:
-        pass
