@@ -6,6 +6,32 @@ from kornia.geometry.transform import crop_and_resize
 import numpy as np
 import torch
 
+def make_centered_bboxes(
+    centroids: torch.Tensor, box_height: int, box_width: int
+) -> torch.Tensor:
+    """Create centered bounding boxes around centroid.
+
+    To be used with `kornia.geometry.transform.crop_and_resize`in the following (clockwise)
+    order: top-left, top-right, bottom-right and bottom-left.
+    """
+    half_h = box_height / 2
+    half_w = box_width / 2
+
+    # Get x and y values from the centroids tensor
+    x = centroids[..., 0]
+    y = centroids[..., 1]
+
+    # Calculate the corner points
+    top_left = torch.stack([x - half_w, y - half_h], dim=-1)
+    top_right = torch.stack([x + half_w, y - half_h], dim=-1)
+    bottom_left = torch.stack([x - half_w, y + half_h], dim=-1)
+    bottom_right = torch.stack([x + half_w, y + half_h], dim=-1)
+
+    # Get bounding box
+    corners = torch.stack([top_left, top_right, bottom_right, bottom_left], dim=-2)
+
+    return corners
+
 def normalize_bboxes(
     bboxes: torch.Tensor, image_height: int, image_width: int
 ) -> torch.Tensor:
@@ -39,33 +65,6 @@ def normalize_bboxes(
     # Normalize and return.
     normalized_bboxes = bboxes / factor
     return normalized_bboxes
-
-def make_centered_bboxes(
-    centroids: torch.Tensor, box_height: int, box_width: int
-) -> torch.Tensor:
-    """Create centered bounding boxes around centroid.
-
-    To be used with `kornia.geometry.transform.crop_and_resize`in the following (clockwise)
-    order: top-left, top-right, bottom-right and bottom-left.
-    """
-    half_h = box_height / 2
-    half_w = box_width / 2
-
-    # Get x and y values from the centroids tensor
-    x = centroids[..., 0]
-    y = centroids[..., 1]
-
-    # Calculate the corner points
-    top_left = torch.stack([x - half_w, y - half_h], dim=-1)
-    top_right = torch.stack([x + half_w, y - half_h], dim=-1)
-    bottom_left = torch.stack([x - half_w, y + half_h], dim=-1)
-    bottom_right = torch.stack([x + half_w, y + half_h], dim=-1)
-
-    # Get bounding box
-    corners = torch.stack([top_left, top_right, bottom_right, bottom_left], dim=-2)
-
-    return corners
-
 
 class InstanceCropper(IterDataPipe):
     """Datapipe for cropping instances.
