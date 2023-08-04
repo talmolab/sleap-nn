@@ -24,9 +24,9 @@ dependencies = [
     "imageio",
     "imageio-ffmpeg",
     "av",
+    "kornia",
     "hydra-core",
     "sleap-io>=0.0.7",
-    "kornia"
 ]
 dynamic = ["version", "readme"]
 
