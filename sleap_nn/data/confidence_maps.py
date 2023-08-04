@@ -27,12 +27,12 @@ def make_confmaps(
         Confidence maps as a tensor of shape `(grid_height, grid_width, n_nodes)` of
         dtype `torch.float32`.
     """
-    x = torch.reshape(points[:, 0], (1, 1, -1))
-    y = torch.reshape(points[:, 1], (1, 1, -1))
+    x = torch.reshape(points[:, 0], (-1, 1, 1))
+    y = torch.reshape(points[:, 1], (-1, 1, 1))
     cm = torch.exp(
         -(
-            (torch.reshape(xv, (1, -1, 1)) - x) ** 2
-            + (torch.reshape(yv, (-1, 1, 1)) - y) ** 2
+            (torch.reshape(xv, (1, 1, -1)) - x) ** 2
+            + (torch.reshape(yv, (1, -1, 1)) - y) ** 2
         )
         / (2 * sigma**2)
     )
