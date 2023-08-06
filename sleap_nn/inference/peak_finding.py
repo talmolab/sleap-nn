@@ -3,8 +3,6 @@ import torch
 import numpy as np
 from typing import Tuple, Optional
 from sleap_nn.data.instance_cropping import make_centered_bboxes, normalize_bboxes
-import torch
-
 
 def find_global_peaks_rough(
     cms: torch.Tensor, threshold: float = 0.1
@@ -42,3 +40,4 @@ def find_global_peaks_rough(
     max_values[below_threshold_mask] = float("nan")
 
     return peak_points, max_values
+
