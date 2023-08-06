@@ -6,6 +6,7 @@ from kornia.geometry.transform import crop_and_resize
 import numpy as np
 import torch
 
+
 def make_centered_bboxes(
     centroids: torch.Tensor, box_height: int, box_width: int
 ) -> torch.Tensor:
@@ -32,6 +33,7 @@ def make_centered_bboxes(
 
     return corners
 
+
 def normalize_bboxes(
     bboxes: torch.Tensor, image_height: int, image_width: int
 ) -> torch.Tensor:
@@ -57,14 +59,16 @@ def normalize_bboxes(
     # Compute normalizing factor of shape (1, 4).
     factor = (
         torch.tensor(
-            [[image_height, image_width, image_height, image_width]], dtype=torch.float32
-        ) 
+            [[image_height, image_width, image_height, image_width]],
+            dtype=torch.float32,
+        )
         - 1
     )
 
     # Normalize and return.
     normalized_bboxes = bboxes / factor
     return normalized_bboxes
+
 
 class InstanceCropper(IterDataPipe):
     """Datapipe for cropping instances.

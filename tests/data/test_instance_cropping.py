@@ -1,8 +1,13 @@
 from sleap_nn.data.providers import LabelsReader
 import torch
-from sleap_nn.data.instance_cropping import make_centered_bboxes, normalize_bboxes, InstanceCropper
+from sleap_nn.data.instance_cropping import (
+    make_centered_bboxes,
+    normalize_bboxes,
+    InstanceCropper,
+)
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.normalization import Normalizer
+
 
 def test_normalize_bboxes(minimal_instance):
     bboxes = torch.Tensor(
@@ -32,6 +37,7 @@ def test_normalize_bboxes(minimal_instance):
     )
 
     assert torch.equal(norm_bboxes, gt)
+
 
 def test_instance_cropper(minimal_instance):
     datapipe = LabelsReader.from_filename(minimal_instance)
