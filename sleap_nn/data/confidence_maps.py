@@ -24,7 +24,7 @@ def make_confmaps(
             confidence maps.
 
     Returns:
-        Confidence maps as a tensor of shape `(grid_height, grid_width, n_nodes)` of
+        Confidence maps as a tensor of shape `(n_nodes, grid_height, grid_width)` of
         dtype `torch.float32`.
     """
     x = torch.reshape(points[:, 0], (-1, 1, 1))
@@ -83,8 +83,8 @@ class ConfidenceMapGenerator(IterDataPipe):
             generate confidence maps.
         output_stride: The relative stride to use when generating confidence maps.
             A larger stride will generate smaller confidence maps.
-        instance_key: The name of the key where the instance points are.
-        image_key: The name of the key where the image is.
+        instance_key: The name of the key where the instance points (n_instances, 2) are.
+        image_key: The name of the key where the image (frames, channels, crop_height, crop_width) is.
     """
 
     def __init__(
