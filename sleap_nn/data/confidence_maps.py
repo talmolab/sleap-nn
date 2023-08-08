@@ -113,7 +113,7 @@ class ConfidenceMapGenerator(IterDataPipe):
 
             confidence_maps = make_confmaps(
                 instance, xv, yv, self.sigma
-            )  # (height, width, n_nodes)
+            )  # (n_nodes, height, width)
 
             example["confidence_maps"] = confidence_maps
             yield example
