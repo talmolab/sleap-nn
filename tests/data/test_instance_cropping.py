@@ -1,11 +1,9 @@
-from sleap_nn.data.providers import LabelsReader
 import torch
-from sleap_nn.data.instance_cropping import (
-    make_centered_bboxes,
-    InstanceCropper,
-)
+
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
+from sleap_nn.data.instance_cropping import InstanceCropper, make_centered_bboxes
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.providers import LabelsReader
 
 
 def test_instance_cropper(minimal_instance):

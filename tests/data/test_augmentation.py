@@ -1,10 +1,11 @@
 """Module for testing augmentations with Kornia."""
-from sleap_nn.data.augmentation import KorniaAugmenter, RandomUniformNoise
-from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.normalization import Normalizer
-from torch.utils.data import DataLoader
-import torch
 import pytest
+import torch
+from torch.utils.data import DataLoader
+
+from sleap_nn.data.augmentation import KorniaAugmenter, RandomUniformNoise
+from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.providers import LabelsReader
 
 
 def test_uniform_noise(minimal_instance):

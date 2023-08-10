@@ -1,7 +1,8 @@
 """Handle calculation of instance centroids."""
-from torch.utils.data.datapipes.datapipe import IterDataPipe
 from typing import Optional
+
 import torch
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 def find_points_bbox_midpoint(points: torch.Tensor) -> torch.Tensor:

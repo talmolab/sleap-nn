@@ -1,10 +1,11 @@
-from sleap_nn.data.providers import LabelsReader
 import torch
+
 from sleap_nn.data.instance_centroids import (
     InstanceCentroidFinder,
-    find_points_bbox_midpoint,
     find_centroids,
+    find_points_bbox_midpoint,
 )
+from sleap_nn.data.providers import LabelsReader
 
 
 def test_instance_centroids(minimal_instance):

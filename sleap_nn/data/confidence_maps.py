@@ -1,9 +1,11 @@
 """Generate confidence maps."""
-from torch.utils.data.datapipes.datapipe import IterDataPipe
 from typing import Optional
-from sleap_nn.data.utils import make_grid_vectors
+
 import sleap_io as sio
 import torch
+from torch.utils.data.datapipes.datapipe import IterDataPipe
+
+from sleap_nn.data.utils import make_grid_vectors
 
 
 def make_confmaps(

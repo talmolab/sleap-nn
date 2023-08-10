@@ -1,8 +1,8 @@
 """This module implements pipeline blocks for reading input data such as labels."""
-from torch.utils.data.datapipes.datapipe import IterDataPipe
-import torch
-import sleap_io as sio
 import numpy as np
+import sleap_io as sio
+import torch
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 class LabelsReader(IterDataPipe):

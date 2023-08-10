@@ -1,9 +1,11 @@
 """Peak finding for inference."""
-import torch
+from typing import Optional, Tuple
+
 import numpy as np
-from typing import Tuple, Optional
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+import torch
 from kornia.geometry.transform import crop_and_resize
+
+from sleap_nn.data.instance_cropping import make_centered_bboxes
 
 
 def crop_bboxes(

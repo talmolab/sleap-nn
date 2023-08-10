@@ -1,10 +1,11 @@
 """Handle cropping of instances."""
-from torch.utils.data.datapipes.datapipe import IterDataPipe
 from typing import Optional
-import sleap_io as sio
-from kornia.geometry.transform import crop_and_resize
+
 import numpy as np
+import sleap_io as sio
 import torch
+from kornia.geometry.transform import crop_and_resize
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 def make_centered_bboxes(
