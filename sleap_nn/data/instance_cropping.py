@@ -32,17 +32,17 @@ def make_centered_bboxes(
     half_h = box_height / 2
     half_w = box_width / 2
 
-    # Get x and y values from the centroids tensor
+    # Get x and y values from the centroids tensor.
     x = centroids[..., 0]
     y = centroids[..., 1]
 
-    # Calculate the corner points
+    # Calculate the corner points.
     top_left = torch.stack([x - half_w, y - half_h], dim=-1)
     top_right = torch.stack([x + half_w, y - half_h], dim=-1)
     bottom_left = torch.stack([x - half_w, y + half_h], dim=-1)
     bottom_right = torch.stack([x + half_w, y + half_h], dim=-1)
 
-    # Get bounding box
+    # Get bounding box.
     corners = torch.stack([top_left, top_right, bottom_right, bottom_left], dim=-2)
 
     offset = torch.tensor([[+0.5, +0.5], [-0.5, +0.5], [-0.5, -0.5], [+0.5, -0.5]])
