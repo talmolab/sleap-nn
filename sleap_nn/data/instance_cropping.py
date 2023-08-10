@@ -14,6 +14,19 @@ def make_centered_bboxes(
 
     To be used with `kornia.geometry.transform.crop_and_resize`in the following (clockwise)
     order: top-left, top-right, bottom-right and bottom-left.
+
+    Args:
+        centroids: A tensor of centroids with shape (channels, 2), where channels is the number of centroids,
+            and the last dimension represents x and y coordinates.
+        box_height: The desired height of the bounding boxes.
+        box_width: The desired width of the bounding boxes.
+
+    Returns:
+        torch.Tensor: A tensor containing bounding box coordinates for each centroid. The output tensor
+            has shape (channels, 4, 2), where channels is the number of centroids, and the second dimension
+            represents the four corner points of the bounding boxes, each with x and y coordinates.
+            The order of the corners follows a clockwise arrangement: top-left, top-right,
+            bottom-right, and bottom-left.
     """
     half_h = box_height / 2
     half_w = box_width / 2
@@ -31,38 +44,43 @@ def make_centered_bboxes(
     # Get bounding box
     corners = torch.stack([top_left, top_right, bottom_right, bottom_left], dim=-2)
 
-    return corners
+    offset = torch.tensor([
+      [+.5, +.5],
+      [-.5, +.5],
+      [-.5, -.5],
+      [+.5, -.5]
+    ])
+
+    return corners + offset
 
 
 def normalize_bboxes(
     bboxes: torch.Tensor, image_height: int, image_width: int
 ) -> torch.Tensor:
-    """Normalize bounding box coordinates to the range [0, 1].
+    """Normalizes bounding boxes by image width and height.
 
-    This is useful for transforming points for PyTorch operations that require
-    normalized image coordinates.
+    This function takes a tensor of bounding boxes and normalizes them based on the
+    provided image width and height. 
 
     Args:
-        bboxes: Tensor of shape (n_bboxes, 4) and dtype torch.float32, where the last axis
-            corresponds to (y1, x1, y2, x2) coordinates of the bounding boxes.
-        image_height: Scalar integer indicating the height of the image.
-        image_width: Scalar integer indicating the width of the image.
+        bboxes: Bounding boxes with shape (samples, 4, 2), where each box
+            is defined in the order: top-left, top-right, bottom-right, and bottom-left.
+            The coordinates must be in the (x, y) order. The coordinates compose a
+            rectangle with a shape of (N1, N2).
+        image_height: Height of the image.
+        image_width: Width of the image.
 
     Returns:
-        Tensor of the normalized points of the same shape as `bboxes`.
-
-        The normalization applied to each point is `x / (image_width - 1)` and
-        `y / (image_width - 1)`.
-
-    See also: unnormalize_bboxes
+        torch.Tensor: Normalized bounding boxes with shape (samples, 4, 2), where each box
+            is defined in the order: top-left, top-right, bottom-right, and bottom-left,
+            and coordinates are normalized to the range [0, 1].
     """
-    # Compute normalizing factor of shape (1, 4).
     factor = (
-        torch.tensor(
-            [[image_height, image_width, image_height, image_width]],
-            dtype=torch.float32,
-        )
-        - 1
+    torch.tensor(
+        [[image_width, image_height]],
+        dtype=torch.float32,
+    )
+    - 1
     )
 
     # Normalize and return.
