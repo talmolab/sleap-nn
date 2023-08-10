@@ -6,8 +6,8 @@ from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.confidence_maps import (
     ConfidenceMapGenerator,
     make_confmaps,
-    make_grid_vectors,
 )
+from sleap_nn.data.utils import make_grid_vectors
 
 
 def test_confmaps(minimal_instance):
