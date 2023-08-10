@@ -49,40 +49,6 @@ def make_centered_bboxes(
     return corners + offset
 
 
-def normalize_bboxes(
-    bboxes: torch.Tensor, image_height: int, image_width: int
-) -> torch.Tensor:
-    """Normalize bounding boxes by image width and height.
-
-    This function takes a tensor of bounding boxes and normalizes them based on the
-    provided image width and height.
-
-    Args:
-        bboxes: Bounding boxes with shape (samples, 4, 2), where each box
-            is defined in the order: top-left, top-right, bottom-right, and bottom-left.
-            The coordinates must be in the (x, y) order. The coordinates compose a
-            rectangle with a shape of (N1, N2).
-        image_height: Height of the image.
-        image_width: Width of the image.
-
-    Returns:
-        torch.Tensor: Normalized bounding boxes with shape (samples, 4, 2), where each box
-            is defined in the order: top-left, top-right, bottom-right, and bottom-left,
-            and coordinates are normalized to the range [0, 1].
-    """
-    factor = (
-        torch.tensor(
-            [[image_width, image_height]],
-            dtype=torch.float32,
-        )
-        - 1
-    )
-
-    # Normalize and return.
-    normalized_bboxes = bboxes / factor
-    return normalized_bboxes
-
-
 class InstanceCropper(IterDataPipe):
     """Datapipe for cropping instances.
 

@@ -1,5 +1,4 @@
-"""Module for testing augmentations with Kornia"""
-
+"""Module for testing augmentations with Kornia."""
 from sleap_nn.data.augmentation import KorniaAugmenter, RandomUniformNoise
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.normalization import Normalizer
