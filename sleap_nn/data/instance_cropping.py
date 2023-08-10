@@ -44,12 +44,7 @@ def make_centered_bboxes(
     # Get bounding box
     corners = torch.stack([top_left, top_right, bottom_right, bottom_left], dim=-2)
 
-    offset = torch.tensor([
-      [+.5, +.5],
-      [-.5, +.5],
-      [-.5, -.5],
-      [+.5, -.5]
-    ])
+    offset = torch.tensor([[+0.5, +0.5], [-0.5, +0.5], [-0.5, -0.5], [+0.5, -0.5]])
 
     return corners + offset
 
@@ -57,10 +52,10 @@ def make_centered_bboxes(
 def normalize_bboxes(
     bboxes: torch.Tensor, image_height: int, image_width: int
 ) -> torch.Tensor:
-    """Normalizes bounding boxes by image width and height.
+    """Normalize bounding boxes by image width and height.
 
     This function takes a tensor of bounding boxes and normalizes them based on the
-    provided image width and height. 
+    provided image width and height.
 
     Args:
         bboxes: Bounding boxes with shape (samples, 4, 2), where each box
@@ -76,11 +71,11 @@ def normalize_bboxes(
             and coordinates are normalized to the range [0, 1].
     """
     factor = (
-    torch.tensor(
-        [[image_width, image_height]],
-        dtype=torch.float32,
-    )
-    - 1
+        torch.tensor(
+            [[image_width, image_height]],
+            dtype=torch.float32,
+        )
+        - 1
     )
 
     # Normalize and return.

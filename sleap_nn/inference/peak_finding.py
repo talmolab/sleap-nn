@@ -39,20 +39,19 @@ def crop_bboxes(
     # Compute bounding box size to use for crops.
     height = bboxes[0, 3, 1] - bboxes[0, 0, 1]
     width = bboxes[0, 1, 0] - bboxes[0, 0, 0]
-    box_size = tuple(
-        np.round((height + 1, width + 1)).astype(np.int32)
-    )
+    box_size = tuple(np.round((height + 1, width + 1)).astype(np.int32))
 
     # Crop.
     crops = crop_and_resize(
         images[sample_inds],  # (n_boxes, channels, height, width)
         boxes=bboxes,
-        size=box_size
+        size=box_size,
     )
 
     # Cast back to original dtype and return.
     crops = crops.to(images.dtype)
     return crops
+
 
 def integral_regression(
     cms: torch.Tensor, xv: torch.Tensor, yv: torch.Tensor
@@ -78,6 +77,7 @@ def integral_regression(
     y_hat = torch.sum(yv.view(1, 1, -1, 1) * cms, dim=[2, 3]) / z
 
     return x_hat, y_hat
+
 
 def find_global_peaks_rough(
     cms: torch.Tensor, threshold: float = 0.1
@@ -106,7 +106,9 @@ def find_global_peaks_rough(
     max_indices_x = max_indices_x.squeeze(dim=(2, 3))  # (samples, channels)
     max_indices_y = max_indices_y.max(dim=3).values  # (samples, channels, 1)
     max_values = max_values.squeeze(-1).squeeze(-1)  # (samples, channels)
-    peak_points = torch.cat([max_indices_x.unsqueeze(-1), max_indices_y], dim=-1).to(torch.float32)
+    peak_points = torch.cat([max_indices_x.unsqueeze(-1), max_indices_y], dim=-1).to(
+        torch.float32
+    )
 
     # Create masks for values below the threshold.
     below_threshold_mask = max_values < threshold
@@ -115,6 +117,7 @@ def find_global_peaks_rough(
     peak_points[below_threshold_mask] = float("nan")
 
     return peak_points, max_values
+
 
 def find_global_peaks(
     cms: torch.Tensor,

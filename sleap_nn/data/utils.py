@@ -1,5 +1,7 @@
+"""Miscellaneous utility functions for data processing."""
 from typing import Tuple
 import torch
+
 
 def make_grid_vectors(
     image_height: int, image_width: int, output_stride: int = 1
