@@ -3,7 +3,6 @@ import torch
 from sleap_nn.data.instance_centroids import (
     InstanceCentroidFinder,
     find_centroids,
-    find_points_bbox_midpoint,
 )
 from sleap_nn.data.providers import LabelsReader
 

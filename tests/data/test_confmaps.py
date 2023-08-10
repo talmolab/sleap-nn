@@ -2,7 +2,7 @@ import torch
 
 from sleap_nn.data.confidence_maps import ConfidenceMapGenerator, make_confmaps
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
-from sleap_nn.data.instance_cropping import InstanceCropper, make_centered_bboxes
+from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.utils import make_grid_vectors
