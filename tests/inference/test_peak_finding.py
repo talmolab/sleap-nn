@@ -58,7 +58,7 @@ def test_integral_regression(minimal_bboxes, minimal_cms):
             [-0.37117865681648254],
             [0.32524189352989197],
             [-0.18590612709522247],
-            [0.06249351054430008]
+            [0.06249351054430008],
         ]
     )
 
@@ -76,7 +76,7 @@ def test_integral_regression(minimal_bboxes, minimal_cms):
             [-0.28016677498817444],
             [0.32524189352989197],
             [-2.0254956325516105e-06],
-            [-0.37117743492126465]
+            [-0.37117743492126465],
         ]
     )
 
@@ -87,7 +87,54 @@ def test_integral_regression(minimal_bboxes, minimal_cms):
 
 
 def test_find_global_peaks_rough(minimal_cms):
-    pass
+    cms = torch.load(minimal_cms).unsqueeze(0)
+
+    gt_rough_peaks = torch.Tensor(
+        [
+            [
+                [27.0, 23.0],
+                [40.0, 40.0],
+                [49.0, 55.0],
+                [54.0, 63.0],
+                [56.0, 60.0],
+                [18.0, 32.0],
+                [29.0, 12.0],
+                [17.0, 44.0],
+                [44.0, 20.0],
+                [36.0, 70.0],
+                [0.0, 0.0],
+                [25.0, 30.0],
+                [34.0, 24.0],
+            ]
+        ]
+    )
+    gt_peak_vals = torch.Tensor(
+        [
+            [
+                0.9163541793823242,
+                0.9957404136657715,
+                0.929328203201294,
+                0.9020472168922424,
+                0.8870090246200562,
+                0.8547359108924866,
+                0.8420282602310181,
+                0.86271071434021,
+                0.863940954208374,
+                0.8226016163825989,
+                1.0,
+                0.9693551063537598,
+                0.8798434734344482,
+            ]
+        ]
+    )
+
+    rough_peaks, peak_vals = find_global_peaks_rough(cms, threshold=0.1)
+
+    assert rough_peaks.shape == (1, 13, 2)
+    assert peak_vals.shape == (1, 13)
+    assert rough_peaks.dtype == peak_vals.dtype == torch.float32
+    assert torch.equal(gt_rough_peaks, rough_peaks)
+    assert torch.equal(gt_peak_vals, peak_vals)
 
 
 def test_find_global_peaks(minimal_cms):
@@ -139,3 +186,49 @@ def test_find_global_peaks(minimal_cms):
     assert rough_peaks.dtype == peak_vals.dtype == torch.float32
     assert torch.equal(gt_rough_peaks, rough_peaks)
     assert torch.equal(gt_peak_vals, peak_vals)
+
+    gt_refined_peaks = torch.Tensor(
+        [
+            [
+                [27.2498, 22.8141],
+                [39.9390, 40.0320],
+                [48.7837, 54.8141],
+                [53.8752, 63.3142],
+                [56.1249, 60.3423],
+                [18.2802, 31.6910],
+                [29.0320, 12.4346],
+                [17.2178, 43.6591],
+                [44.3712, 19.8446],
+                [35.6288, 69.7198],
+                [0.3252, 0.3252],
+                [24.8141, 30.0000],
+                [34.0625, 23.6288],
+            ]
+        ]
+    )
+    gt_peak_vals = torch.Tensor(
+        [
+            [
+                0.9164,
+                0.9957,
+                0.9293,
+                0.9020,
+                0.8870,
+                0.8547,
+                0.8420,
+                0.8627,
+                0.8639,
+                0.8226,
+                1.0000,
+                0.9694,
+                0.8798,
+            ]
+        ]
+    )
+
+    refined_peaks, peak_vals = find_global_peaks(
+        cms, refinement="integral", threshold=0.2
+    )
+
+    torch.testing.assert_close(gt_refined_peaks, refined_peaks, atol=0.001, rtol=0.0)
+    torch.testing.assert_close(gt_peak_vals, peak_vals, atol=0.001, rtol=0.0)
