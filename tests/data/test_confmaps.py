@@ -17,17 +17,13 @@ def test_confmaps(minimal_instance):
     sample = next(iter(datapipe1))
 
     assert sample["confidence_maps"].shape == (2, 100, 100)
-    assert torch.max(sample["confidence_maps"]) == torch.Tensor(
-        [0.9479378461837769]
-    )
+    assert torch.max(sample["confidence_maps"]) == torch.Tensor([0.9479378461837769])
 
     datapipe2 = ConfidenceMapGenerator(datapipe, sigma=3.0, output_stride=2)
     sample = next(iter(datapipe2))
 
     assert sample["confidence_maps"].shape == (2, 50, 50)
-    assert torch.max(sample["confidence_maps"]) == torch.Tensor(
-        [0.9867223501205444]
-    )
+    assert torch.max(sample["confidence_maps"]) == torch.Tensor([0.9867223501205444])
 
     xv, yv = make_grid_vectors(2, 2, 1)
     points = torch.Tensor([[1.0, 1.0], [torch.nan, torch.nan]])

@@ -6,24 +6,14 @@ from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.providers import LabelsReader
 
 
-def test_instance_cropper(minimal_instance):
-    datapipe = LabelsReader.from_filename(minimal_instance)
-    datapipe = InstanceCentroidFinder(datapipe)
-    datapipe = Normalizer(datapipe)
-    datapipe = InstanceCropper(datapipe, 100, 100)
-    sample = next(iter(datapipe))
-
-    # test shapes
-    assert sample["instance"].shape == (2, 2)
-    assert sample["instance_image"].shape == (1, 1, 100, 100)
-    assert sample["bbox"].shape == (1, 4, 2)
-    # test bounding box calculation
+def test_make_centered_bboxes():
+    # Test bounding box calculation.
     gt = torch.Tensor(
         [
             [72.9970474243164, 131.07481384277344],
             [171.99703979492188, 131.07481384277344],
             [171.99703979492188, 230.07481384277344],
-            [72.9970474243164, 230.07481384277344]
+            [72.9970474243164, 230.07481384277344],
         ]
     )
 
@@ -31,11 +21,24 @@ def test_instance_cropper(minimal_instance):
     bbox = make_centered_bboxes(centroid, 100, 100)
     assert torch.equal(gt, bbox)
 
-    # test samples
+
+def test_instance_cropper(minimal_instance):
+    datapipe = LabelsReader.from_filename(minimal_instance)
+    datapipe = InstanceCentroidFinder(datapipe)
+    datapipe = Normalizer(datapipe)
+    datapipe = InstanceCropper(datapipe, 100, 100)
+    sample = next(iter(datapipe))
+
+    # Test shapes.
+    assert sample["instance"].shape == (2, 2)
+    assert sample["instance_image"].shape == (1, 1, 100, 100)
+    assert sample["bbox"].shape == (1, 4, 2)
+
+    # Test samples.
     gt = torch.Tensor(
         [
             [19.65515899658203, 71.65116882324219],
-            [79.34484100341797, 27.348831176757812]
+            [79.34484100341797, 27.348831176757812],
         ]
     )
     centered_instance = sample["instance"]
