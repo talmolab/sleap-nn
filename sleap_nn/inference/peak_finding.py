@@ -1,6 +1,7 @@
 """Peak finding for inference."""
 from typing import Optional, Tuple
 
+import kornia as K
 import numpy as np
 import torch
 from kornia.geometry.transform import crop_and_resize
@@ -196,3 +197,61 @@ def find_global_peaks(
     refined_peaks = refined_peaks.reshape(samples, channels, 2)
 
     return refined_peaks, peak_vals
+
+
+def find_local_peaks_rough(
+    cms: torch.Tensor, threshold: float = 0.2
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Find local maxima via non-maximum suppresion.
+
+    Args:
+        cms: Tensor of shape (samples, channels, height, width).
+        threshold: Scalar float specifying the minimum confidence value for peaks. Peaks
+            with values below this threshold will not be returned.
+
+    Returns:
+        A tuple of (peak_points, peak_vals, peak_sample_inds, peak_channel_inds).
+        peak_points: float32 tensor of shape (n_peaks, 2), where the last axis
+        indicates peak locations in xy order.
+
+        peak_vals: float32 tensor of shape (n_peaks,) containing the values at the peak
+        points.
+
+        peak_sample_inds: int32 tensor of shape (n_peaks,) containing the indices of the
+        sample each peak belongs to.
+
+        peak_channel_inds: int32 tensor of shape (n_peaks,) containing the indices of
+        the channel each peak belongs to.
+    """
+    # Build custom local NMS kernel.
+    kernel = torch.tensor([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=torch.float32)
+
+    # Reshape to have singleton channels.
+    height = cms.size(2)
+    width = cms.size(3)
+    channels = cms.size(1)
+    flat_img = cms.reshape(-1, 1, height, width)
+
+    # Perform dilation filtering to find local maxima per channel and reshape back.
+    max_img = K.morphology.dilation(flat_img, kernel)
+    max_img = max_img.permute(1, 0, 2, 3)
+
+    # Filter for maxima and threshold.
+    argmax_and_thresh_img = (cms > max_img) & (cms > threshold)
+
+    # Convert to subscripts.
+    peak_subs = torch.stack(
+        torch.where(argmax_and_thresh_img.permute(0, 2, 3, 1)), axis=-1
+    )
+
+    # Get peak values.
+    peak_vals = cms[peak_subs[:, 0], peak_subs[:, 3], peak_subs[:, 1], peak_subs[:, 2]]
+
+    # Convert to points format.
+    peak_points = peak_subs[:, [2, 1]].to(torch.float32)
+
+    # Pull out indexing vectors.
+    peak_sample_inds = peak_subs[:, 0].to(torch.int32)
+    peak_channel_inds = peak_subs[:, 3].to(torch.int32)
+
+    return peak_points, peak_vals, peak_sample_inds, peak_channel_inds
