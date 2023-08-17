@@ -151,7 +151,9 @@ def test_find_global_peaks(minimal_cms):
     assert torch.equal(gt_rough_peaks, rough_peaks)
     assert torch.equal(gt_peak_vals, peak_vals)
 
-    rough_peaks, peak_vals = find_global_peaks(cms, refinement="invalid_input", threshold=0.2)
+    rough_peaks, peak_vals = find_global_peaks(
+        cms, refinement="invalid_input", threshold=0.2
+    )
 
     assert rough_peaks.shape == (1, 13, 2)
     assert peak_vals.shape == (1, 13)
