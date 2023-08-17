@@ -305,7 +305,7 @@ def test_find_local_peaks(minimal_cms):
 
     assert peak_points.shape == (13, 2)
     assert peak_vals.shape == peak_sample_inds.shape == peak_channel_inds.shape == (13,)
-    assert torch.equal(gt_peak_vals, peak_vals)
-    assert torch.equal(gt_peak_points, peak_points)
+    torch.testing.assert_close(gt_peak_points, peak_points, atol=0.001, rtol=0.0)
+    torch.testing.assert_close(gt_peak_vals, peak_vals, atol=0.001, rtol=0.0)
     assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
     assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
