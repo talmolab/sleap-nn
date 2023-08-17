@@ -5,6 +5,8 @@ from sleap_nn.inference.peak_finding import (
     integral_regression,
     find_global_peaks,
     find_global_peaks_rough,
+    find_local_peaks,
+    find_local_peaks_rough,
 )
 
 
@@ -44,46 +46,8 @@ def test_integral_regression(minimal_bboxes, minimal_cms):
     gv = torch.arange(crop_size, dtype=torch.float32) - ((crop_size - 1) / 2)
     dx_hat, dy_hat = integral_regression(cm_crops, xv=gv, yv=gv)
 
-    gt_dx_hat = torch.Tensor(
-        [
-            [0.24976766109466553],
-            [-0.06099589914083481],
-            [-0.216335266828537],
-            [-0.12479443103075027],
-            [0.12494532763957977],
-            [0.28015944361686707],
-            [0.03200167417526245],
-            [0.21784470975399017],
-            [0.3711766004562378],
-            [-0.37117865681648254],
-            [0.32524189352989197],
-            [-0.18590612709522247],
-            [0.06249351054430008],
-        ]
-    )
-
-    gt_dy_hat = torch.Tensor(
-        [
-            [-0.1858985275030136],
-            [0.031994160264730453],
-            [-0.18588940799236298],
-            [0.3141670227050781],
-            [0.3423368036746979],
-            [-0.3090454936027527],
-            [0.43461763858795166],
-            [-0.3408771753311157],
-            [-0.155443474650383],
-            [-0.28016677498817444],
-            [0.32524189352989197],
-            [-2.0254956325516105e-06],
-            [-0.37117743492126465],
-        ]
-    )
-
     assert dx_hat.shape == dy_hat.shape == (13, 1)
     assert dx_hat.dtype == dy_hat.dtype == torch.float32
-    assert torch.equal(gt_dx_hat, dx_hat)
-    assert torch.equal(gt_dy_hat, dy_hat)
 
 
 def test_find_global_peaks_rough(minimal_cms):
@@ -232,3 +196,116 @@ def test_find_global_peaks(minimal_cms):
 
     torch.testing.assert_close(gt_refined_peaks, refined_peaks, atol=0.001, rtol=0.0)
     torch.testing.assert_close(gt_peak_vals, peak_vals, atol=0.001, rtol=0.0)
+
+
+def test_find_local_peaks_rough(minimal_cms):
+    cms = torch.load(minimal_cms).unsqueeze(0)  # (1, 13, 80, 80)
+
+    (
+        peak_points,
+        peak_vals,
+        peak_sample_inds,
+        peak_channel_inds,
+    ) = find_local_peaks_rough(cms)
+
+    gt_peak_points = torch.Tensor(
+        [
+            [0.0, 0.0],
+            [29.0, 12.0],
+            [44.0, 20.0],
+            [27.0, 23.0],
+            [34.0, 24.0],
+            [25.0, 30.0],
+            [18.0, 32.0],
+            [40.0, 40.0],
+            [17.0, 44.0],
+            [49.0, 55.0],
+            [56.0, 60.0],
+            [54.0, 63.0],
+            [36.0, 70.0],
+        ]
+    )
+
+    gt_peak_vals = torch.Tensor(
+        [
+            1.0,
+            0.8420282602310181,
+            0.863940954208374,
+            0.9163541793823242,
+            0.8798434734344482,
+            0.9693551063537598,
+            0.8547359108924866,
+            0.9957404136657715,
+            0.86271071434021,
+            0.929328203201294,
+            0.8870090246200562,
+            0.9020472168922424,
+            0.8226016163825989,
+        ]
+    )
+
+    gt_peak_sample_inds = torch.Tensor([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    gt_peak_channel_inds = torch.Tensor([10, 6, 8, 0, 12, 11, 5, 1, 7, 2, 4, 3, 9])
+
+    assert peak_points.shape == (13, 2)
+    assert peak_vals.shape == peak_sample_inds.shape == peak_channel_inds.shape == (13,)
+    assert torch.equal(gt_peak_vals, peak_vals)
+    assert torch.equal(gt_peak_points, peak_points)
+    assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
+    assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
+
+
+def test_find_local_peaks(minimal_cms):
+    cms = torch.load(minimal_cms).unsqueeze(0)  # (1, 13, 80, 80)
+
+    (peak_points, peak_vals, peak_sample_inds, peak_channel_inds) = find_local_peaks(
+        cms, refinement="integral"
+    )
+
+    gt_peak_points = torch.Tensor(
+        [
+            [0.32524189352989197, 0.32524189352989197],
+            [29.032001495361328, 12.43461799621582],
+            [44.371177673339844, 19.84455680847168],
+            [27.249767303466797, 22.814102172851562],
+            [34.06249237060547, 23.628822326660156],
+            [24.81409454345703, 29.999998092651367],
+            [18.28015899658203, 31.690954208374023],
+            [39.939002990722656, 40.0319938659668],
+            [17.217844009399414, 43.659122467041016],
+            [48.78366470336914, 54.814109802246094],
+            [56.12494659423828, 60.34233856201172],
+            [53.875205993652344, 63.31416702270508],
+            [35.628822326660156, 69.71983337402344],
+        ]
+    )
+
+    gt_peak_vals = torch.Tensor(
+        [
+            1.0,
+            0.8420282602310181,
+            0.863940954208374,
+            0.9163541793823242,
+            0.8798434734344482,
+            0.9693551063537598,
+            0.8547359108924866,
+            0.9957404136657715,
+            0.86271071434021,
+            0.929328203201294,
+            0.8870090246200562,
+            0.9020472168922424,
+            0.8226016163825989,
+        ]
+    )
+
+    gt_peak_sample_inds = torch.Tensor([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    gt_peak_channel_inds = torch.Tensor([10, 6, 8, 0, 12, 11, 5, 1, 7, 2, 4, 3, 9])
+
+    assert peak_points.shape == (13, 2)
+    assert peak_vals.shape == peak_sample_inds.shape == peak_channel_inds.shape == (13,)
+    assert torch.equal(gt_peak_vals, peak_vals)
+    assert torch.equal(gt_peak_points, peak_points)
+    assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
+    assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
