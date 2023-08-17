@@ -255,3 +255,81 @@ def find_local_peaks_rough(
     peak_channel_inds = peak_subs[:, 3].to(torch.int32)
 
     return peak_points, peak_vals, peak_sample_inds, peak_channel_inds
+
+
+def find_local_peaks(
+    cms: torch.Tensor,
+    threshold: float = 0.2,
+    refinement: Optional[str] = None,
+    integral_patch_size: int = 5,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Find local peaks with optional refinement.
+
+    Args:
+        cms: Confidence maps. Tensor of shape (samples, channels, height, width).
+        threshold: Minimum confidence threshold. Peaks with values below this will
+            ignored.
+        refinement: If `None`, returns the grid-aligned peaks with no refinement. If
+            `"integral"`, peaks will be refined with integral regression.
+        integral_patch_size: Size of patches to crop around each rough peak as an
+            integer scalar.
+
+    Returns:
+        A tuple of (peak_points, peak_vals, peak_sample_inds, peak_channel_inds).
+
+        peak_points: float32 tensor of shape (n_peaks, 2), where the last axis
+        indicates peak locations in xy order.
+
+        peak_vals: float32 tensor of shape (n_peaks,) containing the values at the peak
+        points.
+
+        peak_sample_inds: int32 tensor of shape (n_peaks,) containing the indices of the
+        sample each peak belongs to.
+
+        peak_channel_inds: int32 tensor of shape (n_peaks,) containing the indices of
+        the channel each peak belongs to.
+    """
+    # Find grid aligned peaks.
+    (
+        rough_peaks,
+        peak_vals,
+        peak_sample_inds,
+        peak_channel_inds,
+    ) = find_local_peaks_rough(cms, threshold=threshold)
+
+    # Return early if no rough peaks found.
+    if rough_peaks.size(0) == 0 or refinement is None:
+        return rough_peaks, peak_vals, peak_sample_inds, peak_channel_inds
+
+    if refinement == "integral":
+        crop_size = integral_patch_size
+    else:
+        return rough_peaks, peak_vals, peak_sample_inds, peak_channel_inds
+
+    # Make bounding boxes for cropping around peaks.
+    bboxes = make_centered_bboxes(
+        rough_peaks, box_height=crop_size, box_width=crop_size
+    )
+
+    # Reshape to (samples * channels, height, width, 1).
+    samples = cms.size(0)
+    channels = cms.size(1)
+    cms = torch.reshape(
+        cms,
+        [samples * channels, 1, cms.size(2), cms.size(3)],
+    )
+    box_sample_inds = (peak_sample_inds * channels) + peak_channel_inds
+
+    # Crop patch around each grid-aligned peak.
+    cm_crops = crop_bboxes(cms, bboxes, sample_inds=box_sample_inds)
+
+    # Compute offsets via integral regression on a local patch.
+    if refinement == "integral":
+        gv = torch.arange(crop_size, dtype=torch.float32) - ((crop_size - 1) / 2)
+        dx_hat, dy_hat = integral_regression(cm_crops, xv=gv, yv=gv)
+        offsets = torch.cat([dx_hat, dy_hat], dim=1)
+
+    # Apply offsets.
+    refined_peaks = rough_peaks + offsets
+
+    return refined_peaks, peak_vals, peak_sample_inds, peak_channel_inds
