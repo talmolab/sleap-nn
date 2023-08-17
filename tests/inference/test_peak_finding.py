@@ -151,6 +151,14 @@ def test_find_global_peaks(minimal_cms):
     assert torch.equal(gt_rough_peaks, rough_peaks)
     assert torch.equal(gt_peak_vals, peak_vals)
 
+    rough_peaks, peak_vals = find_global_peaks(cms, refinement="invalid_input", threshold=0.2)
+
+    assert rough_peaks.shape == (1, 13, 2)
+    assert peak_vals.shape == (1, 13)
+    assert rough_peaks.dtype == peak_vals.dtype == torch.float32
+    assert torch.equal(gt_rough_peaks, rough_peaks)
+    assert torch.equal(gt_peak_vals, peak_vals)
+
     gt_refined_peaks = torch.Tensor(
         [
             [
@@ -258,6 +266,68 @@ def test_find_local_peaks_rough(minimal_cms):
 
 def test_find_local_peaks(minimal_cms):
     cms = torch.load(minimal_cms).unsqueeze(0)  # (1, 13, 80, 80)
+
+    (peak_points, peak_vals, peak_sample_inds, peak_channel_inds) = find_local_peaks(
+        cms
+    )
+
+    gt_peak_points = torch.Tensor(
+        [
+            [0.0, 0.0],
+            [29.0, 12.0],
+            [44.0, 20.0],
+            [27.0, 23.0],
+            [34.0, 24.0],
+            [25.0, 30.0],
+            [18.0, 32.0],
+            [40.0, 40.0],
+            [17.0, 44.0],
+            [49.0, 55.0],
+            [56.0, 60.0],
+            [54.0, 63.0],
+            [36.0, 70.0],
+        ]
+    )
+
+    gt_peak_vals = torch.Tensor(
+        [
+            1.0,
+            0.8420282602310181,
+            0.863940954208374,
+            0.9163541793823242,
+            0.8798434734344482,
+            0.9693551063537598,
+            0.8547359108924866,
+            0.9957404136657715,
+            0.86271071434021,
+            0.929328203201294,
+            0.8870090246200562,
+            0.9020472168922424,
+            0.8226016163825989,
+        ]
+    )
+
+    gt_peak_sample_inds = torch.Tensor([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    gt_peak_channel_inds = torch.Tensor([10, 6, 8, 0, 12, 11, 5, 1, 7, 2, 4, 3, 9])
+
+    assert peak_points.shape == (13, 2)
+    assert peak_vals.shape == peak_sample_inds.shape == peak_channel_inds.shape == (13,)
+    assert torch.equal(gt_peak_vals, peak_vals)
+    assert torch.equal(gt_peak_points, peak_points)
+    assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
+    assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
+
+    (peak_points, peak_vals, peak_sample_inds, peak_channel_inds) = find_local_peaks(
+        cms, refinement="invalid_input"
+    )
+
+    assert peak_points.shape == (13, 2)
+    assert peak_vals.shape == peak_sample_inds.shape == peak_channel_inds.shape == (13,)
+    assert torch.equal(gt_peak_vals, peak_vals)
+    assert torch.equal(gt_peak_points, peak_points)
+    assert torch.equal(gt_peak_sample_inds, peak_sample_inds)
+    assert torch.equal(gt_peak_channel_inds, peak_channel_inds)
 
     (peak_points, peak_vals, peak_sample_inds, peak_channel_inds) = find_local_peaks(
         cms, refinement="integral"
