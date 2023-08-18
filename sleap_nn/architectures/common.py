@@ -145,7 +145,7 @@ def get_children_layers(model: torch.nn.Module):
     if children == []:
         return model
     else:
-       for child in children:
+        for child in children:
             try:
                 flattened_children.extend(get_children_layers(child))
             except TypeError:
