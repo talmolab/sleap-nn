@@ -1,8 +1,11 @@
 """Generate confidence maps."""
-from torch.utils.data.datapipes.datapipe import IterDataPipe
 from typing import Optional
+
 import sleap_io as sio
 import torch
+from torch.utils.data.datapipes.datapipe import IterDataPipe
+
+from sleap_nn.data.utils import make_grid_vectors
 
 
 def make_confmaps(
@@ -40,33 +43,6 @@ def make_confmaps(
     # Replace NaNs with 0.
     cm = torch.where(torch.isnan(cm), 0.0, cm)
     return cm
-
-
-def make_grid_vectors(image_height: int, image_width: int, output_stride: int):
-    """Make sampling grid vectors from image dimensions.
-
-    Args:
-        image_height: Height of the image grid that will be sampled, specified as a
-            scalar integer.
-        image_width: width of the image grid that will be sampled, specified as a
-            scalar integer.
-        output_stride: Sampling step size, specified as a scalar integer.
-
-    Returns:
-        Tuple of grid vectors (xv, yv). These are tensors of dtype torch.float32 with
-        shapes (grid_width,) and (grid_height,) respectively.
-
-        The grid dimensions are calculated as:
-            grid_width = image_width // output_stride
-            grid_height = image_height // output_stride
-    """
-    xv = torch.arange(0, image_width, step=output_stride).to(
-        torch.float32
-    )  # (image_width,)
-    yv = torch.arange(0, image_height, step=output_stride).to(
-        torch.float32
-    )  # (image_height,)
-    return xv, yv
 
 
 class ConfidenceMapGenerator(IterDataPipe):

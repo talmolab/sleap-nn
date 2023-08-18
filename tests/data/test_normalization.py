@@ -1,6 +1,7 @@
-from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.normalization import Normalizer
 import torch
+
+from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.providers import LabelsReader
 
 
 def test_normalizer(minimal_instance):

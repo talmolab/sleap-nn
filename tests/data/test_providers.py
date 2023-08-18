@@ -1,5 +1,6 @@
-from sleap_nn.data.providers import LabelsReader
 import torch
+
+from sleap_nn.data.providers import LabelsReader
 
 
 def test_providers(minimal_instance):
