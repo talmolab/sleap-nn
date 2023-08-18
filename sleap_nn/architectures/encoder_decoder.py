@@ -28,7 +28,7 @@ See the `EncoderDecoder` base class for requirements for creating new architectu
 from typing import List, Text, Tuple, Union
 
 import torch
-from common import MaxPool2dWithSamePadding, get_act_fn
+from sleap_nn.architectures.common import MaxPool2dWithSamePadding, get_act_fn
 from torch import nn
 
 
@@ -287,7 +287,7 @@ class Encoder(nn.Module):
             if i in self.intermediate_features.keys():
                 features.append(x)
 
-        return x, features[1:][::-1]
+        return x, features[::-1]
 
 
 class SimpleUpsamplingBlock(nn.Module):

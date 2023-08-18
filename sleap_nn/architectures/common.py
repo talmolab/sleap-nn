@@ -129,3 +129,25 @@ def get_act_fn(activation: str) -> nn.Module:
         )
 
     return activations[activation]
+
+
+def get_children_layers(model: torch.nn.Module):
+    """Recursively retrieves a flattened list of all children modules and submodules within the given model.
+
+    Args:
+        model: The PyTorch model to extract children from.
+
+    Returns:
+        list of nn.Module: A flattened list containing all children modules and submodules.
+    """
+    children = list(model.children())
+    flattened_children = []
+    if children == []:
+        return model
+    else:
+       for child in children:
+            try:
+                flattened_children.extend(get_children_layers(child))
+            except TypeError:
+                flattened_children.append(get_children_layers(child))
+    return flattened_children
