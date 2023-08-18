@@ -13,21 +13,22 @@ def make_centered_bboxes(
 ) -> torch.Tensor:
     """Create centered bounding boxes around centroid.
 
-    To be used with `kornia.geometry.transform.crop_and_resize`in the following (clockwise)
-    order: top-left, top-right, bottom-right and bottom-left.
+    To be used with `kornia.geometry.transform.crop_and_resize`in the following
+    (clockwise) order: top-left, top-right, bottom-right and bottom-left.
 
     Args:
-        centroids: A tensor of centroids with shape (channels, 2), where channels is the number of centroids,
-            and the last dimension represents x and y coordinates.
+        centroids: A tensor of centroids with shape (channels, 2), where channels is the
+            number of centroids, and the last dimension represents x and y coordinates.
         box_height: The desired height of the bounding boxes.
         box_width: The desired width of the bounding boxes.
 
     Returns:
-        torch.Tensor: A tensor containing bounding box coordinates for each centroid. The output tensor
-            has shape (channels, 4, 2), where channels is the number of centroids, and the second dimension
-            represents the four corner points of the bounding boxes, each with x and y coordinates.
-            The order of the corners follows a clockwise arrangement: top-left, top-right,
-            bottom-right, and bottom-left.
+        torch.Tensor: A tensor containing bounding box coordinates for each centroid.
+            The output tensor has shape (channels, 4, 2), where channels is the number
+            of centroids, and the second dimension represents the four corner points of
+            the bounding boxes, each with x and y coordinates. The order of the corners
+            follows a clockwise arrangement: top-left, top-right, bottom-right, and
+            bottom-left.
     """
     half_h = box_height / 2
     half_w = box_width / 2
