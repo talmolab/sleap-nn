@@ -16,10 +16,12 @@ def crop_bboxes(
 
     Args:
         images: Tensor of shape (samples, channels, height, width) of a batch of images.
-        bboxes: Tensor of shape (n_bboxes, 4, 2) and dtype torch.float32, where n_bboxes is the number of centroids, and the second dimension
-            represents the four corner points of the bounding boxes, each with x and y coordinates.
-            The order of the corners follows a clockwise arrangement: top-left, top-right,
-            bottom-right, and bottom-left. This can be generated from centroids using `make_centered_bboxes`.
+        bboxes: Tensor of shape (n_bboxes, 4, 2) and dtype torch.float32, where n_bboxes
+            is the number of centroids, and the second dimension represents the four
+            corner points of the bounding boxes, each with x and y coordinates.
+            The order of the corners follows a clockwise arrangement: top-left,
+            top-right, bottom-right, and bottom-left. This can be generated from
+            centroids using `make_centered_bboxes`.
         sample_inds: Tensor of shape (n_bboxes,) specifying which samples each bounding
             box should be cropped from.
 
