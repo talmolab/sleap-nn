@@ -156,7 +156,6 @@ class Encoder(nn.Module):
         convs_per_block: Number of convolutional layers per block. Default is 2.
         kernel_size: Size of the convolutional kernels. Default is 3.
         middle_block: Whether to include a middle block. Default is True.
-        block_contraction: Whether to contract the channels in the middle block. Default is False.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -173,7 +172,6 @@ class Encoder(nn.Module):
         convs_per_block: int = 2,
         kernel_size: Union[int, Tuple[int, int]] = 3,
         middle_block: bool = True,
-        block_contraction: bool = False,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -187,7 +185,6 @@ class Encoder(nn.Module):
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
         self.middle_block = middle_block
-        self.block_contraction = block_contraction
 
         self.encoder_stack = nn.ModuleList([])
         for block in range(down_blocks):
@@ -236,16 +233,8 @@ class Encoder(nn.Module):
                     )
                 )
 
-            if block_contraction:
-                # Contract the channels with an exponent lower than the last encoder block.
-                block_filters = int(
-                    filters * (filters_rate ** (down_blocks + stem_blocks - 1))
-                )
-            else:
-                # Keep the block output filters the same.
-                block_filters = int(
-                    filters * (filters_rate ** (down_blocks + stem_blocks))
-                )
+            # Keep the block output filters the same.
+            block_filters = int(filters * (filters_rate ** (down_blocks + stem_blocks)))
 
             self.encoder_stack.append(
                 SimpleConvBlock(
@@ -422,7 +411,6 @@ class Decoder(nn.Module):
         stem_blocks: Number of initial stem blocks. Default is 0.
         convs_per_block: Number of convolutional layers per block. Default is 2.
         kernel_size: Size of the convolutional kernels. Default is 3.
-        block_contraction: Whether to contract the channels in the upsampling blocks. Default is False.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -439,7 +427,6 @@ class Decoder(nn.Module):
         stem_blocks: int = 0,
         convs_per_block: int = 2,
         kernel_size: int = 3,
-        block_contraction: bool = False,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -453,7 +440,6 @@ class Decoder(nn.Module):
         self.stem_blocks = stem_blocks
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
-        self.block_contraction = block_contraction
 
         self.decoder_stack = nn.ModuleList([])
         for block in range(up_blocks):
@@ -461,12 +447,8 @@ class Decoder(nn.Module):
             block_filters_in = int(
                 filters * (filters_rate ** (down_blocks + stem_blocks - 1 - block))
             )
-            if block_contraction:
-                block_filters_out = int(
-                    filters * (filters_rate ** (down_blocks + stem_blocks - 2 - block))
-                )
-            else:
-                block_filters_out = block_filters_in
+
+            block_filters_out = block_filters_in
 
             next_stride = current_stride // 2
 

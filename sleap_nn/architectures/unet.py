@@ -31,7 +31,6 @@ class UNet(nn.Module):
         up_blocks: Number of upsampling blocks in the decoder. Default is 3.
         convs_per_block: Number of convolutional layers per block. Default is 2.
         middle_block: Whether to include a middle block in the encoder. Default is True.
-        block_contraction: Whether to contract the channels in the decoder blocks. Default is False.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -48,7 +47,6 @@ class UNet(nn.Module):
         up_blocks: int = 3,
         convs_per_block: int = 2,
         middle_block: bool = True,
-        block_contraction: bool = False,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -62,7 +60,6 @@ class UNet(nn.Module):
             convs_per_block=convs_per_block,
             kernel_size=kernel_size,
             middle_block=middle_block,
-            block_contraction=block_contraction,
         )
 
         current_stride = int(

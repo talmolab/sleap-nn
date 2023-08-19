@@ -81,7 +81,6 @@ def test_unet_reference():
         convs_per_block=convs_per_block,
         kernel_size=kernel_size,
         middle_block=middle_block,
-        block_contraction=block_contraction,
     )
 
     enc = enc.to(device)
