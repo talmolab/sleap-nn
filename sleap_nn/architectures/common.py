@@ -48,9 +48,12 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
         Returns:
             int: The calculated padding value.
         """
-        return int(max(
-            (torch.ceil(torch.tensor(i / s)).item() - 1) * s + (k - 1) * d + 1 - i, 0
-        ))
+        return int(
+            max(
+                (torch.ceil(torch.tensor(i / s)).item() - 1) * s + (k - 1) * d + 1 - i,
+                0,
+            )
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the MaxPool2dWithSamePadding module.
