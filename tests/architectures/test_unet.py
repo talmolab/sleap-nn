@@ -18,7 +18,6 @@ def test_unet_reference():
     up_blocks = 4
     convs_per_block = 2
     middle_block = True
-    block_contraction = False
 
     unet = UNet(
         in_channels=in_channels,
