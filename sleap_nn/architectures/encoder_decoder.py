@@ -152,10 +152,8 @@ class Encoder(nn.Module):
         down_blocks: Number of downsampling blocks. Default is 4.
         filters_rate: Factor to increase the number of filters per block. Default is 2.
         current_stride: Initial stride for pooling operations. Default is 2.
-        stem_blocks: Number of initial stem blocks. Default is 0.
         convs_per_block: Number of convolutional layers per block. Default is 2.
         kernel_size: Size of the convolutional kernels. Default is 3.
-        middle_block: Whether to include a middle block. Default is True.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -168,10 +166,8 @@ class Encoder(nn.Module):
         down_blocks: int = 4,
         filters_rate: Union[float, int] = 2,
         current_stride: int = 2,
-        stem_blocks: int = 0,
         convs_per_block: int = 2,
         kernel_size: Union[int, Tuple[int, int]] = 3,
-        middle_block: bool = True,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -181,15 +177,13 @@ class Encoder(nn.Module):
         self.down_blocks = down_blocks
         self.filters_rate = filters_rate
         self.current_stride = current_stride
-        self.stem_blocks = stem_blocks
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
-        self.middle_block = middle_block
 
         self.encoder_stack = nn.ModuleList([])
         for block in range(down_blocks):
             prev_block_filters = -1 if block == 0 else block_filters
-            block_filters = int(filters * (filters_rate ** (block + stem_blocks)))
+            block_filters = int(filters * (filters_rate ** (block + 0)))
 
             self.encoder_stack.append(
                 SimpleConvBlock(
@@ -211,38 +205,16 @@ class Encoder(nn.Module):
             MaxPool2dWithSamePadding(kernel_size=2, stride=2, padding="same")
         )
 
-        # Create a middle block (like the CARE implementation).
-        if middle_block:
-            if convs_per_block > 1:
-                # First convs are one exponent higher than the last encoder block.
-                block_filters = int(
-                    filters * (filters_rate ** (down_blocks + stem_blocks))
-                )
-                self.encoder_stack.append(
-                    SimpleConvBlock(
-                        in_channels=after_block_filters,
-                        pool=False,
-                        pool_before_convs=False,
-                        pooling_stride=2,
-                        num_convs=convs_per_block - 1,
-                        filters=block_filters,
-                        kernel_size=kernel_size,
-                        use_bias=True,
-                        batch_norm=False,
-                        activation="relu",
-                    )
-                )
-
-            # Keep the block output filters the same.
-            block_filters = int(filters * (filters_rate ** (down_blocks + stem_blocks)))
-
+        if convs_per_block > 1:
+            # First convs are one exponent higher than the last encoder block.
+            block_filters = int(filters * (filters_rate ** (down_blocks + 0)))
             self.encoder_stack.append(
                 SimpleConvBlock(
-                    in_channels=block_filters,
+                    in_channels=after_block_filters,
                     pool=False,
                     pool_before_convs=False,
                     pooling_stride=2,
-                    num_convs=1,
+                    num_convs=convs_per_block - 1,
                     filters=block_filters,
                     kernel_size=kernel_size,
                     use_bias=True,
@@ -250,6 +222,24 @@ class Encoder(nn.Module):
                     activation="relu",
                 )
             )
+
+        # Keep the block output filters the same.
+        block_filters = int(filters * (filters_rate ** (down_blocks + 0)))
+
+        self.encoder_stack.append(
+            SimpleConvBlock(
+                in_channels=block_filters,
+                pool=False,
+                pool_before_convs=False,
+                pooling_stride=2,
+                num_convs=1,
+                filters=block_filters,
+                kernel_size=kernel_size,
+                use_bias=True,
+                batch_norm=False,
+                activation="relu",
+            )
+        )
 
         self.intermediate_features = {}
         for i, block in enumerate(self.encoder_stack):
@@ -408,7 +398,6 @@ class Decoder(nn.Module):
         up_blocks: Number of upsampling blocks. Default is 4.
         down_blocks: Number of downsampling blocks. Default is 3.
         filters_rate: Factor to adjust the number of filters per block. Default is 2.
-        stem_blocks: Number of initial stem blocks. Default is 0.
         convs_per_block: Number of convolutional layers per block. Default is 2.
         kernel_size: Size of the convolutional kernels. Default is 3.
 
@@ -424,7 +413,6 @@ class Decoder(nn.Module):
         up_blocks: int = 4,
         down_blocks: int = 3,
         filters_rate: int = 2,
-        stem_blocks: int = 0,
         convs_per_block: int = 2,
         kernel_size: int = 3,
     ) -> None:
@@ -437,7 +425,6 @@ class Decoder(nn.Module):
         self.up_blocks = up_blocks
         self.down_blocks = down_blocks
         self.filters_rate = filters_rate
-        self.stem_blocks = stem_blocks
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
 
@@ -445,7 +432,7 @@ class Decoder(nn.Module):
         for block in range(up_blocks):
             prev_block_filters_in = -1 if block == 0 else block_filters_in
             block_filters_in = int(
-                filters * (filters_rate ** (down_blocks + stem_blocks - 1 - block))
+                filters * (filters_rate ** (down_blocks + 0 - 1 - block))
             )
 
             block_filters_out = block_filters_in

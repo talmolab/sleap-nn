@@ -14,23 +14,18 @@ def test_unet_reference():
     filters_rate = 2
     kernel_size = 3
     down_blocks = 4
-    stem_blocks = 0
     up_blocks = 4
     convs_per_block = 2
-    middle_block = True
 
     unet = UNet(
         in_channels=in_channels,
         filters=filters,
         filters_rate=filters_rate,
         down_blocks=down_blocks,
-        stem_blocks=stem_blocks,
         up_blocks=up_blocks,
     )
 
-    in_channels = int(
-        filters * (filters_rate ** (down_blocks + stem_blocks - 1 - up_blocks + 1))
-    )
+    in_channels = int(filters * (filters_rate ** (down_blocks + 0 - 1 - up_blocks + 1)))
     model = nn.Sequential(
         *[
             unet,
@@ -76,10 +71,8 @@ def test_unet_reference():
         down_blocks=down_blocks,
         filters_rate=filters_rate,
         current_stride=2,
-        stem_blocks=stem_blocks,
         convs_per_block=convs_per_block,
         kernel_size=kernel_size,
-        middle_block=middle_block,
     )
 
     enc = enc.to(device)
