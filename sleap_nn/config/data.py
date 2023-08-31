@@ -5,7 +5,7 @@ from omegaconf import OmegaConf
 # Base TopDownConfmapsPipeline data config.
 base_topdown_data_config = OmegaConf.create(
     {
-        "preproccessing": {
+        "preprocessing": {
             "crop_hw": (160, 160),
             "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
         },
