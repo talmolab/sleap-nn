@@ -26,7 +26,7 @@ def test_instance_cropper(minimal_instance):
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = Normalizer(datapipe)
-    datapipe = InstanceCropper(datapipe, 100, 100)
+    datapipe = InstanceCropper(datapipe, (100, 100))
     sample = next(iter(datapipe))
 
     # Test shapes.

@@ -1,5 +1,5 @@
 """Handle cropping of instances."""
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -58,20 +58,13 @@ class InstanceCropper(IterDataPipe):
 
     Attributes:
         source_dp: The previous `DataPipe` with samples that contain an `instances` key.
-        crop_width: Width of the crop in pixels
-        crop_height: Height of the crop in pixels
+        crop_hw: Height and Width of the crop in pixels
     """
 
-    def __init__(
-        self,
-        source_dp: IterDataPipe,
-        crop_width: int,
-        crop_height: int,
-    ):
+    def __init__(self, source_dp: IterDataPipe, crop_hw: Tuple[int, int]):
         """Initialize InstanceCropper with the source `DataPipe."""
         self.source_dp = source_dp
-        self.crop_width = crop_width
-        self.crop_height = crop_height
+        self.crop_hw = crop_hw
 
     def __iter__(self):
         """Generate instance cropped examples."""
@@ -82,10 +75,10 @@ class InstanceCropper(IterDataPipe):
             for instance, centroid in zip(instances[0], centroids[0]):
                 # Generate bounding boxes from centroid.
                 bbox = torch.unsqueeze(
-                    make_centered_bboxes(centroid, self.crop_height, self.crop_width), 0
+                    make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
                 )  # (frames, 4, 2)
 
-                box_size = (self.crop_height, self.crop_width)
+                box_size = (self.crop_hw[0], self.crop_hw[1])
 
                 # Generate cropped image of shape (frames, channels, crop_height, crop_width)
                 instance_image = crop_and_resize(
