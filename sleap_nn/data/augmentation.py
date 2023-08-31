@@ -100,9 +100,6 @@ class KorniaAugmenter(IterDataPipe):
     Attributes:
         source_dp: The input `IterDataPipe` with examples that contain `"instances"` and
             `"image"` keys.
-        crop_hw: Desired output size (out_h, out_w) of the crop. Must be Tuple[int, int],
-            then out_h = size[0], out_w = size[1].
-        crop_p: Probability of applying random crop.
         rotation: Angles in degrees as a scalar float of the amount of rotation. A
             random angle in `(-rotation, rotation)` will be sampled and applied to both
             images and keypoints. Set to 0 to disable rotation augmentation.
@@ -125,11 +122,14 @@ class KorniaAugmenter(IterDataPipe):
         contrast_p: Probability of applying random contrast.
         brightness: The brightness factor to apply Default: `(1.0, 1.0)`.
         brightness_p: Probability of applying random brightness.
-        erase_scale: Range of proportion of erased area against input image. Default: `(0.02, 0.33)`.
-        erase_ratio: Range of aspect ratio of erased area. Default: `(0.3, 3.3)`.
+        erase_scale: Range of proportion of erased area against input image. Default: `(0.0001, 0.01)`.
+        erase_ratio: Range of aspect ratio of erased area. Default: `(1, 1)`.
         erase_p: Probability of applying random erase.
         mixup_lambda: min-max value of mixup strength. Default is 0-1. Default: `None`.
         mixup_p: Probability of applying random mixup v2.
+        random_crop_hw: Desired output size (out_h, out_w) of the crop. Must be Tuple[int, int],
+            then out_h = size[0], out_w = size[1].
+        random_crop_p: Probability of applying random crop.
 
     Notes:
         This block expects the "image" and "instances" keys to be present in the input
@@ -150,23 +150,23 @@ class KorniaAugmenter(IterDataPipe):
         rotation: Optional[float] = 15.0,
         scale: Optional[float] = 0.05,
         translate: Optional[Tuple[float, float]] = (0.02, 0.02),
-        affine_p: float = 0.5,
+        affine_p: float = 0.0,
         uniform_noise: Optional[Tuple[float, float]] = (0.0, 0.04),
-        uniform_noise_p: float = 0.5,
+        uniform_noise_p: float = 0.0,
         gaussian_noise_mean: Optional[float] = 0.02,
         gaussian_noise_std: Optional[float] = 0.004,
-        gaussian_noise_p: float = 0.5,
+        gaussian_noise_p: float = 0.0,
         contrast: Optional[Tuple[float, float]] = (0.5, 2.0),
-        contrast_p: float = 0.5,
+        contrast_p: float = 0.0,
         brightness: Optional[float] = 0.0,
-        brightness_p: float = 0.5,
+        brightness_p: float = 0.0,
         erase_scale: Optional[Tuple[float, float]] = (0.0001, 0.01),
         erase_ratio: Optional[Tuple[float, float]] = (1, 1),
-        erase_p: float = 0.5,
+        erase_p: float = 0.0,
         mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
-        mixup_p: float = 0.5,
-        crop_hw: Tuple[int, int] = (0, 0),
-        crop_p: float = 0.0,
+        mixup_p: float = 0.0,
+        random_crop_hw: Tuple[int, int] = (0, 0),
+        random_crop_p: float = 0.0,
     ):
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
@@ -188,8 +188,8 @@ class KorniaAugmenter(IterDataPipe):
         self.erase_p = erase_p
         self.mixup_lambda = mixup_lambda
         self.mixup_p = mixup_p
-        self.crop_hw = crop_hw
-        self.crop_p = crop_p
+        self.random_crop_hw = random_crop_hw
+        self.random_crop_p = random_crop_p
 
         aug_stack = []
         if self.affine_p > 0:
@@ -259,19 +259,21 @@ class KorniaAugmenter(IterDataPipe):
                     same_on_batch=True,
                 )
             )
-        if self.crop_p > 0:
-            if self.crop_hw[0] > 0 and self.crop_hw[1] > 0:
+        if self.random_crop_p > 0:
+            if self.random_crop_hw[0] > 0 and self.random_crop_hw[1] > 0:
                 aug_stack.append(
                     K.augmentation.RandomCrop(
-                        size=self.crop_hw,
+                        size=self.random_crop_hw,
                         pad_if_needed=True,
-                        p=self.crop_p,
+                        p=self.random_crop_p,
                         keepdim=True,
                         same_on_batch=True,
                     )
                 )
             else:
-                raise ValueError(f"crop_hw height and width must be greater than 0.")
+                raise ValueError(
+                    f"random_crop_hw height and width must be greater than 0."
+                )
 
         self.augmenter = AugmentationSequential(
             *aug_stack,
