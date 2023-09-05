@@ -1,6 +1,6 @@
 import torch
+from omegaconf import OmegaConf
 
-from sleap_nn.config.data import base_topdown_data_config
 from sleap_nn.data.confidence_maps import ConfidenceMapGenerator
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
@@ -24,6 +24,16 @@ def test_sleap_dataset(minimal_instance):
 
 
 def test_topdownconfmapspipeline(minimal_instance):
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "preprocessing": {
+                "crop_hw": (160, 160),
+                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+            },
+            "augmentation_config": {"random_crop": 0.0, "random_crop_hw": (160, 160)},
+        }
+    )
+
     pipeline = TopdownConfmapsPipeline(data_config=base_topdown_data_config)
     datapipe = pipeline.make_base_pipeline(
         data_provider=LabelsReader, filename=minimal_instance
