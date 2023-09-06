@@ -1,5 +1,7 @@
 """Model head definitions for defining model output types."""
 
+from typing import Tuple, Union
+
 import torch
 from torch import nn
 
@@ -13,7 +15,7 @@ class UNetOutputHead(nn.Module):
         kernel_size: Size of the convolutional kernel; int or tuple.
     """
 
-    def __init__(self, in_channels, out_channels, kernel_size, padding) -> None:
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: Union[int, Tuple[int, int]], padding) -> None:
         """Initialize the Conv2d confidence map output head."""
         super().__init__()
         self.in_channels = in_channels
