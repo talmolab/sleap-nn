@@ -34,5 +34,3 @@ def test_unet_model():
 
     assert z.shape == (1, 13, 192, 192)
     assert z.dtype == torch.float32
-
-
