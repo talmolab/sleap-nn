@@ -1,5 +1,6 @@
 import torch
 from omegaconf import OmegaConf
+import pytest
 
 from sleap_nn.architectures.model import Model
 
@@ -33,3 +34,25 @@ def test_unet_model():
 
     assert z.shape == (1, 13, 192, 192)
     assert z.dtype == torch.float32
+
+    base_unet_model_config = OmegaConf.create(
+        {
+            "backbone_type": "unet",
+            "backbone_config": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                # "filterss": 64,
+                "filters_rate": 2,
+                "down_blocks": 4,
+                "up_blocks": 4,
+                "convs_per_block": 2,
+            },
+            "head_config": {"out_channels": 13, "kernel_size": 1, "padding": "same"},
+        }
+    )
+    model = Model(model_config=base_unet_model_config)
+    # with pytest.raises(
+    #     KeyError, match="Invalid configuration key: in_channelssssssssssssssssssssssss"
+    # ):
+    #     model = Model(model_config=base_unet_model_config)
+

@@ -20,7 +20,7 @@ class UNetOutputHead(nn.Module):
         in_channels: int,
         out_channels: int,
         kernel_size: Union[int, Tuple[int, int]],
-        padding,
+        padding: str,
     ) -> None:
         """Initialize the Conv2d confidence map output head."""
         super().__init__()
