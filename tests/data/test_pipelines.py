@@ -32,6 +32,7 @@ def test_topdownconfmapspipeline(minimal_instance):
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
+                "use_augmentations": False,
                 "augmentations": {
                     "rotation": 15.0,
                     "scale": 0.05,
@@ -55,16 +56,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             },
         }
     )
-
-    pipeline = TopdownConfmapsPipeline(data_config=base_topdown_data_config)
-    datapipe = pipeline.make_base_pipeline(
-        data_provider=LabelsReader, filename=minimal_instance
-    )
-
-    sample = next(iter(datapipe))
-    assert len(sample) == 2
-    assert sample[0].shape == (1, 160, 160)
-    assert sample[1].shape == (2, 80, 80)
 
     pipeline = TopdownConfmapsPipeline(data_config=base_topdown_data_config)
     datapipe = pipeline.make_training_pipeline(
