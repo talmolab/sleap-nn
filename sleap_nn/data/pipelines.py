@@ -34,7 +34,6 @@ class SleapDataset(IterDataPipe):
         for example in self.dp:
             if len(example["instance_image"].shape) == 4:
                 example["instance_image"] = example["instance_image"].squeeze(dim=0)
-            torch.cuda.empty_cache()
             yield example["instance_image"], example["confidence_maps"]
 
 
