@@ -44,10 +44,6 @@ class TopdownConfmapsPipeline:
 
     Attributes:
         data_config: Data-related configuration.
-        optimization_config: Optimization-related configuration.
-        instance_confmap_head: Instantiated head describing the output centered
-            confidence maps tensor.
-        offsets_head: Optional head describing the offset refinement maps.
     """
 
     def __init__(self, data_config: DictConfig) -> None:
