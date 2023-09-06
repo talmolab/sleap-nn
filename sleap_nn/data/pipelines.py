@@ -3,6 +3,8 @@
 This allows for convenient ways to configure individual variants of common pipelines, as
 well as to define training vs inference versions based on the same configurations.
 """
+from typing import Tuple
+
 import torch
 from omegaconf.dictconfig import DictConfig
 from torch.utils.data.datapipes.datapipe import IterDataPipe
@@ -25,11 +27,11 @@ class SleapDataset(IterDataPipe):
     source_dp: The previous `DataPipe` with samples that contain an `instances` key.
     """
 
-    def __init__(self, source_dp: IterDataPipe):
+    def __init__(self, source_dp: IterDataPipe) -> None:
         """Initialize SleapDataset with the source `DataPipe."""
         self.dp = source_dp
 
-    def __iter__(self):
+    def __iter__(self) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return a tuple with the cropped image and the heatmap."""
         for example in self.dp:
             if len(example["instance_image"].shape) == 4:
