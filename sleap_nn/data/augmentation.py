@@ -285,9 +285,28 @@ class KorniaAugmenter(IterDataPipe):
     def __iter__(self):
         """Return an example dictionary with the augmented image and instances."""
         for ex in self.source_dp:
-            inst_shape = ex["instances"].shape  # (B, num_instances, num_nodes, 2)
-            image, instances = ex["image"], ex["instances"].reshape(
-                inst_shape[0], -1, 2
-            )
-            aug_image, aug_instances = self.augmenter(image, instances)
-            yield {"image": aug_image, "instances": aug_instances.reshape(*inst_shape)}
+            if "instance_image" in ex and "instance" in ex:
+                inst_shape = ex["instance"].shape
+                # (B, channels, height, width), (1, num_nodes, 2)
+                image, instances = ex["instance_image"], ex["instance"].unsqueeze(0)
+                aug_image, aug_instances = self.augmenter(image, instances)
+                ex.update(
+                    {
+                        "instance_image": aug_image,
+                        "instance": aug_instances.reshape(*inst_shape),
+                    }
+                )
+            elif "image" in ex and "instances" in ex:
+                inst_shape = ex["instances"].shape  # (B, num_instances, num_nodes, 2)
+                image, instances = ex["image"], ex["instances"].reshape(
+                    inst_shape[0], -1, 2
+                )  # (B, channels, height, width), (B, num_instances x num_nodes, 2)
+
+                aug_image, aug_instances = self.augmenter(image, instances)
+                ex.update(
+                    {
+                        "image": aug_image,
+                        "instances": aug_instances.reshape(*inst_shape),
+                    }
+                )
+            yield ex

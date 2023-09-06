@@ -32,11 +32,9 @@ class SleapDataset(IterDataPipe):
     def __iter__(self):
         """Return a tuple with the cropped image and the heatmap."""
         for example in self.dp:
-            # reszie_img = kornia.geometry.transform.resize(example["crop_img"], (512, 512))
             if len(example["instance_image"].shape) == 4:
                 example["instance_image"] = example["instance_image"].squeeze(dim=0)
             torch.cuda.empty_cache()
-            # yield example["instance_image"].cuda(), example["confidence_maps"].cuda()
             yield example["instance_image"], example["confidence_maps"]
 
 
@@ -74,12 +72,51 @@ class TopdownConfmapsPipeline:
         datapipe = InstanceCentroidFinder(datapipe)
         datapipe = InstanceCropper(datapipe, self.data_config.preprocessing.crop_hw)
 
-        if self.data_config.augmentation_config.random_crop:
+        if self.data_config.augmentation_config.random_crop.random_crop_p:
             datapipe = KorniaAugmenter(
                 datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop_hw,
-                random_crop_p=1.0,
+                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
+                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
             )
+
+        datapipe = ConfidenceMapGenerator(
+            datapipe,
+            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
+            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+        )
+        datapipe = SleapDataset(datapipe)
+
+        return datapipe
+
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, filename: str
+    ) -> IterDataPipe:
+        """Create training pipeline with input data only.
+
+        Args:
+            data_provider: A `Provider` that generates data examples, typically a
+                `LabelsReader` instance.
+            filename: A string path to the name of the `.slp` file.
+
+        Returns:
+            An `IterDataPipe` instance configured to produce input examples.
+        """
+        datapipe = data_provider.from_filename(filename=filename)
+        datapipe = Normalizer(datapipe)
+
+        datapipe = InstanceCentroidFinder(datapipe)
+        datapipe = InstanceCropper(datapipe, self.data_config.preprocessing.crop_hw)
+
+        if self.data_config.augmentation_config.random_crop.random_crop_p:
+            datapipe = KorniaAugmenter(
+                datapipe,
+                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
+                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+            )
+
+        datapipe = KorniaAugmenter(
+            datapipe, **dict(self.data_config.augmentation_config.augmentations)
+        )
 
         datapipe = ConfidenceMapGenerator(
             datapipe,

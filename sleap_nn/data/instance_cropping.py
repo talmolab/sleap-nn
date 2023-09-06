@@ -68,33 +68,33 @@ class InstanceCropper(IterDataPipe):
 
     def __iter__(self):
         """Generate instance cropped examples."""
-        for example in self.source_dp:
-            image = example["image"]  # (frames, channels, height, width)
-            instances = example["instances"]  # (frames, n_instances, n_nodes, 2)
-            centroids = example["centroids"]  # (frames, n_instances, 2)
+        for ex in self.source_dp:
+            image = ex["image"]  # (B, channels, height, width)
+            instances = ex["instances"]  # (B, n_instances, num_nodes, 2)
+            centroids = ex["centroids"]  # (B, n_instances, 2)
             for instance, centroid in zip(instances[0], centroids[0]):
                 # Generate bounding boxes from centroid.
-                bbox = torch.unsqueeze(
+                instance_bbox = torch.unsqueeze(
                     make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
-                )  # (frames, 4, 2)
+                )  # (B, 4, 2)
 
                 box_size = (self.crop_hw[0], self.crop_hw[1])
 
-                # Generate cropped image of shape (frames, channels, crop_height, crop_width)
+                # Generate cropped image of shape (B, channels, crop_height, crop_width)
                 instance_image = crop_and_resize(
                     image,
-                    boxes=bbox,
+                    boxes=instance_bbox,
                     size=box_size,
                 )
 
                 # Access top left point (x,y) of bounding box and subtract this offset from
                 # position of nodes.
-                point = bbox[0][0]
+                point = instance_bbox[0][0]
                 center_instance = instance - point
 
                 instance_example = {
-                    "instance_image": instance_image,  # (frames, channels, crop_height, crop_width)
-                    "bbox": bbox,  # (frames, 4, 2)
-                    "instance": center_instance,  # (n_instances, 2)
+                    "instance_image": instance_image,  # (B, channels, crop_height, crop_width)
+                    "instance_bbox": instance_bbox,  # (B, 4, 2)
+                    "instance": center_instance,  # (num_nodes, 2)
                 }
                 yield instance_example

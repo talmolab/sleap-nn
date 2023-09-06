@@ -86,8 +86,8 @@ class InstanceCentroidFinder(IterDataPipe):
 
     def __iter__(self):
         """Add `"centroids"` key to example."""
-        for example in self.source_dp:
-            example["centroids"] = find_centroids(
-                example["instances"], anchor_ind=self.anchor_ind
+        for ex in self.source_dp:
+            ex["centroids"] = find_centroids(
+                ex["instances"], anchor_ind=self.anchor_ind
             )
-            yield example
+            yield ex
