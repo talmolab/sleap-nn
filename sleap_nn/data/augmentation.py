@@ -166,7 +166,7 @@ class KorniaAugmenter(IterDataPipe):
         mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
         mixup_p: float = 0.0,
         random_crop_hw: Tuple[int, int] = (0, 0),
-        random_crop_p: float = 0.0,
+        random_crop_p: float = 0.0
     ):
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
