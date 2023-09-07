@@ -34,3 +34,16 @@ def test_unet_model():
 
     assert z.shape == (1, 13, 192, 192)
     assert z.dtype == torch.float32
+    torch.cuda.empty_cache()
+
+    model = Model.from_config(model_config=base_unet_model_config).to(device)
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    _ = model.eval()
+
+    with torch.no_grad():
+        z = model(x)
+
+    assert z.shape == (1, 13, 192, 192)
+    assert z.dtype == torch.float32
+    torch.cuda.empty_cache()

@@ -43,6 +43,11 @@ class Model(nn.Module):
                 **dict(model_config.head_config),
             )
 
+    @classmethod
+    def from_config(cls, model_config: OmegaConf) -> nn.Module:
+        """Create the model from a config dictionary."""
+        return cls(model_config=model_config)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
         x = self.backbone(x)
