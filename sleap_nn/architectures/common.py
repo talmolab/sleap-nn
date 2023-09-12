@@ -108,7 +108,7 @@ def get_act_fn(activation: str) -> nn.Module:
     corresponding to the given activation function name.
 
     Args:
-        activation (str): Name of the activation function. Supported values are 'relu', 'sigmoid', and 'tanh'.
+        activation (str): Name of the activation function. Supported values are 'relu', 'sigmoid', 'tanh', 'softmax', and 'identity'.
 
     Returns:
         nn.Module: An instance of the requested activation function module.
@@ -124,7 +124,7 @@ def get_act_fn(activation: str) -> nn.Module:
         input_tensor = torch.randn(1, 64, 64)
         output = relu_fn(input_tensor)
     """
-    activations = {"relu": nn.ReLU(), "sigmoid": nn.Sigmoid(), "tanh": nn.Tanh()}
+    activations = {"relu": nn.ReLU(), "sigmoid": nn.Sigmoid(), "tanh": nn.Tanh(), "softmax": nn.Softmax(), "identity": nn.Identity()}
 
     if activation not in activations:
         raise KeyError(
