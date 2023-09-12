@@ -48,7 +48,7 @@ class Model(nn.Module):
     @classmethod
     def from_config(
         cls, model_config: DictConfig, head_config: DictConfig
-    ) -> nn.Module:
+    ) -> "Model":
         """Create the model from a config dictionary."""
         return cls(model_config=model_config, head_config=head_config)
 

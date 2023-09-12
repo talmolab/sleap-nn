@@ -108,6 +108,8 @@ class SingleInstanceConfmapsHead(Head):
         """
         if config.part_names is not None:
             part_names = config.part_names
+        elif part_names is None:
+            raise ValueError("Required attribute 'part_names' is missing in the configuration or in `from_config` input.")
         return cls(
             part_names=part_names,
             sigma=config.sigma,
@@ -216,6 +218,8 @@ class CenteredInstanceConfmapsHead(Head):
         """
         if config.part_names is not None:
             part_names = config.part_names
+        elif part_names is None:
+            raise ValueError("Required attribute 'part_names' is missing in the configuration or in `from_config` input.")
         return cls(
             part_names=part_names,
             anchor_part=config.anchor_part,
@@ -274,6 +278,8 @@ class MultiInstanceConfmapsHead(Head):
         """
         if config.part_names is not None:
             part_names = config.part_names
+        elif part_names is None:
+            raise ValueError("Required attribute 'part_names' is missing in the configuration or in `from_config` input.")
         return cls(
             part_names=part_names,
             sigma=config.sigma,
@@ -553,6 +559,8 @@ class OffsetRefinementHead(Head):
                 part_names = config.part_names
         elif hasattr(config, "anchor_part"):
             part_names = [config.anchor_part]
+        else:
+            raise ValueError("Required attribute 'part_names' is missing in the configuration.")
         return cls(
             part_names=part_names,
             output_stride=config.output_stride,

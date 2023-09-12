@@ -128,7 +128,7 @@ def get_act_fn(activation: str) -> nn.Module:
         "relu": nn.ReLU(),
         "sigmoid": nn.Sigmoid(),
         "tanh": nn.Tanh(),
-        "softmax": nn.Softmax(),
+        "softmax": nn.Softmax(dim=-1),
         "identity": nn.Identity(),
     }
 

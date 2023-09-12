@@ -57,7 +57,7 @@ def test_unet_reference():
 
     # Test final output shape.
     model = model.to(device)
-    _ = model.eval()
+    model.eval()
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
@@ -76,7 +76,7 @@ def test_unet_reference():
     )
 
     enc = enc.to(device)
-    _ = enc.eval()
+    enc.eval()
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
