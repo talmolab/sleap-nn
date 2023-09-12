@@ -1,6 +1,6 @@
+import pytest
 import torch
 from omegaconf import OmegaConf
-import pytest
 
 from sleap_nn.architectures.model import Model
 

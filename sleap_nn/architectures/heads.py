@@ -1,16 +1,25 @@
 """Model head definitions for defining model output types."""
 
-from torch import nn
-from typing import Optional, Text, List, Sequence, Tuple, Union
+from typing import List, Optional, Sequence, Text, Tuple, Union
+
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
+from torch import nn
+
 from sleap_nn.architectures.common import get_act_fn
 
 
 class Head:
-    """Base class for model output heads."""
+    """Base class for model output heads.
+
+    Attributes:
+        output_stride: Stride of the output head tensor. The input tensor is expected to
+            be at the same stride.
+        loss_weight: Weight of the loss term for this head during optimization.
+    """
 
     def __init__(self, output_stride: int = 1, loss_weight: float = 1.0) -> None:
+        """Initialize the object with the specified attributes."""
         self.output_stride = output_stride
         self.loss_weight = loss_weight
 
@@ -33,12 +42,11 @@ class Head:
         """Make head output tensor from input feature tensor.
 
         Args:
-            x_in: An input `tf.Tensor`.
+            x_in: An int input for the input channels.
 
         Returns:
-            A `tf.Tensor` with the correct shape for the head.
+            A `nn.Sequential` with the correct shape for the head.
         """
-
         return nn.Sequential(
             nn.Conv2d(
                 in_channels=x_in,
@@ -69,6 +77,7 @@ class SingleInstanceConfmapsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.part_names = part_names
         self.sigma = sigma
@@ -87,7 +96,7 @@ class SingleInstanceConfmapsHead(Head):
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `OmegaConf` instance specifying the head
+            config: A `DictConfig` instance specifying the head
                 parameters.
             part_names: Text name of the body parts (nodes) that the head will be
                 configured to produce. The number of parts determines the number of
@@ -126,6 +135,7 @@ class CentroidConfmapsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.anchor_part = anchor_part
         self.sigma = sigma
@@ -136,11 +146,11 @@ class CentroidConfmapsHead(Head):
         return 1
 
     @classmethod
-    def from_config(cls, config: OmegaConf) -> "CentroidConfmapsHead":
+    def from_config(cls, config: DictConfig) -> "CentroidConfmapsHead":
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `OmegaConf` instance specifying the head parameters.
+            config: A `DictConfig` instance specifying the head parameters.
 
         Returns:
             The instantiated head with the specified configuration options.
@@ -174,6 +184,7 @@ class CenteredInstanceConfmapsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.part_names = part_names
         self.anchor_part = anchor_part
@@ -187,13 +198,13 @@ class CenteredInstanceConfmapsHead(Head):
     @classmethod
     def from_config(
         cls,
-        config: OmegaConf,
+        config: DictConfig,
         part_names: Optional[List[Text]] = None,
     ) -> "CenteredInstanceConfmapsHead":
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `CenteredInstanceConfmapsHeadConfig` instance specifying the head
+            config: A `DictConfig` instance specifying the head
                 parameters.
             part_names: Text name of the body parts (nodes) that the head will be
                 configured to produce. The number of parts determines the number of
@@ -232,6 +243,7 @@ class MultiInstanceConfmapsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.part_names = part_names
         self.sigma = sigma
@@ -244,13 +256,13 @@ class MultiInstanceConfmapsHead(Head):
     @classmethod
     def from_config(
         cls,
-        config: OmegaConf,
+        config: DictConfig,
         part_names: Optional[List[Text]] = None,
     ) -> "MultiInstanceConfmapsHead":
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `OmegaConf` instance specifying the head
+            config: A `DictConfig` instance specifying the head
                 parameters.
             part_names: Text name of the body parts (nodes) that the head will be
                 configured to produce. The number of parts determines the number of
@@ -288,6 +300,7 @@ class PartAffinityFieldsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.edges = edges
         self.sigma = sigma
@@ -300,13 +313,13 @@ class PartAffinityFieldsHead(Head):
     @classmethod
     def from_config(
         cls,
-        config: OmegaConf,
+        config: DictConfig,
         edges: Optional[Sequence[Tuple[Text, Text]]] = None,
     ) -> "PartAffinityFieldsHead":
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `OmegaConf` instance specifying the head
+            config: A `DictConfig` instance specifying the head
                 parameters.
             edges: List of 2-tuples of the form `(source_node, destination_node)` that
                 define pairs of text names of the directed edges of the graph. This must
@@ -343,6 +356,7 @@ class ClassMapsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
         self.sigma = sigma
@@ -360,13 +374,13 @@ class ClassMapsHead(Head):
     @classmethod
     def from_config(
         cls,
-        config: OmegaConf,
+        config: DictConfig,
         classes: Optional[List[Text]] = None,
     ) -> "ClassMapsHead":
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `OmegaConf` instance specifying the head parameters.
+            config: A `DictConfig` instance specifying the head parameters.
             classes: List of string names of the classes that this head will predict.
                 This must be set if the `classes` attribute of the configuration is not
                 set.
@@ -406,6 +420,7 @@ class ClassVectorsHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.classes = classes
         self.num_fc_layers = num_fc_layers
@@ -430,13 +445,13 @@ class ClassVectorsHead(Head):
     @classmethod
     def from_config(
         cls,
-        config: OmegaConf,
+        config: DictConfig,
         classes: Optional[List[Text]] = None,
     ) -> "ClassVectorsHead":
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `OmegaConf` instance specifying the head parameters.
+            config: A `DictConfig` instance specifying the head parameters.
             classes: List of string names of the classes that this head will predict.
                 This must be set if the `classes` attribute of the configuration is not
                 set.
@@ -459,14 +474,11 @@ class ClassVectorsHead(Head):
         """Make head output tensor from input feature tensor.
 
         Args:
-            x_in: An input shape int.
-            name: If provided, specifies the name of the output layer. If not (the
-                default), uses the name of the head as the layer name.
+            x_in: An int for the input shape after applying AdaptiveMaxPool2d on dim=1, assuming inputs of shape (B, C, H, W).
 
         Returns:
-            A `tf.Tensor` with the correct shape for the head.
+            A `nn.Sequential` with the correct shape for the head.
         """
-
         module_list = []
         if self.global_pool:
             module_list.append(nn.AdaptiveMaxPool2d(1))
@@ -503,6 +515,7 @@ class OffsetRefinementHead(Head):
         output_stride: int = 1,
         loss_weight: float = 1.0,
     ) -> None:
+        """Initialize the object with the specified attributes."""
         super().__init__(output_stride, loss_weight)
         self.part_names = part_names
         self.sigma_threshold = sigma_threshold
@@ -515,7 +528,7 @@ class OffsetRefinementHead(Head):
     @classmethod
     def from_config(
         cls,
-        config: OmegaConf,
+        config: DictConfig,
         part_names: Optional[List[Text]] = None,
         sigma_threshold: float = 0.2,
         loss_weight: float = 1.0,
@@ -523,7 +536,7 @@ class OffsetRefinementHead(Head):
         """Create this head from a set of configurations.
 
         Attributes:
-            config: A `OmegaConf` instance specifying the head parameters.
+            config: A `DictConfig` instance specifying the head parameters.
             part_names: Text name of the body parts (nodes) that the head will be
                 configured to produce. The number of parts determines the number of
                 channels in the output. This must be provided if the `part_names`
