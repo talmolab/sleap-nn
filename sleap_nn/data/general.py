@@ -1,6 +1,7 @@
 """General purpose transformers for common pipeline processing tasks."""
-from typing import Callable, Dict, List, Text
+from typing import Callable, Dict, Iterator, List, Text
 
+import torch
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
@@ -12,7 +13,7 @@ class KeyFilter(IterDataPipe):
         self.dp = source_dp
         self.keep_keys = keep_keys
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return a dictionary filtered for the relevant outputs.
 
         The input dictionary includes:

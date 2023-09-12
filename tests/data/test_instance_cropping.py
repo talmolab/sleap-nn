@@ -39,7 +39,7 @@ def test_instance_cropper(minimal_instance):
     ]
 
     # Test shapes.
-    assert len(sample.keys()) == 6
+    assert len(sample.keys()) == len(gt_sample_keys)
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
     assert sample["instance"].shape == (2, 2)

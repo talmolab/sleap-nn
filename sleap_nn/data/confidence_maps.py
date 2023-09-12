@@ -1,5 +1,5 @@
 """Generate confidence maps."""
-from typing import Dict, Optional
+from typing import Dict, Iterator, Optional
 
 import sleap_io as sio
 import torch
@@ -78,7 +78,7 @@ class ConfidenceMapGenerator(IterDataPipe):
         self.instance_key = instance_key
         self.image_key = image_key
 
-    def __iter__(self) -> Dict[str, torch.Tensor]:
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Generate confidence maps for each example."""
         for example in self.source_dp:
             instance = example[self.instance_key]

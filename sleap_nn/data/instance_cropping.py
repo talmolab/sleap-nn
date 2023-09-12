@@ -1,5 +1,5 @@
 """Handle cropping of instances."""
-from typing import Optional, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -61,12 +61,12 @@ class InstanceCropper(IterDataPipe):
         crop_hw: Height and Width of the crop in pixels
     """
 
-    def __init__(self, source_dp: IterDataPipe, crop_hw: Tuple[int, int]):
+    def __init__(self, source_dp: IterDataPipe, crop_hw: Tuple[int, int]) -> None:
         """Initialize InstanceCropper with the source `DataPipe."""
         self.source_dp = source_dp
         self.crop_hw = crop_hw
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Generate instance cropped examples."""
         for ex in self.source_dp:
             image = ex["image"]  # (B, channels, height, width)

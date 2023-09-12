@@ -1,5 +1,6 @@
 """This module implements pipeline blocks for reading input data such as labels."""
-from typing import Dict
+from typing import Dict, Iterator
+
 import numpy as np
 import sleap_io as sio
 import torch
@@ -27,7 +28,7 @@ class LabelsReader(IterDataPipe):
         labels = sio.load_slp(filename)
         return cls(labels)
 
-    def __iter__(self) -> Dict[str, torch.Tensor]:
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.
 
         "image": A torch.Tensor containing full raw frame image as a uint8 array

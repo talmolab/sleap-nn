@@ -1,5 +1,5 @@
 """This module implements data pipeline blocks for augmentation operations."""
-from typing import Any, Dict, Optional, Text, Tuple, Union
+from typing import Any, Dict, Iterator, Optional, Text, Tuple, Union
 
 import kornia as K
 import torch
@@ -282,7 +282,7 @@ class KorniaAugmenter(IterDataPipe):
             same_on_batch=True,
         )
 
-    def __iter__(self) -> Dict[str, torch.Tensor]:
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the augmented image and instances."""
         for ex in self.source_dp:
             if "instance_image" in ex and "instance" in ex:
