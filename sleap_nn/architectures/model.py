@@ -16,7 +16,8 @@ class Model(nn.Module):
     """Model creates a model consisting of a backbone and head.
 
     Attributes:
-        model_config: An `OmegaConf` configuration dictionary.
+        model_config: An `DictConfig` configuration dictionary for the model backbone.
+        head_config: An `DictConfig` configuration dictionary for the model head.
     """
 
     def __init__(self, model_config: DictConfig, head_config: DictConfig) -> None:
