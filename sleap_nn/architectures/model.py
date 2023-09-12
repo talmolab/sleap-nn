@@ -1,6 +1,6 @@
 """This module defines the main SLEAP model class for defining a trainable model.
 
-This is a higher level wrapper around `tf.keras.Model` that holds all the configuration
+This is a higher level wrapper around `nn.Module` that holds all the configuration
 parameters required to construct the actual model. This allows for easy querying of the
 model configuration without actually instantiating the model itself.
 """
