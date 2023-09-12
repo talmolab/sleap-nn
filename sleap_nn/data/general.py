@@ -11,7 +11,7 @@ class KeyFilter(IterDataPipe):
     def __init__(self, source_dp: IterDataPipe, keep_keys: List[Text] = None) -> None:
         """Initialize KeyFilter with the source `DataPipe."""
         self.dp = source_dp
-        self.keep_keys = keep_keys
+        self.keep_keys = set(keep_keys) if keep_keys else None
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return a dictionary filtered for the relevant outputs.
