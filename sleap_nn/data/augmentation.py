@@ -167,7 +167,7 @@ class KorniaAugmenter(IterDataPipe):
         mixup_p: float = 0.0,
         random_crop_hw: Tuple[int, int] = (0, 0),
         random_crop_p: float = 0.0,
-    ):
+    ) -> None:
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
         self.rotation = rotation
@@ -282,7 +282,7 @@ class KorniaAugmenter(IterDataPipe):
             same_on_batch=True,
         )
 
-    def __iter__(self):
+    def __iter__(self) -> Dict[str, torch.Tensor]:
         """Return an example dictionary with the augmented image and instances."""
         for ex in self.source_dp:
             if "instance_image" in ex and "instance" in ex:

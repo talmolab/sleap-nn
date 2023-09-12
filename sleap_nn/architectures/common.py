@@ -1,4 +1,6 @@
 """Common utilities for architecture and model building."""
+from typing import List
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -134,7 +136,7 @@ def get_act_fn(activation: str) -> nn.Module:
     return activations[activation]
 
 
-def get_children_layers(model: torch.nn.Module):
+def get_children_layers(model: torch.nn.Module) -> List[nn.Module]:
     """Recursively retrieves a flattened list of all children modules and submodules within the given model.
 
     Args:

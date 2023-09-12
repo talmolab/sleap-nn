@@ -9,42 +9,10 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.confidence_maps import ConfidenceMapGenerator
+from sleap_nn.data.general import KeyFilter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
-from sleap_nn.data.providers import LabelsReader
-
-
-class SleapDataset(IterDataPipe):
-    """Returns image and corresponding heatmap for the DataLoader.
-
-    This class is to return the image and its corresponding confidence map
-    to load the dataset with the DataLoader class
-
-    Attributes:
-    source_dp: The previous `DataPipe` with samples that contain an `instances` key.
-    """
-
-    def __init__(self, source_dp: IterDataPipe):
-        """Initialize SleapDataset with the source `DataPipe."""
-        self.dp = source_dp
-
-    def __iter__(self):
-        """Return a dictionary with the relevant outputs.
-
-        This dictionary includes:
-        - image: the full frame image
-        - instances: all keypoints of all instances in the frame image
-        - centroids: all centroids of all instances in the frame image
-        - instance: the individual instance's keypoints
-        - instance_bbox: the individual instance's bbox
-        - instance_image: the individual instance's cropped image
-        - confidence_maps: the individual instance's heatmap
-        """
-        for example in self.dp:
-            if len(example["instance_image"].shape) == 4:
-                example["instance_image"] = example["instance_image"].squeeze(dim=0)
-            yield example
 
 
 class TopdownConfmapsPipeline:
@@ -94,6 +62,6 @@ class TopdownConfmapsPipeline:
             sigma=self.data_config.preprocessing.conf_map_gen.sigma,
             output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
         )
-        datapipe = SleapDataset(datapipe)
+        datapipe = KeyFilter(datapipe, keep_keys=self.data_config.general.keep_keys)
 
         return datapipe

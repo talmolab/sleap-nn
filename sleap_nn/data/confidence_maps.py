@@ -1,5 +1,5 @@
 """Generate confidence maps."""
-from typing import Optional
+from typing import Dict, Optional
 
 import sleap_io as sio
 import torch
@@ -10,7 +10,7 @@ from sleap_nn.data.utils import make_grid_vectors
 
 def make_confmaps(
     points: torch.Tensor, xv: torch.Tensor, yv: torch.Tensor, sigma: float
-):
+) -> torch.Tensor:
     """Make confidence maps from a set of points from a single instance.
 
     Args:
@@ -70,7 +70,7 @@ class ConfidenceMapGenerator(IterDataPipe):
         output_stride: int = 1,
         instance_key: str = "instance",
         image_key: str = "instance_image",
-    ):
+    ) -> None:
         """Initialize ConfidenceMapGenerator with input `DataPipe`, sigma, and output stride."""
         self.source_dp = source_dp
         self.sigma = sigma
@@ -78,7 +78,7 @@ class ConfidenceMapGenerator(IterDataPipe):
         self.instance_key = instance_key
         self.image_key = image_key
 
-    def __iter__(self):
+    def __iter__(self) -> Dict[str, torch.Tensor]:
         """Generate confidence maps for each example."""
         for example in self.source_dp:
             instance = example[self.instance_key]

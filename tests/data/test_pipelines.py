@@ -2,10 +2,11 @@ import torch
 from omegaconf import OmegaConf
 
 from sleap_nn.data.confidence_maps import ConfidenceMapGenerator
+from sleap_nn.data.general import KeyFilter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
-from sleap_nn.data.pipelines import SleapDataset, TopdownConfmapsPipeline
+from sleap_nn.data.pipelines import TopdownConfmapsPipeline
 from sleap_nn.data.providers import LabelsReader
 
 
@@ -15,17 +16,31 @@ def test_sleap_dataset(minimal_instance):
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (160, 160))
     datapipe = ConfidenceMapGenerator(datapipe, sigma=1.5, output_stride=2)
-    datapipe = SleapDataset(datapipe)
+    datapipe = KeyFilter(datapipe, keep_keys=None)
+
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "centroids",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+    ]
 
     sample = next(iter(datapipe))
-    assert len(sample) == 2
-    assert sample[0].shape == (1, 160, 160)
-    assert sample[1].shape == (2, 80, 80)
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 160, 160)
+    assert sample["confidence_maps"].shape == (2, 80, 80)
 
 
 def test_topdownconfmapspipeline(minimal_instance):
     base_topdown_data_config = OmegaConf.create(
         {
+            "general": {"keep_keys": ["instance_image", "confidence_maps"]},
             "preprocessing": {
                 "crop_hw": (160, 160),
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
@@ -62,13 +77,19 @@ def test_topdownconfmapspipeline(minimal_instance):
         data_provider=LabelsReader, filename=minimal_instance
     )
 
+    gt_sample_keys = ["instance_image", "confidence_maps"]
+
     sample = next(iter(datapipe))
-    assert len(sample) == 2
-    assert sample[0].shape == (1, 160, 160)
-    assert sample[1].shape == (2, 80, 80)
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 160, 160)
+    assert sample["confidence_maps"].shape == (2, 80, 80)
 
     base_topdown_data_config = OmegaConf.create(
         {
+            "general": {"keep_keys": None},
             "preprocessing": {
                 "crop_hw": (160, 160),
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
@@ -105,7 +126,20 @@ def test_topdownconfmapspipeline(minimal_instance):
         data_provider=LabelsReader, filename=minimal_instance
     )
 
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "centroids",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+    ]
+
     sample = next(iter(datapipe))
-    assert len(sample) == 2
-    assert sample[0].shape == (1, 160, 160)
-    assert sample[1].shape == (2, 80, 80)
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 160, 160)
+    assert sample["confidence_maps"].shape == (2, 80, 80)
