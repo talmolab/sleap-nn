@@ -30,11 +30,21 @@ class SleapDataset(IterDataPipe):
         self.dp = source_dp
 
     def __iter__(self):
-        """Return a tuple with the cropped image and the heatmap."""
+        """Return a dictionary with the relevant outputs.
+
+        This dictionary includes:
+        - image: the full frame image
+        - instances: all keypoints of all instances in the frame image
+        - centroids: all centroids of all instances in the frame image
+        - instance: the individual instance's keypoints
+        - instance_bbox: the individual instance's bbox
+        - instance_image: the individual instance's cropped image
+        - confidence_maps: the individual instance's heatmap
+        """
         for example in self.dp:
             if len(example["instance_image"].shape) == 4:
                 example["instance_image"] = example["instance_image"].squeeze(dim=0)
-            yield example["instance_image"], example["confidence_maps"]
+            yield example
 
 
 class TopdownConfmapsPipeline:
