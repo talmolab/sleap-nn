@@ -20,11 +20,21 @@ def test_unet_model():
                 "up_blocks": 4,
                 "convs_per_block": 2,
             },
-            "head_config": {"out_channels": 13, "kernel_size": 1, "padding": "same"},
         }
     )
 
-    model = Model(model_config=base_unet_model_config).to(device)
+    base_unet_head_config = OmegaConf.create(
+        {
+            "part_names": [f"{i}" for i in range(13)],
+            "sigma": 5.0,
+            "output_stride": 1,
+            "loss_weight": 1.0,
+        }
+    )
+
+    model = Model(
+        model_config=base_unet_model_config, head_config=base_unet_head_config
+    ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
     _ = model.eval()
@@ -36,7 +46,9 @@ def test_unet_model():
     assert z.dtype == torch.float32
     torch.cuda.empty_cache()
 
-    model = Model.from_config(model_config=base_unet_model_config).to(device)
+    model = Model.from_config(
+        model_config=base_unet_model_config, head_config=base_unet_head_config
+    ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
     _ = model.eval()

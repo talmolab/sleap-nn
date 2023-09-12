@@ -124,7 +124,13 @@ def get_act_fn(activation: str) -> nn.Module:
         input_tensor = torch.randn(1, 64, 64)
         output = relu_fn(input_tensor)
     """
-    activations = {"relu": nn.ReLU(), "sigmoid": nn.Sigmoid(), "tanh": nn.Tanh(), "softmax": nn.Softmax(), "identity": nn.Identity()}
+    activations = {
+        "relu": nn.ReLU(),
+        "sigmoid": nn.Sigmoid(),
+        "tanh": nn.Tanh(),
+        "softmax": nn.Softmax(),
+        "identity": nn.Identity(),
+    }
 
     if activation not in activations:
         raise KeyError(
