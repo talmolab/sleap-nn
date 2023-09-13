@@ -8,6 +8,10 @@ def test_get_act_fn():
     with pytest.raises(KeyError):
         get_act_fn("invalid_input")
 
+    assert isinstance(get_act_fn("relu"), nn.ReLU)
+    assert isinstance(get_act_fn("softmax"), nn.Softmax)
+    assert isinstance(get_act_fn("identity"), nn.Identity)
+
 
 def test_get_children_layers():
     model = nn.Sequential(nn.Sequential(nn.Linear(5, 10)), nn.Linear(10, 5))
