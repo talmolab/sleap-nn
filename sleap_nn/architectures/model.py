@@ -114,8 +114,6 @@ class Model(nn.Module):
         )
 
         if backbone_config.backbone_type == "unet":
-            # self.backbone = UNet(**dict(backbone_config.backbone_config))
-
             in_channels = int(
                 backbone_config.backbone_config.filters
                 * (
@@ -132,9 +130,6 @@ class Model(nn.Module):
         self.head = get_head(head_config.head_type, head_config.head_config).make_head(
             x_in=in_channels
         )
-        # self.head = SingleInstanceConfmapsHead(**dict(head_config)).make_head(
-        #     x_in=in_channels
-        # )
 
     @classmethod
     def from_config(
