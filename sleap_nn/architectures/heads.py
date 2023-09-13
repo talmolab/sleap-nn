@@ -1,12 +1,11 @@
 """Model head definitions for defining model output types."""
 
-from typing import List, Optional, Sequence, Text, Tuple, Union
+from typing import List, Optional, Sequence, Text, Tuple
 
-from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from torch import nn
 
-from sleap_nn.architectures.common import get_act_fn
+from sleap_nn.architectures.utils import get_act_fn
 
 
 class Head:

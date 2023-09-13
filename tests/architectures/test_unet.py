@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 
-from sleap_nn.architectures.common import get_children_layers
 from sleap_nn.architectures.encoder_decoder import Encoder
 from sleap_nn.architectures.unet import UNet
+from sleap_nn.architectures.utils import get_children_layers
 
 
 def test_unet_reference():

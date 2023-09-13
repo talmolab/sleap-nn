@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from sleap_nn.architectures.common import MaxPool2dWithSamePadding, get_act_fn
+from sleap_nn.architectures.common import MaxPool2dWithSamePadding
 
 
 def test_maxpool2d_with_same_padding():
@@ -12,8 +12,3 @@ def test_maxpool2d_with_same_padding():
     x = torch.rand(1, 10, 100, 100)
     z = pooling(x)
     assert z.shape == (1, 10, 50, 50)
-
-
-def test_get_act_fn():
-    with pytest.raises(KeyError):
-        get_act_fn("invalid_input")

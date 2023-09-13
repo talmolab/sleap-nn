@@ -3,13 +3,9 @@
 See the `UNet` class docstring for more information.
 """
 
-import math
-from typing import List, Optional, Text, Tuple, Union
-
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from sleap_nn.architectures.encoder_decoder import Decoder, Encoder
 
