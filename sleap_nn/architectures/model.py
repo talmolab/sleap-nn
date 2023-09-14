@@ -105,7 +105,9 @@ class Model(nn.Module):
         head_config: An `DictConfig` configuration dictionary for the model head.
     """
 
-    def __init__(self, backbone_config: DictConfig, head_configs: List[DictConfig]) -> None:
+    def __init__(
+        self, backbone_config: DictConfig, head_configs: List[DictConfig]
+    ) -> None:
         """Initialize the backbone and head based on the backbone_config."""
         super().__init__()
         self.model_config = backbone_config
