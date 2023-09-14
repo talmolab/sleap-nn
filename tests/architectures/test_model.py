@@ -72,7 +72,7 @@ def test_unet_model():
     )
 
     model = Model(
-        backbone_config=base_unet_model_config, head_config=base_unet_head_config
+        backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
@@ -81,11 +81,13 @@ def test_unet_model():
     with torch.no_grad():
         z = model(x)
 
-    assert z.shape == (1, 13, 192, 192)
-    assert z.dtype == torch.float32
+    assert type(z) is list
+    assert len(z) == 1
+    assert z[0].shape == (1, 13, 192, 192)
+    assert z[0].dtype == torch.float32
 
     model = Model.from_config(
-        backbone_config=base_unet_model_config, head_config=base_unet_head_config
+        backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
@@ -94,5 +96,7 @@ def test_unet_model():
     with torch.no_grad():
         z = model(x)
 
-    assert z.shape == (1, 13, 192, 192)
-    assert z.dtype == torch.float32
+    assert type(z) is list
+    assert len(z) == 1
+    assert z[0].shape == (1, 13, 192, 192)
+    assert z[0].dtype == torch.float32

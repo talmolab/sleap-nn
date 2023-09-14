@@ -4,20 +4,22 @@ This is a higher level wrapper around `nn.Module` that holds all the configurati
 parameters required to construct the actual model. This allows for easy querying of the
 model configuration without actually instantiating the model itself.
 """
+from typing import List
+
 import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
 
 from sleap_nn.architectures.heads import (
-    CenteredInstanceConfmapsHead,
+    Head,
     CentroidConfmapsHead,
+    SingleInstanceConfmapsHead,
+    CenteredInstanceConfmapsHead,
+    MultiInstanceConfmapsHead,
+    PartAffinityFieldsHead,
     ClassMapsHead,
     ClassVectorsHead,
-    Head,
-    MultiInstanceConfmapsHead,
     OffsetRefinementHead,
-    PartAffinityFieldsHead,
-    SingleInstanceConfmapsHead,
 )
 from sleap_nn.architectures.unet import UNet
 
@@ -103,11 +105,11 @@ class Model(nn.Module):
         head_config: An `DictConfig` configuration dictionary for the model head.
     """
 
-    def __init__(self, backbone_config: DictConfig, head_config: DictConfig) -> None:
+    def __init__(self, backbone_config: DictConfig, head_configs: List[DictConfig]) -> None:
         """Initialize the backbone and head based on the backbone_config."""
         super().__init__()
         self.model_config = backbone_config
-        self.head_config = head_config
+        self.head_configs = head_configs
 
         self.backbone = get_backbone(
             backbone_config.backbone_type, backbone_config.backbone_config
@@ -127,19 +129,24 @@ class Model(nn.Module):
                 )
             )
 
-        self.head = get_head(head_config.head_type, head_config.head_config).make_head(
-            x_in=in_channels
-        )
+        self.heads = nn.ModuleList()
+        for head_config in head_configs:
+            head = get_head(head_config.head_type, head_config.head_config).make_head(
+                x_in=in_channels
+            )
+            self.heads.append(head)
 
     @classmethod
     def from_config(
-        cls, backbone_config: DictConfig, head_config: DictConfig
+        cls, backbone_config: DictConfig, head_configs: List[DictConfig]
     ) -> "Model":
         """Create the model from a config dictionary."""
-        return cls(backbone_config=backbone_config, head_config=head_config)
+        return cls(backbone_config=backbone_config, head_configs=head_configs)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
         x = self.backbone(x)
-        x = self.head(x)
-        return x
+        outputs = []
+        for head in self.heads:
+            outputs.append(head(x))
+        return outputs
