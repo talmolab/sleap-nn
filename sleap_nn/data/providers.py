@@ -14,17 +14,26 @@ class LabelsReader(IterDataPipe):
     Attributes:
         labels: sleap_io.Labels object that contains LabeledFrames that will be
             accessed through a torchdata DataPipe
+        user_instances: True if filter labels only to user instances else False. Default value True
     """
 
-    def __init__(self, labels: sio.Labels):
+    def __init__(self, labels: sio.Labels, user_instances: bool):
         """Initialize labels attribute of the class."""
         self.labels = labels
 
+        # Filter to user instances
+        if user_instances:
+            for lf in self.labels:
+                lf.instances = lf.user_instances
+            self.labels.labeled_frames = [
+                lf for lf in self.labels.labeled_frames if len(lf) > 0
+            ]
+
     @classmethod
-    def from_filename(cls, filename: str):
+    def from_filename(cls, filename: str, user_instances: bool = True):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
-        return cls(labels)
+        return cls(labels, user_instances)
 
     def __iter__(self):
         """Return an example dictionary containing the following elements.
