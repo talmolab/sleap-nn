@@ -63,5 +63,9 @@ def test_providers(minimal_instance):
     # Check user instance filtering
     assert len(list(l)) == 1
 
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
+    labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf, pred_lf]
+    )
     l = LabelsReader(labels, user_instances=False)
     assert len(list(l)) == 2
