@@ -12,6 +12,9 @@ def test_providers(minimal_instance):
     assert image.shape == torch.Size([1, 1, 384, 384])
     assert instances.shape == torch.Size([1, 2, 2, 2])
 
+
+def test_filter_user_instances(minimal_instance):
+
     # Create sample Labels object.
 
     # Create skeleton.
@@ -59,13 +62,14 @@ def test_providers(minimal_instance):
         videos=[video], skeletons=[skeleton], labeled_frames=[user_lf, pred_lf]
     )
 
-    l = LabelsReader(labels, user_instances=True)
+    l = LabelsReader(labels, user_instances_only=True)
     # Check user instance filtering
     assert len(list(l)) == 1
 
-    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
-    labels = sio.Labels(
-        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf, pred_lf]
-    )
-    l = LabelsReader(labels, user_instances=False)
+    l = LabelsReader(labels, user_instances_only=False)
     assert len(list(l)) == 2
+
+    # Test with only Predicted instance
+    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf])
+    l = LabelsReader(labels, user_instances_only=True)
+    assert len(list(l)) == 0
