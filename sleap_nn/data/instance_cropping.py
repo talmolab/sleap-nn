@@ -1,5 +1,5 @@
 """Handle cropping of instances."""
-from typing import Optional, Tuple
+from typing import Iterator, Tuple, Dict
 
 import numpy as np
 import sleap_io as sio

@@ -11,18 +11,21 @@ from sleap_nn.architectures.heads import (
 )
 import torch
 
-output_stride = 1
-loss_weight = 1.0
-sample_input = torch.randn(1, 3, 64, 64)
-
 
 def test_head():
+    output_stride = 1
+    loss_weight = 1.0
+
     head = Head(output_stride=output_stride, loss_weight=loss_weight)
     assert head.output_stride == output_stride
     assert head.loss_weight == loss_weight
 
 
 def test_single_instance_confmaps_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     part_names = ["part1", "part2"]
     sigma = 5.0
     head = SingleInstanceConfmapsHead(
@@ -34,12 +37,17 @@ def test_single_instance_confmaps_head():
     output = head.make_head(sample_input.size(1))(sample_input)
 
     assert output.shape[1] == head.channels
+    assert output.dtype == torch.float32
     assert head.part_names == part_names
     assert head.sigma == sigma
     assert head.channels == len(part_names)
 
 
 def test_centroid_confmaps_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     anchor_part = "anchor_part"
     sigma = 5.0
     head = CentroidConfmapsHead(
@@ -51,12 +59,17 @@ def test_centroid_confmaps_head():
     output = head.make_head(sample_input.size(1))(sample_input)
 
     assert output.shape[1] == 1
+    assert output.dtype == torch.float32
     assert head.anchor_part == anchor_part
     assert head.sigma == sigma
     assert head.channels == 1
 
 
 def test_centered_instance_confmaps_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     part_names = ["part1", "part2"]
     anchor_part = "anchor_part"
     sigma = 5.0
@@ -70,6 +83,7 @@ def test_centered_instance_confmaps_head():
     output = head.make_head(sample_input.size(1))(sample_input)
 
     assert output.shape[1] == len(part_names)
+    assert output.dtype == torch.float32
     assert head.part_names == part_names
     assert head.anchor_part == anchor_part
     assert head.sigma == sigma
@@ -77,6 +91,10 @@ def test_centered_instance_confmaps_head():
 
 
 def test_multi_instance_confmaps_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     part_names = ["part1", "part2"]
     sigma = 5.0
     head = MultiInstanceConfmapsHead(
@@ -87,12 +105,17 @@ def test_multi_instance_confmaps_head():
     )
     output = head.make_head(sample_input.size(1))(sample_input)
     assert output.shape[1] == len(part_names)
+    assert output.dtype == torch.float32
     assert head.part_names == part_names
     assert head.sigma == sigma
     assert head.channels == len(part_names)
 
 
 def test_part_affinity_fields_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     edges = [("part1", "part2"), ("part2", "part3")]
     sigma = 5.0
     head = PartAffinityFieldsHead(
@@ -103,12 +126,17 @@ def test_part_affinity_fields_head():
     )
     output = head.make_head(sample_input.size(1))(sample_input)
     assert output.shape[1] == len(edges) * 2
+    assert output.dtype == torch.float32
     assert head.edges == edges
     assert head.sigma == sigma
     assert head.channels == len(edges) * 2
 
 
 def test_class_maps_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     classes = ["class1", "class2"]
     sigma = 5.0
     head = ClassMapsHead(
@@ -119,12 +147,17 @@ def test_class_maps_head():
     )
     output = head.make_head(sample_input.size(1))(sample_input)
     assert output.shape[1] == len(classes)
+    assert output.dtype == torch.float32
     assert head.classes == classes
     assert head.sigma == sigma
     assert head.channels == len(classes)
 
 
 def test_class_vectors_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     classes = ["class1", "class2"]
     num_fc_layers = 2
     num_fc_units = 64
@@ -139,6 +172,7 @@ def test_class_vectors_head():
     )
     output = head.make_head(sample_input.size(1))(sample_input)
     assert output.shape[1] == len(classes)
+    assert output.dtype == torch.float32
     assert head.classes == classes
     assert head.num_fc_layers == num_fc_layers
     assert head.num_fc_units == num_fc_units
@@ -147,6 +181,10 @@ def test_class_vectors_head():
 
 
 def test_offset_refinement_head():
+    output_stride = 1
+    loss_weight = 1.0
+    sample_input = torch.randn(1, 3, 64, 64)
+
     part_names = ["part1", "part2"]
     sigma_threshold = 0.2
     head = OffsetRefinementHead(
@@ -157,6 +195,7 @@ def test_offset_refinement_head():
     )
     output = head.make_head(sample_input.size(1))(sample_input)
     assert output.shape[1] == len(part_names) * 2
+    assert output.dtype == torch.float32
     assert head.part_names == part_names
     assert head.sigma_threshold == sigma_threshold
     assert head.channels == len(part_names) * 2

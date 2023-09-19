@@ -110,7 +110,7 @@ class Model(nn.Module):
     ) -> None:
         """Initialize the backbone and head based on the backbone_config."""
         super().__init__()
-        self.model_config = backbone_config
+        self.backbone_config = backbone_config
         self.head_configs = head_configs
 
         self.backbone = get_backbone(
@@ -120,10 +120,14 @@ class Model(nn.Module):
 
         self.heads = nn.ModuleList()
         for head_config in head_configs:
-            head = get_head(head_config.head_type, head_config.head_config).make_head(
-                x_in=in_channels
-            )
-            self.heads.append(head)
+            try:
+                head = get_head(
+                    head_config.head_type, head_config.head_config
+                ).make_head(x_in=in_channels)
+                self.heads.append(head)
+            except Exception as e:
+                # Handle the error gracefully, e.g., by printing an error message
+                print(f"Error creating head: {e}")
 
     @classmethod
     def from_config(

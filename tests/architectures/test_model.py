@@ -2,6 +2,7 @@ import torch
 from omegaconf import OmegaConf
 
 from sleap_nn.architectures.model import Model, get_backbone, get_head
+from sleap_nn.architectures.heads import Head
 
 
 def test_get_backbone():
@@ -23,6 +24,7 @@ def test_get_backbone():
     backbone = get_backbone(
         base_unet_model_config.backbone_type, base_unet_model_config.backbone_config
     )
+    assert isinstance(backbone, torch.nn.Module)
 
 
 def test_get_head():
@@ -39,6 +41,7 @@ def test_get_head():
     )
 
     head = get_head(base_unet_head_config.head_type, base_unet_head_config.head_config)
+    assert isinstance(head, Head)
 
 
 def test_unet_model():
@@ -74,6 +77,9 @@ def test_unet_model():
     model = Model(
         backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
     ).to(device)
+
+    assert model.backbone_config == base_unet_model_config
+    assert model.head_configs == [base_unet_head_config]
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()

@@ -25,7 +25,7 @@ class Head:
     @property
     def channels(self) -> int:
         """Return the number of channels in the tensor output by this head."""
-        pass
+        raise NotImplementedError("Subclasses must implement this method.")
 
     @property
     def activation(self) -> str:
