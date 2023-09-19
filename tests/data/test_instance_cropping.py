@@ -29,7 +29,19 @@ def test_instance_cropper(minimal_instance):
     datapipe = InstanceCropper(datapipe, (100, 100))
     sample = next(iter(datapipe))
 
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "centroids",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+    ]
+
     # Test shapes.
+    assert len(sample.keys()) == len(gt_sample_keys)
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
     assert sample["instance"].shape == (2, 2)
     assert sample["instance_image"].shape == (1, 1, 100, 100)
     assert sample["instance_bbox"].shape == (1, 4, 2)
