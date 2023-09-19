@@ -1,15 +1,12 @@
 """This module implements data pipeline blocks for augmentation operations."""
-from typing import Any, Dict, Optional, Text, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import kornia as K
 import torch
-from kornia.augmentation._2d.geometric.base import GeometricAugmentationBase2D
 from kornia.augmentation._2d.intensity.base import IntensityAugmentationBase2D
 from kornia.augmentation.container import AugmentationSequential
 from kornia.augmentation.utils.param_validation import _range_bound
-from kornia.constants import Resample, SamplePadding
 from kornia.core import Tensor
-from kornia.geometry.transform import warp_affine
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
