@@ -1,5 +1,5 @@
 """Handle calculation of instance centroids."""
-from typing import Optional
+from typing import Dict, Iterator, Optional
 
 import torch
 from torch.utils.data.datapipes.datapipe import IterDataPipe
@@ -79,15 +79,15 @@ class InstanceCentroidFinder(IterDataPipe):
         self,
         source_dp: IterDataPipe,
         anchor_ind: Optional[int] = None,
-    ):
+    ) -> None:
         """Initialize InstanceCentroidFinder with the source `DataPipe."""
         self.source_dp = source_dp
         self.anchor_ind = anchor_ind
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Add `"centroids"` key to example."""
-        for example in self.source_dp:
-            example["centroids"] = find_centroids(
-                example["instances"], anchor_ind=self.anchor_ind
+        for ex in self.source_dp:
+            ex["centroids"] = find_centroids(
+                ex["instances"], anchor_ind=self.anchor_ind
             )
-            yield example
+            yield ex

@@ -1,5 +1,5 @@
 """Handle cropping of instances."""
-from typing import Optional
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -58,50 +58,46 @@ class InstanceCropper(IterDataPipe):
 
     Attributes:
         source_dp: The previous `DataPipe` with samples that contain an `instances` key.
-        crop_width: Width of the crop in pixels
-        crop_height: Height of the crop in pixels
+        crop_hw: Height and Width of the crop in pixels
     """
 
-    def __init__(
-        self,
-        source_dp: IterDataPipe,
-        crop_width: int,
-        crop_height: int,
-    ):
+    def __init__(self, source_dp: IterDataPipe, crop_hw: Tuple[int, int]) -> None:
         """Initialize InstanceCropper with the source `DataPipe."""
         self.source_dp = source_dp
-        self.crop_width = crop_width
-        self.crop_height = crop_height
+        self.crop_hw = crop_hw
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Generate instance cropped examples."""
-        for example in self.source_dp:
-            image = example["image"]  # (frames, channels, height, width)
-            instances = example["instances"]  # (frames, n_instances, n_nodes, 2)
-            centroids = example["centroids"]  # (frames, n_instances, 2)
+        for ex in self.source_dp:
+            image = ex["image"]  # (B, channels, height, width)
+            instances = ex["instances"]  # (B, n_instances, num_nodes, 2)
+            centroids = ex["centroids"]  # (B, n_instances, 2)
             for instance, centroid in zip(instances[0], centroids[0]):
                 # Generate bounding boxes from centroid.
-                bbox = torch.unsqueeze(
-                    make_centered_bboxes(centroid, self.crop_height, self.crop_width), 0
-                )  # (frames, 4, 2)
+                instance_bbox = torch.unsqueeze(
+                    make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
+                )  # (B, 4, 2)
 
-                box_size = (self.crop_height, self.crop_width)
+                box_size = (self.crop_hw[0], self.crop_hw[1])
 
-                # Generate cropped image of shape (frames, channels, crop_height, crop_width)
+                # Generate cropped image of shape (B, channels, crop_height, crop_width)
                 instance_image = crop_and_resize(
                     image,
-                    boxes=bbox,
+                    boxes=instance_bbox,
                     size=box_size,
                 )
 
                 # Access top left point (x,y) of bounding box and subtract this offset from
                 # position of nodes.
-                point = bbox[0][0]
+                point = instance_bbox[0][0]
                 center_instance = instance - point
 
                 instance_example = {
-                    "instance_image": instance_image,  # (frames, channels, crop_height, crop_width)
-                    "bbox": bbox,  # (frames, 4, 2)
-                    "instance": center_instance,  # (n_instances, 2)
+                    "instance_image": instance_image.squeeze(
+                        0
+                    ),  # (B=1, channels, crop_height, crop_width)
+                    "instance_bbox": instance_bbox,  # (B, 4, 2)
+                    "instance": center_instance,  # (num_nodes, 2)
                 }
-                yield instance_example
+                ex.update(instance_example)
+                yield ex
