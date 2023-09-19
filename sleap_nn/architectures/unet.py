@@ -43,6 +43,14 @@ class UNet(nn.Module):
         """Initialize the class."""
         super().__init__()
 
+        self.in_channels = in_channels
+        self.kernel_size = kernel_size
+        self.filters = filters
+        self.filters_rate = filters_rate
+        self.down_blocks = down_blocks
+        self.up_blocks = up_blocks
+        self.convs_per_block = convs_per_block
+
         self.enc = Encoder(
             in_channels=in_channels,
             filters=filters,
@@ -72,6 +80,14 @@ class UNet(nn.Module):
             up_blocks=up_blocks,
             down_blocks=down_blocks,
             filters_rate=filters_rate,
+        )
+
+    @property
+    def output_channels(self):
+        """Returns the output channels of the UNet."""
+        return int(
+            self.filters
+            * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

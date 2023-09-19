@@ -116,20 +116,7 @@ class Model(nn.Module):
         self.backbone = get_backbone(
             backbone_config.backbone_type, backbone_config.backbone_config
         )
-
-        if backbone_config.backbone_type == "unet":
-            in_channels = int(
-                backbone_config.backbone_config.filters
-                * (
-                    backbone_config.backbone_config.filters_rate
-                    ** (
-                        backbone_config.backbone_config.down_blocks
-                        - 1
-                        - backbone_config.backbone_config.up_blocks
-                        + 1
-                    )
-                )
-            )
+        in_channels = self.backbone.output_channels
 
         self.heads = nn.ModuleList()
         for head_config in head_configs:
