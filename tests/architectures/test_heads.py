@@ -1,3 +1,5 @@
+import pytest
+from omegaconf import OmegaConf
 from sleap_nn.architectures.heads import (
     Head,
     SingleInstanceConfmapsHead,
@@ -17,7 +19,11 @@ def test_head():
     loss_weight = 1.0
 
     head = Head(output_stride=output_stride, loss_weight=loss_weight)
+    with pytest.raises(NotImplementedError):
+        _ = head.channels
     assert head.output_stride == output_stride
+    assert head.loss_function == "mse"
+    assert head.activation == "identity"
     assert head.loss_weight == loss_weight
 
 
@@ -25,6 +31,20 @@ def test_single_instance_confmaps_head():
     output_stride = 1
     loss_weight = 1.0
     sample_input = torch.randn(1, 3, 64, 64)
+
+    part_names = None
+    sigma = 5.0
+    with pytest.raises(ValueError):
+        _ = SingleInstanceConfmapsHead.from_config(
+            OmegaConf.create(
+                {
+                    "part_names": part_names,
+                    "sigma": sigma,
+                    "output_stride": output_stride,
+                    "loss_weight": loss_weight,
+                }
+            )
+        )
 
     part_names = ["part1", "part2"]
     sigma = 5.0
@@ -41,6 +61,18 @@ def test_single_instance_confmaps_head():
     assert head.part_names == part_names
     assert head.sigma == sigma
     assert head.channels == len(part_names)
+
+    base_unet_head_config = OmegaConf.create(
+        {
+            "part_names": [f"{i}" for i in range(13)],
+            "sigma": 5.0,
+            "output_stride": 1,
+            "loss_weight": 1.0,
+        }
+    )
+
+    head = SingleInstanceConfmapsHead.from_config(base_unet_head_config)
+    assert isinstance(head, Head)
 
 
 def test_centroid_confmaps_head():
@@ -63,6 +95,18 @@ def test_centroid_confmaps_head():
     assert head.anchor_part == anchor_part
     assert head.sigma == sigma
     assert head.channels == 1
+
+    config = OmegaConf.create(
+        {
+            "anchor_part": anchor_part,
+            "sigma": sigma,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = CentroidConfmapsHead.from_config(config)
+    assert isinstance(head, Head)
 
 
 def test_centered_instance_confmaps_head():
@@ -89,6 +133,32 @@ def test_centered_instance_confmaps_head():
     assert head.sigma == sigma
     assert head.channels == len(part_names)
 
+    config = OmegaConf.create(
+        {
+            "part_names": part_names,
+            "anchor_part": anchor_part,
+            "sigma": sigma,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = CenteredInstanceConfmapsHead.from_config(config)
+    assert isinstance(head, Head)
+
+    with pytest.raises(ValueError):
+        _ = CenteredInstanceConfmapsHead.from_config(
+            OmegaConf.create(
+                {
+                    "part_names": None,
+                    "anchor_part": anchor_part,
+                    "sigma": sigma,
+                    "output_stride": output_stride,
+                    "loss_weight": loss_weight,
+                }
+            )
+        )
+
 
 def test_multi_instance_confmaps_head():
     output_stride = 1
@@ -109,6 +179,30 @@ def test_multi_instance_confmaps_head():
     assert head.part_names == part_names
     assert head.sigma == sigma
     assert head.channels == len(part_names)
+
+    config = OmegaConf.create(
+        {
+            "part_names": part_names,
+            "sigma": sigma,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = MultiInstanceConfmapsHead.from_config(config)
+    assert isinstance(head, Head)
+
+    with pytest.raises(ValueError):
+        _ = MultiInstanceConfmapsHead.from_config(
+            OmegaConf.create(
+                {
+                    "part_names": None,
+                    "sigma": sigma,
+                    "output_stride": output_stride,
+                    "loss_weight": loss_weight,
+                }
+            )
+        )
 
 
 def test_part_affinity_fields_head():
@@ -131,6 +225,18 @@ def test_part_affinity_fields_head():
     assert head.sigma == sigma
     assert head.channels == len(edges) * 2
 
+    config = OmegaConf.create(
+        {
+            "edges": edges,
+            "sigma": sigma,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = PartAffinityFieldsHead.from_config(config)
+    assert isinstance(head, Head)
+
 
 def test_class_maps_head():
     output_stride = 1
@@ -152,6 +258,18 @@ def test_class_maps_head():
     assert head.sigma == sigma
     assert head.channels == len(classes)
 
+    config = OmegaConf.create(
+        {
+            "classes": classes,
+            "sigma": sigma,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = ClassMapsHead.from_config(config)
+    assert isinstance(head, Head)
+
 
 def test_class_vectors_head():
     output_stride = 1
@@ -170,7 +288,10 @@ def test_class_vectors_head():
         output_stride=output_stride,
         loss_weight=loss_weight,
     )
+
     output = head.make_head(sample_input.size(1))(sample_input)
+    assert head.activation == "softmax"
+    assert head.loss_function == "categorical_crossentropy"
     assert output.shape[1] == len(classes)
     assert output.dtype == torch.float32
     assert head.classes == classes
@@ -178,6 +299,20 @@ def test_class_vectors_head():
     assert head.num_fc_units == num_fc_units
     assert head.global_pool == global_pool
     assert head.channels == len(classes)
+
+    config = OmegaConf.create(
+        {
+            "classes": classes,
+            "num_fc_layers": num_fc_layers,
+            "num_fc_units": num_fc_units,
+            "global_pool": global_pool,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = ClassVectorsHead.from_config(config)
+    assert isinstance(head, Head)
 
 
 def test_offset_refinement_head():
@@ -199,3 +334,38 @@ def test_offset_refinement_head():
     assert head.part_names == part_names
     assert head.sigma_threshold == sigma_threshold
     assert head.channels == len(part_names) * 2
+
+    config = OmegaConf.create(
+        {
+            "part_names": part_names,
+            "sigma_threshold": sigma_threshold,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = OffsetRefinementHead.from_config(config)
+    assert isinstance(head, Head)
+
+    config = OmegaConf.create(
+        {
+            "anchor_part": part_names[0],
+            "sigma_threshold": sigma_threshold,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    head = OffsetRefinementHead.from_config(config)
+    assert isinstance(head, Head)
+
+    config = OmegaConf.create(
+        {
+            "sigma_threshold": sigma_threshold,
+            "output_stride": output_stride,
+            "loss_weight": loss_weight,
+        }
+    )
+
+    with pytest.raises(ValueError):
+        _ = OffsetRefinementHead.from_config(config)

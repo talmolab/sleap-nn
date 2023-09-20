@@ -120,14 +120,10 @@ class Model(nn.Module):
 
         self.heads = nn.ModuleList()
         for head_config in head_configs:
-            try:
-                head = get_head(
-                    head_config.head_type, head_config.head_config
-                ).make_head(x_in=in_channels)
-                self.heads.append(head)
-            except Exception as e:
-                # Handle the error gracefully, e.g., by printing an error message
-                print(f"Error creating head: {e}")
+            head = get_head(head_config.head_type, head_config.head_config).make_head(
+                x_in=in_channels
+            )
+            self.heads.append(head)
 
     @classmethod
     def from_config(

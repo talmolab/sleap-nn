@@ -1,3 +1,4 @@
+import pytest
 import torch
 from omegaconf import OmegaConf
 
@@ -26,6 +27,9 @@ def test_get_backbone():
     )
     assert isinstance(backbone, torch.nn.Module)
 
+    with pytest.raises(KeyError):
+        _ = get_backbone("invalid_input", base_unet_model_config.backbone_config)
+
 
 def test_get_head():
     base_unet_head_config = OmegaConf.create(
@@ -42,6 +46,9 @@ def test_get_head():
 
     head = get_head(base_unet_head_config.head_type, base_unet_head_config.head_config)
     assert isinstance(head, Head)
+
+    with pytest.raises(KeyError):
+        _ = get_head("invalid_input", base_unet_head_config.head_config)
 
 
 def test_unet_model():
