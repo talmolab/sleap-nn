@@ -47,8 +47,8 @@ def test_kornia_augmentation(minimal_instance):
         erase_p=1.0,
         mixup_p=1.0,
         mixup_lambda=(0.0, 1.0),
-        crop_hw=(384, 384),
-        crop_p=1.0,
+        random_crop_hw=(384, 384),
+        random_crop_p=1.0,
     )
 
     # Test all augmentations.
@@ -68,6 +68,6 @@ def test_kornia_augmentation(minimal_instance):
     ):
         p = KorniaAugmenter(
             p,
-            crop_hw=(0, 0),
-            crop_p=1.0,
+            random_crop_hw=(0, 0),
+            random_crop_p=1.0,
         )

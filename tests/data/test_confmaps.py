@@ -12,7 +12,7 @@ def test_confmaps(minimal_instance):
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = Normalizer(datapipe)
-    datapipe = InstanceCropper(datapipe, 100, 100)
+    datapipe = InstanceCropper(datapipe, (100, 100))
     datapipe1 = ConfidenceMapGenerator(datapipe, sigma=1.5, output_stride=1)
     sample = next(iter(datapipe1))
 
