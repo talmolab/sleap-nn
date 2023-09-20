@@ -97,7 +97,7 @@ class UNet(nn.Module):
             x: Input tensor.
 
         Returns:
-            torch.Tensor: Output tensor after applying the U-Net operations.
+            torch.Tensor: Output a tensor after applying the U-Net operations.
         """
         x, features = self.enc(x)
         x = self.dec(x, features)
