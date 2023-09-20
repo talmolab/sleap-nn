@@ -41,7 +41,7 @@ def make_confmaps(
     )
 
     # Replace NaNs with 0.
-    cm = torch.where(torch.isnan(cm), 0.0, cm)
+    cm = torch.nan_to_num(cm)
     return cm
 
 

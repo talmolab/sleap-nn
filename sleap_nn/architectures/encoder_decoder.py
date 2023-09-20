@@ -28,8 +28,10 @@ See the `EncoderDecoder` base class for requirements for creating new architectu
 from typing import List, Text, Tuple, Union
 
 import torch
-from sleap_nn.architectures.common import MaxPool2dWithSamePadding, get_act_fn
 from torch import nn
+
+from sleap_nn.architectures.common import MaxPool2dWithSamePadding
+from sleap_nn.architectures.utils import get_act_fn
 
 
 class SimpleConvBlock(nn.Module):

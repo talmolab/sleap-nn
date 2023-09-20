@@ -3,16 +3,14 @@
 This allows for convenient ways to configure individual variants of common pipelines, as
 well as to define training vs inference versions based on the same configurations.
 """
-import torch
-from omegaconf.dictconfig import DictConfig
-from torch.utils.data.datapipes.datapipe import IterDataPipe
-
+from omegaconf.omegaconf import DictConfig
 from sleap_nn.data.augmentation import KorniaAugmenter
-from sleap_nn.data.confidence_maps import ConfidenceMapGenerator
-from sleap_nn.data.general import KeyFilter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.confidence_maps import ConfidenceMapGenerator
+from sleap_nn.data.general import KeyFilter
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 class TopdownConfmapsPipeline:

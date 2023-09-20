@@ -1,5 +1,5 @@
 """Handle cropping of instances."""
-from typing import Dict, Iterator, Tuple
+from typing import Iterator, Tuple, Dict
 
 import torch
 from kornia.geometry.transform import crop_and_resize
