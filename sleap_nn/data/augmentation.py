@@ -1,15 +1,12 @@
 """This module implements data pipeline blocks for augmentation operations."""
-from typing import Any, Dict, Optional, Text, Tuple, Union
+from typing import Any, Dict, Iterator, Optional, Tuple, Union
 
 import kornia as K
 import torch
-from kornia.augmentation._2d.geometric.base import GeometricAugmentationBase2D
 from kornia.augmentation._2d.intensity.base import IntensityAugmentationBase2D
 from kornia.augmentation.container import AugmentationSequential
 from kornia.augmentation.utils.param_validation import _range_bound
-from kornia.constants import Resample, SamplePadding
 from kornia.core import Tensor
-from kornia.geometry.transform import warp_affine
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
@@ -166,8 +163,8 @@ class KorniaAugmenter(IterDataPipe):
         mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
         mixup_p: float = 0.0,
         random_crop_hw: Tuple[int, int] = (0, 0),
-        random_crop_p: float = 0.0
-    ):
+        random_crop_p: float = 0.0,
+    ) -> None:
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
         self.rotation = rotation
@@ -282,7 +279,7 @@ class KorniaAugmenter(IterDataPipe):
             same_on_batch=True,
         )
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the augmented image and instances."""
         for ex in self.source_dp:
             if "instance_image" in ex and "instance" in ex:

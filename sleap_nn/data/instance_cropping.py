@@ -1,8 +1,6 @@
 """Handle cropping of instances."""
-from typing import Optional, Tuple
+from typing import Dict, Iterator, Tuple
 
-import numpy as np
-import sleap_io as sio
 import torch
 from kornia.geometry.transform import crop_and_resize
 from torch.utils.data.datapipes.datapipe import IterDataPipe
@@ -61,12 +59,12 @@ class InstanceCropper(IterDataPipe):
         crop_hw: Height and Width of the crop in pixels
     """
 
-    def __init__(self, source_dp: IterDataPipe, crop_hw: Tuple[int, int]):
+    def __init__(self, source_dp: IterDataPipe, crop_hw: Tuple[int, int]) -> None:
         """Initialize InstanceCropper with the source `DataPipe."""
         self.source_dp = source_dp
         self.crop_hw = crop_hw
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Generate instance cropped examples."""
         for ex in self.source_dp:
             image = ex["image"]  # (B, channels, height, width)
@@ -93,8 +91,11 @@ class InstanceCropper(IterDataPipe):
                 center_instance = instance - point
 
                 instance_example = {
-                    "instance_image": instance_image,  # (B, channels, crop_height, crop_width)
+                    "instance_image": instance_image.squeeze(
+                        0
+                    ),  # (B=1, channels, crop_height, crop_width)
                     "instance_bbox": instance_bbox,  # (B, 4, 2)
                     "instance": center_instance,  # (num_nodes, 2)
                 }
-                yield instance_example
+                ex.update(instance_example)
+                yield ex
