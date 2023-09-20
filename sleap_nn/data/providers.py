@@ -3,6 +3,7 @@ import numpy as np
 import sleap_io as sio
 import torch
 from torch.utils.data.datapipes.datapipe import IterDataPipe
+import copy
 
 
 class LabelsReader(IterDataPipe):
@@ -19,14 +20,20 @@ class LabelsReader(IterDataPipe):
 
     def __init__(self, labels: sio.Labels, user_instances_only: bool = True):
         """Initialize labels attribute of the class."""
-        self.labels = labels
+        self.labels = copy.deepcopy(labels)
 
         # Filter to user instances
         if user_instances_only:
-            filtered_lfs = [
-                lf for lf in self.labels.labeled_frames if len(lf.user_instances) > 0
-            ]
-            self.labels = sio.Labels(filtered_lfs)
+            filtered_lfs = []
+            for lf in self.labels:
+                if len(lf.user_instances) > 0:
+                    lf.instances = lf.user_instances
+                    filtered_lfs.append(lf)
+            self.labels = sio.Labels(
+                videos=labels.videos,
+                skeletons=[labels.skeleton],
+                labeled_frames=filtered_lfs,
+            )
 
     @classmethod
     def from_filename(cls, filename: str, user_instances_only: bool = True):
