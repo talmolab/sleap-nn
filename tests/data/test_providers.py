@@ -14,7 +14,6 @@ def test_providers(minimal_instance):
 
 
 def test_filter_user_instances(minimal_instance):
-
     # Create sample Labels object.
 
     # Create skeleton.
@@ -61,7 +60,8 @@ def test_filter_user_instances(minimal_instance):
 
     # Create labels.
     labels = sio.Labels(
-        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf, pred_lf])
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf, pred_lf]
+    )
 
     l = LabelsReader(labels, user_instances_only=True)
 
