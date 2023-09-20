@@ -13,6 +13,7 @@ from sleap_nn.data.confidence_maps import ConfidenceMapGenerator
 from sleap_nn.data.general import KeyFilter
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
+
 class TopdownConfmapsPipeline:
     """Pipeline builder for instance-centered confidence map models.
 

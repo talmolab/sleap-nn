@@ -40,9 +40,7 @@ def test_sleap_dataset(minimal_instance):
 def test_topdownconfmapspipeline(minimal_instance):
     base_topdown_data_config = OmegaConf.create(
         {
-            "general": {
-                "keep_keys": ["instance_image", "confidence_maps"]
-            },
+            "general": {"keep_keys": ["instance_image", "confidence_maps"]},
             "preprocessing": {
                 "crop_hw": (160, 160),
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
