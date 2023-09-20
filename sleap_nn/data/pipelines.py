@@ -40,6 +40,12 @@ class TopdownConfmapsPipeline:
         datapipe = data_provider.from_filename(filename=filename)
         datapipe = Normalizer(datapipe)
 
+        if self.data_config.augmentation_config.use_augmentations:
+            datapipe = KorniaAugmenter(
+                datapipe,
+                **dict(self.data_config.augmentation_config.augmentations.intensity),
+            )
+
         datapipe = InstanceCentroidFinder(datapipe)
         datapipe = InstanceCropper(datapipe, self.data_config.preprocessing.crop_hw)
 
@@ -52,7 +58,8 @@ class TopdownConfmapsPipeline:
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
-                datapipe, **dict(self.data_config.augmentation_config.augmentations)
+                datapipe,
+                **dict(self.data_config.augmentation_config.augmentations.geometric),
             )
 
         datapipe = ConfidenceMapGenerator(
