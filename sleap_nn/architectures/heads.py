@@ -23,6 +23,10 @@ class Head:
         self.loss_weight = loss_weight
 
     @property
+    def name(self) -> str:
+        return type(self).__name__
+
+    @property
     def channels(self) -> int:
         """Return the number of channels in the tensor output by this head."""
         raise NotImplementedError("Subclasses must implement this method.")
