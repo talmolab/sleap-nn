@@ -24,6 +24,7 @@ class Head:
 
     @property
     def name(self) -> str:
+        """Name of the head."""
         return type(self).__name__
 
     @property
