@@ -1,8 +1,6 @@
 """Handle cropping of instances."""
 from typing import Iterator, Tuple, Dict
 
-import numpy as np
-import sleap_io as sio
 import torch
 from kornia.geometry.transform import crop_and_resize
 from torch.utils.data.datapipes.datapipe import IterDataPipe

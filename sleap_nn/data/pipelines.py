@@ -3,7 +3,6 @@
 This allows for convenient ways to configure individual variants of common pipelines, as
 well as to define training vs inference versions based on the same configurations.
 """
-
 from omegaconf.omegaconf import DictConfig
 from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
@@ -41,6 +40,12 @@ class TopdownConfmapsPipeline:
         datapipe = data_provider.from_filename(filename=filename)
         datapipe = Normalizer(datapipe)
 
+        if self.data_config.augmentation_config.use_augmentations:
+            datapipe = KorniaAugmenter(
+                datapipe,
+                **dict(self.data_config.augmentation_config.augmentations.intensity),
+            )
+
         datapipe = InstanceCentroidFinder(datapipe)
         datapipe = InstanceCropper(datapipe, self.data_config.preprocessing.crop_hw)
 
@@ -51,9 +56,11 @@ class TopdownConfmapsPipeline:
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
             )
 
-        datapipe = KorniaAugmenter(
-            datapipe, **dict(self.data_config.augmentation_config.augmentations)
-        )
+        if self.data_config.augmentation_config.use_augmentations:
+            datapipe = KorniaAugmenter(
+                datapipe,
+                **dict(self.data_config.augmentation_config.augmentations.geometric),
+            )
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
