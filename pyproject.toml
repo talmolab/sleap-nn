@@ -57,10 +57,6 @@ Repository = "https://github.com/talmolab/sleap-nn"
 [tool.black]
 line-length = 88
 
-# [pydocstyle]
-# convention = "google"
-# match-dir = "sleap_nn"
-
 [tool.ruff]
 format = "github"
 select = [
