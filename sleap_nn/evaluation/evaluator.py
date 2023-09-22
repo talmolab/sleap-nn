@@ -2,7 +2,36 @@
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
+import attr
 import sleap_io as sio
+
+
+@attr.s(auto_attribs=True, slots=True)
+class MatchInstance:
+    instance: sio.Instance
+    frame_idx: int
+    video_path: str
+
+
+def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
+    """
+    Function to get a list of instances of type MatchInstance from the Labeled Frame.
+    Args:
+        labeled_frame: Input Labeled frame of type sio.LabeledFrame.
+
+    Returns:
+        List of MatchInstance objects for the given labeled frame.
+    """
+    instance_list = []
+    frame_idx = labeled_frame.frame_idx
+    video_path = labeled_frame.video.backend.source_filename
+    for instance in labeled_frame.instances:
+        match_instance = MatchInstance(
+            instance=instance, frame_idx=frame_idx, video_path=video_path
+        )
+        instance_list.append(match_instance)
+    return instance_list
+
 
 def find_frame_pairs(
     labels_gt: sio.Labels, labels_pr: sio.Labels, user_labels_only: bool = True
@@ -20,11 +49,13 @@ def find_frame_pairs(
     """
     frame_pairs = []
     for video_gt in labels_gt.videos:
-
         # Find matching video instance in predictions.
         video_pr = None
         for video in labels_pr.videos:
-            if isinstance(video.backend, type(video_gt.backend)) and video.filename == video_gt.filename:
+            if (
+                isinstance(video.backend, type(video_gt.backend))
+                and video.filename == video_gt.filename
+            ):
                 video_pr = video
                 break
 
@@ -39,9 +70,6 @@ def find_frame_pairs(
             labeled_frames_gt = [
                 lf for lf in labeled_frames_gt if len(lf.user_instances) > 0
             ]
-            # labeled_frames_gt = [
-            #     lf for lf in labeled_frames_gt if lf.has_user_instances
-            # ]
 
         # Attempt to match each labeled frame in the ground truth.
         for labeled_frame_gt in labeled_frames_gt:
@@ -61,6 +89,7 @@ def find_frame_pairs(
 
     return frame_pairs
 
+
 def compute_instance_area(points: np.ndarray) -> np.ndarray:
     """Compute the area of the bounding box of a set of keypoints.
 
@@ -77,6 +106,7 @@ def compute_instance_area(points: np.ndarray) -> np.ndarray:
     max_pt = np.nanmax(points, axis=-2)
 
     return np.prod(max_pt - min_pt, axis=-1)
+
 
 def compute_oks(
     points_gt: np.ndarray,
@@ -153,7 +183,7 @@ def compute_oks(
     assert displacement.shape == (n_gt, n_pr, n_nodes, n_ed)
 
     # Convert to pairwise Euclidean distances.
-    distance = (displacement ** 2).sum(axis=-1)  # (n_gt, n_pr, n_nodes)
+    distance = (displacement**2).sum(axis=-1)  # (n_gt, n_pr, n_nodes)
     assert distance.shape == (n_gt, n_pr, n_nodes)
 
     # Compute the normalization factor per keypoint.
@@ -163,7 +193,7 @@ def compute_oks(
         scale_factor = 2 * (scale + np.spacing(1))
     else:
         # If use_cocoeval is False, then compute normalization factor according to the paper.
-        spread_factor = stddev ** 2
+        spread_factor = stddev**2
         scale_factor = 2 * ((scale + np.spacing(1)) ** 2)
     normalization_factor = np.reshape(spread_factor, (1, 1, n_nodes)) * np.reshape(
         scale_factor, (n_gt, 1, 1)
@@ -196,13 +226,13 @@ def compute_oks(
 
     return oks
 
+
 def match_instances(
     frame_gt: sio.LabeledFrame,
     frame_pr: sio.LabeledFrame,
     stddev: float = 0.025,
     scale: Optional[float] = None,
     threshold: float = 0,
-    user_labels_only: bool = True,
 ) -> Tuple[List[Tuple[sio.Instance, sio.PredictedInstance, float]], List[sio.Instance]]:
     """Match pairs of instances between ground truth and predictions in a frame.
 
@@ -214,8 +244,6 @@ def match_instances(
             be used.
         threshold: The minimum OKS between a candidate pair of instances to be
             considered a match.
-        user_labels_only: If False, predicted instances in the ground truth frame may be
-            considered for matching.
 
     Returns:
         A tuple of (`positive_pairs`, `false_negatives`).
@@ -236,32 +264,31 @@ def match_instances(
         Ground truth instances that remain unmatched are considered false negatives.
     """
     # Sort predicted instances by score.
+    frame_pr_match_instances = get_instances(frame_pr)
+
     scores_pr = np.array(
         [
-            instance.score
-            for instance in frame_pr.instances
-            if hasattr(instance, "score")
+            m.instance.score
+            for m in frame_pr_match_instances
+            if hasattr(m.instance, "score")
         ]
     )
     idxs_pr = np.argsort(-scores_pr, kind="mergesort")  # descending
     scores_pr = scores_pr[idxs_pr]
 
-    if user_labels_only:
-        available_instances_gt = frame_gt.user_instances
-    else:
-        available_instances_gt = frame_gt.instances
+    available_instances_gt = get_instances(frame_gt)
     available_instances_gt_idxs = list(range(len(available_instances_gt)))
 
     positive_pairs = []
     for idx_pr in idxs_pr:
         # Pull out predicted instance.
-        instance_pr = frame_pr.instances[idx_pr]
+        instance_pr = frame_pr_match_instances[idx_pr]
 
         # Convert instances to point arrays.
-        points_pr = np.expand_dims(instance_pr.numpy(), axis=0)
+        points_pr = np.expand_dims(instance_pr.instance.numpy(), axis=0)
         points_gt = np.stack(
             [
-                available_instances_gt[idx].numpy()
+                available_instances_gt[idx].instance.numpy()
                 for idx in available_instances_gt_idxs
             ],
             axis=0,
@@ -295,12 +322,12 @@ def match_instances(
 
     return positive_pairs, false_negatives
 
+
 def match_frame_pairs(
     frame_pairs: List[Tuple[sio.LabeledFrame, sio.LabeledFrame]],
     stddev: float = 0.025,
     scale: Optional[float] = None,
     threshold: float = 0,
-    user_labels_only: bool = True,
 ) -> Tuple[List[Tuple[sio.Instance, sio.PredictedInstance, float]], List[sio.Instance]]:
     """Match all ground truth and predicted instances within each pair of frames.
 
@@ -314,8 +341,6 @@ def match_frame_pairs(
             be used.
         threshold: The minimum OKS between a candidate pair of instances to be
             considered a match.
-        user_labels_only: If False, predicted instances in the ground truth frame may be
-            considered for matching.
 
     Returns:
         A tuple of (`positive_pairs`, `false_negatives`).
@@ -336,12 +361,12 @@ def match_frame_pairs(
             stddev=stddev,
             scale=scale,
             threshold=threshold,
-            user_labels_only=user_labels_only,
         )
         positive_pairs.extend(positive_pairs_frame)
         false_negatives.extend(false_negatives_frame)
 
     return positive_pairs, false_negatives
+
 
 def compute_dists(
     positive_pairs: List[Tuple[sio.Instance, sio.PredictedInstance, Any]]
@@ -359,28 +384,29 @@ def compute_dists(
             video_paths: A list of video paths corresponding to the `dists`
     """
     dists = []
-    # frame_idxs = []
-    # video_paths = []
+    frame_idxs = []
+    video_paths = []
     for instance_gt, instance_pr, _ in positive_pairs:
-        points_gt = instance_gt.numpy()
-        points_pr = instance_pr.numpy()
+        points_gt = instance_gt.instance.numpy()
+        points_pr = instance_pr.instance.numpy()
 
         dists.append(np.linalg.norm(points_pr - points_gt, axis=-1))
-        # frame_idxs.append(instance_gt.frame.frame_idx)
-        # video_paths.append(instance_gt.frame.video.backend.filename)
+        frame_idxs.append(instance_gt.frame_idx)
+        video_paths.append(instance_gt.video_path)
 
     dists = np.array(dists)
 
     # Bundle everything into a dictionary
     dists_dict = {
         "dists": dists,
-        # "frame_idxs": frame_idxs,
-        # "video_paths": video_paths,
+        "frame_idxs": frame_idxs,
+        "video_paths": video_paths,
     }
 
     return dists_dict
 
-class Evaluator():
+
+class Evaluator:
     """
     Compute the standard evaluation metrics with the predicted and the ground-truth Labels.
 
@@ -399,11 +425,18 @@ class Evaluator():
             which instances match between ground truth and predicted frames.
         user_labels_only: If False, predicted instances in the ground truth frame may be
             considered for matching.
-    
+
     """
-    def __init__(self, ground_truth_instances: sio.Labels, predicted_instances:sio.Labels,
-                 oks_stddev: float=0.025, oks_scale: Optional[float] = None, 
-                 match_threshold: float = 0, user_labels_only: bool = True,):
+
+    def __init__(
+        self,
+        ground_truth_instances: sio.Labels,
+        predicted_instances: sio.Labels,
+        oks_stddev: float = 0.025,
+        oks_scale: Optional[float] = None,
+        match_threshold: float = 0,
+        user_labels_only: bool = True,
+    ):
         """Initialize the Evaluator class with ground-truth and predicted labels."""
         self.ground_truth_instances = ground_truth_instances
         self.predicted_instances = predicted_instances
@@ -411,12 +444,13 @@ class Evaluator():
         self.oks_stddev = oks_stddev
         self.oks_scale = oks_scale
         self.user_labels_only = user_labels_only
-        
+
         self._process_frames()
 
     def _process_frames(self):
-        self.frame_pairs = find_frame_pairs(self.ground_truth_instances, self.predicted_instances,
-                                            self.user_labels_only)
+        self.frame_pairs = find_frame_pairs(
+            self.ground_truth_instances, self.predicted_instances, self.user_labels_only
+        )
         if not self.frame_pairs:
             raise Exception("Empty Frame Pairs. No match found for the video frames")
 
@@ -430,10 +464,14 @@ class Evaluator():
 
         self.dists_dict = compute_dists(self.positive_pairs)
 
-    def voc_metrics(self, match_score_by, 
-                    match_score_thresholds: np.ndarray = np.linspace(0.5, 0.95, 10),  # 0.5:0.05:0.95
-                    recall_thresholds: np.ndarray = np.linspace(0, 1, 101),  # 0.0:0.01:1.00
-                    ):
+    def voc_metrics(
+        self,
+        match_score_by,
+        match_score_thresholds: np.ndarray = np.linspace(
+            0.5, 0.95, 10
+        ),  # 0.5:0.05:0.95
+        recall_thresholds: np.ndarray = np.linspace(0, 1, 101),  # 0.0:0.01:1.00
+    ):
         """Compute VOC metrics for a matched pairs of instances positive pairs and false negatives.
 
         Args:
@@ -453,9 +491,13 @@ class Evaluator():
             match_scores = pck_metrics["pcks"].mean(axis=-1).mean(axis=-1)
             name = "pck_voc"
         else:
-            raise Exception("Invalid Option for match_score_by. Choose either `oks` or `pck`")
-        
-        detection_scores = np.array([pp[1].score for pp in self.positive_pairs])
+            raise Exception(
+                "Invalid Option for match_score_by. Choose either `oks` or `pck`"
+            )
+
+        detection_scores = np.array(
+            [pp[1].instance.score for pp in self.positive_pairs]
+        )
 
         inds = np.argsort(-detection_scores, kind="mergesort")
         detection_scores = detection_scores[inds]
@@ -464,10 +506,11 @@ class Evaluator():
         precisions = []
         recalls = []
 
-        npig = len(self.positive_pairs) + len(self.false_negatives)  # total number of GT instances
+        npig = len(self.positive_pairs) + len(
+            self.false_negatives
+        )  # total number of GT instances
 
         for match_score_threshold in match_score_thresholds:
-
             tp = np.cumsum(match_scores >= match_score_threshold)
             fp = np.cumsum(match_scores < match_score_threshold)
 
@@ -512,7 +555,7 @@ class Evaluator():
             name + ".mAP": mAP,
             name + ".mAR": mAR,
         }
-   
+
     def mOKS(self):
         """Returns the meanOKS value."""
         pair_oks = np.array([oks for _, _, oks in self.positive_pairs])
@@ -526,8 +569,8 @@ class Evaluator():
         """
         dists = self.dists_dict["dists"]
         results = {
-            # "dist.frame_idxs": self.dists_dict["frame_idxs"],
-            # "dist.video_paths": self.dists_dict["video_paths"],
+            "frame_idxs": self.dists_dict["frame_idxs"],
+            "video_paths": self.dists_dict["video_paths"],
             "dists": dists,
             "avg": np.nanmean(dists),
             "p50": np.nan,
@@ -580,8 +623,8 @@ class Evaluator():
         vis_tn = 0
 
         for instance_gt, instance_pr, _ in self.positive_pairs:
-            missing_nodes_gt = np.isnan(instance_gt.numpy()).any(axis=-1)
-            missing_nodes_pr = np.isnan(instance_pr.numpy()).any(axis=-1)
+            missing_nodes_gt = np.isnan(instance_gt.instance.numpy()).any(axis=-1)
+            missing_nodes_pr = np.isnan(instance_pr.instance.numpy()).any(axis=-1)
 
             vis_tn += ((missing_nodes_gt) & (missing_nodes_pr)).sum()
             vis_fn += ((~missing_nodes_gt) & (missing_nodes_pr)).sum()

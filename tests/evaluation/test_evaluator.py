@@ -1,11 +1,12 @@
 import numpy as np
 from typing import List, Tuple
 import sleap_io as sio
-from sleap_nn.evaluation import (
+from sleap_nn.evaluation.evaluator import (
     compute_instance_area,
     compute_oks,
 )
-from sleap_nn.evaluation import Evaluator
+from sleap_nn.evaluation.evaluator import Evaluator
+
 
 def test_compute_oks():
     # Test compute_oks function with the cocoutils implementation
@@ -47,7 +48,8 @@ def test_compute_oks():
     inst_pr = np.array([[0, 0], [1, 1], [np.nan, np.nan]]).astype("float32")
     oks = compute_oks(inst_gt, inst_pr, False)
     np.testing.assert_allclose(oks, 1)
-    
+
+
 def create_labels(minimal_instance):
     # Create sample Labels object.
 
@@ -77,14 +79,14 @@ def create_labels(minimal_instance):
     pred_inst_1 = sio.PredictedInstance.from_numpy(
         points=np.array(
             [
-                [10.2, 20.4],
-                [5.8, 15.1],
+                [11.2, 17.4],
+                [12.8, 15.1],
                 [0.3, 10.6],
             ]
         ),
         skeleton=skeleton,
-        point_scores=np.array([0.5, 0.6, 0.8]),
-        instance_score=0.6,
+        point_scores=np.array([0.7, 0.6, 0.8]),
+        instance_score=0.7,
     )
 
     user_inst_2 = sio.Instance.from_numpy(
@@ -98,9 +100,35 @@ def create_labels(minimal_instance):
         skeleton=skeleton,
     )
 
+    pred_inst_2 = sio.PredictedInstance.from_numpy(
+        points=np.array(
+            [
+                [2.3, 2.2],
+                [25.6, 10.0],
+                [37.6, np.nan],
+            ]
+        ),
+        skeleton=skeleton,
+        point_scores=np.array([0.7, 0.6, 0.6]),
+        instance_score=0.6,
+    )
+
+    user_inst_3 = sio.Instance.from_numpy(
+        points=np.array(
+            [
+                [55.6, 30.2],
+                [10.1, 18.5],
+                [35.8, 12.0],
+            ]
+        ),
+        skeleton=skeleton,
+    )
+
     # Create labeled frame.
     user_lf = sio.LabeledFrame(
-        video=video, frame_idx=0, instances=[user_inst_1, user_inst_2]
+        video=video,
+        frame_idx=0,
+        instances=[user_inst_1, user_inst_2, user_inst_3, pred_inst_1],
     )
     # Create ground-truth labels.
     user_labels = sio.Labels(
@@ -108,26 +136,57 @@ def create_labels(minimal_instance):
     )
 
     # Create predicted labels.
-    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst_1])
+    pred_lf = sio.LabeledFrame(
+        video=video, frame_idx=0, instances=[pred_inst_1, pred_inst_2]
+    )
     pred_labels = sio.Labels(
         videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf]
     )
-    
+
     return user_labels, pred_labels
 
-    
 
-def test_evaluator():
-    
-    user_labels, pred_labels = create_labels()
-    
+def test_evaluator(minimal_instance):
+    user_labels, pred_labels = create_labels(minimal_instance)
+
     eval = Evaluator(user_labels, pred_labels)
-    
+
     # test _process_frames function
-    assert len(eval.frame_pairs)==1
-    assert len(eval.positive_pairs) == 1
+    assert len(eval.frame_pairs) == 1
+    assert len(eval.positive_pairs) == 2
     assert len(eval.false_negatives) == 1
-    
+
+    gt_1, pred_1, _ = eval.positive_pairs[0]
+    gt_3 = eval.false_negatives[0]
+
+    points_gt = np.array(
+        [
+            [11.4, 13.4],
+            [13.6, 15.1],
+            [0.3, 9.3],
+        ]
+    )
+
+    points_pred = np.array(
+        [
+            [11.2, 17.4],
+            [12.8, 15.1],
+            [0.3, 10.6],
+        ]
+    )
+
+    assert (gt_1.instance.numpy() == points_gt).all()
+    assert (pred_1.instance.numpy() == points_pred).all()
+
+    points = np.array(
+        [
+            [55.6, 30.2],
+            [10.1, 18.5],
+            [35.8, 12.0],
+        ]
+    )
+    assert (gt_3.instance.numpy() == points).all()
+
     # test compute_instance_area
     user_lf = user_labels[0]
     points_gt = user_lf.numpy()[0]
@@ -137,25 +196,32 @@ def test_evaluator():
     # test compute distance function
     dist_dict = eval.dists_dict
     dists = dist_dict["dists"][0]
-    calc_dist = np.array([7.10211236, 7.8, 1.3])
-    assert (np.array(dists) - calc_dist <= 1e-5).all()
-    
+    calc_dist = np.array([[4.0049968, 0.8, 1.3], [1.140175, 5.024937, np.nan]])
+    assert (np.abs(np.array(dists) - calc_dist[0]) <= 1e-5).all()
+
+    dists = np.array(dist_dict["dists"][1])
+    assert (np.abs(dists[:-1] - calc_dist[1][:-1]) <= 1e-5).all()
+    assert np.isnan(dists[-1])
+
     # test visibility metrics
     viz_metrics = eval.visibility_metrics()
-    assert viz_metrics["precision"]== float(1) and viz_metrics["recall"]==float(1)
-    
+    assert viz_metrics["precision"] == float(1)
+    assert abs(viz_metrics["recall"] - float(0.833333)) <= 1e-5
+
     # test distance_metrics
     dist_metrics = eval.distance_metrics()
-    assert dist_metrics["avg"]-5.400704 <= 1e-5
-    assert dist_metrics["p90"]-np.percentile(calc_dist, 90) <= 1e-5
-    
+    assert np.abs(dist_metrics["avg"] - 2.4540217) <= 1e-5
+    non_nans = np.array([4.0049968, 0.8, 1.3, 1.140175, 5.024937])
+    assert dist_metrics["p90"] - np.percentile(non_nans, 90) <= 1e-5
+
     # test pck metrics
     pck = eval.pck_metrics()
-    assert pck["mPCK"]==0.5
-    
+    # .mean(axis=-1).mean(axis=-1)
+    assert np.abs(pck["mPCK"] - 0.65) <= 1e-5
+
     # test voc metrics
     voc = eval.voc_metrics(match_score_by="pck")
-
-    # TODO: add test cases for VOC metrics
-    # TODO: add two instances on single frame and add test cases
-
+    assert np.abs(voc["pck_voc.recalls"][0] - 0.3333333) <= 1e-5
+    prec = np.zeros((101,))
+    prec[:34] = float(1) - np.spacing(1)
+    assert (voc["pck_voc.precisions"][0] == prec).all()
