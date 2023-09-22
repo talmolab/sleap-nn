@@ -459,7 +459,6 @@ class Evaluator:
             stddev=self.oks_stddev,
             scale=self.oks_scale,
             threshold=self.match_threshold,
-            user_labels_only=self.user_labels_only,
         )
 
         self.dists_dict = compute_dists(self.positive_pairs)
