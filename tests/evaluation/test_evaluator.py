@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List, Tuple
 import sleap_io as sio
+import pytest
 from sleap_nn.evaluation.evaluator import (
     compute_instance_area,
     compute_oks,
@@ -32,25 +33,25 @@ def test_compute_oks():
     # Test compute_oks function with the implementation from the paper
     inst_gt = np.array([[0, 0], [1, 1], [2, 2]]).astype("float32")
     inst_pr = np.array([[0, 0], [1, 1], [2, 2]]).astype("float32")
-    oks = compute_oks(inst_gt, inst_pr, False)
+    oks = compute_oks(inst_gt, inst_pr, use_cocoeval=False)
     np.testing.assert_allclose(oks, 1)
 
     inst_pr = np.array([[0, 0], [1, 1], [np.nan, np.nan]]).astype("float32")
-    oks = compute_oks(inst_gt, inst_pr, False)
+    oks = compute_oks(inst_gt, inst_pr, use_cocoeval=False)
     np.testing.assert_allclose(oks, 2 / 3)
 
     inst_gt = np.array([[0, 0], [1, 1], [np.nan, np.nan]]).astype("float32")
     inst_pr = np.array([[0, 0], [1, 1], [2, 2]]).astype("float32")
-    oks = compute_oks(inst_gt, inst_pr, False)
+    oks = compute_oks(inst_gt, inst_pr, use_cocoeval=False)
     np.testing.assert_allclose(oks, 1)
 
     inst_gt = np.array([[0, 0], [1, 1], [np.nan, np.nan]]).astype("float32")
     inst_pr = np.array([[0, 0], [1, 1], [np.nan, np.nan]]).astype("float32")
-    oks = compute_oks(inst_gt, inst_pr, False)
+    oks = compute_oks(inst_gt, inst_pr, use_cocoeval=False)
     np.testing.assert_allclose(oks, 1)
 
 
-def create_labels(minimal_instance):
+def create_labels_1(minimal_instance):
     # Create sample Labels object.
 
     # Create skeleton.
@@ -146,8 +147,143 @@ def create_labels(minimal_instance):
     return user_labels, pred_labels
 
 
+def create_labels_2(minimal_instance):
+    # Create sample Labels object.
+
+    # Create skeleton.
+    skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+
+    # Get video.
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    # Create user labelled instance.
+    user_inst_1 = sio.Instance.from_numpy(
+        points=np.array(
+            [
+                [11.4, 13.4],
+                [13.6, 15.1],
+                [0.3, 9.3],
+            ]
+        ),
+        skeleton=skeleton,
+    )
+
+    # Create Predicted Instance.
+    pred_inst_1 = sio.PredictedInstance.from_numpy(
+        points=np.array(
+            [
+                [11.2, 17.4],
+                [12.8, 15.1],
+                [0.3, 10.6],
+            ]
+        ),
+        skeleton=skeleton,
+        point_scores=np.array([0.7, 0.6, 0.8]),
+        instance_score=0.7,
+    )
+
+    # Create labeled frame.
+    user_lf = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[user_inst_1],
+    )
+    # Create ground-truth labels.
+    user_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
+    )
+
+    # Create predicted labels.
+    pred_lf_1 = sio.LabeledFrame(video=None, frame_idx=0, instances=[pred_inst_1])
+
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf_1]
+    )
+
+    return user_labels, pred_labels
+
+
+def create_labels_3(minimal_instance):
+    # Create sample Labels object.
+
+    # Create skeleton.
+    skeleton = sio.Skeleton(
+        nodes=["head", "thorax", "abdomen"],
+        edges=[("head", "thorax"), ("thorax", "abdomen")],
+    )
+
+    # Get video.
+    min_labels = sio.load_slp(minimal_instance)
+    video = min_labels.videos[0]
+
+    # Create user labelled instance.
+    user_inst_1 = sio.Instance.from_numpy(
+        points=np.array(
+            [
+                [11.4, 13.4],
+                [13.6, 15.1],
+                [0.3, 9.3],
+            ]
+        ),
+        skeleton=skeleton,
+    )
+
+    # Create Predicted Instance.
+    pred_inst_1 = sio.PredictedInstance.from_numpy(
+        points=np.array(
+            [
+                [11.2, 17.4],
+                [12.8, 15.1],
+                [0.3, 10.6],
+            ]
+        ),
+        skeleton=skeleton,
+        point_scores=np.array([0.7, 0.6, 0.8]),
+        instance_score=0.7,
+    )
+
+    pred_inst_2 = sio.PredictedInstance.from_numpy(
+        points=np.array(
+            [
+                [2.3, 2.2],
+                [25.6, 10.0],
+                [37.6, np.nan],
+            ]
+        ),
+        skeleton=skeleton,
+        point_scores=np.array([0.7, 0.6, 0.6]),
+        instance_score=0.6,
+    )
+
+    # Create labeled frame.
+    user_lf = sio.LabeledFrame(
+        video=video,
+        frame_idx=0,
+        instances=[user_inst_1],
+    )
+    # Create ground-truth labels.
+    user_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
+    )
+
+    # Create predicted labels.
+    pred_lf_1 = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst_1])
+
+    pred_lf_2 = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst_2])
+
+    pred_labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf_1, pred_lf_2]
+    )
+
+    return user_labels, pred_labels
+
+
 def test_evaluator(minimal_instance):
-    user_labels, pred_labels = create_labels(minimal_instance)
+    user_labels, pred_labels = create_labels_1(minimal_instance)
 
     eval = Evaluator(user_labels, pred_labels)
 
@@ -225,3 +361,23 @@ def test_evaluator(minimal_instance):
     prec = np.zeros((101,))
     prec[:34] = float(1) - np.spacing(1)
     assert (voc["pck_voc.precisions"][0] == prec).all()
+
+    voc = eval.voc_metrics(match_score_by="oks")
+    assert np.abs(voc["oks_voc.recalls"][0] - 0.0) <= 1e-5
+
+    with pytest.raises(Exception) as exc:
+        eval.voc_metrics(match_score_by="moks")
+    assert (
+        str(exc.value)
+        == "Invalid Option for match_score_by. Choose either `oks` or `pck`"
+    )
+
+    # test mOKS
+    meanOKS_calc = (0.33308048 + 0.067590989) // 2
+    assert int(eval.mOKS()["mOKS"]) == meanOKS_calc
+
+    # test with no match frame pairs
+    user_labels, pred_labels = create_labels_2(minimal_instance)
+    with pytest.raises(Exception) as exc:
+        eval = Evaluator(user_labels, pred_labels)
+    assert str(exc.value) == "Empty Frame Pairs. No match found for the video frames"
