@@ -4,11 +4,11 @@ import sleap_io as sio
 import pytest
 import copy
 
-# from sleap_nn.evaluation.evaluator import (
-#     compute_instance_area,
-#     compute_oks,
-# )
-# from sleap_nn.evaluation.evaluator import Evaluator
+from sleap_nn.evaluation.evaluator import (
+    compute_instance_area,
+    compute_oks,
+)
+from sleap_nn.evaluation.evaluator import Evaluator
 
 
 def test_compute_oks():
