@@ -94,10 +94,10 @@ def test_unet_model():
     with torch.no_grad():
         z = model(x)
 
-    assert type(z) is list
-    assert len(z) == 1
-    assert z[0].shape == (1, 13, 192, 192)
-    assert z[0].dtype == torch.float32
+    assert type(z) is dict
+    assert len(z.keys()) == 1
+    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
+    assert z[base_unet_head_config.head_type].dtype == torch.float32
 
     model = Model.from_config(
         backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
@@ -109,7 +109,7 @@ def test_unet_model():
     with torch.no_grad():
         z = model(x)
 
-    assert type(z) is list
-    assert len(z) == 1
-    assert z[0].shape == (1, 13, 192, 192)
-    assert z[0].dtype == torch.float32
+    assert type(z) is dict
+    assert len(z.keys()) == 1
+    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
+    assert z[base_unet_head_config.head_type].dtype == torch.float32

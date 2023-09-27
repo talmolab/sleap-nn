@@ -82,6 +82,8 @@ class UNet(nn.Module):
             filters_rate=filters_rate,
         )
 
+        self.current_strides = self.dec.current_strides
+
     @property
     def output_channels(self):
         """Returns the output channels of the UNet."""

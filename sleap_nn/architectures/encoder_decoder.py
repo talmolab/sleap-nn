@@ -430,6 +430,8 @@ class Decoder(nn.Module):
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
 
+        self.current_strides = []
+
         self.decoder_stack = nn.ModuleList([])
         for block in range(up_blocks):
             prev_block_filters_in = -1 if block == 0 else block_filters_in
@@ -456,6 +458,7 @@ class Decoder(nn.Module):
                 )
             )
 
+            self.current_strides.append(current_stride)
             current_stride = next_stride
 
     def forward(self, x: torch.Tensor, features: List[torch.Tensor]) -> torch.Tensor:
@@ -466,9 +469,11 @@ class Decoder(nn.Module):
             features: List of feature tensors from different encoder levels.
 
         Returns:
-            torch.Tensor: Output tensor after applying the decoder operations.
+            List[torch.Tensor]: List of output tensors after applying the decoder operations.
         """
+        outputs = []
         for i in range(len(self.decoder_stack)):
             x = self.decoder_stack[i](x, features[i])
+            outputs.append(x)
 
-        return x
+        return outputs

@@ -119,10 +119,13 @@ class Model(nn.Module):
         in_channels = self.backbone.output_channels
 
         self.heads = nn.ModuleList()
+        self.heads_output_strides = []
+        self.heads_names = []
         for head_config in head_configs:
-            head = get_head(head_config.head_type, head_config.head_config).make_head(
-                x_in=in_channels
-            )
+            head = get_head(head_config.head_type, head_config.head_config)
+            self.heads_output_strides.append(head.output_stride)
+            self.heads_names.append(head.name)
+            head = head.make_head(x_in=in_channels)
             self.heads.append(head)
 
     @classmethod
@@ -134,18 +137,21 @@ class Model(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
-        x = self.backbone(x)
-        outputs = []
-        for head in self.heads:
-            outputs.append(head(x))
-
-        # backbone_features = self.backbone(x)
-
-        # outputs = {}
+        # x = self.backbone(x)
+        # outputs = []
         # for head in self.heads:
-        #     for feature in backbone_features:
-        #         if feature.stride == head.output_stride:
-        #             outputs[head.name] = head(feature.tensor)
-        #             break
+        #     outputs.append(head(x))
+
+        backbone_features = self.backbone(x)
+        current_strides = self.backbone.current_strides
+
+        outputs = {}
+        for output_stride, name, head in zip(
+            self.heads_output_strides, self.heads_names, self.heads
+        ):
+            for current_stride, feature in zip(current_strides, backbone_features):
+                if current_stride == output_stride:
+                    outputs[name] = head(feature)
+                    break
 
         return outputs

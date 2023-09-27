@@ -56,13 +56,23 @@ def test_unet_reference():
     assert pytorch_total_params == 31378573
 
     # Test final output shape.
-    model = model.to(device)
-    model.eval()
+    unet = unet.to(device)
+    unet.eval()
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
-        y = model(x)
-    assert y.shape == (1, 13, 192, 192)
+        y = unet(x)
+    assert type(y) is list
+    assert y[-1].shape == (1, 64, 192, 192)
+
+    conv2d = nn.Conv2d(
+        in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
+    ).to(device)
+
+    conv2d.eval()
+    with torch.no_grad():
+        z = conv2d(y[-1])
+    assert z.shape == (1, 13, 192, 192)
 
     # Test number of intermediate features outputted from encoder.
     enc = Encoder(
