@@ -257,7 +257,7 @@ def create_labels(minimal_instance):
     return labels
 
 
-def test_evaluator_1(user_labels, pred_labels):
+def evaluator_case_1(user_labels, pred_labels):
     eval = Evaluator(user_labels, pred_labels)
 
     # test _process_frames function
@@ -297,20 +297,20 @@ def test_evaluator_1(user_labels, pred_labels):
     assert (gt_3.instance.numpy() == points).all()
 
 
-def test_evaluator_2(user_labels, pred_labels):
+def evaluator_case_2(user_labels, pred_labels):
     with pytest.raises(Exception) as exc:
         eval = Evaluator(user_labels, pred_labels)
     assert str(exc.value) == "Empty Frame Pairs. No match found for the video frames"
 
 
-def test_evaluator_3(user_labels, pred_labels):
+def evaluator_case_3(user_labels, pred_labels):
     eval = Evaluator(user_labels, pred_labels)
     assert len(eval.frame_pairs) == 1
     assert len(eval.positive_pairs) == 2
     assert len(eval.false_negatives) == 0
 
 
-def test_metrics(labels):
+def evaluator_metrics(labels):
     user_labels, pred_labels = labels["labels_1"]
     eval = Evaluator(user_labels, pred_labels)
 
@@ -378,15 +378,15 @@ def test_evaluator(minimal_instance):
     user_labels, pred_labels = labels["labels_1"]
 
     # test two match instances and one missed user instance
-    test_evaluator_1(user_labels, pred_labels)
+    evaluator_case_1(user_labels, pred_labels)
 
     # test with no match frame pairs
     user_labels, pred_labels = labels["labels_2"]
-    test_evaluator_2(user_labels, pred_labels)
+    evaluator_case_2(user_labels, pred_labels)
 
     # test with more predicted instances than user labeled instances
     user_labels, pred_labels = labels["labels_3"]
-    test_evaluator_3(user_labels, pred_labels)
+    evaluator_case_3(user_labels, pred_labels)
 
     # test metrics
-    test_metrics(labels)
+    evaluator_metrics(labels)
