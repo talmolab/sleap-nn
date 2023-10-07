@@ -139,9 +139,7 @@ class Model(nn.Module):
 
         outputs = {}
         for (output_stride, name), head in zip(self.heads_metadata, self.heads):
-            for current_stride, feature in zip(current_strides, backbone_features):
-                if current_stride == output_stride:
-                    outputs[name] = head(feature)
-                    break
+            idx = current_strides.index(output_stride)
+            outputs[name] = head(backbone_features[idx])
 
         return outputs
