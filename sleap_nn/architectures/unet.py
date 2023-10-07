@@ -2,6 +2,7 @@
 
 See the `UNet` class docstring for more information.
 """
+from typing import Tuple, List
 
 import numpy as np
 import torch
@@ -82,8 +83,6 @@ class UNet(nn.Module):
             filters_rate=filters_rate,
         )
 
-        self.current_strides = self.dec.current_strides
-
     @property
     def output_channels(self):
         """Returns the output channels of the UNet."""
@@ -92,15 +91,16 @@ class UNet(nn.Module):
             * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:
         """Forward pass through the U-Net architecture.
 
         Args:
             x: Input tensor.
 
         Returns:
-            torch.Tensor: Output a tensor after applying the U-Net operations.
+            x: Output a tensor after applying the U-Net operations.
+            current_strides: a list of the current strides from the decoder.
         """
         x, features = self.enc(x)
-        x = self.dec(x, features)
-        return x
+        x, current_strides = self.dec(x, features)
+        return x, current_strides

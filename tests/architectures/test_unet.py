@@ -61,9 +61,11 @@ def test_unet_reference():
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
-        y = unet(x)
+        y, current_strides = unet(x)
     assert type(y) is list
     assert y[-1].shape == (1, 64, 192, 192)
+    assert type(current_strides) is list
+    assert len(current_strides) == 4
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"

@@ -137,13 +137,7 @@ class Model(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
-        # x = self.backbone(x)
-        # outputs = []
-        # for head in self.heads:
-        #     outputs.append(head(x))
-
-        backbone_features = self.backbone(x)
-        current_strides = self.backbone.current_strides
+        backbone_features, current_strides = self.backbone(x)
 
         outputs = {}
         for output_stride, name, head in zip(
