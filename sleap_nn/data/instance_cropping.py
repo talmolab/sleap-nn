@@ -67,18 +67,18 @@ class InstanceCropper(IterDataPipe):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Generate instance cropped examples."""
         for ex in self.source_dp:
-            image = ex["image"]  # (B, channels, height, width)
-            instances = ex["instances"]  # (B, n_instances, num_nodes, 2)
-            centroids = ex["centroids"]  # (B, n_instances, 2)
+            image = ex["image"]  # (B=1, channels, height, width)
+            instances = ex["instances"]  # (B=1, n_instances, num_nodes, 2)
+            centroids = ex["centroids"]  # (B=1, n_instances, 2)
             for instance, centroid in zip(instances[0], centroids[0]):
                 # Generate bounding boxes from centroid.
                 instance_bbox = torch.unsqueeze(
                     make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
-                )  # (B, 4, 2)
+                )  # (B=1, 4, 2)
 
                 box_size = (self.crop_hw[0], self.crop_hw[1])
 
-                # Generate cropped image of shape (B, channels, crop_height, crop_width)
+                # Generate cropped image of shape (B=1, channels, crop_height, crop_width)
                 instance_image = crop_and_resize(
                     image,
                     boxes=instance_bbox,
@@ -94,7 +94,7 @@ class InstanceCropper(IterDataPipe):
                     "instance_image": instance_image.squeeze(
                         0
                     ),  # (B=1, channels, crop_height, crop_width)
-                    "instance_bbox": instance_bbox,  # (B, 4, 2)
+                    "instance_bbox": instance_bbox,  # (B=1, 4, 2)
                     "instance": center_instance,  # (num_nodes, 2)
                 }
                 ex.update(instance_example)
