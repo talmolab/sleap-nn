@@ -119,12 +119,10 @@ class Model(nn.Module):
         in_channels = self.backbone.output_channels
 
         self.heads = nn.ModuleList()
-        self.heads_output_strides = []
-        self.heads_names = []
+        self.heads_metadata = []
         for head_config in head_configs:
             head = get_head(head_config.head_type, head_config.head_config)
-            self.heads_output_strides.append(head.output_stride)
-            self.heads_names.append(head.name)
+            self.heads_metadata.append((head.output_stride, head.name))
             head = head.make_head(x_in=in_channels)
             self.heads.append(head)
 
@@ -140,9 +138,7 @@ class Model(nn.Module):
         backbone_features, current_strides = self.backbone(x)
 
         outputs = {}
-        for output_stride, name, head in zip(
-            self.heads_output_strides, self.heads_names, self.heads
-        ):
+        for (output_stride, name), head in zip(self.heads_metadata, self.heads):
             for current_stride, feature in zip(current_strides, backbone_features):
                 if current_stride == output_stride:
                     outputs[name] = head(feature)
