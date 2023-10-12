@@ -102,5 +102,5 @@ class UNet(nn.Module):
             current_strides: a list of the current strides from the decoder.
         """
         x, features = self.enc(x)
-        x, current_strides = self.dec(x, features)
-        return x, current_strides
+        x = self.dec(x, features)
+        return x

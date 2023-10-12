@@ -61,11 +61,13 @@ def test_unet_reference():
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
-        y, current_strides = unet(x)
-    assert type(y) is list
-    assert y[-1].shape == (1, 64, 192, 192)
-    assert type(current_strides) is list
-    assert len(current_strides) == 4
+        y = unet(x)
+    assert type(y) is dict
+    assert "outputs" in y
+    assert "strides" in y
+    assert y["outputs"][-1].shape == (1, 64, 192, 192)
+    assert type(y["strides"]) is list
+    assert len(y["strides"]) == 4
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -73,7 +75,7 @@ def test_unet_reference():
 
     conv2d.eval()
     with torch.no_grad():
-        z = conv2d(y[-1])
+        z = conv2d(y["outputs"][-1])
     assert z.shape == (1, 13, 192, 192)
 
     # Test number of intermediate features outputted from encoder.

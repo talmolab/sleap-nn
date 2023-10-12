@@ -474,9 +474,12 @@ class Decoder(nn.Module):
             outputs: List of output tensors after applying the decoder operations.
             current_strides: the current strides from the decoder blocks.
         """
-        outputs = []
+        outputs = {
+            "outputs": [],
+        }
         for i in range(len(self.decoder_stack)):
             x = self.decoder_stack[i](x, features[i])
-            outputs.append(x)
+            outputs["outputs"].append(x)
+        outputs["strides"] = self.current_strides
 
-        return outputs, self.current_strides
+        return outputs

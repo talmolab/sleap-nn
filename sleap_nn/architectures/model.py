@@ -118,13 +118,22 @@ class Model(nn.Module):
         )
         in_channels = self.backbone.output_channels
 
-        self.heads = nn.ModuleList()
-        self.heads_metadata = []
+        self.heads = []
         for head_config in head_configs:
             head = get_head(head_config.head_type, head_config.head_config)
-            self.heads_metadata.append((head.output_stride, head.name))
-            head = head.make_head(x_in=in_channels)
             self.heads.append(head)
+
+        self.head_layers = nn.ModuleList([])
+        for head in self.heads:
+            self.head_layers.append(head.make_head(x_in=in_channels))
+
+        # self.heads = nn.ModuleList()
+        # self.heads_metadata = []
+        # for head_config in head_configs:
+        #     head = get_head(head_config.head_type, head_config.head_config)
+        #     self.heads_metadata.append((head.output_stride, head.name))
+        #     head = head.make_head(x_in=in_channels)
+        #     self.heads.append(head)
 
     @classmethod
     def from_config(
@@ -135,11 +144,11 @@ class Model(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
-        backbone_features, current_strides = self.backbone(x)
+        backbone_outputs = self.backbone(x)
 
         outputs = {}
-        for (output_stride, name), head in zip(self.heads_metadata, self.heads):
-            idx = current_strides.index(output_stride)
-            outputs[name] = head(backbone_features[idx])
+        for head, head_layer in zip(self.heads, self.head_layers):
+            idx = backbone_outputs["strides"].index(head.output_stride)
+            outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
 
         return outputs
