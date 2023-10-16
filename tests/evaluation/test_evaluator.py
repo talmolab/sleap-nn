@@ -222,30 +222,24 @@ def create_labels(minimal_instance):
         instance_score=0.7,
     )
 
-    pred_inst_3 = sio.PredictedInstance.from_numpy(
-        points=np.array(
-            [
-                [np.nan, np.nan],
-                [np.nan, np.nan],
-                [np.nan, np.nan],
-            ]
-        ),
-        skeleton=skeleton,
-        point_scores=np.array([0.7, 0.6, 0.6]),
-        instance_score=0.5,
-    )
-
     user_lf = sio.LabeledFrame(
         video=video,
         frame_idx=0,
         instances=[user_inst_2, user_inst_1],
     )
+
+    user_lf_1 = sio.LabeledFrame(
+        video=video,
+        frame_idx=1,
+        instances=[user_inst_2, user_inst_1],
+    )
+
     user_labels = sio.Labels(
-        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf, user_lf_1]
     )
 
     pred_lf_1 = sio.LabeledFrame(
-        video=video, frame_idx=0, instances=[pred_inst_2, pred_inst_1, pred_inst_3]
+        video=video, frame_idx=0, instances=[pred_inst_2, pred_inst_1]
     )
 
     pred_labels = sio.Labels(
@@ -258,6 +252,8 @@ def create_labels(minimal_instance):
 
 
 def evaluator_case_1(user_labels, pred_labels):
+    # two match instances and one missed user instance
+
     eval = Evaluator(user_labels, pred_labels)
 
     # test _process_frames function
@@ -298,16 +294,26 @@ def evaluator_case_1(user_labels, pred_labels):
 
 
 def evaluator_case_2(user_labels, pred_labels):
+    # with no match frame pairs
+
     with pytest.raises(Exception) as exc:
         eval = Evaluator(user_labels, pred_labels)
     assert str(exc.value) == "Empty Frame Pairs. No match found for the video frames"
 
 
 def evaluator_case_3(user_labels, pred_labels):
+    # with more predicted instances than user labeled instances
+    # one user lf with no match frame pair in predicted lf
+
     eval = Evaluator(user_labels, pred_labels)
     assert len(eval.frame_pairs) == 1
     assert len(eval.positive_pairs) == 2
     assert len(eval.false_negatives) == 0
+
+    eval = Evaluator(user_labels, pred_labels, match_threshold=1)
+    assert len(eval.frame_pairs) == 1
+    assert len(eval.positive_pairs) == 0
+    assert len(eval.false_negatives) == 2
 
 
 def evaluator_metrics(labels):

@@ -185,7 +185,7 @@ def compute_oks(
     assert displacement.shape == (n_gt, n_pr, n_nodes, n_ed)
 
     # Convert to pairwise Euclidean distances.
-    distance = (displacement**2).sum(axis=-1)  # (n_gt, n_pr, n_nodes)
+    distance = (displacement ** 2).sum(axis=-1)  # (n_gt, n_pr, n_nodes)
     assert distance.shape == (n_gt, n_pr, n_nodes)
 
     # Compute the normalization factor per keypoint.
@@ -195,7 +195,7 @@ def compute_oks(
         scale_factor = 2 * (scale + np.spacing(1))
     else:
         # If use_cocoeval is False, then compute normalization factor according to the paper.
-        spread_factor = stddev**2
+        spread_factor = stddev ** 2
         scale_factor = 2 * ((scale + np.spacing(1)) ** 2)
     normalization_factor = np.reshape(spread_factor, (1, 1, n_nodes)) * np.reshape(
         scale_factor, (n_gt, 1, 1)
