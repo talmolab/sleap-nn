@@ -70,12 +70,22 @@ def test_filter_user_instances(minimal_instance):
     lf = next(iter(l))
     assert len(torch.squeeze(lf["instances"], dim=0)) == 1
 
+    # Create labeled frame.
+    user_lf = sio.LabeledFrame(
+        video=video, frame_idx=0, instances=[user_inst, pred_inst]
+    )
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
+    # Create labels.
+    labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[user_lf, pred_lf]
+    )
     l = LabelsReader(labels, user_instances_only=False)
     assert len(list(l)) == 2
     lf = next(iter(l))
     assert len(torch.squeeze(lf["instances"], dim=0)) == 2
 
     # Test with only Predicted instance.
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=0, instances=[pred_inst])
     labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf])
     l = LabelsReader(labels, user_instances_only=True)
     assert len(list(l)) == 0

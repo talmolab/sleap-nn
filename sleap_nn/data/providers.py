@@ -5,7 +5,6 @@ import numpy as np
 import sleap_io as sio
 import torch
 from torch.utils.data.datapipes.datapipe import IterDataPipe
-import copy
 
 
 class LabelsReader(IterDataPipe):
@@ -22,7 +21,7 @@ class LabelsReader(IterDataPipe):
 
     def __init__(self, labels: sio.Labels, user_instances_only: bool = True):
         """Initialize labels attribute of the class."""
-        self.labels = copy.deepcopy(labels)
+        self.labels = labels
 
         # Filter to user instances
         if user_instances_only:
