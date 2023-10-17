@@ -85,9 +85,6 @@ def find_frame_pairs(
             elif len(labeled_frames_pr) == 1:
                 # Match!
                 frame_pairs.append((labeled_frame_gt, labeled_frames_pr[0]))
-            # else:
-            #     # Too many matches.
-            #     raise ValueError("More than one labeled frame found in predictions.")
 
     return frame_pairs
 
