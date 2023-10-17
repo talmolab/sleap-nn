@@ -58,4 +58,4 @@ line-length = 88
 
 [pydocstyle]
 convention = "google"
-match-dir = "sleap_nn"
+output-format = "github"

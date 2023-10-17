@@ -267,7 +267,7 @@ def create_labels_no_match_frame_pairs(minimal_instance):
     return user_labels, pred_labels
 
 
-def test_evaluator_case_no_match_frame_pairs(minimal_instance):
+def test_evaluator_no_match_frame_pairs(minimal_instance):
     # with no match frame pairs
 
     user_labels, pred_labels = create_labels_no_match_frame_pairs(minimal_instance)
@@ -384,7 +384,7 @@ def create_labels_more_predicted_instances(minimal_instance):
     return user_labels, pred_labels
 
 
-def test_evaluator_case_more_predicted_instances(minimal_instance):
+def test_evaluator_more_predicted_instances(minimal_instance):
     # with more predicted instances than user labeled instances
     # one user lf with no match frame pair in predicted lf
 
