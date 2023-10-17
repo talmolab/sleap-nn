@@ -53,7 +53,7 @@ def get_children_layers(model: torch.nn.Module):
     """
     children = list(model.children())
     flattened_children = []
-    if children == []:
+    if len(children) == 0:
         return model
     else:
         for child in children:
