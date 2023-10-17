@@ -88,7 +88,10 @@ class ConfidenceMapGenerator(IterDataPipe):
             xv, yv = make_grid_vectors(height, width, self.output_stride)
 
             confidence_maps = make_confmaps(
-                instance, xv, yv, self.sigma
+                instance.squeeze(),  # (B=1, num_inst=1, 2, 2) -> (2, 2) or simply (2, 2) to begin with.
+                xv,
+                yv,
+                self.sigma,
             )  # (n_nodes, height, width)
 
             example["confidence_maps"] = confidence_maps

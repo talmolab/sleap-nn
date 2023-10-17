@@ -24,20 +24,17 @@ class TopdownConfmapsPipeline:
         """Initialize the data config."""
         self.data_config = data_config
 
-    def make_training_pipeline(
-        self, data_provider: IterDataPipe, filename: str
-    ) -> IterDataPipe:
+    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
-            filename: A string path to the name of the `.slp` file.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
-        datapipe = data_provider.from_filename(filename=filename)
+        datapipe = data_provider
         datapipe = Normalizer(datapipe)
 
         if self.data_config.augmentation_config.use_augmentations:
@@ -83,26 +80,24 @@ class SingleInstanceConfmapsPipeline:
         """Initialize the data config."""
         self.data_config = data_config
 
-    def make_training_pipeline(
-        self, data_provider: IterDataPipe, filename: str
-    ) -> IterDataPipe:
+    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
-            filename: A string path to the name of the `.slp` file.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
-        datapipe = data_provider.from_filename(filename=filename)
+        datapipe = data_provider
         datapipe = Normalizer(datapipe)
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.intensity),
+                **dict(self.data_config.augmentation_config.augmentations.geometric),
             )
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:
@@ -112,16 +107,12 @@ class SingleInstanceConfmapsPipeline:
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
             )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
-            )
-
         datapipe = ConfidenceMapGenerator(
             datapipe,
             sigma=self.data_config.preprocessing.conf_map_gen.sigma,
             output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            instance_key="instances",
+            image_key="image",
         )
         datapipe = KeyFilter(datapipe, keep_keys=self.data_config.general.keep_keys)
 

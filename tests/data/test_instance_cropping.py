@@ -44,7 +44,7 @@ def test_instance_cropper(minimal_instance):
         assert gt_key == key
     assert sample["instance"].shape == (2, 2)
     assert sample["instance_image"].shape == (1, 100, 100)
-    assert sample["instance_bbox"].shape == (1, 4, 2)
+    assert sample["instance_bbox"].shape == (4, 2)
 
     # Test samples.
     gt = torch.Tensor(
