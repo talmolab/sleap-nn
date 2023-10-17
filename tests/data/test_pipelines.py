@@ -42,6 +42,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         {
             "general": {"keep_keys": ["instance_image", "confidence_maps"]},
             "preprocessing": {
+                "anchor_ind": None,
                 "crop_hw": (160, 160),
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -95,6 +96,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         {
             "general": {"keep_keys": None},
             "preprocessing": {
+                "anchor_ind": None,
                 "crop_hw": (160, 160),
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },

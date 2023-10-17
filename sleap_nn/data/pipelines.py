@@ -46,7 +46,9 @@ class TopdownConfmapsPipeline:
                 **dict(self.data_config.augmentation_config.augmentations.intensity),
             )
 
-        datapipe = InstanceCentroidFinder(datapipe)
+        datapipe = InstanceCentroidFinder(
+            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
+        )
         datapipe = InstanceCropper(datapipe, self.data_config.preprocessing.crop_hw)
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:
