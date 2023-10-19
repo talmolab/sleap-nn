@@ -56,7 +56,7 @@ def find_frame_pairs(
         for video in labels_pr.videos:
             if (
                 isinstance(video.backend, type(video_gt.backend))
-                and video.filename == video_gt.filename
+                and video.filename == video_gt.filename and video.backend.dataset == video_gt.backend.dataset
             ):
                 video_pr = video
                 break
