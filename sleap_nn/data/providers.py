@@ -53,4 +53,7 @@ class LabelsReader(IterDataPipe):
             yield {
                 "image": torch.from_numpy(image),
                 "instances": torch.from_numpy(instances.astype("float32")),
+                "video": lf.video,
+                "frame_idx": lf.frame_idx
+                
             }
