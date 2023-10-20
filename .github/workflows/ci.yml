@@ -55,9 +55,9 @@ jobs:
       run: |
         black --check sleap_nn tests
 
-    - name: Run pydocstyle
+    - name: Run ruff
       run: |
-        pydocstyle --convention=google sleap_nn/
+        ruff check sleap_nn/
 
   # Tests with pytest
   tests:

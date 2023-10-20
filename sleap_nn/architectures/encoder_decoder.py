@@ -28,8 +28,10 @@ See the `EncoderDecoder` base class for requirements for creating new architectu
 from typing import List, Text, Tuple, Union
 
 import torch
-from sleap_nn.architectures.common import MaxPool2dWithSamePadding, get_act_fn
 from torch import nn
+
+from sleap_nn.architectures.common import MaxPool2dWithSamePadding
+from sleap_nn.architectures.utils import get_act_fn
 
 
 class SimpleConvBlock(nn.Module):
@@ -428,6 +430,8 @@ class Decoder(nn.Module):
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
 
+        self.current_strides = []
+
         self.decoder_stack = nn.ModuleList([])
         for block in range(up_blocks):
             prev_block_filters_in = -1 if block == 0 else block_filters_in
@@ -454,9 +458,12 @@ class Decoder(nn.Module):
                 )
             )
 
+            self.current_strides.append(current_stride)
             current_stride = next_stride
 
-    def forward(self, x: torch.Tensor, features: List[torch.Tensor]) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, features: List[torch.Tensor]
+    ) -> Tuple[List[torch.Tensor], List]:
         """Forward pass through the Decoder module.
 
         Args:
@@ -464,9 +471,15 @@ class Decoder(nn.Module):
             features: List of feature tensors from different encoder levels.
 
         Returns:
-            torch.Tensor: Output tensor after applying the decoder operations.
+            outputs: List of output tensors after applying the decoder operations.
+            current_strides: the current strides from the decoder blocks.
         """
+        outputs = {
+            "outputs": [],
+        }
         for i in range(len(self.decoder_stack)):
             x = self.decoder_stack[i](x, features[i])
+            outputs["outputs"].append(x)
+        outputs["strides"] = self.current_strides
 
-        return x
+        return outputs
