@@ -43,7 +43,8 @@ dev = [
     "toml",
     "twine",
     "build",
-    "ipython"
+    "ipython",
+    "ruff"
 ]
 
 [project.scripts]
@@ -56,6 +57,13 @@ Repository = "https://github.com/talmolab/sleap-nn"
 [tool.black]
 line-length = 88
 
-[pydocstyle]
+[tool.ruff]
+output-format = "github"
+select = [
+    "D",  # pydocstyle
+]
+target-version = "py39"
+
+[tool.ruff.pydocstyle]
 convention = "google"
 output-format = "github"

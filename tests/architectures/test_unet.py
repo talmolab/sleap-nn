@@ -1,9 +1,9 @@
 import torch
 from torch import nn
 
-from sleap_nn.architectures.common import get_children_layers
 from sleap_nn.architectures.encoder_decoder import Encoder
 from sleap_nn.architectures.unet import UNet
+from sleap_nn.architectures.utils import get_children_layers
 
 
 def test_unet_reference():
@@ -56,13 +56,27 @@ def test_unet_reference():
     assert pytorch_total_params == 31378573
 
     # Test final output shape.
-    model = model.to(device)
-    _ = model.eval()
+    unet = unet.to(device)
+    unet.eval()
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
-        y = model(x)
-    assert y.shape == (1, 13, 192, 192)
+        y = unet(x)
+    assert type(y) is dict
+    assert "outputs" in y
+    assert "strides" in y
+    assert y["outputs"][-1].shape == (1, 64, 192, 192)
+    assert type(y["strides"]) is list
+    assert len(y["strides"]) == 4
+
+    conv2d = nn.Conv2d(
+        in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
+    ).to(device)
+
+    conv2d.eval()
+    with torch.no_grad():
+        z = conv2d(y["outputs"][-1])
+    assert z.shape == (1, 13, 192, 192)
 
     # Test number of intermediate features outputted from encoder.
     enc = Encoder(
@@ -76,7 +90,7 @@ def test_unet_reference():
     )
 
     enc = enc.to(device)
-    _ = enc.eval()
+    enc.eval()
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
