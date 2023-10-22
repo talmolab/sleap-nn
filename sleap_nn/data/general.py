@@ -1,5 +1,5 @@
 """General purpose transformers for common pipeline processing tasks."""
-from typing import Callable, Dict, Iterator, List, Text
+from typing import Dict, Iterator, List, Text
 
 import torch
 from torch.utils.data.datapipes.datapipe import IterDataPipe

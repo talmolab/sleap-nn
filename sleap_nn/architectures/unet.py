@@ -2,14 +2,11 @@
 
 See the `UNet` class docstring for more information.
 """
-
-import math
-from typing import List, Optional, Text, Tuple, Union
+from typing import Tuple, List
 
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from sleap_nn.architectures.encoder_decoder import Decoder, Encoder
 
@@ -47,6 +44,14 @@ class UNet(nn.Module):
         """Initialize the class."""
         super().__init__()
 
+        self.in_channels = in_channels
+        self.kernel_size = kernel_size
+        self.filters = filters
+        self.filters_rate = filters_rate
+        self.down_blocks = down_blocks
+        self.up_blocks = up_blocks
+        self.convs_per_block = convs_per_block
+
         self.enc = Encoder(
             in_channels=in_channels,
             filters=filters,
@@ -78,14 +83,23 @@ class UNet(nn.Module):
             filters_rate=filters_rate,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    @property
+    def output_channels(self):
+        """Returns the output channels of the UNet."""
+        return int(
+            self.filters
+            * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
+        )
+
+    def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:
         """Forward pass through the U-Net architecture.
 
         Args:
             x: Input tensor.
 
         Returns:
-            torch.Tensor: Output tensor after applying the U-Net operations.
+            x: Output a tensor after applying the U-Net operations.
+            current_strides: a list of the current strides from the decoder.
         """
         x, features = self.enc(x)
         x = self.dec(x, features)

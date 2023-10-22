@@ -48,7 +48,7 @@ def test_simple_upsampling_block():
     )
 
     block = block.to(device)
-    _ = block.eval()
+    block.eval()
 
     x = torch.rand(5, 5, 100, 100).to(device)
     feature = torch.rand(5, 5, 200, 200).to(device)
@@ -72,7 +72,7 @@ def test_simple_upsampling_block():
     )
 
     block = block.to(device)
-    _ = block.eval()
+    block.eval()
 
     x = torch.rand(5, 5, 100, 100).to(device)
     feature = torch.rand(5, 5, 200, 200).to(device)
@@ -96,7 +96,7 @@ def test_simple_upsampling_block():
     )
 
     block = block.to(device)
-    _ = block.eval()
+    block.eval()
 
     x = torch.rand(5, 5, 100, 100).to(device)
     feature = torch.rand(5, 5, 200, 200).to(device)
