@@ -3,11 +3,11 @@ from typing import List, Tuple
 import sleap_io as sio
 import pytest
 import copy
-from sleap_nn.evaluation.evaluator import (
+from sleap_nn.evaluation import (
     compute_instance_area,
     compute_oks,
 )
-from sleap_nn.evaluation.evaluator import Evaluator
+from sleap_nn.evaluation import Evaluator
 
 
 def test_compute_oks():
