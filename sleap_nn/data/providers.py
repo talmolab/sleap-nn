@@ -4,6 +4,7 @@ from typing import Dict, Iterator
 import numpy as np
 import sleap_io as sio
 import torch
+import copy
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
@@ -21,13 +22,13 @@ class LabelsReader(IterDataPipe):
 
     def __init__(self, labels: sio.Labels, user_instances_only: bool = True):
         """Initialize labels attribute of the class."""
-        self.labels = labels
+        self.labels = copy.deepcopy(labels)
 
         # Filter to user instances
         if user_instances_only:
             filtered_lfs = []
             for lf in self.labels:
-                if len(lf.user_instances) > 0:
+                if lf.user_instances is not None and len(lf.user_instances) > 0:
                     lf.instances = lf.user_instances
                     filtered_lfs.append(lf)
             self.labels = sio.Labels(
