@@ -66,4 +66,3 @@ target-version = "py39"
 
 [tool.ruff.pydocstyle]
 convention = "google"
-output-format = "github"
