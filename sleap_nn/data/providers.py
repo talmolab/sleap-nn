@@ -22,7 +22,7 @@ class LabelsReader(IterDataPipe):
 
     def __init__(self, labels: sio.Labels, user_instances_only: bool = True):
         """Initialize labels attribute of the class."""
-        
+
         self.labels = copy.deepcopy(labels)
         self.videos = self.labels.videos
 
