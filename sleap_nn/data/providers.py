@@ -21,6 +21,7 @@ class LabelsReader(IterDataPipe):
     def __init__(self, labels: sio.Labels) -> None:
         """Initialize labels attribute of the class."""
         self.labels = labels
+        self.videos = self.labels.videos
 
     @classmethod
     def from_filename(cls, filename: str) -> "LabelsReader":
@@ -53,7 +54,6 @@ class LabelsReader(IterDataPipe):
             yield {
                 "image": torch.from_numpy(image),
                 "instances": torch.from_numpy(instances.astype("float32")),
-                "video": lf.video,
-                "frame_idx": lf.frame_idx
-                
+                "video_idx": self.videos.index(lf.video),
+                "frame_idx": lf.frame_idx,
             }
