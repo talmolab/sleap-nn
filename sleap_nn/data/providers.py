@@ -33,7 +33,7 @@ class LabelsReader(IterDataPipe):
                     lf.instances = lf.user_instances
                     filtered_lfs.append(lf)
             self.labels = sio.Labels(
-                videos=labels.videos,
+                videos=self.videos,
                 skeletons=[labels.skeleton],
                 labeled_frames=filtered_lfs,
             )
@@ -69,6 +69,8 @@ class LabelsReader(IterDataPipe):
             yield {
                 "image": torch.from_numpy(image),
                 "instances": torch.from_numpy(instances.astype("float32")),
-                "video_idx": self.videos.index(lf.video),
-                "frame_idx": lf.frame_idx,
+                "video_idx": torch.tensor(
+                    self.videos.index(lf.video), dtype=torch.int32
+                ),
+                "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
             }
