@@ -51,12 +51,14 @@ class TopdownConfmapsPipeline:
                 datapipe,
                 random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                input_key="instance"
             )
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.geometric),
+                input_key="instance"
             )
 
         datapipe = ConfidenceMapGenerator(
