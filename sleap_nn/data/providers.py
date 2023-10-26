@@ -8,7 +8,8 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 class LabelsReader(IterDataPipe):
-    """Datapipe for reading frames from Labels object.
+    """Reading frames from Labels object DataPipe.
+
     This DataPipe will produce examples containing a frame and an sleap_io.Instance
     from a sleap_io.Labels instance.
     Attributes:
@@ -29,6 +30,7 @@ class LabelsReader(IterDataPipe):
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.
+
         "image": A torch.Tensor containing full raw frame image as a uint8 array
             of shape (1, channels, height, width).
         "instances": Keypoint coordinates for all instances in the frame as a
