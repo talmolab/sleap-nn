@@ -127,7 +127,7 @@ class KorniaAugmenter(IterDataPipe):
         random_crop_hw: Desired output size (out_h, out_w) of the crop. Must be Tuple[int, int],
             then out_h = size[0], out_w = size[1].
         random_crop_p: Probability of applying random crop.
-        input_key: Can be `image` or `instance`. The input_key `instance` expects the 
+        input_key: Can be `image` or `instance`. The input_key `instance` expects the
             the KorniaAugmenter to follow the InstanceCropper else `image` otherwise
             for default.
 
@@ -167,7 +167,8 @@ class KorniaAugmenter(IterDataPipe):
         mixup_p: float = 0.0,
         random_crop_hw: Tuple[int, int] = (0, 0),
         random_crop_p: float = 0.0,
-        input_key: str = "image"
+        image_key: str = "image",
+        instance_key: str = "instances",
     ) -> None:
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
@@ -191,7 +192,8 @@ class KorniaAugmenter(IterDataPipe):
         self.mixup_p = mixup_p
         self.random_crop_hw = random_crop_hw
         self.random_crop_p = random_crop_p
-        self.input_key = input_key
+        self.image_key = image_key
+        self.instance_key = instance_key
 
         aug_stack = []
         if self.affine_p > 0:
@@ -287,22 +289,19 @@ class KorniaAugmenter(IterDataPipe):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the augmented image and instances."""
         for ex in self.source_dp:
-            img_key = "instance_image" if self.input_key == "instance" else "image"
-            inst_key = "instance" if self.input_key == "instance" else "instances"
-            
-            inst_shape = ex[inst_key].shape
+            inst_shape = ex[self.instance_key].shape
             # Before (self.input_key="image"): (B=1, C, H, W), (B=1, num_instances, num_nodes, 2)
             # or
             # Before (self.input_key="instance"): (B=1, C, crop_H, crop_W), (B=1, num_nodes, 2)
-            image, instances = ex[img_key], ex[inst_key].reshape(
+            image, instances = ex[self.image_key], ex[self.instance_key].reshape(
                 inst_shape[0], -1, 2
             )  # (B=1, C, H, W), (B=1, num_instances * num_nodes, 2) OR (B=1, num_nodes, 2)
 
             aug_image, aug_instances = self.augmenter(image, instances)
             ex.update(
                 {
-                    img_key: aug_image,
-                    inst_key: aug_instances.reshape(*inst_shape),
+                    self.image_key: aug_image,
+                    self.instance_key: aug_instances.reshape(*inst_shape),
                 }
             )
             # After (self.input_key="image"): (B=1, C, H, W), (B=1, num_instances, num_nodes, 2)

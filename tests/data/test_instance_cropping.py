@@ -42,7 +42,7 @@ def test_instance_cropper(minimal_instance):
     assert len(sample.keys()) == len(gt_sample_keys)
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance"].shape == (2, 2)
+    assert sample["instance"].shape == (1, 2, 2)
     assert sample["instance_image"].shape == (1, 1, 100, 100)
     assert sample["instance_bbox"].shape == (1, 4, 2)
 
@@ -54,4 +54,4 @@ def test_instance_cropper(minimal_instance):
         ]
     )
     centered_instance = sample["instance"]
-    assert torch.equal(centered_instance, gt)
+    assert torch.equal(centered_instance, gt.unsqueeze(0))

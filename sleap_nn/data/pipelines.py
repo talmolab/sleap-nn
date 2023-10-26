@@ -41,9 +41,13 @@ class TopdownConfmapsPipeline:
             datapipe = KorniaAugmenter(
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.intensity),
+                image_key="image",
+                instance_key="instances",
             )
 
-        datapipe = InstanceCentroidFinder(datapipe)
+        datapipe = InstanceCentroidFinder(
+            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
+        )
         datapipe = InstanceCropper(datapipe, self.data_config.preprocessing.crop_hw)
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:
@@ -51,20 +55,24 @@ class TopdownConfmapsPipeline:
                 datapipe,
                 random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                input_key="instance"
+                image_key="instance_image",
+                instance_key="instance",
             )
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.geometric),
-                input_key="instance"
+                image_key="instance_image",
+                instance_key="instance",
             )
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
             sigma=self.data_config.preprocessing.conf_map_gen.sigma,
             output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            image_key="instance_image",
+            instance_key="instance",
         )
         datapipe = KeyFilter(datapipe, keep_keys=self.data_config.general.keep_keys)
 
@@ -100,6 +108,8 @@ class SingleInstanceConfmapsPipeline:
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.intensity),
                 **dict(self.data_config.augmentation_config.augmentations.geometric),
+                image_key="image",
+                instance_key="instances",
             )
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:
@@ -107,14 +117,16 @@ class SingleInstanceConfmapsPipeline:
                 datapipe,
                 random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                image_key="image",
+                instance_key="instances",
             )
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
             sigma=self.data_config.preprocessing.conf_map_gen.sigma,
             output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
-            instance_key="instances",
             image_key="image",
+            instance_key="instances",
         )
         datapipe = KeyFilter(datapipe, keep_keys=self.data_config.general.keep_keys)
 

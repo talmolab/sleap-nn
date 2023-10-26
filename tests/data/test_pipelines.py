@@ -19,7 +19,13 @@ def test_key_filter(minimal_instance):
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (160, 160))
-    datapipe = ConfidenceMapGenerator(datapipe, sigma=1.5, output_stride=2)
+    datapipe = ConfidenceMapGenerator(
+        datapipe,
+        sigma=1.5,
+        output_stride=2,
+        image_key="instance_image",
+        instance_key="instance",
+    )
     datapipe = KeyFilter(datapipe, keep_keys=None)
 
     gt_sample_keys = [
@@ -37,8 +43,8 @@ def test_key_filter(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 160, 160)
-    assert sample["confidence_maps"].shape == (2, 80, 80)
+    assert sample["instance_image"].shape == (1, 1, 160, 160)
+    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
 
 
 def test_topdownconfmapspipeline(minimal_instance):
@@ -46,6 +52,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         {
             "general": {"keep_keys": ["instance_image", "confidence_maps"]},
             "preprocessing": {
+                "anchor_ind": None,
                 "crop_hw": (160, 160),
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -91,13 +98,14 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 160, 160)
-    assert sample["confidence_maps"].shape == (2, 80, 80)
+    assert sample["instance_image"].shape == (1, 1, 160, 160)
+    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
 
     base_topdown_data_config = OmegaConf.create(
         {
             "general": {"keep_keys": None},
             "preprocessing": {
+                "anchor_ind": None,
                 "crop_hw": (160, 160),
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -151,8 +159,8 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 160, 160)
-    assert sample["confidence_maps"].shape == (2, 80, 80)
+    assert sample["instance_image"].shape == (1, 1, 160, 160)
+    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
 
 
 def test_singleinstanceconfmapspipeline(minimal_instance):
@@ -214,5 +222,5 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 384, 384)
-    assert sample["confidence_maps"].shape == (2, 80, 80)
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["confidence_maps"].shape == (1, 2, 192, 192)

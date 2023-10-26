@@ -127,14 +127,6 @@ class Model(nn.Module):
         for head in self.heads:
             self.head_layers.append(head.make_head(x_in=in_channels))
 
-        # self.heads = nn.ModuleList()
-        # self.heads_metadata = []
-        # for head_config in head_configs:
-        #     head = get_head(head_config.head_type, head_config.head_config)
-        #     self.heads_metadata.append((head.output_stride, head.name))
-        #     head = head.make_head(x_in=in_channels)
-        #     self.heads.append(head)
-
     @classmethod
     def from_config(
         cls, backbone_config: DictConfig, head_configs: List[DictConfig]

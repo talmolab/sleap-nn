@@ -1,6 +1,8 @@
 import torch
 
 from sleap_nn.data.providers import LabelsReader
+import sleap_io as sio
+import numpy as np
 
 
 def test_providers(minimal_instance):
