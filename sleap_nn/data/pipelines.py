@@ -74,7 +74,7 @@ class TopdownConfmapsPipeline:
             image_key="instance_image",
             instance_key="instance",
         )
-        datapipe = KeyFilter(datapipe, keep_keys=self.data_config.general.keep_keys)
+        datapipe = KeyFilter(datapipe, keep_keys=None)
 
         return datapipe
 
@@ -128,6 +128,6 @@ class SingleInstanceConfmapsPipeline:
             image_key="image",
             instance_key="instances",
         )
-        datapipe = KeyFilter(datapipe, keep_keys=self.data_config.general.keep_keys)
+        datapipe = KeyFilter(datapipe, keep_keys=None)
 
         return datapipe

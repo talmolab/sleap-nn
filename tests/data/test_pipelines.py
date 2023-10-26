@@ -50,7 +50,6 @@ def test_key_filter(minimal_instance):
 def test_topdownconfmapspipeline(minimal_instance):
     base_topdown_data_config = OmegaConf.create(
         {
-            "general": {"keep_keys": ["instance_image", "confidence_maps"]},
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
@@ -91,8 +90,15 @@ def test_topdownconfmapspipeline(minimal_instance):
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
-    gt_sample_keys = ["instance_image", "confidence_maps"]
-
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "centroids",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+    ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
 
@@ -103,7 +109,6 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     base_topdown_data_config = OmegaConf.create(
         {
-            "general": {"keep_keys": None},
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
@@ -172,7 +177,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
-            "general": {"keep_keys": ["image", "confidence_maps"]},
             "preprocessing": {
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -217,6 +221,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     gt_sample_keys = [
         "image",
+        "instances",
         "confidence_maps",
     ]
 
