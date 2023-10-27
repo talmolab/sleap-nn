@@ -34,7 +34,7 @@ class LabelsReader(IterDataPipe):
                     filtered_lfs.append(lf)
             self.labels = sio.Labels(
                 videos=self.videos,
-                skeletons=[labels.skeleton],
+                skeletons=self.labels.skeleton,
                 labeled_frames=filtered_lfs,
             )
 
