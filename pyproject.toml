@@ -58,7 +58,7 @@ Repository = "https://github.com/talmolab/sleap-nn"
 line-length = 88
 
 [tool.ruff]
-output-format = "github"
+format = "github"
 select = [
     "D",  # pydocstyle
 ]

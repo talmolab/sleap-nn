@@ -74,7 +74,18 @@ class TopdownConfmapsPipeline:
             image_key="instance_image",
             instance_key="instance",
         )
-        datapipe = KeyFilter(datapipe, keep_keys=None)
+        datapipe = KeyFilter(
+            datapipe,
+            keep_keys=[
+                "image",
+                "instances",
+                "centroids",
+                "instance",
+                "instance_bbox",
+                "instance_image",
+                "confidence_maps",
+            ],
+        )
 
         return datapipe
 
@@ -128,6 +139,8 @@ class SingleInstanceConfmapsPipeline:
             image_key="image",
             instance_key="instances",
         )
-        datapipe = KeyFilter(datapipe, keep_keys=None)
+        datapipe = KeyFilter(
+            datapipe, keep_keys=["image", "instances", "confidence_maps"]
+        )
 
         return datapipe
