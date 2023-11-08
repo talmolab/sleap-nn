@@ -23,7 +23,6 @@ class LabelsReader(IterDataPipe):
     def __init__(self, labels: sio.Labels, user_instances_only: bool = True):
         """Initialize labels attribute of the class."""
         self.labels = copy.deepcopy(labels)
-        self.videos = self.labels.videos
 
         # Filter to user instances
         if user_instances_only:
@@ -33,7 +32,7 @@ class LabelsReader(IterDataPipe):
                     lf.instances = lf.user_instances
                     filtered_lfs.append(lf)
             self.labels = sio.Labels(
-                videos=self.videos,
+                videos=self.labels.videos,
                 skeletons=self.labels.skeletons,
                 labeled_frames=filtered_lfs,
             )
@@ -70,7 +69,7 @@ class LabelsReader(IterDataPipe):
                 "image": torch.from_numpy(image),
                 "instances": torch.from_numpy(instances.astype("float32")),
                 "video_idx": torch.tensor(
-                    self.videos.index(lf.video), dtype=torch.int32
+                    self.labels.videos.index(lf.video), dtype=torch.int32
                 ),
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
             }
