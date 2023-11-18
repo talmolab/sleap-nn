@@ -26,6 +26,8 @@ def test_key_filter(minimal_instance):
         "instance_bbox",
         "instance_image",
         "confidence_maps",
+        "video_idx",
+        "frame_idx",
     ]
 
     sample = next(iter(datapipe))
@@ -35,12 +37,21 @@ def test_key_filter(minimal_instance):
         assert gt_key == key
     assert sample["instance_image"].shape == (1, 160, 160)
     assert sample["confidence_maps"].shape == (2, 80, 80)
+    assert sample["frame_idx"] == 0
+    assert sample["video_idx"] == 0
 
 
 def test_topdownconfmapspipeline(minimal_instance):
     base_topdown_data_config = OmegaConf.create(
         {
-            "general": {"keep_keys": ["instance_image", "confidence_maps"]},
+            "general": {
+                "keep_keys": [
+                    "instance_image",
+                    "confidence_maps",
+                    "video_idx",
+                    "frame_idx",
+                ]
+            },
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
@@ -82,7 +93,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         data_provider=LabelsReader, filename=minimal_instance
     )
 
-    gt_sample_keys = ["instance_image", "confidence_maps"]
+    gt_sample_keys = ["instance_image", "confidence_maps", "video_idx", "frame_idx"]
 
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -144,6 +155,8 @@ def test_topdownconfmapspipeline(minimal_instance):
         "instance_bbox",
         "instance_image",
         "confidence_maps",
+        "video_idx",
+        "frame_idx",
     ]
 
     sample = next(iter(datapipe))
