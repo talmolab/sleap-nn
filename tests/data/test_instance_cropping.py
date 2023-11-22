@@ -36,6 +36,8 @@ def test_instance_cropper(minimal_instance):
         "instance",
         "instance_bbox",
         "instance_image",
+        "video_idx",
+        "frame_idx",
     ]
 
     # Test shapes.

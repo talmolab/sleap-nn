@@ -36,6 +36,8 @@ def test_key_filter(minimal_instance):
         "instance_bbox",
         "instance_image",
         "confidence_maps",
+        "video_idx",
+        "frame_idx",
     ]
 
     sample = next(iter(datapipe))
@@ -45,6 +47,8 @@ def test_key_filter(minimal_instance):
         assert gt_key == key
     assert sample["instance_image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert sample["frame_idx"] == 0
+    assert sample["video_idx"] == 0
 
 
 def test_topdownconfmapspipeline(minimal_instance):
@@ -157,6 +161,8 @@ def test_topdownconfmapspipeline(minimal_instance):
         "instance_bbox",
         "instance_image",
         "confidence_maps",
+        "video_idx",
+        "frame_idx",
     ]
 
     sample = next(iter(datapipe))
