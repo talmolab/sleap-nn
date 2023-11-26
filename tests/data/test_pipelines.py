@@ -160,7 +160,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         "instance",
         "instance_bbox",
         "instance_image",
-        "confidence_maps"
+        "confidence_maps",
     ]
 
     sample = next(iter(datapipe))
