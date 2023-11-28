@@ -89,5 +89,5 @@ class InstanceCentroidFinder(IterDataPipe):
         for ex in self.source_dp:
             ex["centroids"] = find_centroids(
                 ex["instances"], anchor_ind=self.anchor_ind
-            )
+            )  # (B=1, num_instances, 2)
             yield ex

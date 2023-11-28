@@ -16,7 +16,7 @@ class MatchInstance:
 
 
 def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
-    """Function to get a list of instances of type MatchInstance from the Labeled Frame.
+    """Get a list of instances of type MatchInstance from the Labeled Frame.
 
     Args:
         labeled_frame: Input Labeled frame of type sio.LabeledFrame.
@@ -555,7 +555,7 @@ class Evaluator:
         }
 
     def mOKS(self):
-        """Returns the meanOKS value."""
+        """Return the meanOKS value."""
         pair_oks = np.array([oks for _, _, oks in self.positive_pairs])
         return {"mOKS": pair_oks.mean()}
 

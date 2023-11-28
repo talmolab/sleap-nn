@@ -18,6 +18,7 @@ class LabelsReader(IterDataPipe):
         labels: sleap_io.Labels object that contains LabeledFrames that will be
             accessed through a torchdata DataPipe
         user_instances_only: True if filter labels only to user instances else False. Default value True
+
     """
 
     def __init__(self, labels: sio.Labels, user_instances_only: bool = True):
