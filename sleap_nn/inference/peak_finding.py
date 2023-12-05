@@ -88,7 +88,7 @@ def find_global_peaks_rough(
     cms: torch.Tensor, threshold: float = 0.1
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """Find the global maximum for each sample and channel.
-    
+
     Args:
         cms: Tensor of shape (samples, channels, height, width).
         threshold: Scalar float specifying the minimum confidence value for peaks. Peaks
