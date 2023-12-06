@@ -13,6 +13,7 @@ dependencies:
   - cpuonly
   - torchvision
   - imageio
+  - wandb
   - av
   - ffmpeg
   - kornia

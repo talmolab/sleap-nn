@@ -43,7 +43,6 @@ class ModelTrainer:
 
     def _create_data_loaders(self):
         """Creates a DataLoader for train, validation and test sets using the data_config."""
-
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
@@ -120,7 +119,7 @@ class ModelTrainer:
         )
 
     def train(self):
-        """Function to initiate the training by calling the fit method of Trainer"""
+        """Function to initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         dir_path = self.config.trainer_config.save_ckpt_path
         # create checkpoint callback
@@ -163,6 +162,7 @@ class ModelTrainer:
 
 
 def xavier_init_weights(x):
+    """Function to initilaise the model weights with Xavier initialization method."""
     if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
         nn.init.xavier_uniform_(x.weight)
         nn.init.constant_(x.bias, 0)
@@ -205,6 +205,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     @property
     def device(self):
+        """Save the device as an attribute to the class."""
         return next(self.model.parameters()).device
 
     def forward(self, inputs):
