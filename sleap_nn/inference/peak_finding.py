@@ -93,12 +93,14 @@ def find_global_peaks_rough(
         cms: Tensor of shape (samples, channels, height, width).
         threshold: Scalar float specifying the minimum confidence value for peaks. Peaks
             with values below this threshold will be replaced with NaNs.
+
     Returns:
         A tuple of (peak_points, peak_vals).
         peak_points: float32 tensor of shape (samples, channels, 2), where the last axis
         indicates peak locations in xy order.
         peak_vals: float32 tensor of shape (samples, channels) containing the values at
         the peak points.
+        
     """
     # Find the maximum values and their indices along the height and width axes.
     max_values, max_indices_y = torch.max(cms, dim=2, keepdim=True)
