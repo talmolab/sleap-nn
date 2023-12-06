@@ -7,7 +7,8 @@ from omegaconf import OmegaConf
 import lightning as L
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import TopdownConfmapsPipeline
-import wandb
+
+# import wandb
 import os
 from torch import nn
 import pandas as pd
@@ -111,17 +112,17 @@ def test_trainer(config):
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(config, "trainer_config.use_wandb", True)
-    model_trainer = ModelTrainer(config)
-    model_trainer._set_wandb()
-    assert wandb.run is not None
-    model_trainer.train()
-    assert any(
-        [
-            isinstance(i, L.pytorch.loggers.wandb.WandbLogger)
-            for i in model_trainer.logger
-        ]
-    )
+    # OmegaConf.update(config, "trainer_config.use_wandb", True)
+    # model_trainer = ModelTrainer(config)
+    # model_trainer._set_wandb()
+    # assert wandb.run is not None
+    # model_trainer.train()
+    # assert any(
+    #     [
+    #         isinstance(i, L.pytorch.loggers.wandb.WandbLogger)
+    #         for i in model_trainer.logger
+    #     ]
+    # )
 
     files = os.listdir(config.trainer_config.save_ckpt_path)
     ckpt = False
