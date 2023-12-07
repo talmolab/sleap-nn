@@ -13,7 +13,7 @@ def make_confmaps(
     """Make confidence maps from a batch of points for multiple instances.
 
     Args:
-        points_batch: A tensor of points of shape `(batch_size, n_nodes, 2)` and dtype `torch.float32` where
+        points_batch: A tensor of points of shape `(n_nodes, 2)` and dtype `torch.float32` where
             the last axis corresponds to (x, y) pixel coordinates on the image for each instance.
             These can contain NaNs to indicate missing points.
         xv: Sampling grid vector for x-coordinates of shape `(grid_width,)` and dtype
@@ -29,13 +29,13 @@ def make_confmaps(
         Confidence maps as a tensor of shape `(batch_size, n_nodes, grid_height, grid_width)` of
         dtype `torch.float32`.
     """
-    batch_size, n_nodes, _ = points_batch.shape
+    n_nodes, _ = points_batch.shape
 
-    x = torch.reshape(points_batch[:, :, 0], (batch_size, n_nodes, 1, 1))
-    y = torch.reshape(points_batch[:, :, 1], (batch_size, n_nodes, 1, 1))
+    x = torch.reshape(points_batch[:, 0], (n_nodes, 1, 1))
+    y = torch.reshape(points_batch[:, 1], (n_nodes, 1, 1))
 
-    xv_reshaped = torch.reshape(xv, (1, 1, 1, -1))
-    yv_reshaped = torch.reshape(yv, (1, 1, -1, 1))
+    xv_reshaped = torch.reshape(xv, (1, 1, -1))
+    yv_reshaped = torch.reshape(yv, (1, -1, 1))
 
     cm = torch.exp(
         -((xv_reshaped - x) ** 2 + (yv_reshaped - y) ** 2) / (2 * sigma**2)
@@ -72,6 +72,7 @@ class ConfidenceMapGenerator(IterDataPipe):
         output_stride: int = 1,
         image_key: str = "image",
         instance_key: str = "instances",
+        squeeze: bool = False,
     ) -> None:
         """Initialize ConfidenceMapGenerator with input `DataPipe`, sigma, and output stride."""
         self.source_dp = source_dp
@@ -79,6 +80,7 @@ class ConfidenceMapGenerator(IterDataPipe):
         self.output_stride = output_stride
         self.image_key = image_key
         self.instance_key = instance_key
+        self.squeeze = squeeze
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Generate confidence maps for each example."""
@@ -91,6 +93,10 @@ class ConfidenceMapGenerator(IterDataPipe):
             height = example[self.image_key].shape[-2]
 
             xv, yv = make_grid_vectors(height, width, self.output_stride)
+
+            if self.squeeze:
+                instance = instance.squeeze(0)
+                example[self.image_key] = example[self.image_key].squeeze(0)
 
             confidence_maps = make_confmaps(
                 instance,

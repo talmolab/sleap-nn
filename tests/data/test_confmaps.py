@@ -6,6 +6,7 @@ from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.utils import make_grid_vectors
+import pytest
 
 
 def test_confmaps(minimal_instance):
@@ -58,3 +59,7 @@ def test_confmaps(minimal_instance):
 
     # torch.testing.assert_close(gt.unsqueeze(0), cms, atol=0.001, rtol=0.0)
     torch.testing.assert_close(gt, cms, atol=0.001, rtol=0.0)
+
+
+if __name__ == "__main__":
+    pytest.main([f"{__file__}::test_confmaps"])

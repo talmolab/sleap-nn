@@ -91,7 +91,8 @@ class InstanceCropper(IterDataPipe):
                 center_instance = instance - point
 
                 instance_example = {
-                    "instance_image": instance_image,  # (B=1, C, crop_H, crop_W)
+                    # "instance_image": instance_image,  # (B=1, C, crop_H, crop_W)
+                    "instance_image": instance_image.squeeze(0),
                     "instance_bbox": instance_bbox,  # (B=1, 4, 2)
                     # "instance": center_instance.unsqueeze(0),  # (B=1, num_nodes, 2)
                     "instance": center_instance,

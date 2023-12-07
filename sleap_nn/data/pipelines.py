@@ -138,6 +138,7 @@ class SingleInstanceConfmapsPipeline:
             output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
             image_key="image",
             instance_key="instances",
+            squeeze=True,
         )
         datapipe = KeyFilter(
             datapipe, keep_keys=["image", "instances", "confidence_maps"]
