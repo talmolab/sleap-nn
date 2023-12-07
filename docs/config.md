@@ -23,27 +23,27 @@ The config file has three main sections:
                 - `use_augmentations`: True if the data augmentation should be applied to the data, else False.
                 - `augmentation`: 
                     - `intensity`: 
-                            - `uniform_noise`: tuple of uniform noise (min_noise, max_noise). Must satisfy 0. <= min_noise <= max_noise <= 1.
-                            - `uniform_noise_p`: Probability of applying random uniform noise. *Default*=0.0
-                            - `gaussian_noise_mean`: The mean of the gaussian distribution.
-                            - `gaussian_noise_std`: The standard deviation of the gaussian distribution.
-                            - `gaussian_noise_p`: Probability of applying random gaussian noise. *Default*=0.0
-                            - `contrast`: The contrast factor to apply. *Default*: (1.0, 1.0).
-                            - `contrast_p`: Probability of applying random contrast. *Default*=0.0
-                            - `brightness`: The brightness factor to apply. *Default*: (1.0, 1.0).
-                            - `brightness_p`: Probability of applying random brightness. *Default*=0.0
+                        - `uniform_noise`: tuple of uniform noise (min_noise, max_noise). Must satisfy 0. <= min_noise <= max_noise <= 1.
+                        - `uniform_noise_p`: Probability of applying random uniform noise. *Default*=0.0
+                        - `gaussian_noise_mean`: The mean of the gaussian distribution.
+                        - `gaussian_noise_std`: The standard deviation of the gaussian distribution.
+                        - `gaussian_noise_p`: Probability of applying random gaussian noise. *Default*=0.0
+                        - `contrast`: The contrast factor to apply. *Default*: (1.0, 1.0).
+                        - `contrast_p`: Probability of applying random contrast. *Default*=0.0
+                        - `brightness`: The brightness factor to apply. *Default*: (1.0, 1.0).
+                        - `brightness_p`: Probability of applying random brightness. *Default*=0.0
                     - `geometric`:
-                            - `rotation`: Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
-                            - `scale`: A scaling factor as a scalar float specifying the amount of scaling. A
-                                random factor between (1 - scale, 1 + scale) will be sampled and applied to both images and keypoints. If `None`, no scaling augmentation will be applied.
-                            - `translate`: tuple of maximum absolute fraction for horizontal and vertical translations. For example translate=(a, b), then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is randomly sampled in the range img_height * b < dy < img_height * b. Will not translate by default.
-                            - `affine_p`: Probability of applying random affine transformations. *Default*=0.0
-                            - `erase_scale`: Range of proportion of erased area against input image. *Default*: (0.0001, 0.01).
-                            - `erase_ratio`: Range of aspect ratio of erased area. *Default*: (1, 1).
-                            - `erase_p`: Probability of applying random erase. *Default*=0.0
-                            - `mixup_lambda`: min-max value of mixup strength. Default is 0-1. *Default*: `None`.
-                            - `mixup_p`: Probability of applying random mixup v2. *Default*=0.0
-                            - `input_key`: Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
+                        - `rotation`: Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
+                        - `scale`: A scaling factor as a scalar float specifying the amount of scaling. A
+                        random factor between (1 - scale, 1 + scale) will be sampled and applied to both images and keypoints. If `None`, no scaling augmentation will be applied.
+                        - `translate`: tuple of maximum absolute fraction for horizontal and vertical translations. For example translate=(a, b), then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is randomly sampled in the range img_height * b < dy < img_height * b. Will not translate by default.
+                        - `affine_p`: Probability of applying random affine transformations. *Default*=0.0
+                        - `erase_scale`: Range of proportion of erased area against input image. *Default*: (0.0001, 0.01).
+                        - `erase_ratio`: Range of aspect ratio of erased area. *Default*: (1, 1).
+                        - `erase_p`: Probability of applying random erase. *Default*=0.0
+                        - `mixup_lambda`: min-max value of mixup strength. Default is 0-1. *Default*: `None`.
+                        - `mixup_p`: Probability of applying random mixup v2. *Default*=0.0
+                        - `input_key`: Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
 
 - `model_config`: 
     - `init_weight`: model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.

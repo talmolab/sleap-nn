@@ -132,7 +132,7 @@ class ModelTrainer:
             callbacks=callbacks,
             logger=self.logger,
             enable_checkpointing=ckpt_path,
-            devices=self.config.trainer_config.devices,
+            devices=self.config.trainer_config.trainer_devices,
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
