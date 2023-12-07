@@ -93,7 +93,8 @@ class InstanceCropper(IterDataPipe):
                 instance_example = {
                     "instance_image": instance_image,  # (B=1, C, crop_H, crop_W)
                     "instance_bbox": instance_bbox,  # (B=1, 4, 2)
-                    "instance": center_instance.unsqueeze(0),  # (B=1, num_nodes, 2)
+                    # "instance": center_instance.unsqueeze(0),  # (B=1, num_nodes, 2)
+                    "instance": center_instance,
                 }
                 ex.update(instance_example)
                 yield ex

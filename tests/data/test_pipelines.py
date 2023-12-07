@@ -45,8 +45,10 @@ def test_key_filter(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    # assert sample["instance_image"].shape == (1, 1, 160, 160)
+    # assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert sample["instance_image"].shape == (1, 160, 160)
+    assert sample["confidence_maps"].shape == (2, 80, 80)
     assert sample["frame_idx"] == 0
     assert sample["video_idx"] == 0
 
@@ -108,8 +110,10 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    # assert sample["instance_image"].shape == (1, 1, 160, 160)
+    # assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert sample["instance_image"].shape == (1, 160, 160)
+    assert sample["confidence_maps"].shape == (2, 80, 80)
 
     base_topdown_data_config = OmegaConf.create(
         {
@@ -168,8 +172,11 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    # assert sample["instance_image"].shape == (1, 1, 160, 160)
+    # assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+
+    assert sample["instance_image"].shape == (1, 160, 160)
+    assert sample["confidence_maps"].shape == (2, 80, 80)
 
 
 def test_singleinstanceconfmapspipeline(minimal_instance):
@@ -231,8 +238,10 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 384, 384)
-    assert sample["confidence_maps"].shape == (1, 2, 192, 192)
+    # assert sample["image"].shape == (1, 1, 384, 384)
+    # assert sample["confidence_maps"].shape == (1, 2, 192, 192)
+    assert sample["image"].shape == (1, 384, 384)
+    assert sample["confidence_maps"].shape == (2, 192, 192)
 
     base_singleinstance_data_config = OmegaConf.create(
         {
@@ -286,5 +295,8 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    # assert sample["image"].shape == (1, 1, 160, 160)
+    # assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+
+    assert sample["image"].shape == (1, 160, 160)
+    assert sample["confidence_maps"].shape == (2, 80, 80)
