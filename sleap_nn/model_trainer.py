@@ -51,17 +51,19 @@ class ModelTrainer:
         train_pipeline = TopdownConfmapsPipeline(
             data_config=self.config.data_config.train
         )
+        train_labels_reader = self.provider(
+            sio.load_slp(self.config.data_config.train.labels_path)
+        )
         train_datapipe = train_pipeline.make_training_pipeline(
-            data_provider=self.provider,
-            filename=self.config.data_config.train.labels_path,
+            data_provider=train_labels_reader,
         )
 
-        val_pipeline = TopdownConfmapsPipeline(
-            data_config=self.config.data_config.valid
+        val_pipeline = TopdownConfmapsPipeline(data_config=self.config.data_config.val)
+        val_labels_reader = self.provider(
+            sio.load_slp(self.config.data_config.val.labels_path)
         )
         val_datapipe = val_pipeline.make_training_pipeline(
-            data_provider=LabelsReader,
-            filename=self.config.data_config.valid.labels_path,
+            data_provider=val_labels_reader,
         )
 
         use_test_data = "test" in self.config.data_config.keys()
@@ -69,9 +71,11 @@ class ModelTrainer:
             test_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config.test
             )
+            test_labels_reader = self.provider(
+                sio.load_slp(self.config.data_config.test.labels_path)
+            )
             test_datapipe = test_pipeline.make_training_pipeline(
-                data_provider=LabelsReader,
-                filename=self.config.data_config.test.labels_path,
+                data_provider=test_labels_reader,
             )
             test_datapipe = test_datapipe.sharding_filter()
 
@@ -79,44 +83,25 @@ class ModelTrainer:
         train_datapipe = train_datapipe.sharding_filter()
         val_datapipe = val_datapipe.sharding_filter()
 
-        num_cores = self.config.trainer_config.num_cores
         # create torch Data Loaders
         self.train_data_loader = DataLoader(
             train_datapipe,
-            batch_size=self.config.trainer_config.train_batch_size,
-            shuffle=True,
-            num_workers=num_cores,
-            pin_memory=True,
-            drop_last=True,
-            prefetch_factor=2,
+            **dict(self.config.trainer_config.train_data_loader),
         )
         self.val_data_loader = DataLoader(
             val_datapipe,
-            batch_size=self.config.trainer_config.val_batch_size,
-            shuffle=False,
-            num_workers=num_cores,
-            pin_memory=True,
-            drop_last=True,
-            prefetch_factor=2,
+            **dict(self.config.trainer_config.val_data_loader),
         )
         self.test_data_loader = None
         if use_test_data:
             self.test_data_loader = DataLoader(
                 test_datapipe,
-                batch_size=self.config.trainer_config.test_batch_size,
-                shuffle=False,
-                num_workers=num_cores,
-                pin_memory=True,
-                drop_last=True,
-                prefetch_factor=2,
+                **dict(self.config.trainer_config.test_data_loader),
             )
 
     def _set_wandb(self):
         wandb.login()
-        self.wandb_logger = WandbLogger(
-            project=self.config.trainer_config.wandb.project,
-            name=self.config.trainer_config.wandb.entity_name,
-        )
+        self.wandb_logger = WandbLogger(**dict(self.config.trainer_config.wandb))
 
     def train(self):
         """Function to initiate the training by calling the fit method of Trainer."""
@@ -130,10 +115,10 @@ class ModelTrainer:
             monitor="val_loss",
             mode="min",
             dirpath=dir_path,
-            filename="{epoch:02d}-{val_loss:.2f}",
         )
-        enable_checkpoint = True
         callbacks = [checkpoint_callback]
+        if not self.config.trainer_config.save_ckpt:
+            ckpt_path = "./"
         # default logger to create csv with metrics values over the epochs
         csv_logger = CSVLogger(dir_path)
         self.logger = [csv_logger]
@@ -141,13 +126,12 @@ class ModelTrainer:
             self._set_wandb()
             self.logger = [self.wandb_logger, csv_logger]
         if not self.config.trainer_config.save_ckpt:
-            enable_checkpoint = False
             callbacks = []
         model = TopDownCenteredInstanceModel(self.config)
         trainer = L.Trainer(
             callbacks=callbacks,
             logger=self.logger,
-            enable_checkpointing=enable_checkpoint,
+            enable_checkpointing=ckpt_path,
             devices=self.config.trainer_config.devices,
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
@@ -267,18 +251,11 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         """Configure optimiser and learning rate scheduler."""
         optimizer = torch.optim.Adam(
             self.parameters(),
-            lr=self.trainer_config.optimizer.learning_rate,
-            amsgrad=self.trainer_config.optimizer.use_amsgrad,
+            **dict(self.trainer_config.optimizer),
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            "min",
-            threshold=self.trainer_config.optimizer.lr_scheduler_threshold,
-            threshold_mode="abs",
-            cooldown=self.trainer_config.optimizer.lr_scheduler_cooldown,
-            patience=self.trainer_config.optimizer.lr_scheduler_patience,
-            factor=self.trainer_config.optimizer.lr_reduction_factor,
-            min_lr=self.trainer_config.optimizer.min_lr,
+            **dict(self.trainer_config.lr_scheduler),
         )
         return {
             "optimizer": optimizer,
