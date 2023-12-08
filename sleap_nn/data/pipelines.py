@@ -80,7 +80,7 @@ class TopdownConfmapsPipeline:
                 "image",
                 "video_idx",
                 "frame_idx",
-                "instances",
+                # "instances",
                 "centroids",
                 "instance",
                 "instance_bbox",
@@ -143,7 +143,14 @@ class SingleInstanceConfmapsPipeline:
             squeeze=True,
         )
         datapipe = KeyFilter(
-            datapipe, keep_keys=["image", "video_idx", "frame_idx", "instances", "confidence_maps"]
+            datapipe,
+            keep_keys=[
+                "image",
+                "video_idx",
+                "frame_idx",
+                "instances",
+                "confidence_maps",
+            ],
         )
 
         return datapipe

@@ -30,7 +30,7 @@ def test_key_filter(minimal_instance):
 
     gt_sample_keys = [
         "image",
-        "instances",
+        # "instances",
         "centroids",
         "instance",
         "instance_bbox",
@@ -98,7 +98,7 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     gt_sample_keys = [
         "image",
-        "instances",
+        # "instances",
         "video_idx",
         "frame_idx",
         "centroids",
@@ -163,7 +163,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         "image",
         "video_idx",
         "frame_idx",
-        "instances",
+        # "instances",
         "centroids",
         "instance",
         "instance_bbox",
