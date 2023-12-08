@@ -183,14 +183,14 @@ def config(sleap_data_dir):
                     "entity_name": "test_run",
                 },
                 "optimizer": {
-                    "learning_rate": 1e-4,
-                    "use_amsgrad": True,
+                    "lr": 1e-4,
+                    "amsgrad": True,
                 },
                 "lr_scheduler": {
                     "threshold": 1e-6,
                     "cooldown": 3,
                     "patience": 5,
-                    "reduction_factor": 0.5,
+                    "factor": 0.5,
                     "min_lr": 1e-8,
                 },
             },

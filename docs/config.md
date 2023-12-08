@@ -85,7 +85,7 @@ The config file has three main sections:
         - `name`: name of the current run
     - `optimizer`
         - `lr`: learning rate of type float. *Default*: 1e-3
-        - `use_amsgrad`: Boolean to enable AMSGrad. *Default*: False
+        - `amsgrad`: Boolean to enable AMSGrad. *Default*: False
     - `lr_scheduler`
         - `mode`: One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. *Default*: "min".
         - `threshold`: Threshold for measuring the new optimum, to only focus on significant changes. *Default*: 1e-4.
