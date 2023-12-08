@@ -98,4 +98,5 @@ class InstanceCropper(IterDataPipe):
                     "instance": center_instance,
                 }
                 ex.update(instance_example)
+                a = ex.pop("instances")
                 yield ex

@@ -31,7 +31,7 @@ def test_instance_cropper(minimal_instance):
 
     gt_sample_keys = [
         "image",
-        "instances",
+        # "instances",
         "centroids",
         "instance",
         "instance_bbox",
