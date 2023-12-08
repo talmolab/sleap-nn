@@ -99,6 +99,8 @@ def test_topdownconfmapspipeline(minimal_instance):
     gt_sample_keys = [
         "image",
         "instances",
+        "video_idx",
+        "frame_idx",
         "centroids",
         "instance",
         "instance_bbox",
@@ -159,6 +161,8 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     gt_sample_keys = [
         "image",
+        "video_idx",
+        "frame_idx",
         "instances",
         "centroids",
         "instance",
@@ -234,6 +238,8 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "image",
         "instances",
         "confidence_maps",
+        "video_idx",
+        "frame_idx",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -291,6 +297,8 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "image",
         "instances",
         "confidence_maps",
+        "video_idx",
+        "frame_idx",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
