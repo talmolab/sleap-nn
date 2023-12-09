@@ -110,15 +110,15 @@ def test_trainer(config):
             yaml = True
         assert not i.endswith(".ckpt")
     # check if yaml file is created
-    assert yaml
+    assert not yaml
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     # OmegaConf.update(config, "trainer_config.use_wandb", True)
-    # model_trainer = ModelTrainer(config)
+    model_trainer = ModelTrainer(config)
     # model_trainer._set_wandb()
     # assert wandb.run is not None
-    # model_trainer.train()
+    model_trainer.train()
     # assert any(
     #     [
     #         isinstance(i, L.pytorch.loggers.wandb.WandbLogger)
@@ -128,12 +128,14 @@ def test_trainer(config):
 
     files = os.listdir(config.trainer_config.save_ckpt_path)
     ckpt = False
+    yaml = False
     for i in files:
         if i.endswith("ckpt"):
             ckpt = True
-            break
+        if i.endswith("yaml"):
+            yaml = True
     # check if ckpt is created
-    assert ckpt
+    assert ckpt and yaml
     checkpoint = torch.load(os.path.join(config.trainer_config.save_ckpt_path, i))
     assert checkpoint["epoch"] == 1
     labels = sio.load_slp("minimal_instance.pkg.slp")
@@ -163,7 +165,7 @@ def test_topdown_centered_instance_model(config):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
-    input_cm = input_["confidence_maps"]
+    input_cm = input_["confidence_maps"].squeeze(dim=1).to("cuda")
     preds = model(input_)
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)

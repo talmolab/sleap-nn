@@ -17,7 +17,6 @@ import pandas as pd
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint
 
-
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
 
@@ -58,6 +57,14 @@ class ModelTrainer:
             data_provider=train_labels_reader,
         )
 
+        # to remove duplicates when multiprocessing is used
+        train_datapipe = train_datapipe.sharding_filter()
+         # create torch Data Loaders
+        self.train_data_loader = DataLoader(
+            train_datapipe,
+            **dict(self.config.trainer_config.train_data_loader),
+        )
+
         val_pipeline = TopdownConfmapsPipeline(data_config=self.config.data_config.val)
         val_labels_reader = self.provider(
             sio.load_slp(self.config.data_config.val.labels_path)
@@ -65,7 +72,13 @@ class ModelTrainer:
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,
         )
+        val_datapipe = val_datapipe.sharding_filter()
+        self.val_data_loader = DataLoader(
+            val_datapipe,
+            **dict(self.config.trainer_config.val_data_loader),
+        )
 
+        self.test_data_loader = None
         use_test_data = "test" in self.config.data_config.keys()
         if use_test_data:
             test_pipeline = TopdownConfmapsPipeline(
@@ -78,22 +91,6 @@ class ModelTrainer:
                 data_provider=test_labels_reader,
             )
             test_datapipe = test_datapipe.sharding_filter()
-
-        # to remove duplicates when multiprocessing is used
-        train_datapipe = train_datapipe.sharding_filter()
-        val_datapipe = val_datapipe.sharding_filter()
-
-        # create torch Data Loaders
-        self.train_data_loader = DataLoader(
-            train_datapipe,
-            **dict(self.config.trainer_config.train_data_loader),
-        )
-        self.val_data_loader = DataLoader(
-            val_datapipe,
-            **dict(self.config.trainer_config.val_data_loader),
-        )
-        self.test_data_loader = None
-        if use_test_data:
             self.test_data_loader = DataLoader(
                 test_datapipe,
                 **dict(self.config.trainer_config.test_data_loader),
@@ -106,32 +103,39 @@ class ModelTrainer:
     def train(self):
         """Function to initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
-        dir_path = self.config.trainer_config.save_ckpt_path
-        # create checkpoint callback
-        checkpoint_callback = ModelCheckpoint(
-            save_top_k=1,
-            save_last=True,
-            every_n_epochs=0,
-            monitor="val_loss",
-            mode="min",
-            dirpath=dir_path,
-        )
-        callbacks = [checkpoint_callback]
-        if not self.config.trainer_config.save_ckpt:
-            ckpt_path = "./"
-        # default logger to create csv with metrics values over the epochs
-        csv_logger = CSVLogger(dir_path)
-        self.logger = [csv_logger]
+        self.logger = []
+        if self.config.trainer_config.save_ckpt:
+            if not self.config.trainer_config.save_ckpt_path:
+                dir_path = "./"
+            else:
+                dir_path = self.config.trainer_config.save_ckpt_path
+            # create checkpoint callback
+            checkpoint_callback = ModelCheckpoint(
+                save_top_k=1,
+                save_last=True,
+                every_n_epochs=0,
+                monitor="val_loss",
+                mode="min",
+                dirpath=dir_path,
+            )
+            callbacks = [checkpoint_callback]
+            # logger to create csv with metrics values over the epochs
+            csv_logger = CSVLogger(dir_path)
+            self.logger.append(csv_logger)
+            OmegaConf.save(config=self.config, f=dir_path + "config.yaml")
+
+        else:
+            callbacks = []
+        
         if self.config.trainer_config.use_wandb:
             self._set_wandb()
-            self.logger = [self.wandb_logger, csv_logger]
-        if not self.config.trainer_config.save_ckpt:
-            callbacks = []
+            self.logger.append(self.wandb_logger)
+
         model = TopDownCenteredInstanceModel(self.config)
         trainer = L.Trainer(
             callbacks=callbacks,
             logger=self.logger,
-            enable_checkpointing=ckpt_path,
+            enable_checkpointing=self.config.trainer_config.save_ckpt,
             devices=self.config.trainer_config.trainer_devices,
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
@@ -140,7 +144,6 @@ class ModelTrainer:
 
         trainer.fit(model, self.train_data_loader, self.val_data_loader)
         # save the configs as yaml in the checkpoint dir
-        OmegaConf.save(config=self.config, f=dir_path + "config.yaml")
 
         wandb.finish()
 
@@ -194,7 +197,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def forward(self, inputs):
         """Forward pass of the model."""
-        imgs = inputs["instance_image"].to(self.m_device)
+        imgs = torch.squeeze(inputs["instance_image"], dim=1).to(self.m_device)
         return self.model(imgs)["CenteredInstanceConfmapsHead"]
 
     def on_save_checkpoint(self, checkpoint):
@@ -206,8 +209,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = batch["instance_image"], batch["confidence_maps"]
-
+        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(batch["confidence_maps"], dim=1)
         X = X.to(self.m_device)
         y = y.to(self.m_device)
 
@@ -221,7 +223,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = batch["instance_image"].to(self.m_device), batch["confidence_maps"].to(
+        X, y = torch.squeeze(batch["instance_image"], dim=1).to(self.m_device), torch.squeeze(batch["confidence_maps"], dim=1).to(
             self.m_device
         )
 
