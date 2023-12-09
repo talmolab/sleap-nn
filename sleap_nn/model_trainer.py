@@ -17,6 +17,7 @@ import pandas as pd
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint
 
+
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
 
@@ -59,7 +60,7 @@ class ModelTrainer:
 
         # to remove duplicates when multiprocessing is used
         train_datapipe = train_datapipe.sharding_filter()
-         # create torch Data Loaders
+        # create torch Data Loaders
         self.train_data_loader = DataLoader(
             train_datapipe,
             **dict(self.config.trainer_config.train_data_loader),
@@ -126,7 +127,7 @@ class ModelTrainer:
 
         else:
             callbacks = []
-        
+
         if self.config.trainer_config.use_wandb:
             self._set_wandb()
             self.logger.append(self.wandb_logger)
@@ -209,7 +210,9 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(batch["confidence_maps"], dim=1)
+        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
+            batch["confidence_maps"], dim=1
+        )
         X = X.to(self.m_device)
         y = y.to(self.m_device)
 
@@ -223,9 +226,9 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1).to(self.m_device), torch.squeeze(batch["confidence_maps"], dim=1).to(
+        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
             self.m_device
-        )
+        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)

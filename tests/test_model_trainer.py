@@ -104,13 +104,9 @@ def test_trainer(config):
 
     # disable ckpt, check if ckpt is created
     files = os.listdir(config.trainer_config.save_ckpt_path)
-    yaml = False
     for i in files:
-        if i.endswith(".yaml"):
-            yaml = True
+        assert not i.endswith(".yaml")
         assert not i.endswith(".ckpt")
-    # check if yaml file is created
-    assert not yaml
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
@@ -165,7 +161,7 @@ def test_topdown_centered_instance_model(config):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
-    input_cm = input_["confidence_maps"].squeeze(dim=1).to("cuda")
+    input_cm = input_["confidence_maps"].squeeze(dim=1)
     preds = model(input_)
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
