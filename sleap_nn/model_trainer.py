@@ -4,6 +4,7 @@ import torch
 import sleap_io as sio
 from torch.utils.data import DataLoader
 from typing import Text
+import os
 import lightning.pytorch as pl
 import pandas as pd
 from omegaconf import OmegaConf
@@ -110,13 +111,13 @@ class ModelTrainer:
                 dir_path = "./"
             else:
                 dir_path = self.config.trainer_config.save_ckpt_path
+
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path)
+
             # create checkpoint callback
             checkpoint_callback = ModelCheckpoint(
-                save_top_k=1,
-                save_last=True,
-                every_n_epochs=0,
-                monitor="val_loss",
-                mode="min",
+                **dict(self.config.trainer_config.model_ckpt),
                 dirpath=dir_path,
             )
             callbacks = [checkpoint_callback]

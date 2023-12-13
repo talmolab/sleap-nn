@@ -103,10 +103,8 @@ def test_trainer(config):
     )
 
     # disable ckpt, check if ckpt is created
-    files = os.listdir(config.trainer_config.save_ckpt_path)
-    for i in files:
-        assert not i.endswith(".yaml")
-        assert not i.endswith(".ckpt")
+    folder_created = os.path.exists(config.trainer_config.save_ckpt_path)
+    assert not folder_created
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
@@ -122,6 +120,8 @@ def test_trainer(config):
     #     ]
     # )
 
+    folder_created = os.path.exists(config.trainer_config.save_ckpt_path)
+    assert folder_created
     files = os.listdir(config.trainer_config.save_ckpt_path)
     ckpt = False
     yaml = False
@@ -148,10 +148,7 @@ def test_trainer(config):
             config.trainer_config.save_ckpt_path, "lightning_logs/version_0/metrics.csv"
         )
     )
-    assert (
-        abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.learning_rate)
-        <= 1e-4
-    )
+    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
 
