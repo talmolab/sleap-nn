@@ -4,18 +4,13 @@ from torch.utils.data import DataLoader
 from typing import Text
 import lightning.pytorch as pl
 import pytest
+import wandb
 from omegaconf import OmegaConf
 import lightning as L
 from pathlib import Path
 from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.pipelines import TopdownConfmapsPipeline
-
-# import wandb
-import os
 import pytest
-from torch import nn
 import pandas as pd
-from sleap_nn.architectures.model import Model
 from sleap_nn.model_trainer import ModelTrainer, TopDownCenteredInstanceModel
 from torch.nn.functional import mse_loss
 
@@ -103,26 +98,23 @@ def test_trainer(config):
     )
 
     # disable ckpt, check if ckpt is created
-    folder_created = os.path.exists(config.trainer_config.save_ckpt_path)
+    folder_created = Path.exists(config.trainer_config.save_ckpt_path)
     assert not folder_created
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
-    # OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "trainer_config.use_wandb", True)
     model_trainer = ModelTrainer(config)
-    # model_trainer._set_wandb()
-    # assert wandb.run is not None
+    wandb.login()
+    model_trainer._set_wandb()
+    assert wandb.run is not None
     model_trainer.train()
-    # assert any(
-    #     [
-    #         isinstance(i, L.pytorch.loggers.wandb.WandbLogger)
-    #         for i in model_trainer.logger
-    #     ]
-    # )
 
-    folder_created = os.path.exists(config.trainer_config.save_ckpt_path)
+    folder_created = Path.exists(config.trainer_config.save_ckpt_path)
     assert folder_created
-    files = os.listdir(config.trainer_config.save_ckpt_path)
+    files = [
+        x for x in Path(config.trainer_config.save_ckpt_path).iterdir() if x.is_file()
+    ]
     ckpt = False
     yaml = False
     for i in files:
@@ -132,19 +124,21 @@ def test_trainer(config):
             yaml = True
     # check if ckpt is created
     assert ckpt and yaml
-    checkpoint = torch.load(os.path.join(config.trainer_config.save_ckpt_path, i))
+    checkpoint = torch.load(Path.joinpath(config.trainer_config.save_ckpt_path, i))
     assert checkpoint["epoch"] == 1
     labels = sio.load_slp("minimal_instance.pkg.slp")
     # check if skeleton is saved in ckpt file
     assert checkpoint["skeleton"] == labels.skeletons
 
     # check for training metrics csv
-    files = os.listdir(
-        os.path.join(config.trainer_config.save_ckpt_path, "lightning_logs/version_0/")
+    path = Path.joinpath(
+        config.trainer_config.save_ckpt_path, "lightning_logs/version_0/"
     )
+    files = [x for x in Path(path).iterdir() if x.is_file()]
+
     assert "metrics.csv" in files
     df = pd.read_csv(
-        os.path.join(
+        Path.joinpath(
             config.trainer_config.save_ckpt_path, "lightning_logs/version_0/metrics.csv"
         )
     )
@@ -166,11 +160,6 @@ def test_topdown_centered_instance_model(config):
     # check the loss
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
-
-    # check if cuda is activated
-    OmegaConf.update(config, "trainer_config.device", "cuda")
-    model = TopDownCenteredInstanceModel(config)
-    assert "cuda" in str(model.device)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ import torch
 import sleap_io as sio
 from torch.utils.data import DataLoader
 from typing import Text
-import os
+from pathlib import Path
 import lightning.pytorch as pl
 import pandas as pd
 from omegaconf import OmegaConf
@@ -112,8 +112,8 @@ class ModelTrainer:
             else:
                 dir_path = self.config.trainer_config.save_ckpt_path
 
-            if not os.path.exists(dir_path):
-                os.makedirs(dir_path)
+            if not Path(dir_path).exists():
+                Path.mkdir(dir_path)
 
             # create checkpoint callback
             checkpoint_callback = ModelCheckpoint(
@@ -133,7 +133,7 @@ class ModelTrainer:
             self._set_wandb()
             self.logger.append(self.wandb_logger)
 
-        model = TopDownCenteredInstanceModel(self.config)
+        self.model = TopDownCenteredInstanceModel(self.config)
         trainer = L.Trainer(
             callbacks=callbacks,
             logger=self.logger,
@@ -144,7 +144,7 @@ class ModelTrainer:
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
         )
 
-        trainer.fit(model, self.train_data_loader, self.val_data_loader)
+        trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
         # save the configs as yaml in the checkpoint dir
 
         wandb.finish()

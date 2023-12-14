@@ -176,7 +176,6 @@ def config(sleap_data_dir):
                     "monitor": "val_loss",
                     "mode": "min",
                     "auto_insert_metric_name": False,
-                    "enable_version_counter": False,
                 },
                 "device": "cpu",
                 "trainer_devices": 1,
@@ -186,10 +185,10 @@ def config(sleap_data_dir):
                 "seed": 1000,
                 "use_wandb": False,
                 "save_ckpt": False,
-                "save_ckpt_path": "./test_try_1/",
+                "save_ckpt_path": f"{tmp_path}",
                 "wandb": {
                     "project": "test",
-                    "entity_name": "test_run",
+                    "name": "test_run",
                 },
                 "optimizer": {
                     "lr": 1e-4,
