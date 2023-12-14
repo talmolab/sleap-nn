@@ -100,7 +100,7 @@ def find_global_peaks_rough(
         indicates peak locations in xy order.
         peak_vals: float32 tensor of shape (samples, channels) containing the values at
         the peak points.
-        
+
     """
     # Find the maximum values and their indices along the height and width axes.
     max_values, max_indices_y = torch.max(cms, dim=2, keepdim=True)
