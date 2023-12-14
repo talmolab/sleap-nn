@@ -31,8 +31,7 @@ def test_instance_cropper(minimal_instance):
 
     gt_sample_keys = [
         "image",
-        "instances",
-        "centroids",
+        "centroid",
         "instance",
         "instance_bbox",
         "instance_image",
@@ -45,6 +44,7 @@ def test_instance_cropper(minimal_instance):
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
     assert sample["instance"].shape == (1, 2, 2)
+    assert sample["centroid"].shape == (1, 2)
     assert sample["instance_image"].shape == (1, 1, 100, 100)
     assert sample["instance_bbox"].shape == (1, 4, 2)
 
