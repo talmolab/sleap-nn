@@ -15,8 +15,9 @@ from sleap_nn.model_trainer import ModelTrainer, TopDownCenteredInstanceModel
 from torch.nn.functional import mse_loss
 
 
-def test_create_data_loader(config, sleap_data_dir):
+def test_create_data_loader(config, sleap_data_dir, tmp_path):
     model_trainer = ModelTrainer(config)
+    OmegaConf.update(config, "trainer_config.save_ckpt_path", tmp_path)
     model_trainer._create_data_loaders()
     assert isinstance(
         model_trainer.train_data_loader, torch.utils.data.dataloader.DataLoader

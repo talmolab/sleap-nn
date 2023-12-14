@@ -185,7 +185,7 @@ def config(sleap_data_dir):
                 "seed": 1000,
                 "use_wandb": False,
                 "save_ckpt": False,
-                "save_ckpt_path": f"{tmp_path}",
+                "save_ckpt_path": "",
                 "wandb": {
                     "project": "test",
                     "name": "test_run",
