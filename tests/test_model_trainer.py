@@ -15,7 +15,7 @@ from sleap_nn.model_trainer import ModelTrainer, TopDownCenteredInstanceModel
 from torch.nn.functional import mse_loss
 
 
-def test_create_data_loader(config, sleap_data_dir, tmp_path):
+def test_create_data_loader(config, sleap_data_dir, tmp_path: str):
     model_trainer = ModelTrainer(config)
     OmegaConf.update(config, "trainer_config.save_ckpt_path", tmp_path)
     model_trainer._create_data_loaders()
@@ -88,8 +88,9 @@ def test_create_data_loader(config, sleap_data_dir, tmp_path):
     assert len(list(iter(model_trainer.test_data_loader))) == 2
 
 
-def test_trainer(config):
+def test_trainer(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
+    OmegaConf.update(config, "trainer_config.save_ckpt_path", tmp_path)
     model_trainer.train()
     assert all(
         [
@@ -148,8 +149,9 @@ def test_trainer(config):
     assert not df.train_loss.isnull().all()
 
 
-def test_topdown_centered_instance_model(config):
+def test_topdown_centered_instance_model(config, tmp_path: str):
     model = TopDownCenteredInstanceModel(config)
+    OmegaConf.update(config, "trainer_config.save_ckpt_path", tmp_path)
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
