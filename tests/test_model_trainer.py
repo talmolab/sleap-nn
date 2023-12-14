@@ -1,15 +1,10 @@
 import torch
 import sleap_io as sio
-from torch.utils.data import DataLoader
 from typing import Text
-import lightning.pytorch as pl
 import pytest
-import wandb
 from omegaconf import OmegaConf
 import lightning as L
 from pathlib import Path
-from sleap_nn.data.providers import LabelsReader
-import pytest
 import pandas as pd
 from sleap_nn.model_trainer import ModelTrainer, TopDownCenteredInstanceModel
 from torch.nn.functional import mse_loss
@@ -109,6 +104,7 @@ def test_trainer(config, tmp_path: str):
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(config, "model_config.init_weights", "xavier")
     model_trainer = ModelTrainer(config)
     model_trainer.train()
 
@@ -170,7 +166,3 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     # check the loss
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
-
-
-if __name__ == "__main__":
-    pytest.main([f"{__file__}::test_create_data_loader"])

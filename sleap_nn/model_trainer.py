@@ -5,8 +5,6 @@ import sleap_io as sio
 from torch.utils.data import DataLoader
 from typing import Text
 from pathlib import Path
-import lightning.pytorch as pl
-import pandas as pd
 from omegaconf import OmegaConf
 import lightning as L
 from sleap_nn.data.providers import LabelsReader
