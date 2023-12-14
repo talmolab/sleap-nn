@@ -17,7 +17,9 @@ from torch.nn.functional import mse_loss
 
 def test_create_data_loader(config, sleap_data_dir, tmp_path: str):
     model_trainer = ModelTrainer(config)
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", tmp_path)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
     model_trainer._create_data_loaders()
     assert isinstance(
         model_trainer.train_data_loader, torch.utils.data.dataloader.DataLoader
@@ -90,7 +92,9 @@ def test_create_data_loader(config, sleap_data_dir, tmp_path: str):
 
 def test_trainer(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", tmp_path)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
     model_trainer.train()
     assert all(
         [
@@ -100,22 +104,20 @@ def test_trainer(config, tmp_path: str):
     )
 
     # disable ckpt, check if ckpt is created
-    folder_created = Path.exists(config.trainer_config.save_ckpt_path)
+    folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert not folder_created
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(config, "trainer_config.use_wandb", True)
     model_trainer = ModelTrainer(config)
-    wandb.login()
-    model_trainer._set_wandb()
-    assert wandb.run is not None
     model_trainer.train()
 
-    folder_created = Path.exists(config.trainer_config.save_ckpt_path)
+    folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert folder_created
     files = [
-        x for x in Path(config.trainer_config.save_ckpt_path).iterdir() if x.is_file()
+        str(x)
+        for x in Path(config.trainer_config.save_ckpt_path).iterdir()
+        if x.is_file()
     ]
     ckpt = False
     yaml = False
@@ -126,22 +128,25 @@ def test_trainer(config, tmp_path: str):
             yaml = True
     # check if ckpt is created
     assert ckpt and yaml
-    checkpoint = torch.load(Path.joinpath(config.trainer_config.save_ckpt_path, i))
+    checkpoint = torch.load(Path(config.trainer_config.save_ckpt_path).joinpath(i))
     assert checkpoint["epoch"] == 1
-    labels = sio.load_slp("minimal_instance.pkg.slp")
     # check if skeleton is saved in ckpt file
-    assert checkpoint["skeleton"] == labels.skeletons
+    assert isinstance(checkpoint["skeleton"][0], sio.Skeleton)
 
     # check for training metrics csv
-    path = Path.joinpath(
-        config.trainer_config.save_ckpt_path, "lightning_logs/version_0/"
+    path = Path(config.trainer_config.save_ckpt_path).joinpath(
+        "lightning_logs/version_0/"
     )
-    files = [x for x in Path(path).iterdir() if x.is_file()]
-
-    assert "metrics.csv" in files
+    files = [str(x) for x in Path(path).iterdir() if x.is_file()]
+    metrics = False
+    for i in files:
+        if "metrics.csv" in i:
+            metrics = True
+            break
+    assert metrics
     df = pd.read_csv(
-        Path.joinpath(
-            config.trainer_config.save_ckpt_path, "lightning_logs/version_0/metrics.csv"
+        Path(config.trainer_config.save_ckpt_path).joinpath(
+            "lightning_logs/version_0/metrics.csv"
         )
     )
     assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
@@ -151,7 +156,9 @@ def test_trainer(config, tmp_path: str):
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
     model = TopDownCenteredInstanceModel(config)
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", tmp_path)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))

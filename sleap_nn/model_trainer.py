@@ -113,7 +113,7 @@ class ModelTrainer:
                 dir_path = self.config.trainer_config.save_ckpt_path
 
             if not Path(dir_path).exists():
-                Path.mkdir(dir_path)
+                Path(dir_path).mkdir()
 
             # create checkpoint callback
             checkpoint_callback = ModelCheckpoint(
