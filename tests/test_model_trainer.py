@@ -76,7 +76,6 @@ def test_create_data_loader(config, sleap_data_dir, tmp_path: str):
     )
 
     OmegaConf.update(config, "data_config.test", config_test)
-    print(config.data_config.test)
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     assert isinstance(

@@ -122,6 +122,8 @@ class ModelTrainer:
             # logger to create csv with metrics values over the epochs
             csv_logger = CSVLogger(dir_path)
             self.logger.append(csv_logger)
+
+            # save the configs as yaml in the checkpoint dir
             OmegaConf.save(config=self.config, f=dir_path + "config.yaml")
 
         else:
@@ -143,9 +145,9 @@ class ModelTrainer:
         )
 
         trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
-        # save the configs as yaml in the checkpoint dir
 
-        wandb.finish()
+        if self.config.trainer_config.use_wandb:
+            wandb.finish()
 
 
 def xavier_init_weights(x):
@@ -164,7 +166,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         config: OmegaConf dictionary which has the following:
                 (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_cong: trainer configs like accelerator, optimiser params.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
 
     """
 
@@ -220,7 +222,6 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         self.log(
             "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
         )
-        self.training_loss[self.current_epoch] = loss.detach().cpu().numpy()
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -248,8 +249,6 @@ class TopDownCenteredInstanceModel(L.LightningModule):
             on_epoch=True,
             logger=True,
         )
-        self.val_loss[self.current_epoch] = val_loss.detach().cpu().numpy()
-        self.learning_rate[self.current_epoch] = lr
 
     def configure_optimizers(self):
         """Configure optimiser and learning rate scheduler."""
