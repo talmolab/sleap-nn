@@ -10,6 +10,7 @@ The config file has three main sections:
 
 - `data_config`: 
     - `provider`: provider class to read the input sleap files. (only LabelsReader supported)
+    - `pipeline`: Pipeline for Data. One of "TopdownConfmaps", "SingleInstanceConfmaps"
     - `train`:
         - `labels_path`: path to `.slp` files
         - `general`:
@@ -91,6 +92,7 @@ The config file has three main sections:
     - `wandb`:
         - `project`: title for the wandb project
         - `name`: name of the current run
+        - `api_key`: API key
     - `optimizer`
         - `lr`: learning rate of type float. *Default*: 1e-3
         - `amsgrad`: Boolean to enable AMSGrad. *Default*: False

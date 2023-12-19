@@ -8,7 +8,10 @@ from pathlib import Path
 from omegaconf import OmegaConf
 import lightning as L
 from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.pipelines import TopdownConfmapsPipeline
+from sleap_nn.data.pipelines import (
+    TopdownConfmapsPipeline,
+    SingleInstanceConfmapsPipeline,
+)
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from torch import nn
@@ -47,9 +50,26 @@ class ModelTrainer:
             self.provider = LabelsReader
 
         # create pipelines
-        train_pipeline = TopdownConfmapsPipeline(
-            data_config=self.config.data_config.train
-        )
+        if self.config.data_config.pipeline == "SingleInstanceConfmaps":
+            train_pipeline = SingleInstanceConfmapsPipeline(
+                data_config=self.config.data_config.train
+            )
+            val_pipeline = SingleInstanceConfmapsPipeline(
+                data_config=self.config.data_config.val
+            )
+
+        elif self.config.data_config.pipeline == "TopdownConfmaps":
+            train_pipeline = TopdownConfmapsPipeline(
+                data_config=self.config.data_config.train
+            )
+            val_pipeline = TopdownConfmapsPipeline(
+                data_config=self.config.data_config.val
+            )
+
+        else:
+            raise Exception(f"{self.config.data_config.pipeline} is not defined.")
+
+        # train
         train_labels_reader = self.provider(
             sio.load_slp(self.config.data_config.train.labels_path)
         )
@@ -65,7 +85,7 @@ class ModelTrainer:
             **dict(self.config.trainer_config.train_data_loader),
         )
 
-        val_pipeline = TopdownConfmapsPipeline(data_config=self.config.data_config.val)
+        # val
         val_labels_reader = self.provider(
             sio.load_slp(self.config.data_config.val.labels_path)
         )
@@ -78,26 +98,8 @@ class ModelTrainer:
             **dict(self.config.trainer_config.val_data_loader),
         )
 
-        self.test_data_loader = None
-        use_test_data = "test" in self.config.data_config.keys()
-        if use_test_data:
-            test_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.test
-            )
-            test_labels_reader = self.provider(
-                sio.load_slp(self.config.data_config.test.labels_path)
-            )
-            test_datapipe = test_pipeline.make_training_pipeline(
-                data_provider=test_labels_reader,
-            )
-            test_datapipe = test_datapipe.sharding_filter()
-            self.test_data_loader = DataLoader(
-                test_datapipe,
-                **dict(self.config.trainer_config.test_data_loader),
-            )
-
     def _set_wandb(self):
-        wandb.login()
+        wandb.login(key=self.config.trainer_config.wandb.api_key)
         self.wandb_logger = WandbLogger(**dict(self.config.trainer_config.wandb))
 
     def train(self):
@@ -197,10 +199,9 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         """Save the device as an attribute to the class."""
         return next(self.model.parameters()).device
 
-    def forward(self, inputs):
+    def forward(self, img):
         """Forward pass of the model."""
-        imgs = torch.squeeze(inputs["instance_image"], dim=1).to(self.m_device)
-        return self.model(imgs)["CenteredInstanceConfmapsHead"]
+        return self.model(img)
 
     def on_save_checkpoint(self, checkpoint):
         """Configure checkpoint to save parameters."""

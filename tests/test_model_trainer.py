@@ -22,66 +22,8 @@ def test_create_data_loader(config, sleap_data_dir, tmp_path: str):
     assert isinstance(
         model_trainer.val_data_loader, torch.utils.data.dataloader.DataLoader
     )
-    assert model_trainer.test_data_loader is None
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
-
-    config_test = OmegaConf.create(
-        {
-            "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-            "general": {
-                "keep_keys": [
-                    "instance_image",
-                    "confidence_maps",
-                    "instance",
-                    "video_idx",
-                    "frame_idx",
-                    "instance_bbox",
-                ]
-            },
-            "preprocessing": {
-                "anchor_ind": 0,
-                "crop_hw": (160, 160),
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-            },
-            "augmentation_config": {
-                "random_crop": {"random_crop_p": 0, "random_crop_hw": (160, 160)},
-                "use_augmentations": False,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0,
-                        "brightness": 0.0,
-                        "brightness_p": 0,
-                    },
-                    "geometric": {
-                        "rotation": 180.0,
-                        "scale": 0,
-                        "translate": (0, 0),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0,
-                        "mixup_lambda": None,
-                        "mixup_p": 0,
-                    },
-                },
-            },
-        },
-    )
-
-    OmegaConf.update(config, "data_config.test", config_test)
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders()
-    assert isinstance(
-        model_trainer.test_data_loader, torch.utils.data.dataloader.DataLoader
-    )
-    assert len(list(iter(model_trainer.test_data_loader))) == 2
 
 
 def test_trainer(config, tmp_path: str):
@@ -158,7 +100,9 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
     input_cm = input_["confidence_maps"].squeeze(dim=1)
-    preds = model(input_)
+    preds = model(input_["instance_image"].squeeze(dim=1))[
+        "CenteredInstanceConfmapsHead"
+    ]
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
 

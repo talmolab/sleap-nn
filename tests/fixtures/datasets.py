@@ -23,6 +23,7 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
+                "pipeline": "TopdownConfmaps",
                 "train": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                     "general": {
