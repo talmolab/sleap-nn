@@ -10,7 +10,7 @@ from sleap_nn.model_trainer import ModelTrainer, TopDownCenteredInstanceModel
 from torch.nn.functional import mse_loss
 
 
-def test_create_data_loader(config, sleap_data_dir, tmp_path: str):
+def test_create_data_loader(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -24,6 +24,17 @@ def test_create_data_loader(config, sleap_data_dir, tmp_path: str):
     )
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
+
+    OmegaConf.update(config, "data_config.pipeline", "TopDown")
+    model_trainer = ModelTrainer(config)
+    with pytest.raises(Exception, match="TopDown is not defined."):
+        model_trainer._create_data_loaders()
+
+    OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
+    model_trainer = ModelTrainer(config)
+    model_trainer._create_data_loaders()
+    assert len(list(iter(model_trainer.train_data_loader))) == 1
+    assert len(list(iter(model_trainer.val_data_loader))) == 1
 
 
 def test_trainer(config, tmp_path: str):

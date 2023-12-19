@@ -1,12 +1,12 @@
 ##### Config file 
 
-This documnet contains the docstrings for the config file required to pass to the `sleap_nn.ModelTrainer` class to train a sleap-nn model.
+This document contains the docstrings for the config file required to pass to the `sleap_nn.ModelTrainer` class to train a sleap-nn model.
 The config file has three main sections:
     1. `data_config` has all the parameters required for creating a data pipeline
-    2. `model_config` has the configs to initialise the slea-nn UNet model
-    3. `trainer_config` has the hyperparameters required tot rain the model with Lightning with optional logging
+    2. `model_config` has the configs to initialise the sleap-nn UNet model
+    3. `trainer_config` has the hyperparameters required to train the model with Lightning with optional logging
 
-***Note***: The structure for `train` in data_config is used for validation and test set with the keys: `val` and `test`. Similarly, the structure for `train_data_loader` in trainer_config section 
+***Note***: The structure for `train` in data_config is used for validation set with the keys: `val`. Similarly, the structure for `train_data_loader` in trainer_config section  is used for `val_data_loader`.
 
 - `data_config`: 
     - `provider`: provider class to read the input sleap files. (only LabelsReader supported)

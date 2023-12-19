@@ -30,7 +30,7 @@ class ModelTrainer:
         config: OmegaConf dictionary which has the following:
                 (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_cong: trainer configs like accelerator, optimiser params.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
 
     """
 
@@ -99,8 +99,11 @@ class ModelTrainer:
         )
 
     def _set_wandb(self):
-        wandb.login(key=self.config.trainer_config.wandb.api_key)
-        self.wandb_logger = WandbLogger(**dict(self.config.trainer_config.wandb))
+        try:
+            wandb.login(key=self.config.trainer_config.wandb.api_key)
+            self.wandb_logger = WandbLogger(**dict(self.config.trainer_config.wandb))
+        except Exception as e:
+            print(e)
 
     def train(self):
         """Function to initiate the training by calling the fit method of Trainer."""
