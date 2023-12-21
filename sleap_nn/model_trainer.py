@@ -99,11 +99,8 @@ class ModelTrainer:
         )
 
     def _set_wandb(self):
-        try:
-            wandb.login(key=self.config.trainer_config.wandb.api_key)
-            self.wandb_logger = WandbLogger(**dict(self.config.trainer_config.wandb))
-        except Exception as e:
-            print(e)
+        wandb.login(key=self.config.trainer_config.wandb.api_key)
+        self.wandb_logger = WandbLogger(**dict(self.config.trainer_config.wandb))
 
     def train(self):
         """Function to initiate the training by calling the fit method of Trainer."""
@@ -204,7 +201,9 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def forward(self, img):
         """Forward pass of the model."""
-        return self.model(img)
+        img = torch.squeeze(img, dim=1)
+        img = img.to(self.m_device)
+        return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def on_save_checkpoint(self, checkpoint):
         """Configure checkpoint to save parameters."""
@@ -212,16 +211,16 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         # save the skeletons and seed to the checkpoint file
         checkpoint["skeleton"] = labels_gt.skeletons
         checkpoint["seed"] = self.seed
+        checkpoint["config"] = self.config
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
-            batch["confidence_maps"], dim=1
-        )
-        X = X.to(self.m_device)
-        y = y.to(self.m_device)
+        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
+            self.m_device
+        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        y = y.to(self.m_device)
         loss = nn.MSELoss()(y_preds, y)
         self.log(
             "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
@@ -235,6 +234,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(

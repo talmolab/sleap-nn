@@ -80,6 +80,7 @@ def test_trainer(config, tmp_path: str):
     assert checkpoint["epoch"] == 1
     # check if skeleton is saved in ckpt file
     assert isinstance(checkpoint["skeleton"][0], sio.Skeleton)
+    assert checkpoint["config"]
 
     # check for training metrics csv
     path = Path(config.trainer_config.save_ckpt_path).joinpath(
@@ -110,10 +111,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
-    input_cm = input_["confidence_maps"].squeeze(dim=1)
-    preds = model(input_["instance_image"].squeeze(dim=1))[
-        "CenteredInstanceConfmapsHead"
-    ]
+    input_cm = input_["confidence_maps"]
+    preds = model(input_["instance_image"])
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
 
