@@ -201,3 +201,55 @@ def make_line_subs(
     # The last dim is [row, col, edge_ind], but for both PAF (x and y) edge channels.
 
     return line_subs
+
+
+def get_paf_lines(
+    pafs_sample: torch.Tensor,
+    peaks_sample: torch.Tensor,
+    edge_peak_inds: torch.Tensor,
+    edge_inds: torch.Tensor,
+    n_line_points: int,
+    pafs_stride: int,
+) -> torch.Tensor:
+    """Get the PAF values at the lines formed between all detected peaks in a sample.
+
+    Args:
+        pafs_sample: The PAFs for the sample as a `torch.Tensor` of shape
+            `(height, width, 2 * n_edges)`.
+        peaks_sample: The detected peaks in a sample as a `torch.Tensor` of shape
+            `(n_peaks, 2)` and dtype `torch.float32`. These should be `(x, y)` coordinates
+            of each peak in the image scale (they will be scaled by the `pafs_stride`).
+        edge_peak_inds: A `torch.Tensor` of shape `(n_candidates, 2)` and dtype `torch.int32`
+            with the indices of the peaks that form the source and destination of each
+            candidate connection. This indexes into the input `peaks_sample`. Can be
+            generated using `get_connection_candidates()`.
+        edge_inds: A `torch.Tensor` of shape `(n_candidates,)` and dtype `torch.int32`
+            indicating the indices of the edge that each of the candidate connections
+            belongs to. Can be generated using `get_connection_candidates()`.
+        n_line_points: The number of points to interpolate between source and
+            destination peaks in each connection candidate as a scalar integer. Values
+            ranging from 5 to 10 are pretty reasonable.
+        pafs_stride: The stride (1/scale) of the PAFs that these lines will need to
+            index into relative to the image. Coordinates in `peaks_sample` will be
+            divided by this value to adjust the indexing into the PAFs tensor.
+
+    Returns:
+        The PAF vectors at all of the line points as a `torch.Tensor` of shape
+        `(n_candidates, n_line_points, 2, 3)` and dtype `torch.int32`.
+
+        The last dimension of the line subscripts correspond to the full
+        `[row, col, channel]` subscripts of each element of the lines. Axis -2 contains
+        the same `[row, col]` for each line but `channel` is adjusted to match the
+        channels in the PAFs tensor.
+
+    Notes:
+        If only the subscripts are needed, use `make_line_subs()` to generate the lines
+        without retrieving the PAF vector at the line points.
+
+    See also: get_connection_candidates, make_line_subs, score_paf_lines
+    """
+    line_subs = make_line_subs(
+        peaks_sample, edge_peak_inds, edge_inds, n_line_points, pafs_stride
+    )
+    lines = pafs_sample[line_subs[..., 0], line_subs[..., 1], line_subs[..., 2]]
+    return lines
