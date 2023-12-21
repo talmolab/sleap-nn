@@ -82,20 +82,20 @@ def get_connection_candidates(
 
     Args:
         peak_channel_inds_sample: The channel indices of the peaks found in a sample.
-            This is a `tf.Tensor` of shape `(n_peaks,)` and dtype `tf.int32` that is
+            This is a `torch.Tensor` of shape `(n_peaks,)` and dtype `torch.int32` that is
             used to represent a detected peak by its channel/node index in the skeleton.
         skeleton_edges: The indices of the nodes that form the skeleton graph as a
-            `tf.Tensor` of shape `(n_edges, 2)` and dtype `tf.int32` where each row
+            `torch.Tensor` of shape `(n_edges, 2)` and dtype `torch.int32` where each row
             corresponds to the source and destination node indices.
         n_nodes: The total number of nodes in the skeleton as a scalar integer.
 
     Returns:
         A tuple of `(edge_inds, edge_peak_inds)`.
 
-        `edge_inds` is a `tf.Tensor` of shape `(n_candidates,)` indicating the indices
+        `edge_inds` is a `torch.Tensor` of shape `(n_candidates,)` indicating the indices
         of the edge that each of the candidate connections belongs to.
 
-        `edge_peak_inds` is a `tf.Tensor` of shape `(n_candidates, 2)` with the indices
+        `edge_peak_inds` is a `torch.Tensor` of shape `(n_candidates, 2)` with the indices
         of the peaks that form the source and destination of each candidate connection.
         This indexes into the input `peak_channel_inds_sample`.
     """
@@ -122,3 +122,82 @@ def get_connection_candidates(
     edge_peak_inds = torch.cat(edge_peak_inds)  # (n_candidates, 2)
 
     return edge_inds, edge_peak_inds
+
+
+def make_line_subs(
+    peaks_sample: torch.Tensor,
+    edge_peak_inds: torch.Tensor,
+    edge_inds: torch.Tensor,
+    n_line_points: int,
+    pafs_stride: int,
+) -> torch.Tensor:
+    """Create the lines between candidate connections for evaluating the PAFs.
+
+    Args:
+        peaks_sample: The detected peaks in a sample as a `torch.Tensor` of shape
+            `(n_peaks, 2)` and dtype `torch.float32`. These should be `(x, y)` coordinates
+            of each peak in the image scale (they will be scaled by the `pafs_stride`).
+        edge_peak_inds: A `torch.Tensor` of shape `(n_candidates, 2)` and dtype `tf.int32`
+            with the indices of the peaks that form the source and destination of each
+            candidate connection. This indexes into the input `peaks_sample`. Can be
+            generated using `get_connection_candidates()`.
+        edge_inds: A `torch.Tensor` of shape `(n_candidates,)` and dtype `tf.int32`
+            indicating the indices of the edge that each of the candidate connections
+            belongs to. Can be generated using `get_connection_candidates()`.
+        n_line_points: The number of points to interpolate between source and
+            destination peaks in each connection candidate as a scalar integer. Values
+            ranging from 5 to 10 are pretty reasonable.
+        pafs_stride: The stride (1/scale) of the PAFs that these lines will need to
+            index into relative to the image. Coordinates in `peaks_sample` will be
+            divided by this value to adjust the indexing into the PAFs tensor.
+
+    Returns:
+        The line subscripts as a `torch.Tensor` of shape
+        `(n_candidates, n_line_points, 2, 3)` and dtype `torch.int32`.
+
+        The last dimension of the line subscripts correspond to the full
+        `[row, col, channel]` subscripts of each element of the lines. Axis -2 contains
+        the same `[row, col]` for each line but `channel` is adjusted to match the
+        channels in the PAFs tensor.
+
+    Notes:
+        The subscripts are interpolated via nearest neighbor, so multiple fractional
+        coordinates may map on to the same pixel if the line is short.
+
+    See also: get_connection_candidates
+    """
+    src_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 0])
+    dst_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 1])
+    n_candidates = torch.tensor(src_peaks.shape[0])
+
+    linspace_values = torch.linspace(0, 1, n_line_points, dtype=torch.float32)
+    linspace_values = linspace_values.repeat(n_candidates, 1).view(
+        n_candidates, n_line_points, 1
+    )
+    XY = (
+        src_peaks.view(n_candidates, 1, 2)
+        + (dst_peaks - src_peaks).view(n_candidates, 1, 2) * linspace_values
+    )
+    XY = XY.transpose(1, 2)
+    XY = (
+        (XY / pafs_stride).round().int()
+    )  # (n_candidates, 2, n_line_points)  # dim 1 is [x, y]
+    XY = XY[:, [1, 0], :]  # dim 1 is [row, col]
+
+    edge_inds_expanded = edge_inds.view(-1, 1, 1).expand(-1, 1, n_line_points)
+    line_subs = torch.cat((XY, edge_inds_expanded), dim=1)
+    line_subs = line_subs.permute(
+        0, 2, 1
+    )  # (n_candidates, n_line_points, 3) -- last dim is [row, col, edge_ind]
+
+    multiplier = torch.tensor([1, 1, 2], dtype=torch.int32).view(1, 1, 3)
+    adder = torch.tensor([0, 0, 1], dtype=torch.int32).view(1, 1, 3)
+
+    line_subs_first = line_subs * multiplier
+    line_subs_second = line_subs * multiplier + adder
+    line_subs = torch.stack(
+        (line_subs_first, line_subs_second), dim=2
+    )  # (n_candidates, n_line_points, 2, 3)
+    # The last dim is [row, col, edge_ind], but for both PAF (x and y) edge channels.
+
+    return line_subs

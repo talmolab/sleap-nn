@@ -1,6 +1,6 @@
 import torch
 
-from sleap_nn.paf_grouping import get_connection_candidates
+from sleap_nn.paf_grouping import get_connection_candidates, make_line_subs
 
 
 def test_get_connection_candidates():
@@ -17,3 +17,17 @@ def test_get_connection_candidates():
 
     assert edge_inds.numpy().tolist() == gt_edge_inds
     assert edge_peak_inds.numpy().tolist() == gt_edge_peak_inds
+
+
+def test_make_line_subs():
+    peaks_sample = torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)
+    edge_peak_inds = torch.tensor([[0, 1]], dtype=torch.int32)
+    edge_inds = torch.tensor([0], dtype=torch.int32)
+
+    line_subs = make_line_subs(
+        peaks_sample, edge_peak_inds, edge_inds, n_line_points=3, pafs_stride=2
+    )
+
+    assert line_subs.numpy().tolist() == [
+        [[[0, 0, 0], [0, 0, 1]], [[2, 1, 0], [2, 1, 1]], [[4, 2, 0], [4, 2, 1]]]
+    ]
