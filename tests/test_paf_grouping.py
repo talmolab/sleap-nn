@@ -1,9 +1,11 @@
 import torch
+from torch.testing import assert_close
 
 from sleap_nn.paf_grouping import (
     get_connection_candidates,
     make_line_subs,
     get_paf_lines,
+    compute_distance_penalty,
 )
 
 
@@ -55,3 +57,19 @@ def test_get_paf_lines():
     gt_paf_lines = [[[0, 1], [18, 19], [36, 37]]]
 
     assert paf_lines.numpy().tolist() == gt_paf_lines
+
+
+def test_compute_distance_penalty():
+    spatial_vec_lengths_1 = torch.tensor([1, 2, 3, 4], dtype=torch.float32)
+    penalties_1 = compute_distance_penalty(spatial_vec_lengths_1, max_edge_length=2)
+    assert_close(
+        penalties_1, torch.tensor([0, 0, 2 / 3 - 1, 2 / 4 - 1]), atol=1e-6, rtol=1e-6
+    )
+
+    spatial_vec_lengths_2 = torch.tensor([1, 2, 3, 4], dtype=torch.float32)
+    penalties_2 = compute_distance_penalty(
+        spatial_vec_lengths_2, max_edge_length=2, dist_penalty_weight=2
+    )
+    assert_close(
+        penalties_2, torch.tensor([0, 0, -0.6666666, -1]), atol=1e-6, rtol=1e-6
+    )

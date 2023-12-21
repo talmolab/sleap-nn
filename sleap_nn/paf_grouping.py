@@ -137,11 +137,11 @@ def make_line_subs(
         peaks_sample: The detected peaks in a sample as a `torch.Tensor` of shape
             `(n_peaks, 2)` and dtype `torch.float32`. These should be `(x, y)` coordinates
             of each peak in the image scale (they will be scaled by the `pafs_stride`).
-        edge_peak_inds: A `torch.Tensor` of shape `(n_candidates, 2)` and dtype `tf.int32`
+        edge_peak_inds: A `torch.Tensor` of shape `(n_candidates, 2)` and dtype `torch.int32`
             with the indices of the peaks that form the source and destination of each
             candidate connection. This indexes into the input `peaks_sample`. Can be
             generated using `get_connection_candidates()`.
-        edge_inds: A `torch.Tensor` of shape `(n_candidates,)` and dtype `tf.int32`
+        edge_inds: A `torch.Tensor` of shape `(n_candidates,)` and dtype `torch.int32`
             indicating the indices of the edge that each of the candidate connections
             belongs to. Can be generated using `get_connection_candidates()`.
         n_line_points: The number of points to interpolate between source and
@@ -253,3 +253,48 @@ def get_paf_lines(
     )
     lines = pafs_sample[line_subs[..., 0], line_subs[..., 1], line_subs[..., 2]]
     return lines
+
+
+def compute_distance_penalty(
+    spatial_vec_lengths: torch.Tensor,
+    max_edge_length: float,
+    dist_penalty_weight: float = 1.0,
+) -> torch.Tensor:
+    """Compute the distance penalty component of the PAF line integral score.
+
+    Args:
+        spatial_vec_lengths: Euclidean distance between candidate source and
+            destination points as a `torch.float32` tensor of any shape (typically
+            `(n_candidates, 1)`).
+        max_edge_length: Maximum length expected for any connection as a scalar `float`
+            in units of pixels (corresponding to `peaks_sample`). Scores of lines
+            longer than this will be penalized. Useful for ignoring spurious
+            connections that are far apart in space.
+        dist_penalty_weight: A coefficient to scale weight of the distance penalty as
+            a scalar float. Set to values greater than 1.0 to enforce the distance
+            penalty more strictly.
+
+    Returns:
+        The distance penalty for each candidate as a `torch.float32` tensor of the same
+        shape as `spatial_vec_lengths`.
+
+        The penalty will be 0 (when below the threshold) and -1 as the distance
+        approaches infinity. This is then scaled by the `dist_penalty_weight`.
+
+    Notes:
+        The penalty is computed from the distances scaled by the max length:
+
+        ```
+        if distance <= max_edge_length:
+            penalty = 0
+        else:
+            penalty = (max_edge_length / distance) - 1
+        ```
+
+        For example, if the max length is 10 and the distance is 20, then the penalty
+        will be: `(10 / 20) - 1 == 0.5 - 1 == -0.5`.
+
+    See also: score_paf_lines
+    """
+    penalty = torch.clamp((max_edge_length / spatial_vec_lengths) - 1, max=0)
+    return penalty * dist_penalty_weight
