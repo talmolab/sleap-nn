@@ -6,6 +6,7 @@ from sleap_nn.paf_grouping import (
     make_line_subs,
     get_paf_lines,
     compute_distance_penalty,
+    score_paf_lines,
 )
 
 
@@ -73,3 +74,26 @@ def test_compute_distance_penalty():
     assert_close(
         penalties_2, torch.tensor([0, 0, -0.6666666, -1]), atol=1e-6, rtol=1e-6
     )
+
+
+def test_score_paf_lines():
+    pafs_sample_torch = torch.arange(6 * 4 * 2).view(6, 4, 2).float()
+    peaks_sample_torch = torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)
+    edge_peak_inds_torch = torch.tensor([[0, 1]], dtype=torch.int32)
+    edge_inds_torch = torch.tensor([0], dtype=torch.int32)
+
+    paf_lines_torch = get_paf_lines(
+        pafs_sample_torch,
+        peaks_sample_torch,
+        edge_peak_inds_torch,
+        edge_inds_torch,
+        n_line_points=3,
+        pafs_stride=2,
+    )
+
+    scores_torch = score_paf_lines(
+        paf_lines_torch, peaks_sample_torch, edge_peak_inds_torch, max_edge_length=2
+    )
+
+    # Asserting the correctness of the scores
+    assert_close(scores_torch, torch.tensor([24.27]), atol=1e-2, rtol=1e-2)
