@@ -9,43 +9,28 @@ import warnings
 import torch.nn as nn
 from abc import ABC, abstractmethod
 import sleap_nn
-import rich.progress
 from collections import defaultdict
 import json
+import lightning as L
 from collections import deque
-from rich.pretty import pprint
 from torch.utils.data import DataLoader
 from omegaconf.dictconfig import DictConfig
 from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.pipelines import TopdownConfmapsPipeline
-from sleap_nn.architectures.model import Model, get_backbone, get_head
+from sleap_nn.data.pipelines import (
+    TopdownConfmapsPipeline,
+    SingleInstanceConfmapsPipeline,
+)
+from sleap_nn.model_trainer import TopDownCenteredInstanceModel
+
 from time import time
 from omegaconf import OmegaConf
 
-
-def get_metadata(data_path: Text):
-    labels = sio.load_slp(data_path)
-    return labels.skeleton, labels.videos
-
-class RateColumn(rich.progress.ProgressColumn):
-    """Renders the progress rate."""
-
-    def render(self, task: "Task") -> rich.progress.Text:
-        """Show progress rate."""
-        speed = task.speed
-        if speed is None:
-            return rich.progress.Text("?", style="progress.data.speed")
-        return rich.progress.Text(f"{speed:.1f} FPS", style="progress.data.speed")
 
 class Predictor(ABC):
     """Base interface class for predictors."""
 
     @classmethod
-    def from_model_paths(
-        cls,
-        ckpt_paths: Dict,
-        config_paths: Dict,
-        ) -> "Predictor":
+    def from_model_paths(cls, ckpt_paths: Dict[Text, Text], model: Text) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
@@ -60,28 +45,32 @@ class Predictor(ABC):
             `BottomUpMultiClassPredictor`.
         """
         # Read configs and find model types.
-        
-        configs = dict({k:torch.load(v)["config"] for k,v in ckpt_paths})
-        model_names = configs.keys()
-        
-        if "single_instance" in model_names:
+        # configs={}
+        # for p in ckpt_paths:
+        #     ckpt = torch.load(p) # ???? should we load the checkpoint everytime
+        #     configs[ckpt.config.model_name] = [ckpt.config, ckpt] # checkpoint or checkpoint path
+
+        # ckpt_paths = {"centroid": ckpt_path, "centered": ckpt_path}
+        model_names = ckpt_paths.keys()
+
+        if "single_instance" in model:
             # predictor = SingleInstancePredictor.from_trained_models(
             #     model_path=model_paths["single_instance"],
             #     inference_config = inference_config
             # )
             pass
 
-        elif "centroid" in model_names or "centered_instance" in model_names:
-            centroid_model_path = None
-            confmap_model_path = None
+        elif "topdown" in model:
+            centroid_ckpt_path = None
+            confmap_ckpt_path = None
             if "centroid" in model_names:
-                centroid_model_path = ckpt_paths["centroid"]
-            if "centered_instance" in model_names:
-                confmap_model_path = ckpt_paths["centered"]
+                centroid_ckpt_path = ckpt_paths["centroid"]
+            if "centered" in model_names:
+                confmap_ckpt_path = ckpt_paths["centered"]
 
             predictor = TopDownPredictor.from_trained_models(
-                centroid_model_path=centroid_model_path,
-                confmap_model_path=confmap_model_path,
+                centroid_ckpt_path=centroid_ckpt_path,
+                confmap_ckpt_path=confmap_ckpt_path,
             )
 
         else:
@@ -101,18 +90,14 @@ class Predictor(ABC):
     def data_config(self) -> DictConfig:
         pass
 
-
     @abstractmethod
-    def make_pipeline(self, data_path):
+    def make_pipeline(self):
         pass
 
-    
     def _initialize_inference_model(self):
         pass
 
-    def _predict_generator(
-        self, data_path: Text
-    ) -> Iterator[Dict[str, np.ndarray]]:
+    def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
         """Create a generator that yields batches of inference results.
 
         This method handles creating a pipeline object depending on the model type
@@ -123,102 +108,33 @@ class Predictor(ABC):
             arrays.
         """
         # Initialize data pipeline and inference model if needed.
-        self.make_pipeline(data_path)
+        self.make_pipeline()
         if self.inference_model is None:
             self._initialize_inference_model()
 
         def process_batch(ex):
             # Run inference on current batch.
-            preds = self.inference_model(ex, numpy=True)
+            preds = self.inference_model(ex)
 
             # Add model outputs to the input data example.
             ex.update(preds)
 
             # Convert to numpy arrays if not already.
-            if isinstance(ex["video_ind"], torch.Tensor):
-                ex["video_ind"] = ex["video_ind"].numpy()
-            if isinstance(ex["frame_ind"], torch.Tensor):
-                ex["frame_ind"] = ex["frame_ind"].numpy()
+            for k, v in ex.items():
+                if isinstance(v, torch.Tensor):
+                    ex[k] = ex[k].numpy()
 
             return ex
 
         # Loop over data batches with optional progress reporting.
-        if self.verbosity == "rich":
-            with rich.progress.Progress(
-                "{task.description}",
-                rich.progress.BarColumn(),
-                "[progress.percentage]{task.percentage:>3.0f}%",
-                "ETA:",
-                rich.progress.TimeRemainingColumn(),
-                RateColumn(),
-                auto_refresh=False,
-                refresh_per_second=self.report_rate,
-                speed_estimate_period=5,
-            ) as progress:
-                task = progress.add_task("Predicting...", total=len(data_provider))
-                last_report = time()
-                for ex in self.pipeline.make_dataset():
-                    ex = process_batch(ex)
-                    progress.update(task, advance=len(ex["frame_ind"]))
-
-                    # Handle refreshing manually to support notebooks.
-                    elapsed_since_last_report = time() - last_report
-                    if elapsed_since_last_report > self.report_period:
-                        progress.refresh()
-
-                    # Return results.
-                    yield ex
-
-        elif self.verbosity == "json":
-            n_processed = 0
-            n_total = len(data_provider)
-            n_recent = deque(maxlen=30)
-            elapsed_recent = deque(maxlen=30)
-            last_report = time()
-            t0_all = time()
-            t0_batch = time()
-            for ex in self.pipeline.make_dataset():
-                # Process batch of examples.
-                ex = process_batch(ex)
-
-                # Track timing and progress.
-                elapsed_batch = time() - t0_batch
-                t0_batch = time()
-                n_batch = len(ex["frame_ind"])
-                n_processed += n_batch
-                elapsed_all = time() - t0_all
-
-                # Compute recent rate.
-                n_recent.append(n_batch)
-                elapsed_recent.append(elapsed_batch)
-                rate = sum(n_recent) / sum(elapsed_recent)
-                eta = (n_total - n_processed) / rate
-
-                # Report.
-                elapsed_since_last_report = time() - last_report
-                if elapsed_since_last_report > self.report_period:
-                    print(
-                        json.dumps(
-                            {
-                                "n_processed": n_processed,
-                                "n_total": n_total,
-                                "elapsed": elapsed_all,
-                                "rate": rate,
-                                "eta": eta,
-                            }
-                        ),
-                        flush=True,
-                    )
-                    last_report = time()
-
-                # Return results.
-                yield ex
-        else:
-            for ex in self.pipeline:
-                yield process_batch(ex)
+        for ex in self.data_pipeline:
+            yield process_batch(ex)
 
     def predict(
-        self, data_path: Text, make_labels: bool = True, save_labels: bool = True, save_path: str=None,
+        self,
+        make_labels: bool = True,
+        save_labels: bool = False,
+        save_path: str = None,
     ) -> Union[List[Dict[str, np.ndarray]], sio.Labels]:
         """Run inference on a data source.
 
@@ -237,7 +153,7 @@ class Predictor(ABC):
         """
 
         # Initialize inference loop generator.
-        generator = self._predict_generator(data_path)
+        generator = self._predict_generator()
 
         if make_labels:
             # Create SLEAP data structures while consuming results.
@@ -245,11 +161,12 @@ class Predictor(ABC):
             if save_labels:
                 sio.io.slp.write_labels(save_path, pred_labels)
             return pred_labels
-            
+
         else:
             # Just return the raw results.
             return list(generator)
-    
+
+
 class InferenceModule(nn.Module):
     """
     Inference model base class.
@@ -266,14 +183,12 @@ class InferenceModule(nn.Module):
 
     def __init__(
         self,
-        torch_model: Model,
-        conf: OmegaConf,
+        torch_model: L.LightningModule,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.torch_model = torch_model
-        self.config = conf
-    
+
     def preprocess(self, imgs):
         return imgs
 
@@ -289,80 +204,27 @@ class InferenceModule(nn.Module):
     ) -> Union[Dict[str, np.ndarray], Dict[str, torch.Tensor]]:
         """Predict instances with the data.
 
-        Args:
-            data: Input data in any form. Possible types:
-                - `np.ndarray`, `tf.Tensor`: Images of shape
-                    `(samples, t, channels, height, width)`
-                - `dict` with key `"image"` as a tensor
-                - `torch.utils.data.DataLoader` that generates examples in one of the above formats.
-0               - `sleap.Video` which will be converted into a pipeline that generates
-                    batches of `batch_size` frames.
+                Args:
+                    data: Input data in any form. Possible types:
+                        - `np.ndarray`, `tf.Tensor`: Images of shape
+                            `(samples, t, channels, height, width)`
+                        - `dict` with key `"image"` as a tensor
+                        - `torch.utils.data.DataLoader` that generates examples in one of the above formats.
+        0               - `sleap.Video` which will be converted into a pipeline that generates
+                            batches of `batch_size` frames.
 
-        Returns:
-            The model outputs as a dictionary of tensors
+                Returns:
+                    The model outputs as a dictionary of tensors
         """
 
-        ### TODO: check preprocess
-        inputs = self.preprocess(data)
-        outs = self.torch_model(inputs)
+        imgs = self.preprocess(data)
+        outs = self.torch_model(imgs)
         return outs
 
-class CentroidCropGroundTruth(nn.Module):
-    """nn.Module layer that simulates a centroid cropping model using ground truth.
 
-    This layer is useful for testing and evaluating centered instance models.
-
-    Attributes:
-        crop_size: The length of the square box to extract around each centroid.
-    """
-
-    def __init__(self, crop_size: int):
-        super().__init__()
-        self.crop_size = crop_size
-
-    def forward(self, example_gt: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """Return the ground truth instance crops.
-
-        Args:
-            example_gt: Dictionary generated from a labels pipeline with the keys:
-                `"image": (batch_size, height, width, channels)`
-                `"centroids": (batch_size, n_centroids, 2)`: The input centroids.
-                These can be generated by the `InstanceCentroidFinder` module.
-
-        Returns:
-            Dictionary containing the output of the instance cropping layer with keys:
-            `"crops": (batch_size, n_centroids, crop_size, crop_size, channels)`
-            `"crop_bboxs": (batch_size, n_centroids, crop_size, crop_size, channels)`
-                These contain the top-left coordinates of each crop in the full images.
-            `"centroid": (batch_size, 1, 2)`
-            `"centroid_vals": (batch_size, 1)`
-
-            
-            `"centroids"` are from the input example and `"centroid_vals"` will be
-            filled with ones.
-        """
-        
-        full_imgs = example_gt["image"]
-        centroids = example_gt["centroids"] # (batch, 1, n_inst, 2)
-        centroid_vals = torch.ones((centroids.shape[0], centroids.shape[-2])) # (n_inst, )
-        crop_offsets = centroids - (self.crop_size/2)
-
-        bboxes = sleap_nn.data.instance_cropping.make_centered_bboxes(centroids, self.crop_size, self.crop_size)
-        sample_inds = range(0,bboxes.shape[-2])
-        crops = sleap_nn.inference.peak_finding.crop_bboxes(full_imgs, bboxes, sample_inds)
-
-        return dict(
-            crops = crops,
-            centroids = example_gt["centroids"],
-            centroid_vals = centroid_vals,
-            crop_offsets = crop_offsets
-        )
-        
 class CentroidCrop(InferenceModule):
     pass
 
-class FindInstancePeaksGroundTruth(nn.Module):
-    pass
 
 class FindInstancePeaks(InferenceModule):
     """nn.Module that predicts instance peaks from images using a trained model.
@@ -399,16 +261,12 @@ class FindInstancePeaks(InferenceModule):
         peak_threshold: float = 0.2,
         refinement: Optional[str] = "local",
         integral_patch_size: int = 5,
-        return_confmaps: bool = False,
         **kwargs,
     ):
-        super().__init__(
-            torch_model=torch_model, pad_to_stride=1, **kwargs
-        )
+        super().__init__(torch_model=torch_model, **kwargs)
         self.peak_threshold = peak_threshold
         self.refinement = refinement
         self.integral_patch_size = integral_patch_size
-        self.return_confmaps = return_confmaps
         self.output_stride = output_stride
 
     def forward(
@@ -468,32 +326,20 @@ class FindInstancePeaks(InferenceModule):
         cms = self.torch_model(crops)
 
         peak_points, peak_vals = sleap_nn.inference.peak_finding.find_global_peaks(
-                cms,
-                threshold=self.peak_threshold,
-                refinement=self.refinement,
-                integral_patch_size=self.integral_patch_size,
-            )
-        
+            cms.detach(),
+            threshold=self.peak_threshold,
+            refinement=self.refinement,
+            integral_patch_size=self.integral_patch_size,
+        )
 
         # Adjust for stride and scale.
         peak_points = peak_points * self.output_stride
-        if self.input_scale != 1.0:
-            # Note: We add 0.5 here to offset TensorFlow's weird image resizing. This
-            # may not always(?) be the most correct approach.
-            # See: https://github.com/tensorflow/tensorflow/issues/6720
-            peak_points = (peak_points / self.input_scale) + 0.5
 
         # Build outputs.
         outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}
-        if "centroids" in inputs:
-            outputs["centroids"] = inputs["centroids"]
-        if "centroid_vals" in inputs:
-            outputs["centroid_vals"] = inputs["centroid_vals"]
-        if "centroid_confmaps" in inputs:
-            outputs["centroid_confmaps"] = inputs["centroid_confmaps"]
-        if self.return_confmaps:
-            outputs["instance_confmaps"] = cms
-        return outputs
+        inputs.update(outputs)
+        return inputs
+
 
 class TopDownInferenceModel(nn.Module):
     """Top-down instance prediction model.
@@ -515,12 +361,11 @@ class TopDownInferenceModel(nn.Module):
 
     def __init__(
         self,
-        centroid_crop: Union[CentroidCrop, CentroidCropGroundTruth],
-        instance_peaks: Union[FindInstancePeaks, FindInstancePeaksGroundTruth],
+        centroid_crop: Union[CentroidCrop, None],
+        instance_peaks: Union[FindInstancePeaks, None],
         **kwargs,
     ):
-        super().__init__(
-        )
+        super().__init__()
         self.centroid_crop = centroid_crop
         self.instance_peaks = instance_peaks
 
@@ -548,111 +393,97 @@ class TopDownInferenceModel(nn.Module):
                 values for the instance skeleton points.
         """
         if isinstance(example, torch.Tensor):
-            example = dict(image=example)
+            example = dict(instance_image=example)
 
-        crop_output = self.centroid_crop(example)
+        if self.centroid_crop is None:
+            example["centroid_vals"] = torch.ones(example["instance"].shape[0])
+        else:
+            self.centroid_crop.eval()
+            example = self.centroid_crop(example)
 
-        if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-            if "instances" in example:
-                peaks_output = self.instance_peaks(example, crop_output)
+        if self.instance_peaks is None:
+            if "instance" in example:
+                pass
             else:
                 raise ValueError(
                     "Ground truth data was not detected... "
                     "Please load both models when predicting on non-ground-truth data."
                 )
         else:
-            peaks_output = self.instance_peaks(crop_output)
+            self.instance_peaks.eval()
+            peaks_output = self.instance_peaks(example)
         return peaks_output
+
 
 @attr.s(auto_attribs=True)
 class TopDownPredictor(Predictor):
     """Top-down multi-instance predictor.
 
-    This high-level class handles initialization, preprocessing and tracking using a
-    trained top-down SLEAP model.
+    This high-level class handles initialization, preprocessing and predicting using a trained top-down SLEAP model.
 
     This should be initialized using the `from_trained_models()` constructor.
 
     Attributes:
-        centroid_ckpt_path: The `sleap.nn.config.TrainingJobConfig` containing the metadata
-            for the trained centroid model. If `None`, ground truth centroids will be
-        confmap_ckpt_path: The `sleap.nn.config.TrainingJobConfig` containing the metadata
-            for the trained centered instance model. If `None`, ground truth instances
-            will be used if available from the data source.
+        centroid_config: A Dictionary with the configs used for training the centroid model
+        confmap_config: A Dictionary with the configs used for training the centered-instance model
+        centroid_model: A LightningModule instance created from the trained weights for centroid model.
+        confmap_model: A LightningModule instance created from the trained weights for centered-instance model.
 
     """
 
-    centroid_ckpt_path: Optional[DictConfig] = attr.ib(default=None)
-    confmap_ckpt_path: Optional[DictConfig] = attr.ib(default=None)
+    centroid_config: Optional[DictConfig] = attr.ib(default=None)
+    confmap_config: Optional[DictConfig] = attr.ib(default=None)
+    centroid_model: Optional[L.LightningModule] = attr.ib(default=None)
+    confmap_model: Optional[L.LightningModule] = attr.ib(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
-        use_gt_centroid = self.centroid_config is None
-        use_gt_confmap = self.confmap_config is None
 
-        if use_gt_centroid:
-            centroid_crop_layer = CentroidCropGroundTruth(
-                crop_size=self.inference_config.data.instance_cropping.crop_size
-            )
+        self.model_config = OmegaConf.create()
+
+        # Create an instance of CentroidLayer if centroid_config is not None
+        if self.centroid_config is None:
+            centroid_crop_layer = None
         else:
-            if use_gt_confmap:
-                crop_size = 1
-            else:
-                crop_size = self.inference_config.data.instance_cropping.crop_size
-            # centroid_crop_layer = CentroidCrop(
-            #     torch_model=self.centroid_model,
-            #     crop_size=crop_size,
-            #     input_scale=self.centroid_config.data.preprocessing.input_scaling,
-            #     pad_to_stride=self.centroid_config.data.preprocessing.pad_to_stride,
-            #     output_stride=self.centroid_config.model.heads.centroid.output_stride,
-            #     peak_threshold=self.inference_config.peak_threshold,
-            #     refinement="integral" if self.inference_config.integral_refinement else "local",
-            #     integral_patch_size=self.inference_config.integral_patch_size,
-            #     return_confmaps=False,
-            # )
-
-        if use_gt_confmap:
+            self.model_config["centroid"] = self.centroid_config
+            self.model_config["data"] = self.centroid_config.inference_config.data
             pass
-            # instance_peaks_layer = FindInstancePeaksGroundTruth()
+
+        # Create an instance of FindInstancePeaks layer if confmap_config is not None
+        if self.confmap_config is None:
+            pass
         else:
-            cfg = self.confmap_config
+            self.model_config["confmaps"] = self.confmap_config
+            self.model_config["data"] = self.confmap_config.inference_config.data
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
-                input_scale=self.inference_config.data.preprocessing.input_scaling,
-                peak_threshold=self.inference_config.peak_threshold,
-                output_stride=cfg.model.heads.head_config.output_stride,
-                refinement=self.inference_config.integral_refinement,
-                integral_patch_size=self.inference_config.integral_patch_size,
-                return_confmaps=False,
+                peak_threshold=self.confmap_config.inference_config.peak_threshold,
+                output_stride=self.confmap_config.inference_config.output_stride,
+                refinement=self.confmap_config.inference_config.integral_refinement,
+                integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
             )
 
+        # Initialize the inference model with centroid and conf map layers
         self.inference_model = TopDownInferenceModel(
             centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
         )
 
     @property
     def data_config(self) -> DictConfig:
-        return (
-            self.inference_config.data
-        )
+        # Returns data config section from the overall config
+        return self.model_config.data
 
     @classmethod
     def from_trained_models(
         cls,
-        centroid_model_path: Optional[Text] = None,
-        confmap_model_path: Optional[Text] = None,
-        inference_config: Optional[DictConfig] = None,
+        centroid_ckpt_path: Optional[Text] = None,
+        confmap_ckpt_path: Optional[Text] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
         Args:
-            centroid_model_path: Path to a centroid model folder or training job JSON
-                file inside a model folder. This folder should contain
-                `training_config.json` and `best_model.h5` files for a trained model.
-            confmap_model_path: Path to a centered instance model folder or training job
-                JSON file inside a model folder. This folder should contain
-                `training_config.json` and `best_model.h5` files for a trained model.
-
+            centroid_ckpt_path: Path to a centroid ckpt file.
+            confmap_ckpt_path: Path to a centroid ckpt file.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -660,119 +491,146 @@ class TopDownPredictor(Predictor):
             One of the two models can be left as `None` to perform inference with ground
             truth data. This will only work with `LabelsReader` as the provider.
         """
-        if centroid_model_path is None and confmap_model_path is None:
+        if centroid_ckpt_path is None and confmap_ckpt_path is None:
             raise ValueError(
                 "Either the centroid or topdown confidence map model must be provided."
             )
 
-        if centroid_model_path is not None:
+        if centroid_ckpt_path is not None:
             # Load centroid model.
-            centroid_config = inference_config.centroid 
-            centroid_model = Model(centroid_config.model.backbone, [centroid_config.model.heads])
-            centroid_model.load_state_dict(torch.load(centroid_model_path), strict=False)
+            pass
 
         else:
             centroid_config = None
             centroid_model = None
 
-        if confmap_model_path is not None:
+        if confmap_ckpt_path is not None:
             # Load confmap model.
-            confmap_config = inference_config.centered 
-            confmap_model = Model(confmap_config.model.backbone, [confmap_config.model.heads])
-            confmap_model.load_state_dict(torch.load(confmap_model_path), strict=False)
+            confmap_ckpt = torch.load(confmap_ckpt_path)
+            skeleton = confmap_ckpt["skeleton"]
+            confmap_config = confmap_ckpt["config"]
+            confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+                "mice_default_init_with_amsgrad/last-v4.ckpt", config=confmap_config
+            )
+            confmap_model.to(confmap_config.inference_config.device)
+            confmap_model.m_device = confmap_config.inference_config.device
 
         else:
             confmap_config = None
             confmap_model = None
 
+        # create an instance of TopDownPredictor class
         obj = cls(
             centroid_config=centroid_config,
             centroid_model=centroid_model,
             confmap_config=confmap_config,
             confmap_model=confmap_model,
-            inference_config=inference_config,
         )
+
         obj._initialize_inference_model()
+        obj.skeleton = skeleton
+
         return obj
 
-    @property
-    def is_grayscale(self) -> bool:
-        """Return whether the model expects grayscale inputs."""
-        is_gray = False
-        if self.centroid_model is not None:
-            is_gray = self.centroid_model.input.shape[-1] == 1
-        else:
-            is_gray = self.confmap_model.input.shape[-1] == 1
-        return is_gray
-
-    def make_pipeline(self, data_path: Text, data_provider: Optional[LabelsReader] = None) -> TopdownConfmapsPipeline:
+    def make_pipeline(self) -> TopdownConfmapsPipeline:
         """Make a data loading pipeline.
 
-        Args:
-            data_provider: If not `None`, the pipeline will be created with an instance
-                of a `sleap.pipelines.Provider`.
-
         Returns:
-            The created `sleap.pipelines.Pipeline` with batching and prefetching.
+            DataLoader with the pipeline created with `sleap_nn.pipelines.TopdownConfmapsPipeline`
 
         Notes:
-            This method also updates the class attribute for the pipeline and will be
+            This method also creates the class attribute `data_pipeline` and will be
             called automatically when predicting on data from a new source.
         """
-        self.pipeline = TopdownConfmapsPipeline(self.data_config)
-        self.skeleton, self.videos = get_metadata(data_path)
-        self.pipeline = self.pipeline.make_training_pipeline(data_provider, data_path)
+
+        self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
+
+        provider = self.data_config.provider
+        if provider == "LabelsReader":
+            provider = LabelsReader
+
+        labels = sio.load_slp(self.data_config.labels_path)
+        self.videos = labels.videos
+        provider_pipeline = provider(labels)
+        self.pipeline = self.pipeline.make_training_pipeline(
+            data_provider=provider_pipeline
+        )
+
+        # Remove duplicates.
         self.pipeline = self.pipeline.sharding_filter()
-        if self.data_config.num_workers is not None:
-            num_workers = self.data_config.num_workers
-        else:
-            num_workers = None
-        self.data_pipeline = DataLoader(self.pipeline, batch_size=self.data_config.batch_size, shuffle=False, num_workers=num_workers, drop_last=True)
+
+        self.data_pipeline = DataLoader(
+            self.pipeline,
+            **dict(self.data_config.data_loader),
+        )
 
         return self.data_pipeline
 
     def _make_labeled_frames_from_generator(
-        self, generator: Iterator[Dict[str, np.ndarray]], 
-    ) -> List[sio.LabeledFrame]:
+        self,
+        generator: Iterator[Dict[str, np.ndarray]],
+    ) -> sio.Labels:
         """Create labeled frames from a generator that yields inference results.
 
-        This method converts pure arrays into SLEAP-specific data structures and runs
-        them through the tracker if it is specified.
+        This method converts pure arrays into SLEAP-specific data structures.
 
         Args:
             generator: A generator that returns dictionaries with inference results.
-                This should return dictionaries with keys `"image"`, `"video_ind"`,
-                `"frame_ind"`, `"instance_peaks"`, `"instance_peak_vals"`, and
+                This should return dictionaries with keys `"instance_image"`, `"video_idx"`,
+                `"frame_idx"`, `"pred_instance_peaks"`, `"pred_peak_values"`, and
                 `"centroid_vals"`. This can be created using the `_predict_generator()`
                 method.
-            data_provider: The `sleap.pipelines.Provider` that the predictions are being
-                created from. This is used to retrieve the `sleap.Video` instance
-                associated with each inference result.
 
         Returns:
-            A list of `sleap.LabeledFrame`s with `sio.PredictedInstance`s created from
+            A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
 
+        preds = defaultdict(list)
         predicted_frames = []
-        preds = defaultdict(List)
 
+        # Loop through each predicted instance.
         for ex in generator:
-            # loop through each instance prediction
-            for video_idx, frame_idx, bbox, pred_instances, pred_values, instance_score in zip(ex["video_idx"], ex["frame_idx"], ex["instance_bbox"], ex["pred_instance_peaks"], ex["pred_peak_values"], ex["centroid_vals"]):
-                pred_instances = pred_instances + bbox
-                preds[(int(video_idx), int(frame_idx))].append(sio.PredictedInstance.from_numpy(points=pred_instances, skeleton=self.skeleton, point_scores=pred_values, instance_score=instance_score))
+            # loop through each sample in a batch
+            for (
+                video_idx,
+                frame_idx,
+                bbox,
+                pred_instances,
+                pred_values,
+                instance_score,
+            ) in zip(
+                ex["video_idx"],
+                ex["frame_idx"],
+                ex["instance_bbox"],
+                ex["pred_instance_peaks"],
+                ex["pred_peak_values"],
+                ex["centroid_vals"],
+            ):
+                pred_instances = pred_instances + bbox.squeeze(dim=0)[0, :]
+                preds[(int(video_idx), int(frame_idx))].append(
+                    sio.PredictedInstance.from_numpy(
+                        points=pred_instances,
+                        skeleton=self.skeleton[0],
+                        point_scores=pred_values,
+                        instance_score=instance_score,
+                    )
+                )
 
-            # create list of LabeledFrames
             for key, inst in preds.items():
+                # Create list of LabeledFrames.
                 video_idx, frame_idx = key
-                predicted_frames.append(sio.LabeledFrame(video=self.videos[video_idx], frame_idx=frame_idx, instances=inst))
+                predicted_frames.append(
+                    sio.LabeledFrame(
+                        video=self.videos[video_idx],
+                        frame_idx=frame_idx,
+                        instances=inst,
+                    )
+                )
 
-        pred_labels = sio.Labels(videos=self.videos, skeletons=[self.skeleton], labeled_frames=predicted_frames)
+        pred_labels = sio.Labels(
+            videos=self.videos,
+            skeletons=[self.skeleton],
+            labeled_frames=predicted_frames,
+        )
         return pred_labels
-
-       
-
-
-
-    
