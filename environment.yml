@@ -15,6 +15,7 @@ dependencies:
   - pytorch
   - torchvision
   - imageio
+  - wandb
   - av
   - ffmpeg
   - kornia
