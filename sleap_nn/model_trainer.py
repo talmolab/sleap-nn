@@ -13,11 +13,13 @@ from sleap_nn.data.pipelines import (
     SingleInstanceConfmapsPipeline,
 )
 import wandb
+import time
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from torch import nn
 import pandas as pd
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint
+import os
 
 
 class ModelTrainer:
@@ -100,7 +102,6 @@ class ModelTrainer:
 
     def _set_wandb(self):
         wandb.login(key=self.config.trainer_config.wandb.api_key)
-        self.wandb_logger = WandbLogger(**dict(self.config.trainer_config.wandb))
 
     def train(self):
         """Function to initiate the training by calling the fit method of Trainer."""
@@ -108,12 +109,17 @@ class ModelTrainer:
         self.logger = []
         if self.config.trainer_config.save_ckpt:
             if not self.config.trainer_config.save_ckpt_path:
-                dir_path = "./"
+                dir_path = "."
             else:
                 dir_path = self.config.trainer_config.save_ckpt_path
 
             if not Path(dir_path).exists():
-                Path(dir_path).mkdir()
+                try:
+                    Path(dir_path).mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    print(
+                        f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
+                    )
 
             # create checkpoint callback
             checkpoint_callback = ModelCheckpoint(
@@ -126,13 +132,20 @@ class ModelTrainer:
             self.logger.append(csv_logger)
 
             # save the configs as yaml in the checkpoint dir
-            OmegaConf.save(config=self.config, f=dir_path + "config.yaml")
+            OmegaConf.save(config=self.config, f=f"{dir_path}/config.yaml")
 
         else:
             callbacks = []
 
         if self.config.trainer_config.use_wandb:
-            self._set_wandb()
+            wandb_config = self.config.trainer_config.wandb
+            if wandb_config.wandb_mode == "offline":
+                os.environ["WANDB_MODE"] = "offline"
+            else:
+                self._set_wandb()
+            self.wandb_logger = WandbLogger(
+                project=wandb_config.project, name=wandb_config.name, save_dir=dir_path
+            )
             self.logger.append(self.wandb_logger)
 
         self.model = TopDownCenteredInstanceModel(self.config)
@@ -212,6 +225,38 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         checkpoint["skeleton"] = labels_gt.skeletons
         checkpoint["seed"] = self.seed
         checkpoint["config"] = self.config
+
+    def on_train_epoch_start(self):
+        """Configure the train timer at the beginning of each epoch."""
+        self.train_start_time = time.time()
+
+    def on_train_epoch_end(self):
+        """Configure the train timer at the end of every epoch."""
+        train_time = time.time() - self.train_start_time
+        self.log(
+            "train_time",
+            train_time,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+
+    def on_val_epoch_start(self):
+        """Configure the val timer at the beginning of each epoch."""
+        self.val_start_time = time.time()
+
+    def on_val_epoch_end(self):
+        """Configure the val timer at the end of every epoch."""
+        val_time = time.time() - self.train_start_time
+        self.log(
+            "train_time",
+            val_time,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
 
     def training_step(self, batch, batch_idx):
         """Training step."""

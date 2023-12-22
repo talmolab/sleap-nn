@@ -185,6 +185,7 @@ def config(sleap_data_dir):
                 "max_epochs": 2,
                 "seed": 1000,
                 "use_wandb": False,
+                "wandb_mode": "offline",
                 "save_ckpt": False,
                 "save_ckpt_path": "",
                 "wandb": {

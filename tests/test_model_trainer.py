@@ -8,6 +8,9 @@ from pathlib import Path
 import pandas as pd
 from sleap_nn.model_trainer import ModelTrainer, TopDownCenteredInstanceModel
 from torch.nn.functional import mse_loss
+import os
+import wandb
+from lightning.pytorch.loggers import WandbLogger
 
 
 def test_create_data_loader(config, tmp_path: str):
@@ -37,6 +40,14 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.val_data_loader))) == 1
 
 
+def test_wandb():
+    # check for wandb
+    os.environ["WANDB_MODE"] = "offline"
+    wandb_logger = WandbLogger()
+    assert wandb.run is not None
+    wandb.finish()
+
+
 def test_trainer(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
@@ -56,9 +67,17 @@ def test_trainer(config, tmp_path: str):
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "model_config.init_weights", "xavier")
+
     model_trainer = ModelTrainer(config)
     model_trainer.train()
+
+    # check if wandb folder is created
+    print(
+        "------------------", list(Path(config.trainer_config.save_ckpt_path).iterdir())
+    )
+    assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
 
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert folder_created
@@ -74,10 +93,12 @@ def test_trainer(config, tmp_path: str):
             ckpt = True
         if i.endswith("yaml"):
             yaml = True
+
     # check if ckpt is created
     assert ckpt and yaml
     checkpoint = torch.load(Path(config.trainer_config.save_ckpt_path).joinpath(i))
     assert checkpoint["epoch"] == 1
+
     # check if skeleton is saved in ckpt file
     assert isinstance(checkpoint["skeleton"][0], sio.Skeleton)
     assert checkpoint["config"]
@@ -113,9 +134,10 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     input_ = next(iter(model_trainer.train_data_loader))
     input_cm = input_["confidence_maps"]
     preds = model(input_["instance_image"])
+
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
 
-    # check the loss
+    # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3

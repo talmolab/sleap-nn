@@ -87,6 +87,7 @@ The config file has three main sections:
     - `max_epochs`: maxinum number of epochs to run.
     - `seed`: seed value for the current experiment.
     - `use_wandb`: Boolean to enable wandb logging.
+    - `wandb_mode`: "offline" if only local logging is required.
     - `save_ckpt`: Boolean to enable checkpointing. 
     - `save_ckpt_path`: dir path to save the .ckpt file. *Default*: "./"
     - `wandb`:
