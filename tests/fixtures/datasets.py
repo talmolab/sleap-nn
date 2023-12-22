@@ -185,12 +185,13 @@ def config(sleap_data_dir):
                 "max_epochs": 2,
                 "seed": 1000,
                 "use_wandb": False,
-                "wandb_mode": "offline",
                 "save_ckpt": False,
                 "save_ckpt_path": "",
                 "wandb": {
                     "project": "test",
                     "name": "test_run",
+                    "wandb_mode": "offline",
+                    "api_key": "",
                 },
                 "optimizer": {
                     "lr": 1e-4,

@@ -248,9 +248,9 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def on_val_epoch_end(self):
         """Configure the val timer at the end of every epoch."""
-        val_time = time.time() - self.train_start_time
+        val_time = time.time() - self.val_start_time
         self.log(
-            "train_time",
+            "val_time",
             val_time,
             prog_bar=False,
             on_step=False,
