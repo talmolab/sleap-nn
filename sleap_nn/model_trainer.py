@@ -242,11 +242,11 @@ class TopDownCenteredInstanceModel(L.LightningModule):
             logger=True,
         )
 
-    def on_val_epoch_start(self):
+    def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
         self.val_start_time = time.time()
 
-    def on_val_epoch_end(self):
+    def on_validation_epoch_end(self):
         """Configure the val timer at the end of every epoch."""
         val_time = time.time() - self.val_start_time
         self.log(
