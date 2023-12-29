@@ -76,6 +76,7 @@ def initialize_model(minimal_instance, minimal_instance_ckpt, config):
         pipeline,
         **dict(config.inference_config.data.data_loader),
     )
+    print("-----------------------------------------------", next(iter(data_pipeline)))
 
     find_peaks_layer = FindInstancePeaks(
         torch_model=torch_model,

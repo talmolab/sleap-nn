@@ -78,6 +78,7 @@ class Predictor(ABC):
     @classmethod
     @abstractmethod
     def from_trained_models(cls, *args, **kwargs):
+        """"""
         pass
 
     @property

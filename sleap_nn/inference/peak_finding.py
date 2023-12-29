@@ -170,7 +170,7 @@ def find_global_peaks(
     rough_peaks = rough_peaks.view(samples * channels, 2)
 
     # Keep only peaks that are not NaNs.
-    valid_idx = torch.where(~torch.isnan(rough_peaks[:, 0]))[0].squeeze(0)
+    valid_idx = torch.where(~torch.isnan(rough_peaks[:, 0]))[0]
     valid_peaks = rough_peaks[valid_idx]
 
     # Make bounding boxes for cropping around peaks.
