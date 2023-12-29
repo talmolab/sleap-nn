@@ -18,6 +18,12 @@ def minimal_instance(sleap_data_dir):
 
 
 @pytest.fixture
+def minimal_instance_ckpt(sleap_data_dir):
+    """Checkpoint file for trained model."""
+    return Path(sleap_data_dir) / "minimal_instance.ckpt"
+
+
+@pytest.fixture
 def config(sleap_data_dir):
     config = OmegaConf.create(
         {
@@ -163,13 +169,6 @@ def config(sleap_data_dir):
                     "pin_memory": True,
                     "drop_last": True,
                 },
-                "test_data_loader": {
-                    "batch_size": 1,
-                    "shuffle": False,
-                    "num_workers": 0,
-                    "pin_memory": True,
-                    "drop_last": True,
-                },
                 "model_ckpt": {
                     "save_top_k": 1,
                     "save_last": True,
@@ -204,6 +203,60 @@ def config(sleap_data_dir):
                     "factor": 0.5,
                     "min_lr": 1e-8,
                 },
+            },
+            "inference_config": {
+                "device": "cpu",
+                "data": {
+                    "labels_path": f"minimal_instance.pkg.slp",
+                    "provider": "LabelsReader",
+                    "data_loader": {
+                        "batch_size": 4,
+                        "shuffle": False,
+                        "num_workers": 2,
+                        "pin_memory": True,
+                        "drop_last": False,
+                    },
+                    "preprocessing": {
+                        "anchor_ind": 0,
+                        "crop_hw": (160, 160),
+                        "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+                    },
+                    "augmentation_config": {
+                        "random_crop": {
+                            "random_crop_p": 0,
+                            "random_crop_hw": (160, 160),
+                        },
+                        "use_augmentations": False,
+                        "augmentations": {
+                            "intensity": {
+                                "uniform_noise": (0.0, 0.04),
+                                "uniform_noise_p": 0,
+                                "gaussian_noise_mean": 0.02,
+                                "gaussian_noise_std": 0.004,
+                                "gaussian_noise_p": 0,
+                                "contrast": (0.5, 2.0),
+                                "contrast_p": 0,
+                                "brightness": 0.0,
+                                "brightness_p": 0,
+                            },
+                            "geometric": {
+                                "rotation": 180.0,
+                                "scale": 0,
+                                "translate": (0, 0),
+                                "affine_p": 0.5,
+                                "erase_scale": (0.0001, 0.01),
+                                "erase_ratio": (1, 1),
+                                "erase_p": 0,
+                                "mixup_lambda": None,
+                                "mixup_p": 0,
+                            },
+                        },
+                    },
+                },
+                "peak_threshold": 0.0,
+                "integral_refinement": None,
+                "integral_patch_size": 5,
+                "return_confmaps": False,
             },
         }
     )

@@ -105,3 +105,10 @@ The config file has three main sections:
         - `patience`: Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. *Default*: 10.
         - `factor`: Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: 0.1.
         - `min_lr`: A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: 0.
+- `inference_config`:
+    - `device`: Device on which torch.Tensor will be allocated. One of the (cpu, cuda, mkldnn, opengl, opencl, ideep, hip, msnpu).
+    - `data`: Same as `data_config.train` with additional sub-key `data_loader` similar to `trainer_config.train_data_loader`.
+    - `peak_threshold`: `float` between 0 and 1. Minimum confidence threshold. Peaks with values below this will ignored.
+    - `integral_refinement`: If `None`, returns the grid-aligned peaks with no refinement. If `"integral"`, peaks will be refined with integral regression.
+    - `integral_patch_size`: Size of patches to crop around each rough peak as an integer scalar.
+    - `return_confmaps`: If `True`, predicted confidence maps will be returned along with the predicted peak values and points. 

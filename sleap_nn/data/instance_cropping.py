@@ -44,7 +44,9 @@ def make_centered_bboxes(
     # Get bounding box.
     corners = torch.stack([top_left, top_right, bottom_right, bottom_left], dim=-2)
 
-    offset = torch.tensor([[+0.5, +0.5], [-0.5, +0.5], [-0.5, -0.5], [+0.5, -0.5]])
+    offset = torch.tensor([[+0.5, +0.5], [-0.5, +0.5], [-0.5, -0.5], [+0.5, -0.5]]).to(
+        corners.device
+    )
 
     return corners + offset
 

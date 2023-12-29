@@ -44,7 +44,7 @@ def crop_bboxes(
     # Compute bounding box size to use for crops.
     height = bboxes[0, 3, 1] - bboxes[0, 0, 1]
     width = bboxes[0, 1, 0] - bboxes[0, 0, 0]
-    box_size = tuple(np.round((height + 1, width + 1)).astype(np.int32))
+    box_size = tuple(torch.round(torch.Tensor((height + 1, width + 1))).to(torch.int32))
 
     # Crop.
     crops = crop_and_resize(
@@ -75,7 +75,9 @@ def integral_regression(
         x_hat and y_hat are of shape (samples, channels)
     """
     # Compute normalizing factor.
-    z = torch.sum(cms, dim=[2, 3])
+    z = torch.sum(cms, dim=[2, 3]).to(cms.device)
+    xv = xv.to(cms.device)
+    yv = yv.to(cms.device)
 
     # Regress to expectation.
     x_hat = torch.sum(xv.view(1, 1, 1, -1) * cms, dim=[2, 3]) / z
