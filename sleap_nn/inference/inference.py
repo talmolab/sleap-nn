@@ -78,16 +78,18 @@ class Predictor(ABC):
     @classmethod
     @abstractmethod
     def from_trained_models(cls, *args, **kwargs):
-        """"""
+        """Function to initialize the Predictor class for certain type of model."""
         pass
 
     @property
     @abstractmethod
     def data_config(self) -> DictConfig:
+        """Function to get the data parameters from the config."""
         pass
 
     @abstractmethod
     def make_pipeline(self):
+        """Function to create the data pipeline."""
         pass
 
     def _initialize_inference_model(self):
@@ -146,7 +148,6 @@ class Predictor(ABC):
             otherwise a list of dictionaries containing batches of numpy arrays with the
             raw results.
         """
-
         # Initialize inference loop generator.
         generator = self._predict_generator()
 
@@ -162,12 +163,14 @@ class Predictor(ABC):
             return list(generator)
 
 
-class CentroidCrop(nn.Module):
+class CentroidCrop(L.LightningModule):
+    """Lightning Module to predict the centroids of instances using a trained centroid model."""
+
     pass
 
 
 class FindInstancePeaks(L.LightningModule):
-    """nn.Module that predicts instance peaks from images using a trained model.
+    """Lightning Module that predicts instance peaks from images using a trained model.
 
     This layer encapsulates all of the inference operations required for generating
     predictions from a centered instance confidence map model. This includes
@@ -239,7 +242,6 @@ class FindInstancePeaks(L.LightningModule):
             `"centroid_val"`.
 
         """
-
         # Network forward pass.
         cms = self.torch_model(inputs["instance_image"])
 
@@ -285,6 +287,7 @@ class TopDownInferenceModel(L.LightningModule):
         instance_peaks: Union[FindInstancePeaks, None],
         **kwargs,
     ):
+        """Initialize the class with Inference models."""
         super().__init__()
         self.centroid_crop = centroid_crop
         self.instance_peaks = instance_peaks
@@ -308,7 +311,6 @@ class TopDownInferenceModel(L.LightningModule):
             `"pred_peak_vals": (batch_size, n_nodes)`: Confidence
                 values for the instance skeleton points.
         """
-
         if self.centroid_crop is None:
             batch["centroid_val"] = torch.ones(batch["instance"].shape[0])
 
@@ -352,7 +354,6 @@ class TopDownPredictor(Predictor):
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
-
         self.model_config = OmegaConf.create()
 
         # Create an instance of CentroidLayer if centroid_config is not None
@@ -385,7 +386,7 @@ class TopDownPredictor(Predictor):
 
     @property
     def data_config(self) -> DictConfig:
-        # Returns data config section from the overall config
+        """Returns data config section from the overall config."""
         return self.model_config.data
 
     @classmethod
@@ -457,7 +458,6 @@ class TopDownPredictor(Predictor):
             This method also creates the class attribute `data_pipeline` and will be
             called automatically when predicting on data from a new source.
         """
-
         self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
 
         provider = self.data_config.provider
@@ -500,7 +500,6 @@ class TopDownPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
-
         preds = defaultdict(list)
         predicted_frames = []
 
