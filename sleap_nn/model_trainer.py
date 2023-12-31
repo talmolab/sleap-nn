@@ -131,9 +131,6 @@ class ModelTrainer:
             csv_logger = CSVLogger(dir_path)
             self.logger.append(csv_logger)
 
-            # save the configs as yaml in the checkpoint dir
-            OmegaConf.save(config=self.config, f=f"{dir_path}/config.yaml")
-
         else:
             callbacks = []
 
@@ -163,6 +160,11 @@ class ModelTrainer:
 
         if self.config.trainer_config.use_wandb:
             wandb.finish()
+
+        if self.config.trainer_config.save_ckpt:
+            # save the configs as yaml in the checkpoint dir
+            self.config.trainer_config.wandb.api_key = ""
+            OmegaConf.save(config=self.config, f=f"{dir_path}/config.yaml")
 
 
 def xavier_init_weights(x):

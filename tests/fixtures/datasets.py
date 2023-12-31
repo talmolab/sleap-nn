@@ -20,7 +20,7 @@ def minimal_instance(sleap_data_dir):
 @pytest.fixture
 def minimal_instance_ckpt(sleap_data_dir):
     """Checkpoint file for trained model."""
-    return Path(sleap_data_dir) / "minimal_instance.ckpt"
+    return Path(sleap_data_dir) / "minimal_instance"
 
 
 @pytest.fixture
@@ -254,7 +254,7 @@ def config(sleap_data_dir):
                     },
                 },
                 "peak_threshold": 0.0,
-                "integral_refinement": None,
+                "integral_refinement": "integral",
                 "integral_patch_size": 5,
                 "return_confmaps": False,
             },

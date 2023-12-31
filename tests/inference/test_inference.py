@@ -1,4 +1,3 @@
-import torch
 import sleap_io as sio
 from typing import Text
 import pytest
@@ -20,7 +19,6 @@ from sleap_nn.inference.inference import (
 def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     # for centered instance model
     # check if labels are created from ckpt
-    print(f"================================= {minimal_instance_ckpt}")
     predictor = Predictor.from_model_paths(
         ckpt_paths={"centered": minimal_instance_ckpt}, model="topdown"
     )
@@ -39,8 +37,12 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
     assert lf.instances[1].numpy().shape == gt_lf.instances[1].numpy().shape
 
-    # TODO: check if dictionaries are created when make labels is set to False
+    # check if dictionaries are created when make labels is set to False
     preds = predictor.predict(make_labels=False)
+    assert isinstance(preds, list)
+    assert len(preds) == 2
+    assert isinstance(preds[0], dict)
+    assert "pred_confmaps" not in preds[0].keys()
 
     # if model parameter is not set right
     with pytest.raises(
@@ -60,10 +62,11 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
         )
 
 
-def initialize_model(minimal_instance, minimal_instance_ckpt, config):
+def initialize_model(minimal_instance, minimal_instance_ckpt):
     # for centered instance model
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/config.yaml")
     torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-        minimal_instance_ckpt, config=config
+        f"{minimal_instance_ckpt}/model.ckpt", config=config
     )
     data_pipeline = TopdownConfmapsPipeline(config.inference_config.data)
 
@@ -76,8 +79,6 @@ def initialize_model(minimal_instance, minimal_instance_ckpt, config):
         pipeline,
         **dict(config.inference_config.data.data_loader),
     )
-    print("-----------------------------------------------", next(iter(data_pipeline)))
-
     find_peaks_layer = FindInstancePeaks(
         torch_model=torch_model,
         output_stride=2,
@@ -87,10 +88,10 @@ def initialize_model(minimal_instance, minimal_instance_ckpt, config):
     return data_pipeline, torch_model, find_peaks_layer
 
 
-def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt, config):
+def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt):
     # for centered instance model
     data_pipeline, _, find_peaks_layer = initialize_model(
-        minimal_instance, minimal_instance_ckpt, config
+        minimal_instance, minimal_instance_ckpt
     )
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=None, instance_peaks=find_peaks_layer
@@ -103,9 +104,9 @@ def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt, config
         assert "pred_instance_peaks" in i.keys() and "pred_peak_values" in i.keys()
 
 
-def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt, config):
+def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt):
     data_pipeline, torch_model, find_peaks_layer = initialize_model(
-        minimal_instance, minimal_instance_ckpt, config
+        minimal_instance, minimal_instance_ckpt
     )
     outputs = []
     for x in data_pipeline:
@@ -140,5 +141,4 @@ def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt, config):
     for x in data_pipeline:
         outputs.append(find_peaks_layer(x))
     assert "pred_confmaps" in outputs[0].keys()
-    print("-------------------------confmaps: ", outputs[0]["pred_confmaps"].shape)
     assert outputs[0]["pred_confmaps"].shape[-2:] == (80, 80)

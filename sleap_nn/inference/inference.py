@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union, Iterator, Text
 import torch
 import attr
 import torch.nn as nn
+from pathlib import Path
 from abc import ABC, abstractmethod
 from collections import defaultdict
 import lightning as L
@@ -31,7 +32,7 @@ class Predictor(ABC):
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            ckpt_paths: Dict with keys as model names and values as paths to the checkpoint file having the trained model weights
+            model_paths: Dict with keys as model names and values as paths to the directory where the model.ckpt and config.yaml are saved.
             model: Model names. One of "single_instance", "topdown"
 
         Returns:
@@ -41,13 +42,6 @@ class Predictor(ABC):
             `MoveNetPredictor`, `TopDownMultiClassPredictor`,
             `BottomUpMultiClassPredictor`.
         """
-        # Read configs and find model types.
-        # configs={}
-        # for p in ckpt_paths:
-        #     ckpt = torch.load(p) # ???? should we load the checkpoint everytime
-        #     configs[ckpt.config.model_name] = [ckpt.config, ckpt] # checkpoint or checkpoint path
-
-        # ckpt_paths = {"centroid": ckpt_path, "centered": ckpt_path}
         model_names = ckpt_paths.keys()
         model = model.lower()
 
@@ -69,9 +63,7 @@ class Predictor(ABC):
             )
 
         else:
-            raise ValueError(
-                f"Could not create predictor from model name:\n{model}"
-            )
+            raise ValueError(f"Could not create predictor from model name:\n{model}")
         predictor.model_path = ckpt_paths
         return predictor
 
@@ -398,8 +390,8 @@ class TopDownPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            centroid_ckpt_path: Path to a centroid ckpt file.
-            confmap_ckpt_path: Path to a centroid ckpt file.
+            centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -422,11 +414,11 @@ class TopDownPredictor(Predictor):
 
         if confmap_ckpt_path is not None:
             # Load confmap model.
-            confmap_ckpt = torch.load(confmap_ckpt_path)
+            confmap_ckpt = torch.load(f"{confmap_ckpt_path}/model.ckpt")
             skeleton = confmap_ckpt["skeleton"]
-            confmap_config = confmap_ckpt["config"]
+            confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/config.yaml")
             confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-                confmap_ckpt_path, config=confmap_config
+                f"{confmap_ckpt_path}/model.ckpt", config=confmap_config
             )
             confmap_model.to(confmap_config.inference_config.device)
             confmap_model.m_device = confmap_config.inference_config.device
