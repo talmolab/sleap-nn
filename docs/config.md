@@ -94,6 +94,7 @@ The config file has three main sections:
         - `project`: title for the wandb project
         - `name`: name of the current run
         - `api_key`: API key
+        - `wandb_mode`: `"offline"` if only offline logging is required.
     - `optimizer`
         - `lr`: learning rate of type float. *Default*: 1e-3
         - `amsgrad`: Boolean to enable AMSGrad. *Default*: False

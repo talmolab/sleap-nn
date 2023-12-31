@@ -70,7 +70,7 @@ class Predictor(ABC):
 
         else:
             raise ValueError(
-                "Could not create predictor from model name:" + "\n".join(model_names)
+                f"Could not create predictor from model name:\n{model}"
             )
         predictor.model_path = ckpt_paths
         return predictor
@@ -531,20 +531,20 @@ class TopDownPredictor(Predictor):
                     )
                 )
 
-            for key, inst in preds.items():
-                # Create list of LabeledFrames.
-                video_idx, frame_idx = key
-                predicted_frames.append(
-                    sio.LabeledFrame(
-                        video=self.videos[video_idx],
-                        frame_idx=frame_idx,
-                        instances=inst,
-                    )
+        for key, inst in preds.items():
+            # Create list of LabeledFrames.
+            video_idx, frame_idx = key
+            predicted_frames.append(
+                sio.LabeledFrame(
+                    video=self.videos[video_idx],
+                    frame_idx=frame_idx,
+                    instances=inst,
                 )
+            )
 
         pred_labels = sio.Labels(
             videos=self.videos,
-            skeletons=[self.skeleton],
+            skeletons=self.skeleton,
             labeled_frames=predicted_frames,
         )
         return pred_labels

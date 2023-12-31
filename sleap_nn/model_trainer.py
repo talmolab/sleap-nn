@@ -224,6 +224,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         # save the skeletons and seed to the checkpoint file
         checkpoint["skeleton"] = labels_gt.skeletons
         checkpoint["seed"] = self.seed
+        self.config.trainer_config.wandb.api_key = ""
         checkpoint["config"] = self.config
 
     def on_train_epoch_start(self):

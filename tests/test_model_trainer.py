@@ -102,6 +102,7 @@ def test_trainer(config, tmp_path: str):
     # check if skeleton is saved in ckpt file
     assert isinstance(checkpoint["skeleton"][0], sio.Skeleton)
     assert checkpoint["config"]
+    assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
 
     # check for training metrics csv
     path = Path(config.trainer_config.save_ckpt_path).joinpath(

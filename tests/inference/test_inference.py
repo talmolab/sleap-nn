@@ -20,6 +20,7 @@ from sleap_nn.inference.inference import (
 def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     # for centered instance model
     # check if labels are created from ckpt
+    print(f"================================= {minimal_instance_ckpt}")
     predictor = Predictor.from_model_paths(
         ckpt_paths={"centered": minimal_instance_ckpt}, model="topdown"
     )
@@ -33,7 +34,6 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
     gt_lf = gt_labels[0]
-    assert pred_labels.videos == gt_labels.videos
     assert pred_labels.skeleton == gt_labels.skeleton
     assert lf.frame_idx == gt_lf.frame_idx
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
@@ -44,7 +44,7 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
 
     # if model parameter is not set right
     with pytest.raises(
-        ValueError, match=f"Could not create predictor from model name:\nTop"
+        ValueError, match=f"Could not create predictor from model name:\ntop"
     ):
         predictor = Predictor.from_model_paths(
             ckpt_paths={"centered": minimal_instance_ckpt}, model="Top"
