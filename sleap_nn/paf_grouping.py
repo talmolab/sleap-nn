@@ -683,7 +683,7 @@ def score_paf_lines(
 def score_paf_lines_batch(
     pafs: torch.Tensor,
     peaks: torch.Tensor,
-    peak_channel_inds: torch.Tensor,
+    peak_channel_inds: List[torch.Tensor],
     skeleton_edges: torch.Tensor,
     n_line_points: int,
     pafs_stride: int,
@@ -691,6 +691,41 @@ def score_paf_lines_batch(
     dist_penalty_weight: float,
     n_nodes: int,
 ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+    """
+    Processes a batch of images to score the Part Affinity Fields (PAFs) lines 
+    formed between connection candidates for each sample.
+
+    This function loops over each sample in the batch and applies the process of 
+    getting connection candidates, retrieving PAF vectors for each line, and 
+    computing the connectivity score for each candidate based on the PAF lines.
+
+    Args:
+        pafs: A tensor of shape `(n_samples, height, width, 2 * n_edges)` 
+            containing the part affinity fields for each sample in the batch.
+        peaks: A tensor of shape `(n_samples, n_peaks, 2)` containing the 
+            (x, y) coordinates of the detected peaks for each sample.
+        peak_channel_inds: A list of tensors of shape `(n_samples, (n_peaks))` indicating 
+            the channel (node) index that each peak corresponds to.
+        skeleton_edges: A tensor of shape `(n_edges, 2)` indicating the indices 
+            of the nodes that form each edge of the skeleton.
+        n_line_points: The number of points used to interpolate between source 
+            and destination peaks in each connection candidate.
+        pafs_stride: The stride (1/scale) of the PAFs relative to the image scale.
+        max_edge_length_ratio: The maximum expected length of a connected pair 
+            of points relative to the image dimensions.
+        dist_penalty_weight: A coefficient to scale the weight of the distance 
+            penalty applied to the score of each line.
+        n_nodes: The total number of nodes in the skeleton.
+
+    Returns:
+        A tuple containing three lists for each sample in the batch:
+            - A list of tensors of shape `(n_samples, (n_connections,))` indicating the indices 
+              of the edges that each connection corresponds to.
+            - A list of tensors of shape `(n_samples, (n_connections, 2))` containing the indices 
+              of the source and destination peaks forming each connection.
+            - A list of tensors of shape `(n_samples, (n_connections,))` containing the scores 
+              for each connection based on the PAFs.
+    """
     max_edge_length = max_edge_length_ratio * max(pafs.shape[2], pafs.shape[3]) * pafs_stride
 
     n_samples = pafs.shape[0]
