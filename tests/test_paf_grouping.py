@@ -7,6 +7,7 @@ from sleap_nn.paf_grouping import (
     get_paf_lines,
     compute_distance_penalty,
     score_paf_lines,
+    score_paf_lines_batch
 )
 
 
@@ -97,3 +98,35 @@ def test_score_paf_lines():
 
     # Asserting the correctness of the scores
     assert_close(scores_torch, torch.tensor([24.27]), atol=1e-2, rtol=1e-2)
+
+
+def test_score_paf_lines_batch():
+    pafs = torch.arange(6 * 4 * 2, dtype=torch.float32).reshape(1, 6, 4, 2)
+    peaks = torch.tensor([[[0, 0], [4, 8]]], dtype=torch.float32)
+    peak_channel_inds = torch.tensor([[0, 1]], dtype=torch.int32)
+    skeleton_edges = torch.tensor([[0, 1], [1, 2], [2, 3]], dtype=torch.int32)
+
+    n_line_points = 3
+    pafs_stride = 2
+    max_edge_length_ratio = 2 / 12
+    dist_penalty_weight = 1.0
+    n_nodes = 4
+
+    edge_inds, edge_peak_inds, line_scores = score_paf_lines_batch(
+        pafs,
+        peaks,
+        peak_channel_inds,
+        skeleton_edges,
+        n_line_points,
+        pafs_stride,
+        max_edge_length_ratio,
+        dist_penalty_weight,
+        n_nodes,
+    )
+
+    assert len(edge_inds) == 1
+    assert edge_inds[0].numpy().tolist() == [0.]
+    assert len(edge_peak_inds) == 1
+    assert edge_peak_inds[0].numpy().tolist() == [[0, 1]]
+    assert len(line_scores) == 1
+    assert_close(line_scores[0], torch.tensor([24.27]), rtol=8e-2, atol=8e-2)
