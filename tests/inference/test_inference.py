@@ -51,7 +51,7 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
         predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
 
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    OmegaConf.update(config, model_name)
+    OmegaConf.update(config, "model_config.head_configs.head_type", model_name)
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
 

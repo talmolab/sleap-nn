@@ -121,7 +121,7 @@ model_config:
       up_blocks: 3
       convs_per_block: 2
   head_configs:
-    head_type: instance
+    head_type: CenteredInstanceConfmapsHead
     head_config:
       part_names:
       - '0'
