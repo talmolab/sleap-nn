@@ -172,7 +172,6 @@ def config(sleap_data_dir):
                 "model_ckpt": {
                     "save_top_k": 1,
                     "save_last": True,
-                    "every_n_epochs": 0,
                     "monitor": "val_loss",
                     "mode": "min",
                     "auto_insert_metric_name": False,

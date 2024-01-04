@@ -19,9 +19,7 @@ from sleap_nn.inference.inference import (
 def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     # for centered instance model
     # check if labels are created from ckpt
-    predictor = Predictor.from_model_paths(
-        ckpt_paths={"centered": minimal_instance_ckpt}, model="topdown"
-    )
+    predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
     pred_labels = predictor.predict(make_labels=True)
     assert predictor.centroid_config is None
     assert isinstance(pred_labels, sio.Labels)
@@ -32,7 +30,7 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
     gt_lf = gt_labels[0]
-    assert pred_labels.skeleton == gt_labels.skeleton
+    assert pred_labels.skeletons == gt_labels.skeletons
     assert lf.frame_idx == gt_lf.frame_idx
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
     assert lf.instances[1].numpy().shape == gt_lf.instances[1].numpy().shape
@@ -45,28 +43,23 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     assert "pred_confmaps" not in preds[0].keys()
 
     # if model parameter is not set right
-    with pytest.raises(
-        ValueError, match=f"Could not create predictor from model name:\ntop"
-    ):
-        predictor = Predictor.from_model_paths(
-            ckpt_paths={"centered": minimal_instance_ckpt}, model="Top"
-        )
+    with pytest.raises(ValueError):
+        config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+        model_name = config.model_config.head_configs.head_type
+        OmegaConf.update(config, "model_config.head_configs.head_type", "instance")
+        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+        predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
 
-    # if neither of centered nor centroid ckpts are given.
-    with pytest.raises(
-        ValueError,
-        match="Either the centroid or topdown confidence map model must be provided.",
-    ):
-        predictor = Predictor.from_model_paths(
-            ckpt_paths={"single_instance": minimal_instance_ckpt}, model="topdown"
-        )
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    OmegaConf.update(config, model_name)
+    OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
 
 def initialize_model(minimal_instance, minimal_instance_ckpt):
     # for centered instance model
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/config.yaml")
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/model.ckpt", config=config
+        f"{minimal_instance_ckpt}/best.ckpt", config=config
     )
     data_pipeline = TopdownConfmapsPipeline(config.inference_config.data)
 

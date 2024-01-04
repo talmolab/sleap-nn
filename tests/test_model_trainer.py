@@ -86,23 +86,35 @@ def test_trainer(config, tmp_path: str):
         for x in Path(config.trainer_config.save_ckpt_path).iterdir()
         if x.is_file()
     ]
-    ckpt = False
-    yaml = False
-    for i in files:
-        if i.endswith("ckpt"):
-            ckpt = True
-        if i.endswith("yaml"):
-            yaml = True
+    assert (
+        Path(config.trainer_config.save_ckpt_path)
+        .joinpath("initial_config.yaml")
+        .exists()
+    )
+    assert (
+        Path(config.trainer_config.save_ckpt_path)
+        .joinpath("training_config.yaml")
+        .exists()
+    )
+    training_config = OmegaConf.load(
+        f"{config.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    assert training_config.trainer_config.wandb.api_key == ""
+    assert training_config.data_config.skeletons
 
     # check if ckpt is created
-    assert ckpt and yaml
-    checkpoint = torch.load(Path(config.trainer_config.save_ckpt_path).joinpath(i))
+    assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
+    assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+
+    checkpoint = torch.load(
+        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
     assert checkpoint["epoch"] == 1
 
     # check if skeleton is saved in ckpt file
-    assert isinstance(checkpoint["skeleton"][0], sio.Skeleton)
     assert checkpoint["config"]
     assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
+    assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # check for training metrics csv
     path = Path(config.trainer_config.save_ckpt_path).joinpath(

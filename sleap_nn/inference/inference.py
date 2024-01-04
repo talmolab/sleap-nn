@@ -28,12 +28,11 @@ class Predictor(ABC):
     """Base interface class for predictors."""
 
     @classmethod
-    def from_model_paths(cls, ckpt_paths: Dict[Text, Text], model: Text) -> "Predictor":
+    def from_model_paths(cls, model_paths: List[Text]) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            model_paths: Dict with keys as model names and values as paths to the directory where the model.ckpt and config.yaml are saved.
-            model: Model names. One of "single_instance", "topdown"
+            model_paths: List of paths to the directory where the best.ckpt and training_config.yaml are saved.
 
         Returns:
             A subclass of `Predictor`.
@@ -42,29 +41,40 @@ class Predictor(ABC):
             `MoveNetPredictor`, `TopDownMultiClassPredictor`,
             `BottomUpMultiClassPredictor`.
         """
-        model_names = ckpt_paths.keys()
-        model = model.lower()
+        model_config_paths = [
+            OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
+        ]
+        model_names = [
+            (c.model_config.head_configs.head_type).lower() for c in model_config_paths
+        ]
 
-        if "single_instance" in model:
+        is_centroid = any(filter(lambda x: "centroid" in x, model_names))
+        is_centered = any(filter(lambda x: "centered" in x, model_names))
+
+        if "single_instance" in model_names:
             pass
 
-        elif "topdown" in model:
+        elif is_centroid or is_centered:
             centroid_ckpt_path = None
             confmap_ckpt_path = None
-            if "centroid" in model_names:
+            if is_centroid:
                 pass
-            if "centered" in model_names:
-                confmap_ckpt_path = ckpt_paths["centered"]
+            if is_centered:
+                for i in range(len(model_names)):
+                    if "centered" in model_names[i]:
+                        break
+                confmap_ckpt_path = model_paths[i]
 
             # create an instance of the TopDown predictor class
             predictor = TopDownPredictor.from_trained_models(
                 centroid_ckpt_path=centroid_ckpt_path,
                 confmap_ckpt_path=confmap_ckpt_path,
             )
-
         else:
-            raise ValueError(f"Could not create predictor from model name:\n{model}")
-        predictor.model_path = ckpt_paths
+            raise ValueError(
+                f"Could not create predictor from model paths:\n{model_paths}"
+            )
+        predictor.model_path = model_paths
         return predictor
 
     @classmethod
@@ -354,6 +364,7 @@ class TopDownPredictor(Predictor):
         else:
             self.model_config["centroid"] = self.centroid_config
             self.model_config["data"] = self.centroid_config.inference_config.data
+            self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
             pass
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
@@ -362,6 +373,9 @@ class TopDownPredictor(Predictor):
         else:
             self.model_config["confmaps"] = self.confmap_config
             self.model_config["data"] = self.confmap_config.inference_config.data
+            self.model_config["data"][
+                "skeletons"
+            ] = self.confmap_config.data_config.skeletons
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=self.confmap_config.inference_config.peak_threshold,
@@ -399,10 +413,6 @@ class TopDownPredictor(Predictor):
             One of the two models can be left as `None` to perform inference with ground
             truth data. This will only work with `LabelsReader` as the provider.
         """
-        if centroid_ckpt_path is None and confmap_ckpt_path is None:
-            raise ValueError(
-                "Either the centroid or topdown confidence map model must be provided."
-            )
 
         if centroid_ckpt_path is not None:
             # Load centroid model.
@@ -414,11 +424,9 @@ class TopDownPredictor(Predictor):
 
         if confmap_ckpt_path is not None:
             # Load confmap model.
-            confmap_ckpt = torch.load(f"{confmap_ckpt_path}/model.ckpt")
-            skeleton = confmap_ckpt["skeleton"]
-            confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/config.yaml")
+            confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
             confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-                f"{confmap_ckpt_path}/model.ckpt", config=confmap_config
+                f"{confmap_ckpt_path}/best.ckpt", config=confmap_config
             )
             confmap_model.to(confmap_config.inference_config.device)
             confmap_model.m_device = confmap_config.inference_config.device
@@ -436,8 +444,6 @@ class TopDownPredictor(Predictor):
         )
 
         obj._initialize_inference_model()
-        obj.skeleton = skeleton
-
         return obj
 
     def make_pipeline(self) -> TopdownConfmapsPipeline:
@@ -495,6 +501,26 @@ class TopDownPredictor(Predictor):
         preds = defaultdict(list)
         predicted_frames = []
 
+        skeletons = []
+        for name in self.data_config.skeletons.keys():
+            nodes = [
+                sio.model.skeleton.Node(n["name"])
+                for n in self.data_config.skeletons[name].nodes
+            ]
+            edges = [
+                sio.model.skeleton.Edge(e["source"], e["destination"])
+                for e in self.data_config.skeletons[name].edges
+            ]
+            symmetries = [
+                sio.model.skeleton.Symmetry(s["nodes"])
+                for s in self.data_config.skeletons[name].symmetries
+            ]
+
+            skeletons.append(
+                sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
+            )
+
+        skeleton_idx = 0
         # Loop through each predicted instance.
         for ex in generator:
             # loop through each sample in a batch
@@ -517,7 +543,7 @@ class TopDownPredictor(Predictor):
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
                         points=pred_instances,
-                        skeleton=self.skeleton[0],
+                        skeleton=skeletons[skeleton_idx],
                         point_scores=pred_values,
                         instance_score=instance_score,
                     )
@@ -536,7 +562,7 @@ class TopDownPredictor(Predictor):
 
         pred_labels = sio.Labels(
             videos=self.videos,
-            skeletons=self.skeleton,
+            skeletons=skeletons,
             labeled_frames=predicted_frames,
         )
         return pred_labels

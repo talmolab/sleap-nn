@@ -72,9 +72,10 @@ class ModelTrainer:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
 
         # train
-        train_labels_reader = self.provider(
-            sio.load_slp(self.config.data_config.train.labels_path)
-        )
+        train_labels = sio.load_slp(self.config.data_config.train.labels_path)
+        self.skeletons = train_labels.skeletons
+
+        train_labels_reader = self.provider(train_labels)
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
         )
@@ -125,6 +126,7 @@ class ModelTrainer:
             checkpoint_callback = ModelCheckpoint(
                 **dict(self.config.trainer_config.model_ckpt),
                 dirpath=dir_path,
+                filename="best",
             )
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs
@@ -145,6 +147,20 @@ class ModelTrainer:
             )
             self.logger.append(self.wandb_logger)
 
+        if self.config.trainer_config.save_ckpt:
+            # save the configs as yaml in the checkpoint dir
+            self.config.trainer_config.wandb.api_key = ""
+            OmegaConf.save(config=self.config, f=f"{dir_path}/initial_config.yaml")
+
+            # save the skeleton in the config
+            self.config["data_config"]["skeletons"] = {}
+            for skl in self.skeletons:
+                self.config["data_config"]["skeletons"][skl.name] = {
+                    "nodes": skl.nodes,
+                    "edges": skl.edges,
+                    "symmetries": skl.symmetries,
+                }
+
         self.model = TopDownCenteredInstanceModel(self.config)
         trainer = L.Trainer(
             callbacks=callbacks,
@@ -163,8 +179,7 @@ class ModelTrainer:
 
         if self.config.trainer_config.save_ckpt:
             # save the configs as yaml in the checkpoint dir
-            self.config.trainer_config.wandb.api_key = ""
-            OmegaConf.save(config=self.config, f=f"{dir_path}/config.yaml")
+            OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
 
 def xavier_init_weights(x):
@@ -222,11 +237,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def on_save_checkpoint(self, checkpoint):
         """Configure checkpoint to save parameters."""
-        labels_gt = sio.load_slp(self.data_config.train.labels_path)
-        # save the skeletons and seed to the checkpoint file
-        checkpoint["skeleton"] = labels_gt.skeletons
-        checkpoint["seed"] = self.seed
-        self.config.trainer_config.wandb.api_key = ""
+        # save the config to the checkpoint file
         checkpoint["config"] = self.config
 
     def on_train_epoch_start(self):
