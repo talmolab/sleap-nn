@@ -1,6 +1,7 @@
+import numpy as np
 import torch
 from torch.testing import assert_close
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_array_equal, assert_array_almost_equal
 
 from sleap_nn.paf_grouping import (
     get_connection_candidates,
@@ -16,6 +17,7 @@ from sleap_nn.paf_grouping import (
     PeakID,
     toposort_edges,
     assign_connections_to_instances,
+    make_predicted_instances
 )
 
 
@@ -285,3 +287,43 @@ def test_assign_connections_to_instances():
         n_nodes=15,
     )
     assert all(x == 0 for x in instance_assignments.values())
+
+def test_make_predicted_instances():
+        peaks = np.array([
+            [[0, 0], [1, 1]],
+            [[2, 2], [3, 3]]
+        ])
+        peak_scores = np.array([
+            [0.9, 0.8],
+            [0.7, 0.6]
+        ])
+        connections = {
+            EdgeType(0, 1): [
+                EdgeConnection(0, 0, 0.5),
+                EdgeConnection(1, 1, 0.4)
+            ]
+        }
+        instance_assignments = {
+            PeakID(0, 0): 0,
+            PeakID(0, 1): 1,
+            PeakID(1, 0): 0,
+            PeakID(1, 1): 1
+        }
+
+        expected_instances = np.array([
+            [[0, 0], [2, 2]],
+            [[1, 1], [3, 3]]
+        ])
+        expected_peak_scores = np.array([
+            [0.9, 0.7],
+            [0.8, 0.6]
+        ])
+        expected_instance_scores = np.array([0.5, 0.4])
+
+        predicted_instances, predicted_peak_scores, predicted_instance_scores = make_predicted_instances(
+            peaks, peak_scores, connections, instance_assignments
+        )
+
+        assert_array_almost_equal(predicted_instances, expected_instances)
+        assert_array_almost_equal(predicted_peak_scores, expected_peak_scores)
+        assert_array_almost_equal(predicted_instance_scores, expected_instance_scores)
