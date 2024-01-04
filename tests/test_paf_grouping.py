@@ -17,7 +17,7 @@ from sleap_nn.paf_grouping import (
     PeakID,
     toposort_edges,
     assign_connections_to_instances,
-    make_predicted_instances
+    make_predicted_instances,
 )
 
 
@@ -135,7 +135,7 @@ def test_score_paf_lines_batch():
     )
 
     assert len(edge_inds) == 1
-    assert edge_inds[0].numpy().tolist() == [0.]
+    assert edge_inds[0].numpy().tolist() == [0.0]
     assert len(edge_peak_inds) == 1
     assert edge_peak_inds[0].numpy().tolist() == [[0, 1]]
     assert len(line_scores) == 1
@@ -148,11 +148,13 @@ def test_match_candidates_sample():
     line_scores_sample = torch.tensor([-0.5, 1.0], dtype=torch.float32)
     n_edges = 1
 
-    (match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores) = match_candidates_sample(
-        edge_inds_sample,
-        edge_peak_inds_sample,
-        line_scores_sample,
-        n_edges
+    (
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    ) = match_candidates_sample(
+        edge_inds_sample, edge_peak_inds_sample, line_scores_sample, n_edges
     )
 
     src_peak_inds_k = torch.unique(edge_peak_inds_sample[:, 0])
@@ -164,6 +166,7 @@ def test_match_candidates_sample():
     assert_array_equal(match_line_scores, [1.0])
     assert src_peak_inds_k[match_src_peak_inds][0] == 2
     assert dst_peak_inds_k[match_dst_peak_inds][0] == 1
+
 
 def test_match_candidates_batch():
     edge_inds = [torch.tensor([0, 0], dtype=torch.int32)]
@@ -185,6 +188,7 @@ def test_match_candidates_batch():
     assert match_src_peak_inds[0].numpy().tolist() == [1]
     assert match_dst_peak_inds[0].numpy().tolist() == [0]
     assert match_line_scores[0].numpy().tolist() == [1.0]
+
 
 def test_toposort_edges():
     edge_inds = [
@@ -224,6 +228,7 @@ def test_toposort_edges():
     edge_types = [EdgeType(src_node, dst_node) for src_node, dst_node in edge_inds]
     sorted_edge_inds = toposort_edges(edge_types)
     assert sorted_edge_inds == (2, 3, 4, 9, 5, 0, 1, 6, 7, 8)
+
 
 def test_assign_connections_to_instances():
     connections = {
@@ -288,42 +293,30 @@ def test_assign_connections_to_instances():
     )
     assert all(x == 0 for x in instance_assignments.values())
 
+
 def test_make_predicted_instances():
-        peaks = np.array([
-            [[0, 0], [1, 1]],
-            [[2, 2], [3, 3]]
-        ])
-        peak_scores = np.array([
-            [0.9, 0.8],
-            [0.7, 0.6]
-        ])
-        connections = {
-            EdgeType(0, 1): [
-                EdgeConnection(0, 0, 0.5),
-                EdgeConnection(1, 1, 0.4)
-            ]
-        }
-        instance_assignments = {
-            PeakID(0, 0): 0,
-            PeakID(0, 1): 1,
-            PeakID(1, 0): 0,
-            PeakID(1, 1): 1
-        }
+    peaks = np.array([[[0, 0], [1, 1]], [[2, 2], [3, 3]]])
+    peak_scores = np.array([[0.9, 0.8], [0.7, 0.6]])
+    connections = {
+        EdgeType(0, 1): [EdgeConnection(0, 0, 0.5), EdgeConnection(1, 1, 0.4)]
+    }
+    instance_assignments = {
+        PeakID(0, 0): 0,
+        PeakID(0, 1): 1,
+        PeakID(1, 0): 0,
+        PeakID(1, 1): 1,
+    }
 
-        expected_instances = np.array([
-            [[0, 0], [2, 2]],
-            [[1, 1], [3, 3]]
-        ])
-        expected_peak_scores = np.array([
-            [0.9, 0.7],
-            [0.8, 0.6]
-        ])
-        expected_instance_scores = np.array([0.5, 0.4])
+    expected_instances = np.array([[[0, 0], [2, 2]], [[1, 1], [3, 3]]])
+    expected_peak_scores = np.array([[0.9, 0.7], [0.8, 0.6]])
+    expected_instance_scores = np.array([0.5, 0.4])
 
-        predicted_instances, predicted_peak_scores, predicted_instance_scores = make_predicted_instances(
-            peaks, peak_scores, connections, instance_assignments
-        )
+    (
+        predicted_instances,
+        predicted_peak_scores,
+        predicted_instance_scores,
+    ) = make_predicted_instances(peaks, peak_scores, connections, instance_assignments)
 
-        assert_array_almost_equal(predicted_instances, expected_instances)
-        assert_array_almost_equal(predicted_peak_scores, expected_peak_scores)
-        assert_array_almost_equal(predicted_instance_scores, expected_instance_scores)
+    assert_array_almost_equal(predicted_instances, expected_instances)
+    assert_array_almost_equal(predicted_peak_scores, expected_peak_scores)
+    assert_array_almost_equal(predicted_instance_scores, expected_instance_scores)

@@ -383,6 +383,7 @@ def score_paf_lines(
 
 import torch
 
+
 def get_connection_candidates(
     peak_channel_inds_sample: torch.Tensor, skeleton_edges: torch.Tensor, n_nodes: int
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -430,6 +431,7 @@ def get_connection_candidates(
     edge_peak_inds = torch.cat(edge_peak_inds)  # (n_candidates, 2)
 
     return edge_inds, edge_peak_inds
+
 
 def make_line_subs(
     peaks_sample: torch.Tensor,
@@ -561,6 +563,7 @@ def get_paf_lines(
     lines = pafs_sample[line_subs[..., 0], line_subs[..., 1], line_subs[..., 2]]
     return lines
 
+
 def compute_distance_penalty(
     spatial_vec_lengths: torch.Tensor,
     max_edge_length: float,
@@ -683,6 +686,7 @@ def score_paf_lines(
 
     return penalized_line_scores
 
+
 def score_paf_lines_batch(
     pafs: torch.Tensor,
     peaks: torch.Tensor,
@@ -694,42 +698,42 @@ def score_paf_lines_batch(
     dist_penalty_weight: float,
     n_nodes: int,
 ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
-    """
-    Processes a batch of images to score the Part Affinity Fields (PAFs) lines 
-    formed between connection candidates for each sample.
+    """Process a batch of images to score the Part Affinity Fields (PAFs) lines formed between connection candidates for each sample.
 
-    This function loops over each sample in the batch and applies the process of 
-    getting connection candidates, retrieving PAF vectors for each line, and 
+    This function loops over each sample in the batch and applies the process of
+    getting connection candidates, retrieving PAF vectors for each line, and
     computing the connectivity score for each candidate based on the PAF lines.
 
     Args:
-        pafs: A tensor of shape `(n_samples, height, width, 2 * n_edges)` 
+        pafs: A tensor of shape `(n_samples, height, width, 2 * n_edges)`
             containing the part affinity fields for each sample in the batch.
-        peaks: A tensor of shape `(n_samples, n_peaks, 2)` containing the 
+        peaks: A tensor of shape `(n_samples, n_peaks, 2)` containing the
             (x, y) coordinates of the detected peaks for each sample.
-        peak_channel_inds: A list of tensors of shape `(n_samples, (n_peaks))` indicating 
+        peak_channel_inds: A list of tensors of shape `(n_samples, (n_peaks))` indicating
             the channel (node) index that each peak corresponds to.
-        skeleton_edges: A tensor of shape `(n_edges, 2)` indicating the indices 
+        skeleton_edges: A tensor of shape `(n_edges, 2)` indicating the indices
             of the nodes that form each edge of the skeleton.
-        n_line_points: The number of points used to interpolate between source 
+        n_line_points: The number of points used to interpolate between source
             and destination peaks in each connection candidate.
         pafs_stride: The stride (1/scale) of the PAFs relative to the image scale.
-        max_edge_length_ratio: The maximum expected length of a connected pair 
+        max_edge_length_ratio: The maximum expected length of a connected pair
             of points relative to the image dimensions.
-        dist_penalty_weight: A coefficient to scale the weight of the distance 
+        dist_penalty_weight: A coefficient to scale the weight of the distance
             penalty applied to the score of each line.
         n_nodes: The total number of nodes in the skeleton.
 
     Returns:
         A tuple containing three lists for each sample in the batch:
-            - A list of tensors of shape `(n_samples, (n_connections,))` indicating the indices 
+            - A list of tensors of shape `(n_samples, (n_connections,))` indicating the indices
               of the edges that each connection corresponds to.
-            - A list of tensors of shape `(n_samples, (n_connections, 2))` containing the indices 
+            - A list of tensors of shape `(n_samples, (n_connections, 2))` containing the indices
               of the source and destination peaks forming each connection.
-            - A list of tensors of shape `(n_samples, (n_connections,))` containing the scores 
+            - A list of tensors of shape `(n_samples, (n_connections,))` containing the scores
               for each connection based on the PAFs.
     """
-    max_edge_length = max_edge_length_ratio * max(pafs.shape[2], pafs.shape[3]) * pafs_stride
+    max_edge_length = (
+        max_edge_length_ratio * max(pafs.shape[2], pafs.shape[3]) * pafs_stride
+    )
 
     n_samples = pafs.shape[0]
     batch_edge_inds = []
@@ -839,9 +843,13 @@ def match_candidates_sample(
         # Update cost matrix with line scores.
         for i, src_ind in enumerate(src_peak_inds_k):
             for j, dst_ind in enumerate(dst_peak_inds_k):
-                mask = (edge_peak_inds_k[:, 0] == src_ind) & (edge_peak_inds_k[:, 1] == dst_ind)
+                mask = (edge_peak_inds_k[:, 0] == src_ind) & (
+                    edge_peak_inds_k[:, 1] == dst_ind
+                )
                 if mask.any():
-                    cost_matrix[i, j] = -line_scores_k[mask].item()  # Flip sign for maximization.
+                    cost_matrix[i, j] = -line_scores_k[
+                        mask
+                    ].item()  # Flip sign for maximization.
 
         # Convert cost matrix to numpy for use with scipy's linear_sum_assignment.
         cost_matrix_np = cost_matrix.numpy()
@@ -850,7 +858,9 @@ def match_candidates_sample(
         match_src_inds, match_dst_inds = linear_sum_assignment(cost_matrix_np)
 
         # Pull out matched scores from the numpy cost matrix.
-        match_line_scores_k = -cost_matrix_np[match_src_inds, match_dst_inds]  # Flip sign back.
+        match_line_scores_k = -cost_matrix_np[
+            match_src_inds, match_dst_inds
+        ]  # Flip sign back.
 
         # Get the peak indices for the matched points (these index into peaks_sample).
         # These index into the edge-grouped peaks.
@@ -858,9 +868,15 @@ def match_candidates_sample(
         match_dst_peak_inds_k = match_dst_inds
 
         # Save.
-        match_edge_inds.append(torch.full((match_src_peak_inds_k.size,), k, dtype=torch.int32))
-        match_src_peak_inds.append(torch.tensor(match_src_peak_inds_k, dtype=torch.int32))
-        match_dst_peak_inds.append(torch.tensor(match_dst_peak_inds_k, dtype=torch.int32))
+        match_edge_inds.append(
+            torch.full((match_src_peak_inds_k.size,), k, dtype=torch.int32)
+        )
+        match_src_peak_inds.append(
+            torch.tensor(match_src_peak_inds_k, dtype=torch.int32)
+        )
+        match_dst_peak_inds.append(
+            torch.tensor(match_dst_peak_inds_k, dtype=torch.int32)
+        )
         match_line_scores.append(torch.tensor(match_line_scores_k, dtype=torch.float32))
 
     # Convert lists to tensors.
@@ -877,7 +893,9 @@ def match_candidates_batch(
     edge_peak_inds: List[torch.Tensor],
     line_scores: List[torch.Tensor],
     n_edges: int,
-) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+) -> Tuple[
+    List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]
+]:
     """Match candidate connections for a batch based on PAF scores.
 
     Args:
@@ -937,10 +955,17 @@ def match_candidates_batch(
         matched_sample = match_candidates_sample(
             edge_inds_sample, edge_peak_inds_sample, line_scores_sample, n_edges
         )
-        
-        match_edge_inds_sample, match_src_peak_inds_sample, match_dst_peak_inds_sample, match_line_scores_sample = matched_sample
-        
-        match_sample_inds.append(torch.full_like(match_edge_inds_sample, sample, dtype=torch.int32))
+
+        (
+            match_edge_inds_sample,
+            match_src_peak_inds_sample,
+            match_dst_peak_inds_sample,
+            match_line_scores_sample,
+        ) = matched_sample
+
+        match_sample_inds.append(
+            torch.full_like(match_edge_inds_sample, sample, dtype=torch.int32)
+        )
         match_edge_inds.append(match_edge_inds_sample)
         match_src_peak_inds.append(match_src_peak_inds_sample)
         match_dst_peak_inds.append(match_dst_peak_inds_sample)
@@ -954,7 +979,7 @@ def assign_connections_to_instances(
     min_instance_peaks: Union[int, float] = 0,
     n_nodes: int = None,
 ) -> Dict[PeakID, int]:
-    """Assigns connected edges to instances via greedy graph partitioning.
+    """Assign connected edges to instances via greedy graph partitioning.
 
     Args:
         connections: A dict that maps EdgeType to a list of EdgeConnections found
