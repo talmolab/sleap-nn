@@ -76,10 +76,8 @@ The config file has three main sections:
         - `save_top_k`: if save_top_k == k, the best k models according to the quantity monitored will be saved. if save_top_k == 0, no models are saved. if save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
         - `save_last`: When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: None.
         - `auto_insert_metric_name`– When True, the checkpoints filenames will contain the metric name. For example, `filename='checkpoint_{epoch:02d}-{acc:02.0f}` with epoch 1 and acc 1.12 will resolve to `checkpoint_epoch=01-acc=01.ckpt`.
-        - `every_n_epochs`: Number of epochs between checkpoints. This value must be None or non-negative. To disable saving top-k checkpoints, set every_n_epochs = 0. This argument does not impact the saving of save_last=True checkpoints. If all of every_n_epochs, every_n_train_steps and train_time_interval are None, we save a checkpoint at the end of every epoch (equivalent to every_n_epochs = 1). If every_n_epochs == None and either every_n_train_steps != None or train_time_interval != None, saving at the end of each epoch is disabled (equivalent to every_n_epochs = 0). This must be mutually exclusive with every_n_train_steps and train_time_interval. Setting both ModelCheckpoint(..., every_n_epochs=V, save_on_train_epoch_end=False) and Trainer(max_epochs=N, check_val_every_n_epoch=M) will only save checkpoints at epochs 0 < E <= N where both values for every_n_epochs and check_val_every_n_epoch evenly divide E.
         - `monitor`: Quantity to monitor. When None, this saves a checkpoint only for the last epoch. *Default*: None
         - `mode`: One of {min, max}. If save_top_k != 0, the decision to overwrite the current save file is made based on either the maximization or the minimization of the monitored quantity. For 'val_acc', this should be 'max', for 'val_loss' this should be 'min', etc. 
-        - `filename`: Checkpoint filename which contains named formatting options to be auto-filled. When `None`, the filename will be set to '{epoch}-{step}', where “epoch” and “step” match the number of finished epoch and optimizer steps respectively. *Default*: None
     - `device`: device on which torch.Tensor will be allocated. One of the (cpu, cuda, mkldnn, opengl, opencl, ideep, hip, msnpu).
     - `trainer_devices`: Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
     - `trainer_accelerator`: One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to.
@@ -94,6 +92,7 @@ The config file has three main sections:
         - `project`: title for the wandb project
         - `name`: name of the current run
         - `api_key`: API key
+        - `wandb_mode`: `"offline"` if only offline logging is required.
     - `optimizer`
         - `lr`: learning rate of type float. *Default*: 1e-3
         - `amsgrad`: Boolean to enable AMSGrad. *Default*: False
@@ -105,3 +104,10 @@ The config file has three main sections:
         - `patience`: Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. *Default*: 10.
         - `factor`: Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: 0.1.
         - `min_lr`: A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: 0.
+- `inference_config`:
+    - `device`: Device on which torch.Tensor will be allocated. One of the (cpu, cuda, mkldnn, opengl, opencl, ideep, hip, msnpu).
+    - `data`: Same as `data_config.train` with additional sub-key `data_loader` similar to `trainer_config.train_data_loader`.
+    - `peak_threshold`: `float` between 0 and 1. Minimum confidence threshold. Peaks with values below this will ignored.
+    - `integral_refinement`: If `None`, returns the grid-aligned peaks with no refinement. If `"integral"`, peaks will be refined with integral regression.
+    - `integral_patch_size`: Size of patches to crop around each rough peak as an integer scalar.
+    - `return_confmaps`: If `True`, predicted confidence maps will be returned along with the predicted peak values and points. 
