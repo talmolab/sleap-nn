@@ -9,7 +9,8 @@ from sleap_nn.paf_grouping import (
     compute_distance_penalty,
     score_paf_lines,
     score_paf_lines_batch,
-    match_candidates_sample
+    match_candidates_sample,
+    match_candidates_batch
 )
 
 
@@ -156,3 +157,24 @@ def test_match_candidates_sample():
     assert_array_equal(match_line_scores, [1.0])
     assert src_peak_inds_k[match_src_peak_inds][0] == 2
     assert dst_peak_inds_k[match_dst_peak_inds][0] == 1
+
+def test_match_candidates_batch():
+    edge_inds = [torch.tensor([0, 0], dtype=torch.int32)]
+    edge_peak_inds = [torch.tensor([[0, 1], [2, 1]], dtype=torch.int32)]
+    line_scores = [torch.tensor([-0.5, 1.0], dtype=torch.float32)]
+    n_edges = 1
+
+    (
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    ) = match_candidates_batch(edge_inds, edge_peak_inds, line_scores, n_edges)
+    assert len(match_edge_inds) == 1
+    assert len(match_src_peak_inds) == 1
+    assert len(match_dst_peak_inds) == 1
+    assert len(match_line_scores) == 1
+    assert match_edge_inds[0].numpy().tolist() == [0]
+    assert match_src_peak_inds[0].numpy().tolist() == [1]
+    assert match_dst_peak_inds[0].numpy().tolist() == [0]
+    assert match_line_scores[0].numpy().tolist() == [1.0]
