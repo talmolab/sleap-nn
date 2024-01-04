@@ -648,19 +648,19 @@ def score_paf_lines(
 
     See also: get_paf_lines, score_paf_lines_batch, compute_distance_penalty
     """
-    # Pull out points using advanced indexing
+    # Pull out points using advanced indexing.
     src_peaks = peaks_sample[edge_peak_inds_sample[:, 0]]  # (n_candidates, 2)
     dst_peaks = peaks_sample[edge_peak_inds_sample[:, 1]]  # (n_candidates, 2)
 
-    # Compute normalized spatial displacement vector
+    # Compute normalized spatial displacement vector.
     spatial_vecs = dst_peaks - src_peaks
     spatial_vec_lengths = torch.norm(
         spatial_vecs, dim=1, keepdim=True
     )  # (n_candidates, 1)
-    spatial_vecs = spatial_vecs / spatial_vec_lengths  # Normalize
+    spatial_vecs = spatial_vecs / spatial_vec_lengths  # Normalize.
 
     # Compute similarity scores
-    spatial_vecs = spatial_vecs.unsqueeze(2)  # Add dimension for matrix multiplication
+    spatial_vecs = spatial_vecs.unsqueeze(2)  # Add dimension for matrix multiplication.
     line_scores = torch.squeeze(
         paf_lines_sample @ spatial_vecs, dim=-1
     )  # (n_candidates, n_line_points)
@@ -758,7 +758,7 @@ def score_paf_lines_batch(
             dist_penalty_weight=dist_penalty_weight,
         )
 
-        # Appending as lists to maintain the nested structure
+        # Appending as lists to maintain the nested structure.
         batch_edge_inds.append(edge_inds_sample)
         batch_edge_peak_inds.append(edge_peak_inds_sample)
         batch_line_scores.append(line_scores_sample)
@@ -824,47 +824,124 @@ def match_candidates_sample(
         edge_peak_inds_k = edge_peak_inds_sample[is_edge_k]
         line_scores_k = line_scores_sample[is_edge_k]
 
-        # Get the unique peak indices
+        # Get the unique peak indices.
         src_peak_inds_k = torch.unique(edge_peak_inds_k[:, 0])
         dst_peak_inds_k = torch.unique(edge_peak_inds_k[:, 1])
 
         n_src = src_peak_inds_k.size(0)
         n_dst = dst_peak_inds_k.size(0)
 
-        # Initialize cost matrix with infinite cost
+        # Initialize cost matrix with infinite cost.
         cost_matrix = torch.full((n_src, n_dst), np.inf)
 
-        # Update cost matrix with line scores
+        # Update cost matrix with line scores.
         for i, src_ind in enumerate(src_peak_inds_k):
             for j, dst_ind in enumerate(dst_peak_inds_k):
                 mask = (edge_peak_inds_k[:, 0] == src_ind) & (edge_peak_inds_k[:, 1] == dst_ind)
                 if mask.any():
-                    cost_matrix[i, j] = -line_scores_k[mask].item()  # Flip sign for maximization
+                    cost_matrix[i, j] = -line_scores_k[mask].item()  # Flip sign for maximization.
 
-        # Convert cost matrix to numpy for use with scipy's linear_sum_assignment
+        # Convert cost matrix to numpy for use with scipy's linear_sum_assignment.
         cost_matrix_np = cost_matrix.numpy()
 
-        # Match
+        # Match.
         match_src_inds, match_dst_inds = linear_sum_assignment(cost_matrix_np)
 
-        # Pull out matched scores from the numpy cost matrix
-        match_line_scores_k = -cost_matrix_np[match_src_inds, match_dst_inds]  # Flip sign back
+        # Pull out matched scores from the numpy cost matrix.
+        match_line_scores_k = -cost_matrix_np[match_src_inds, match_dst_inds]  # Flip sign back.
 
-        # Get the peak indices for the matched points (these index into peaks_sample)
-        # These index into the edge-grouped peaks
+        # Get the peak indices for the matched points (these index into peaks_sample).
+        # These index into the edge-grouped peaks.
         match_src_peak_inds_k = match_src_inds
         match_dst_peak_inds_k = match_dst_inds
 
-        # Save
+        # Save.
         match_edge_inds.append(torch.full((match_src_peak_inds_k.size,), k, dtype=torch.int32))
         match_src_peak_inds.append(torch.tensor(match_src_peak_inds_k, dtype=torch.int32))
         match_dst_peak_inds.append(torch.tensor(match_dst_peak_inds_k, dtype=torch.int32))
         match_line_scores.append(torch.tensor(match_line_scores_k, dtype=torch.float32))
 
-    # Convert lists to tensors
+    # Convert lists to tensors.
     match_edge_inds = torch.cat(match_edge_inds)
     match_src_peak_inds = torch.cat(match_src_peak_inds)
     match_dst_peak_inds = torch.cat(match_dst_peak_inds)
     match_line_scores = torch.cat(match_line_scores)
+
+    return match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores
+
+
+def match_candidates_batch(
+    edge_inds: List[torch.Tensor],
+    edge_peak_inds: List[torch.Tensor],
+    line_scores: List[torch.Tensor],
+    n_edges: int,
+) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+    """Match candidate connections for a batch based on PAF scores.
+
+    Args:
+        edge_inds: Sample-grouped edge indices as a list of `torch.Tensor`s of shape
+            `(n_samples, (n_candidates))` and dtype `torch.int32` indicating the indices
+            of the edge that each of the candidate connections belongs to. Can be
+            generated using `score_paf_lines_batch()`.
+        edge_peak_inds: Sample-grouped indices of the peaks that form the source and
+            destination of each candidate connection as a list of `torch.Tensor`s of shape
+            `(n_samples, (n_candidates), 2)` and dtype `torch.int32`. Can be generated
+            using `score_paf_lines_batch()`.
+        line_scores: Sample-grouped scores for each candidate connection as a
+            list of `torch.Tensor`s of shape `(n_samples, (n_candidates))` and dtype
+            `torch.float32`. Can be generated using `score_paf_lines_batch()`.
+        n_edges: A scalar `int` denoting the number of edges in the skeleton.
+
+    Returns:
+        The connection peaks for each edge matched based on score as tuple of
+        `(match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores)`
+
+        `match_edge_inds`: Sample-grouped indices of the skeleton edge for each
+        connection as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))` and
+        dtype `torch.int32`.
+
+        `match_src_peak_inds`: Sample-grouped indices of the source peaks that form each
+        connection as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))` and
+        dtype `torch.int32`. Important: These indices correspond to the edge-grouped peaks,
+        not the set of all peaks in the sample.
+
+        `match_dst_peak_inds`: Sample-grouped indices of the destination peaks that form
+        each connection as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))`
+        and dtype `torch.int32`. Important: These indices correspond to the edge-grouped
+        peaks, not the set of all peaks in the sample.
+
+        `match_line_scores`: Sample-grouped PAF line scores of the matched connections
+        as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))` and dtype
+        `torch.float32`.
+
+    Notes:
+        The matching is performed using the Munkres algorithm implemented in
+        `scipy.optimize.linear_sum_assignment()` which is wrapped in
+        `tf_linear_sum_assignment()` for execution within a graph.
+
+    See also: match_candidates_sample, score_paf_lines_batch, group_instances_batch
+    """
+    match_sample_inds: List[torch.Tensor] = []
+    match_edge_inds: List[torch.Tensor] = []
+    match_src_peak_inds: List[torch.Tensor] = []
+    match_dst_peak_inds: List[torch.Tensor] = []
+    match_line_scores: List[torch.Tensor] = []
+
+    for sample in range(len(edge_inds)):
+        edge_inds_sample = edge_inds[sample]
+        edge_peak_inds_sample = edge_peak_inds[sample]
+        line_scores_sample = line_scores[sample]
+
+        matched_sample = match_candidates_sample(
+            edge_inds_sample, edge_peak_inds_sample, line_scores_sample, n_edges
+        )
+        
+        match_edge_inds_sample, match_src_peak_inds_sample, match_dst_peak_inds_sample, match_line_scores_sample = matched_sample
+        
+        match_sample_inds.append(torch.full_like(match_edge_inds_sample, sample, dtype=torch.int32))
+        match_edge_inds.append(match_edge_inds_sample)
+        match_src_peak_inds.append(match_src_peak_inds_sample)
+        match_dst_peak_inds.append(match_dst_peak_inds_sample)
+        match_line_scores.append(match_line_scores_sample)
 
     return match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores
