@@ -136,19 +136,13 @@ trainer_config:
     shuffle: true
     num_workers: 2
     pin_memory: true
-    drop_last: true
+    drop_last: false
   val_data_loader:
     batch_size: 1
     shuffle: false
     num_workers: 0
     pin_memory: true
-    drop_last: true
-  test_data_loader:
-    batch_size: 1
-    shuffle: false
-    num_workers: 0
-    pin_memory: true
-    drop_last: true
+    drop_last: false
   model_ckpt:
     save_top_k: 1
     save_last: true
@@ -159,11 +153,11 @@ trainer_config:
   trainer_devices: 1
   trainer_accelerator: cpu
   enable_progress_bar: false
-  max_epochs: 3
+  max_epochs: 2
   seed: 1000
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: ./minimal_instance_test/
+  save_ckpt_path: ''
   wandb:
     project: test
     name: test_run
@@ -184,7 +178,7 @@ inference_config:
     labels_path: ./tests/assets/minimal_instance.pkg.slp
     provider: LabelsReader
     data_loader:
-      batch_size: 1
+      batch_size: 4
       shuffle: false
       num_workers: 2
       pin_memory: true
@@ -236,8 +230,6 @@ inference_config:
           mixup_lambda: null
           mixup_p: 0
   peak_threshold: 0.0
-  integral_refinement: null
+  integral_refinement: integral
   integral_patch_size: 5
   return_confmaps: false
-instance: null
-CenteredInstanceConfmapsHead: null

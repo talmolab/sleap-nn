@@ -18,7 +18,7 @@ from sleap_nn.data.pipelines import (
     SingleInstanceConfmapsPipeline,
 )
 from sleap_nn.inference.peak_finding import find_global_peaks
-from sleap_nn.model_trainer import TopDownCenteredInstanceModel
+from sleap_nn.model_trainer import TopDownCenteredInstanceModel, SingleInstanceModel
 
 from time import time
 from omegaconf import OmegaConf
@@ -45,25 +45,27 @@ class Predictor(ABC):
             OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
         ]
         model_names = [
-            (c.model_config.head_configs.head_type).lower() for c in model_config_paths
+            (c.model_config.head_configs.head_type) for c in model_config_paths
         ]
 
-        is_centroid = any(filter(lambda x: "centroid" in x, model_names))
-        is_centered = any(filter(lambda x: "centered" in x, model_names))
+        if "SingleInstanceConfmapsHead" in model_names:
+            confmap_ckpt_path = model_paths[
+                model_names.index("SingleInstanceConfmapsHead")
+            ]
+            predictor = SingleInstancePredictor.from_trained_models(confmap_ckpt_path)
 
-        if "single_instance" in model_names:
-            pass
-
-        elif is_centroid or is_centered:
+        elif (
+            "CentroidConfmapsHead" in model_names
+            or "CenteredInstanceConfmapsHead" in model_names
+        ):
             centroid_ckpt_path = None
             confmap_ckpt_path = None
-            if is_centroid:
+            if "CentroidConfmapsHead" in model_names:
                 pass
-            if is_centered:
-                for i in range(len(model_names)):
-                    if "centered" in model_names[i]:
-                        break
-                confmap_ckpt_path = model_paths[i]
+            if "CenteredInstanceConfmapsHead" in model_names:
+                confmap_ckpt_path = model_paths[
+                    model_names.index("CenteredInstanceConfmapsHead")
+                ]
 
             # create an instance of the TopDown predictor class
             predictor = TopDownPredictor.from_trained_models(
@@ -558,6 +560,259 @@ class TopDownPredictor(Predictor):
                     instances=inst,
                 )
             )
+
+        pred_labels = sio.Labels(
+            videos=self.videos,
+            skeletons=skeletons,
+            labeled_frames=predicted_frames,
+        )
+        return pred_labels
+
+
+class SingleInstanceInferenceModel(L.LightningModule):
+    """Single instance prediction model.
+
+    This model encapsulates the single instance model where instances are first detected by
+    local peak detection of an anchor point and then cropped. These instance-centered
+    crops are then passed to an instance peak detector which is trained to detect all
+    remaining body parts for the instance that is centered within the crop.
+
+    Attributes:
+        torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
+            rank-4 confidence maps as output. This should be a model that is trained on
+            centered instance confidence maps.
+        output_stride: Output stride of the model, denoting the scale of the output
+            confidence maps relative to the images (after input scaling). This is used
+            for adjusting the peak coordinates to the image grid.
+        peak_threshold: Minimum confidence map value to consider a global peak as valid.
+        refinement: If `None`, returns the grid-aligned peaks with no refinement. If
+            `"integral"`, peaks will be refined with integral regression. If `"local"`,
+            peaks will be refined with quarter pixel local gradient offset. This has no
+            effect if the model has an offset regression head.
+        integral_patch_size: Size of patches to crop around each rough peak for integral
+            refinement as an integer scalar.
+        return_confmaps: If `True`, the confidence maps will be returned together with
+            the predicted peaks.
+    """
+
+    def __init__(
+        self,
+        torch_model: L.LightningModule,
+        output_stride: Optional[int] = None,
+        peak_threshold: float = 0.0,
+        refinement: Optional[str] = "integral",
+        integral_patch_size: int = 5,
+        return_confmaps: Optional[bool] = False,
+        **kwargs,
+    ):
+        """Initialise the model attributes."""
+        super().__init__(**kwargs)
+        self.torch_model = torch_model
+        self.peak_threshold = peak_threshold
+        self.refinement = refinement
+        self.integral_patch_size = integral_patch_size
+        self.output_stride = output_stride
+        self.return_confmaps = return_confmaps
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Predict confidence maps and infer peak coordinates.
+
+        Args:
+            inputs: Dictionary with "image" as one of the keys.
+
+        Returns:
+            A dictionary of outputs with keys:
+
+            `"pred_instance_peaks"`: The predicted peaks for each instance in the batch as a
+                `torch.Tensor` of shape `(samples, nodes, 2)`.
+            `"pred_peak_vals"`: The value of the confidence maps at the predicted
+                peaks for each instance in the batch as a `torch.Tensor` of shape
+                `(samples, nodes)`.
+
+        """
+        # Network forward pass.
+        cms = self.torch_model(inputs["image"])
+
+        peak_points, peak_vals = find_global_peaks(
+            cms.detach(),
+            threshold=self.peak_threshold,
+            refinement=self.refinement,
+            integral_patch_size=self.integral_patch_size,
+        )
+
+        # Adjust for stride and scale.
+        peak_points = peak_points * self.output_stride
+
+        # Build outputs.
+        outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}
+        if self.return_confmaps:
+            outputs["pred_confmaps"] = cms.detach()
+        inputs.update(outputs)
+        return inputs
+
+
+@attr.s(auto_attribs=True)
+class SingleInstancePredictor(Predictor):
+    """Single-Instance predictor.
+
+    This high-level class handles initialization, preprocessing and predicting using a trained single instance SLEAP-NN model.
+
+    This should be initialized using the `from_trained_models()` constructor.
+
+    Attributes:
+        confmap_config: A Dictionary with the configs used for training the single-instance model
+        confmap_model: A LightningModule instance created from the trained weights for single-instance model.
+
+    """
+
+    confmap_config: Optional[DictConfig] = attr.ib(default=None)
+    confmap_model: Optional[L.LightningModule] = attr.ib(default=None)
+
+    def _initialize_inference_model(self):
+        """Initialize the inference model from the trained models and configuration."""
+        self.inference_model = SingleInstanceInferenceModel(
+            torch_model=self.confmap_model,
+            peak_threshold=self.confmap_config.inference_config.peak_threshold,
+            output_stride=self.confmap_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+            refinement=self.confmap_config.inference_config.integral_refinement,
+            integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
+            return_confmaps=self.confmap_config.inference_config.return_confmaps,
+        )
+
+    @property
+    def data_config(self) -> DictConfig:
+        """Returns data config section from the overall config."""
+        return self.confmap_config.inference_config.data
+
+    @classmethod
+    def from_trained_models(
+        cls,
+        confmap_ckpt_path: Optional[Text] = None,
+    ) -> "TopDownPredictor":
+        """Create predictor from saved models.
+
+        Args:
+            confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+
+        Returns:
+            An instance of `SingleInstancePredictor` with the loaded models.
+
+        """
+        confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
+        confmap_model = SingleInstanceModel.load_from_checkpoint(
+            f"{confmap_ckpt_path}/best.ckpt", config=confmap_config
+        )
+        confmap_model.to(confmap_config.inference_config.device)
+        confmap_model.m_device = confmap_config.inference_config.device
+
+        # create an instance of SingleInstancePredictor class
+        obj = cls(
+            confmap_config=confmap_config,
+            confmap_model=confmap_model,
+        )
+
+        obj._initialize_inference_model()
+        return obj
+
+    def make_pipeline(self) -> SingleInstanceConfmapsPipeline:
+        """Make a data loading pipeline.
+
+        Returns:
+            DataLoader with the pipeline created with `sleap_nn.pipelines.SingleInstanceConfmapsPipeline`
+
+        Notes:
+            This method also creates the class attribute `data_pipeline` and will be
+            called automatically when predicting on data from a new source.
+        """
+        self.pipeline = SingleInstanceConfmapsPipeline(data_config=self.data_config)
+
+        provider = self.data_config.provider
+        if provider == "LabelsReader":
+            provider = LabelsReader
+
+        labels = sio.load_slp(self.data_config.labels_path)
+        self.videos = labels.videos
+        provider_pipeline = provider(labels)
+        self.pipeline = self.pipeline.make_training_pipeline(
+            data_provider=provider_pipeline
+        )
+
+        # Remove duplicates.
+        self.pipeline = self.pipeline.sharding_filter()
+
+        self.data_pipeline = DataLoader(
+            self.pipeline,
+            **dict(self.data_config.data_loader),
+        )
+
+        return self.data_pipeline
+
+    def _make_labeled_frames_from_generator(
+        self,
+        generator: Iterator[Dict[str, np.ndarray]],
+    ) -> sio.Labels:
+        """Create labeled frames from a generator that yields inference results.
+
+        This method converts pure arrays into SLEAP-specific data structures.
+
+        Args:
+            generator: A generator that returns dictionaries with inference results.
+                This should return dictionaries with keys `"image"`, `"video_idx"`,
+                `"frame_idx"`, `"pred_instance_peaks"`, `"pred_peak_values"`.
+                This can be created using the `_predict_generator()` method.
+
+        Returns:
+            A `sio.Labels` object with `sio.PredictedInstance`s created from
+            arrays returned from the inference result generator.
+        """
+        predicted_frames = []
+
+        skeletons = []
+        for name in self.confmap_config.data_config.skeletons.keys():
+            nodes = [
+                sio.model.skeleton.Node(n["name"])
+                for n in self.confmap_config.data_config.skeletons[name].nodes
+            ]
+            edges = [
+                sio.model.skeleton.Edge(e["source"], e["destination"])
+                for e in self.confmap_config.data_config.skeletons[name].edges
+            ]
+            symmetries = [
+                sio.model.skeleton.Symmetry(s["nodes"])
+                for s in self.confmap_config.data_config.skeletons[name].symmetries
+            ]
+
+            skeletons.append(
+                sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
+            )
+
+        skeleton_idx = 0
+        for ex in generator:
+            # loop through each sample in a batch
+            for (
+                video_idx,
+                frame_idx,
+                pred_instances,
+                pred_values,
+            ) in zip(
+                ex["video_idx"],
+                ex["frame_idx"],
+                ex["pred_instance_peaks"],
+                ex["pred_peak_values"],
+            ):
+                inst = sio.PredictedInstance.from_numpy(
+                    points=pred_instances,
+                    skeleton=skeletons[skeleton_idx],
+                    instance_score=np.nansum(pred_values),
+                    point_scores=pred_values,
+                )
+                predicted_frames.append(
+                    sio.LabeledFrame(
+                        video=self.videos[video_idx],
+                        frame_idx=frame_idx,
+                        instances=[inst],
+                    )
+                )
 
         pred_labels = sio.Labels(
             videos=self.videos,

@@ -6,7 +6,11 @@ from omegaconf import OmegaConf
 import lightning as L
 from pathlib import Path
 import pandas as pd
-from sleap_nn.model_trainer import ModelTrainer, TopDownCenteredInstanceModel
+from sleap_nn.model_trainer import (
+    ModelTrainer,
+    TopDownCenteredInstanceModel,
+    SingleInstanceModel,
+)
 from torch.nn.functional import mse_loss
 import os
 import wandb
@@ -74,9 +78,6 @@ def test_trainer(config, tmp_path: str):
     model_trainer.train()
 
     # check if wandb folder is created
-    print(
-        "------------------", list(Path(config.trainer_config.save_ckpt_path).iterdir())
-    )
     assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
 
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
@@ -154,3 +155,41 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+
+
+def test_single_instance_model(config, tmp_path: str):
+    OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
+    OmegaConf.update(
+        config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
+    )
+    del config.model_config.head_configs.head_config.anchor_part
+
+    model = SingleInstanceModel(config)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
+    model_trainer = ModelTrainer(config)
+    model_trainer._create_data_loaders()
+    input_ = next(iter(model_trainer.train_data_loader))
+    img = input_["image"]
+    img_shape = img.shape[-2:]
+    preds = model(img)
+
+    # check the output shape
+    assert preds.shape == (
+        1,
+        2,
+        int(
+            img_shape[0]
+            / config.data_config.train.preprocessing.conf_map_gen.output_stride
+        ),
+        int(
+            img_shape[1]
+            / config.data_config.train.preprocessing.conf_map_gen.output_stride
+        ),
+    )
+
+    # check the loss value
+    input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
+    loss = model.training_step(input_, 0)
+    assert abs(loss - mse_loss(preds, input_["confidence_maps"])) < 1e-3

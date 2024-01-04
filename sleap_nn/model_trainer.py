@@ -50,9 +50,10 @@ class ModelTrainer:
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
-
+        self.is_single_instance_model = False
         # create pipelines
         if self.config.data_config.pipeline == "SingleInstanceConfmaps":
+            self.is_single_instance_model = True
             train_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config.train
             )
@@ -160,8 +161,10 @@ class ModelTrainer:
                     "edges": skl.edges,
                     "symmetries": skl.symmetries,
                 }
-
-        self.model = TopDownCenteredInstanceModel(self.config)
+        if self.is_single_instance_model:
+            self.model = SingleInstanceModel(self.config)
+        else:
+            self.model = TopDownCenteredInstanceModel(self.config)
         trainer = L.Trainer(
             callbacks=callbacks,
             logger=self.logger,
@@ -189,10 +192,10 @@ def xavier_init_weights(x):
         nn.init.constant_(x.bias, 0)
 
 
-class TopDownCenteredInstanceModel(L.LightningModule):
-    """PyTorch Lightning Module.
+class LightningModel(L.LightningModule):
+    """Base PyTorch Lightning Module for all sleap-nn models.
 
-    This class is a sub-class of Lightning module to configure the training and validation steps.
+    This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
 
     Args:
         config: OmegaConf dictionary which has the following:
@@ -231,9 +234,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
-        img = img.to(self.m_device)
-        return self.model(img)["CenteredInstanceConfmapsHead"]
+        pass
 
     def on_save_checkpoint(self, checkpoint):
         """Configure checkpoint to save parameters."""
@@ -271,6 +272,121 @@ class TopDownCenteredInstanceModel(L.LightningModule):
             on_epoch=True,
             logger=True,
         )
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        pass
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        pass
+
+    def configure_optimizers(self):
+        """Configure optimiser and learning rate scheduler."""
+        optimizer = torch.optim.Adam(
+            self.parameters(),
+            **dict(self.trainer_config.optimizer),
+        )
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            **dict(self.trainer_config.lr_scheduler),
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+            },
+        }
+
+
+class SingleInstanceModel(LightningModel):
+    """PyTorch Lightning Module.
+
+    This is a sub-class of LightningModel specific to SingleInstance Model.
+
+    Args:
+        config: OmegaConf dictionary which has the following:
+                (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
+                (ii) model_config: backbone and head configs to be passed to `Model` class.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+
+    """
+
+    def __init__(self, config: OmegaConf):
+        """Initialise the configs and the model."""
+        super().__init__(config)
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1)
+        img = img.to(self.m_device)
+        return self.model(img)["SingleInstanceConfmapsHead"]
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+            batch["confidence_maps"], dim=1
+        ).to(self.m_device)
+
+        y_preds = self.model(X)["SingleInstanceConfmapsHead"]
+        y = y.to(self.m_device)
+        loss = nn.MSELoss()(y_preds, y)
+        self.log(
+            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+            batch["confidence_maps"], dim=1
+        ).to(self.m_device)
+
+        y_preds = self.model(X)["SingleInstanceConfmapsHead"]
+        y = y.to(self.m_device)
+        val_loss = nn.MSELoss()(y_preds, y)
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+        self.log(
+            "val_loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+
+
+class TopDownCenteredInstanceModel(LightningModel):
+    """PyTorch Lightning Module.
+
+    This is a sub-class of LightningModel specific to TopDown Centered Instance Model.
+
+    Args:
+        config: OmegaConf dictionary which has the following:
+                (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
+                (ii) model_config: backbone and head configs to be passed to `Model` class.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+
+    """
+
+    def __init__(self, config: OmegaConf):
+        """Initialise the configs and the model."""
+        super().__init__(config)
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1)
+        img = img.to(self.m_device)
+        return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
@@ -312,21 +428,3 @@ class TopDownCenteredInstanceModel(L.LightningModule):
             on_epoch=True,
             logger=True,
         )
-
-    def configure_optimizers(self):
-        """Configure optimiser and learning rate scheduler."""
-        optimizer = torch.optim.Adam(
-            self.parameters(),
-            **dict(self.trainer_config.optimizer),
-        )
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer,
-            **dict(self.trainer_config.lr_scheduler),
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "monitor": "val_loss",
-            },
-        }
