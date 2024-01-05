@@ -18,6 +18,7 @@ from sleap_nn.paf_grouping import (
     toposort_edges,
     assign_connections_to_instances,
     make_predicted_instances,
+    group_instances_sample
 )
 
 
@@ -320,3 +321,50 @@ def test_make_predicted_instances():
     assert_array_almost_equal(predicted_instances, expected_instances)
     assert_array_almost_equal(predicted_peak_scores, expected_peak_scores)
     assert_array_almost_equal(predicted_instance_scores, expected_instance_scores)
+
+
+def test_group_instances_sample():
+    peaks_sample = torch.arange(5 * 2, dtype=torch.float32).reshape([5, 2])
+    peak_scores_sample = torch.arange(5, dtype=torch.float32)
+    peak_channel_inds_sample = torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)
+    match_edge_inds_sample = torch.tensor([0, 1, 0], dtype=torch.int32)
+    match_src_peak_inds_sample = torch.tensor([0, 0, 1], dtype=torch.int32)
+    match_dst_peak_inds_sample = torch.tensor([0, 0, 1], dtype=torch.int32)
+    match_line_scores_sample = torch.ones([3], dtype=torch.float32)
+    n_nodes = 3
+    sorted_edge_inds = torch.tensor((0, 1), dtype=torch.int32)
+
+    edge_types = [EdgeType(0, 1), EdgeType(1, 2)]
+    min_instance_peaks = 0
+
+    (
+        predicted_instances,
+        predicted_peak_scores,
+        predicted_instance_scores,
+    ) = group_instances_sample(
+        peaks_sample,
+        peak_scores_sample,
+        peak_channel_inds_sample,
+        match_edge_inds_sample,
+        match_src_peak_inds_sample,
+        match_dst_peak_inds_sample,
+        match_line_scores_sample,
+        n_nodes,
+        sorted_edge_inds,
+        edge_types,
+        min_instance_peaks,
+    )
+
+    assert_array_equal(
+        predicted_instances,
+        [
+            [[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]],
+            [
+                [6.0, 7.0],
+                [8.0, 9.0],
+                [np.nan, np.nan],
+            ],
+        ],
+    )
+    assert_array_equal(predicted_peak_scores, [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]])
+    assert_array_equal(predicted_instance_scores, [2.0, 1.0])
