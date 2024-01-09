@@ -20,6 +20,7 @@ from sleap_nn.paf_grouping import (
     make_predicted_instances,
     group_instances_sample,
     group_instances_batch,
+    PAFScorer,
 )
 
 
@@ -325,14 +326,6 @@ def test_make_predicted_instances():
 
 
 def test_group_instances_sample():
-    # peaks_sample = torch.arange(5 * 2, dtype=torch.float32).reshape([5, 2])
-    # peak_scores_sample = torch.arange(5, dtype=torch.float32)
-    # peak_channel_inds_sample = torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)
-    # match_edge_inds_sample = torch.tensor([0, 1, 0], dtype=torch.int32)
-    # match_src_peak_inds_sample = torch.tensor([0, 0, 1], dtype=torch.int32)
-    # match_dst_peak_inds_sample = torch.tensor([0, 0, 1], dtype=torch.int32)
-    # match_line_scores_sample = torch.ones([3], dtype=torch.float32)
-
     peaks_sample = torch.arange(10, dtype=torch.float32).reshape(5, 2)
     peak_scores_sample = torch.arange(5, dtype=torch.float32)
     peak_channel_inds_sample = torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)
