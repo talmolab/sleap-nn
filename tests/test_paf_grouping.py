@@ -18,7 +18,8 @@ from sleap_nn.paf_grouping import (
     toposort_edges,
     assign_connections_to_instances,
     make_predicted_instances,
-    group_instances_sample
+    group_instances_sample,
+    group_instances_batch
 )
 
 
@@ -368,3 +369,49 @@ def test_group_instances_sample():
     )
     assert_array_equal(predicted_peak_scores, [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]])
     assert_array_equal(predicted_instance_scores, [2.0, 1.0])
+
+
+def test_group_instances_batch():
+    gt_predicted_instances = [[[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]], [[6.0, 7.0], [8.0, 9.0], [np.nan, np.nan]]]
+
+    peaks = [torch.arange(10, dtype=torch.float32).reshape(5, 2)]
+    peak_scores = [torch.arange(5, dtype=torch.float32)]
+    peak_channel_inds = [torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)]
+    match_edge_inds = [torch.tensor([0, 1, 0], dtype=torch.int32)]
+    match_src_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    match_dst_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    match_line_scores = [torch.ones(3, dtype=torch.float32)]
+
+    n_nodes = 3
+    sorted_edge_inds = (0, 1)
+    edge_types = [EdgeType(0, 1), EdgeType(1, 2)]
+    min_instance_peaks = 0
+
+    (
+        predicted_instances,
+        predicted_peak_scores,
+        predicted_instance_scores,
+    ) = group_instances_batch(
+        peaks,
+        peak_scores,
+        peak_channel_inds,
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+        n_nodes,
+        sorted_edge_inds,
+        edge_types,
+        min_instance_peaks,
+    )
+
+    assert isinstance(predicted_instances, list)
+    assert isinstance(predicted_peak_scores, list)
+    assert isinstance(predicted_instance_scores, list)
+    assert len(predicted_instances) == 1
+    assert len(predicted_peak_scores) == 1
+    assert len(predicted_instance_scores) == 1
+
+    assert_array_equal(predicted_instances[0].numpy(), gt_predicted_instances)
+    assert_array_equal(predicted_peak_scores[0].numpy(), [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]])
+    assert_array_equal(predicted_instance_scores[0].numpy(), [2.0, 1.0])
