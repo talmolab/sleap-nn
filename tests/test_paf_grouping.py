@@ -19,7 +19,7 @@ from sleap_nn.paf_grouping import (
     assign_connections_to_instances,
     make_predicted_instances,
     group_instances_sample,
-    group_instances_batch
+    group_instances_batch,
 )
 
 
@@ -372,7 +372,10 @@ def test_group_instances_sample():
 
 
 def test_group_instances_batch():
-    gt_predicted_instances = [[[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]], [[6.0, 7.0], [8.0, 9.0], [np.nan, np.nan]]]
+    gt_predicted_instances = [
+        [[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]],
+        [[6.0, 7.0], [8.0, 9.0], [np.nan, np.nan]],
+    ]
 
     peaks = [torch.arange(10, dtype=torch.float32).reshape(5, 2)]
     peak_scores = [torch.arange(5, dtype=torch.float32)]
@@ -413,5 +416,7 @@ def test_group_instances_batch():
     assert len(predicted_instance_scores) == 1
 
     assert_array_equal(predicted_instances[0].numpy(), gt_predicted_instances)
-    assert_array_equal(predicted_peak_scores[0].numpy(), [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]])
+    assert_array_equal(
+        predicted_peak_scores[0].numpy(), [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]]
+    )
     assert_array_equal(predicted_instance_scores[0].numpy(), [2.0, 1.0])

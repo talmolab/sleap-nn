@@ -1291,7 +1291,7 @@ def group_instances_sample(
             EdgeConnection(src, dst, score)
             for src, dst, score in zip(src_peak_inds, dst_peak_inds, line_scores)
         ]
-        
+
     # Bipartite graph partitioning to group connections into instances.
     instance_assignments = assign_connections_to_instances(
         connections,
@@ -1300,9 +1300,11 @@ def group_instances_sample(
     )
 
     # Gather the data by instance.
-    predicted_instances, predicted_peak_scores, predicted_instance_scores = make_predicted_instances(
-        peaks, peak_scores, connections, instance_assignments
-    )
+    (
+        predicted_instances,
+        predicted_peak_scores,
+        predicted_instance_scores,
+    ) = make_predicted_instances(peaks, peak_scores, connections, instance_assignments)
 
     return predicted_instances, predicted_peak_scores, predicted_instance_scores
 
@@ -1386,7 +1388,11 @@ def group_instances_batch(
     predicted_instance_scores_batch = []
 
     for sample in range(n_samples):
-        predicted_instances_sample, predicted_peak_scores_sample, predicted_instance_scores_sample = group_instances_sample(
+        (
+            predicted_instances_sample,
+            predicted_peak_scores_sample,
+            predicted_instance_scores_sample,
+        ) = group_instances_sample(
             peaks[sample],
             peak_vals[sample],
             peak_channel_inds[sample],
@@ -1398,11 +1404,17 @@ def group_instances_batch(
             sorted_edge_inds,
             edge_types,
             min_instance_peaks,
-            min_line_scores
+            min_line_scores,
         )
 
         predicted_instances_batch.append(torch.tensor(predicted_instances_sample))
         predicted_peak_scores_batch.append(torch.tensor(predicted_peak_scores_sample))
-        predicted_instance_scores_batch.append(torch.tensor(predicted_instance_scores_sample))
+        predicted_instance_scores_batch.append(
+            torch.tensor(predicted_instance_scores_sample)
+        )
 
-    return predicted_instances_batch, predicted_peak_scores_batch, predicted_instance_scores_batch
+    return (
+        predicted_instances_batch,
+        predicted_peak_scores_batch,
+        predicted_instance_scores_batch,
+    )
