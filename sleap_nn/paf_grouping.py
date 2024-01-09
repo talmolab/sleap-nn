@@ -1509,48 +1509,48 @@ class PAFScorer:
         self.n_edges = len(self.edges)
         self.sorted_edge_inds = toposort_edges(self.edge_types)
 
-    # @classmethod
-    # def from_config(
-    #     cls,
-    #     config: MultiInstanceConfig,
-    #     max_edge_length_ratio: float = 0.25,
-    #     dist_penalty_weight: float = 1.0,
-    #     n_points: int = 10,
-    #     min_instance_peaks: Union[int, float] = 0,
-    #     min_line_scores: float = 0.25,
-    # ) -> "PAFScorer":
-    #     """Initialize the PAF scorer from a `MultiInstanceConfig` head config.
+    @classmethod
+    def from_config(
+        cls,
+        config: MultiInstanceConfig,
+        max_edge_length_ratio: float = 0.25,
+        dist_penalty_weight: float = 1.0,
+        n_points: int = 10,
+        min_instance_peaks: Union[int, float] = 0,
+        min_line_scores: float = 0.25,
+    ) -> "PAFScorer":
+        """Initialize the PAF scorer from a `MultiInstanceConfig` head config.
 
-    #     Args:
-    #         config: `MultiInstanceConfig` from `cfg.model.heads.multi_instance`.
-    #         max_edge_length_ratio: The maximum expected length of a connected pair of
-    #             points as a fraction of the image size. Candidate connections longer
-    #             than this length will be penalized during matching.
-    #         dist_penalty_weight: A coefficient to scale weight of the distance penalty
-    #             as a scalar float. Set to values greater than 1.0 to enforce the
-    #             distance penalty more strictly.
-    #         min_edge_score: Minimum score required to classify a connection as correct.
-    #         n_points: Number of points to sample along the line integral.
-    #         min_instance_peaks: Minimum number of peaks the instance should have to be
-    #             considered a real instance. Instances with fewer peaks than this will be
-    #             discarded (useful for filtering spurious detections).
-    #         min_line_scores: Minimum line score (between -1 and 1) required to form a
-    #             match between candidate point pairs. Useful for rejecting spurious
-    #             detections when there are no better ones.
+        Args:
+            config: `MultiInstanceConfig` from `cfg.model.heads.multi_instance`.
+            max_edge_length_ratio: The maximum expected length of a connected pair of
+                points as a fraction of the image size. Candidate connections longer
+                than this length will be penalized during matching.
+            dist_penalty_weight: A coefficient to scale weight of the distance penalty
+                as a scalar float. Set to values greater than 1.0 to enforce the
+                distance penalty more strictly.
+            min_edge_score: Minimum score required to classify a connection as correct.
+            n_points: Number of points to sample along the line integral.
+            min_instance_peaks: Minimum number of peaks the instance should have to be
+                considered a real instance. Instances with fewer peaks than this will be
+                discarded (useful for filtering spurious detections).
+            min_line_scores: Minimum line score (between -1 and 1) required to form a
+                match between candidate point pairs. Useful for rejecting spurious
+                detections when there are no better ones.
 
-    #     Returns:
-    #         The initialized instance of `PAFScorer`.
-    #     """
-    #     return cls(
-    #         part_names=config.confmaps.part_names,
-    #         edges=config.pafs.edges,
-    #         pafs_stride=config.pafs.output_stride,
-    #         max_edge_length_ratio=max_edge_length_ratio,
-    #         dist_penalty_weight=dist_penalty_weight,
-    #         n_points=n_points,
-    #         min_instance_peaks=min_instance_peaks,
-    #         min_line_scores=min_line_scores,
-    #     )
+        Returns:
+            The initialized instance of `PAFScorer`.
+        """
+        return cls(
+            part_names=config.confmaps.part_names,
+            edges=config.pafs.edges,
+            pafs_stride=config.pafs.output_stride,
+            max_edge_length_ratio=max_edge_length_ratio,
+            dist_penalty_weight=dist_penalty_weight,
+            n_points=n_points,
+            min_instance_peaks=min_instance_peaks,
+            min_line_scores=min_line_scores,
+        )
 
     def score_paf_lines(
         self, pafs: torch.Tensor, peaks: List[torch.Tensor], peak_channel_inds: List[torch.Tensor]
@@ -1724,80 +1724,80 @@ class PAFScorer:
             min_line_scores=self.min_line_scores,
         )
 
-    # def predict(
-    #     self,
-    #     pafs: tf.Tensor,
-    #     peaks: tf.RaggedTensor,
-    #     peak_vals: tf.RaggedTensor,
-    #     peak_channel_inds: tf.RaggedTensor,
-    # ) -> Tuple[tf.RaggedTensor, tf.RaggedTensor, tf.RaggedTensor]:
-    #     """Group a batch of predicted peaks into full instance predictions using PAFs.
+    def predict(
+        self,
+        pafs: torch.Tensor,
+        peaks: List[torch.Tensor],
+        peak_vals: List[torch.Tensor],
+        peak_channel_inds: List[torch.Tensor],
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        """Group a batch of predicted peaks into full instance predictions using PAFs.
 
-    #     Args:
-    #         pafs: The batch of part affinity fields as a `tf.Tensor` of shape
-    #             `(n_samples, height, width, 2 * n_edges)` and type `tf.float32`.
-    #         peaks: The coordinates of the peaks grouped by sample as a `tf.RaggedTensor`
-    #             of shape `(n_samples, (n_peaks), 2)`.
-    #         peak_vals: The sample-grouped scores of the detected peaks in a batch as a
-    #             `tf.RaggedTensor` of shape `(n_samples, (n_peaks))` and dtype
-    #             `tf.float32`.
-    #         peak_channel_inds: The channel (node) that each peak in `peaks` corresponds
-    #             to as a `tf.RaggedTensor` of shape `(n_samples, (n_peaks))` and dtype
-    #             `tf.int32`.
+        Args:
+            pafs: The batch of part affinity fields as a `torch.Tensor` of shape
+                `(n_samples, height, width, 2 * n_edges)` and type `torch.float32`.
+            peaks: The coordinates of the peaks grouped by sample as a list of `torch.Tensor`
+                of shape `(n_samples, (n_peaks), 2)`.
+            peak_vals: The sample-grouped scores of the detected peaks in a batch as a
+                list of `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
+                `torch.float32`.
+            peak_channel_inds: The channel (node) that each peak in `peaks` corresponds
+                to as a list of `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
+                `torch.int32`.
 
-    #     Returns:
-    #         A tuple of arrays with the grouped instances for the whole batch grouped by
-    #         sample:
+        Returns:
+            A tuple of arrays with the grouped instances for the whole batch grouped by
+            sample:
 
-    #         `predicted_instances`: The sample- and instance-grouped coordinates for each
-    #         instance as `tf.RaggedTensor` of shape
-    #         `(n_samples, (n_instances), n_nodes, 2)` and dtype `tf.float32`. Missing
-    #         peaks are represented by `NaN`s.
+            `predicted_instances`: The sample- and instance-grouped coordinates for each
+            instance as list of `torch.Tensor` of shape
+            `(n_samples, (n_instances), n_nodes, 2)` and dtype `torch.float32`. Missing
+            peaks are represented by `NaN`s.
 
-    #         `predicted_peak_scores`: The sample- and instance-grouped confidence map
-    #         values for each peak as an array of `(n_samples, (n_instances), n_nodes)`
-    #         and dtype `tf.float32`.
+            `predicted_peak_scores`: The sample- and instance-grouped confidence map
+            values for each peak as an array of `(n_samples, (n_instances), n_nodes)`
+            and dtype `torch.float32`.
 
-    #         `predicted_instance_scores`: The sample-grouped instance grouping score for
-    #         each instance as an array of shape `(n_samples, (n_instances))` and dtype
-    #         `tf.float32`.
+            `predicted_instance_scores`: The sample-grouped instance grouping score for
+            each instance as an array of shape `(n_samples, (n_instances))` and dtype
+            `torch.float32`.
 
-    #     Notes:
-    #         This is a high level API for grouping peaks into instances using PAFs.
+        Notes:
+            This is a high level API for grouping peaks into instances using PAFs.
 
-    #         See the `PAFScorer` class documentation for more details on the algorithm.
+            See the `PAFScorer` class documentation for more details on the algorithm.
 
-    #     See also:
-    #         PAFScorer.score_paf_lines, PAFScorer.match_candidates,
-    #         PAFScorer.group_instances
-    #     """
-    #     edge_inds, edge_peak_inds, line_scores = self.score_paf_lines(
-    #         pafs, peaks, peak_channel_inds
-    #     )
-    #     (
-    #         match_edge_inds,
-    #         match_src_peak_inds,
-    #         match_dst_peak_inds,
-    #         match_line_scores,
-    #     ) = self.match_candidates(edge_inds, edge_peak_inds, line_scores)
-    #     (
-    #         predicted_instances,
-    #         predicted_peak_scores,
-    #         predicted_instance_scores,
-    #     ) = self.group_instances(
-    #         peaks,
-    #         peak_vals,
-    #         peak_channel_inds,
-    #         match_edge_inds,
-    #         match_src_peak_inds,
-    #         match_dst_peak_inds,
-    #         match_line_scores,
-    #     )
-    #     return (
-    #         predicted_instances,
-    #         predicted_peak_scores,
-    #         predicted_instance_scores,
-    #         edge_inds,
-    #         edge_peak_inds,
-    #         line_scores,
-    #     )
+        See also:
+            PAFScorer.score_paf_lines, PAFScorer.match_candidates,
+            PAFScorer.group_instances
+        """
+        edge_inds, edge_peak_inds, line_scores = self.score_paf_lines(
+            pafs, peaks, peak_channel_inds
+        )
+        (
+            match_edge_inds,
+            match_src_peak_inds,
+            match_dst_peak_inds,
+            match_line_scores,
+        ) = self.match_candidates(edge_inds, edge_peak_inds, line_scores)
+        (
+            predicted_instances,
+            predicted_peak_scores,
+            predicted_instance_scores,
+        ) = self.group_instances(
+            peaks,
+            peak_vals,
+            peak_channel_inds,
+            match_edge_inds,
+            match_src_peak_inds,
+            match_dst_peak_inds,
+            match_line_scores,
+        )
+        return (
+            predicted_instances,
+            predicted_peak_scores,
+            predicted_instance_scores,
+            edge_inds,
+            edge_peak_inds,
+            line_scores,
+        )
