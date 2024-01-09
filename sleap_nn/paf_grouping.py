@@ -1322,9 +1322,7 @@ def group_instances_batch(
     edge_types: List[EdgeType],
     min_instance_peaks: int,
     min_line_scores: float = 0.25,
-) -> Tuple[
-    List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]
-]:
+) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
     """Group matched connections into full instances for a batch.
 
     Args:
@@ -1420,6 +1418,7 @@ def group_instances_batch(
         predicted_peak_scores_batch,
         predicted_instance_scores_batch,
     )
+
 
 @attr.s(auto_attribs=True)
 class PAFScorer:
@@ -1553,7 +1552,10 @@ class PAFScorer:
         )
 
     def score_paf_lines(
-        self, pafs: torch.Tensor, peaks: List[torch.Tensor], peak_channel_inds: List[torch.Tensor]
+        self,
+        pafs: torch.Tensor,
+        peaks: List[torch.Tensor],
+        peak_channel_inds: List[torch.Tensor],
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         """Create and score PAF lines formed between connection candidates.
 
@@ -1564,7 +1566,7 @@ class PAFScorer:
                 (x, y) coordinates of the detected peaks for each sample.
             peak_channel_inds: A list of tensors of shape `(n_samples, (n_peaks))` indicating
                 the channel (node) index that each peak corresponds to.
-        
+
         Returns:
             A tuple containing three lists for each sample in the batch:
                 - A list of tensors of shape `(n_samples, (n_connections,))` indicating the indices
