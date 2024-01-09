@@ -1259,7 +1259,6 @@ def group_instances_sample(
         match_src_peak_inds_sample = match_src_peak_inds_sample.numpy()
         match_dst_peak_inds_sample = match_dst_peak_inds_sample.numpy()
         match_line_scores_sample = match_line_scores_sample.numpy()
-        sorted_edge_inds = sorted_edge_inds.numpy()
 
     # Filter out low scoring matches.
     is_valid_match = match_line_scores_sample >= min_line_scores
