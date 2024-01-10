@@ -2,6 +2,7 @@ import numpy as np
 import torch
 from torch.testing import assert_close
 from numpy.testing import assert_array_equal, assert_array_almost_equal
+from omegaconf import OmegaConf
 
 from sleap_nn.paf_grouping import (
     get_connection_candidates,
@@ -422,3 +423,14 @@ def test_group_instances_batch():
         predicted_peak_scores[0].numpy(), [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]]
     )
     assert_array_equal(predicted_instance_scores[0].numpy(), [2.0, 1.0])
+
+
+def test_paf_scorer_from_config():
+    config = OmegaConf.create(
+        {
+            "confmaps": {"part_names": ["a", "b"]},
+            "pafs": {"edges": [("a", "b")], "output_stride": 1},
+        }
+    )
+    paf_scorer = PAFScorer.from_config(config=config)
+    assert paf_scorer

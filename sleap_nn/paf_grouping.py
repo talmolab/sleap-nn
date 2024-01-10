@@ -29,6 +29,7 @@ import torch
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 import networkx as nx
+from omegaconf import OmegaConf
 
 
 @attr.s(auto_attribs=True, slots=True, frozen=True)
@@ -1508,48 +1509,48 @@ class PAFScorer:
         self.n_edges = len(self.edges)
         self.sorted_edge_inds = toposort_edges(self.edge_types)
 
-    # @classmethod
-    # def from_config(
-    #     cls,
-    #     config: MultiInstanceConfig,
-    #     max_edge_length_ratio: float = 0.25,
-    #     dist_penalty_weight: float = 1.0,
-    #     n_points: int = 10,
-    #     min_instance_peaks: Union[int, float] = 0,
-    #     min_line_scores: float = 0.25,
-    # ) -> "PAFScorer":
-    #     """Initialize the PAF scorer from a `MultiInstanceConfig` head config.
+    @classmethod
+    def from_config(
+        cls,
+        config: OmegaConf,
+        max_edge_length_ratio: float = 0.25,
+        dist_penalty_weight: float = 1.0,
+        n_points: int = 10,
+        min_instance_peaks: Union[int, float] = 0,
+        min_line_scores: float = 0.25,
+    ) -> "PAFScorer":
+        """Initialize the PAF scorer from a `MultiInstanceConfig` head config.
 
-    #     Args:
-    #         config: `MultiInstanceConfig` from `cfg.model.heads.multi_instance`.
-    #         max_edge_length_ratio: The maximum expected length of a connected pair of
-    #             points as a fraction of the image size. Candidate connections longer
-    #             than this length will be penalized during matching.
-    #         dist_penalty_weight: A coefficient to scale weight of the distance penalty
-    #             as a scalar float. Set to values greater than 1.0 to enforce the
-    #             distance penalty more strictly.
-    #         min_edge_score: Minimum score required to classify a connection as correct.
-    #         n_points: Number of points to sample along the line integral.
-    #         min_instance_peaks: Minimum number of peaks the instance should have to be
-    #             considered a real instance. Instances with fewer peaks than this will be
-    #             discarded (useful for filtering spurious detections).
-    #         min_line_scores: Minimum line score (between -1 and 1) required to form a
-    #             match between candidate point pairs. Useful for rejecting spurious
-    #             detections when there are no better ones.
+        Args:
+            config: An `OmegaConf` instance.
+            max_edge_length_ratio: The maximum expected length of a connected pair of
+                points as a fraction of the image size. Candidate connections longer
+                than this length will be penalized during matching.
+            dist_penalty_weight: A coefficient to scale weight of the distance penalty
+                as a scalar float. Set to values greater than 1.0 to enforce the
+                distance penalty more strictly.
+            min_edge_score: Minimum score required to classify a connection as correct.
+            n_points: Number of points to sample along the line integral.
+            min_instance_peaks: Minimum number of peaks the instance should have to be
+                considered a real instance. Instances with fewer peaks than this will be
+                discarded (useful for filtering spurious detections).
+            min_line_scores: Minimum line score (between -1 and 1) required to form a
+                match between candidate point pairs. Useful for rejecting spurious
+                detections when there are no better ones.
 
-    #     Returns:
-    #         The initialized instance of `PAFScorer`.
-    #     """
-    #     return cls(
-    #         part_names=config.confmaps.part_names,
-    #         edges=config.pafs.edges,
-    #         pafs_stride=config.pafs.output_stride,
-    #         max_edge_length_ratio=max_edge_length_ratio,
-    #         dist_penalty_weight=dist_penalty_weight,
-    #         n_points=n_points,
-    #         min_instance_peaks=min_instance_peaks,
-    #         min_line_scores=min_line_scores,
-    #     )
+        Returns:
+            The initialized instance of `PAFScorer`.
+        """
+        return cls(
+            part_names=config.confmaps.part_names,
+            edges=config.pafs.edges,
+            pafs_stride=config.pafs.output_stride,
+            max_edge_length_ratio=max_edge_length_ratio,
+            dist_penalty_weight=dist_penalty_weight,
+            n_points=n_points,
+            min_instance_peaks=min_instance_peaks,
+            min_line_scores=min_line_scores,
+        )
 
     def score_paf_lines(
         self,
