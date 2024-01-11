@@ -475,3 +475,99 @@ def test_paf_scorer_score_paf_lines():
     assert edge_peak_inds[0].numpy().tolist() == [[0, 1]]
     assert len(line_scores) == 1
     assert_close(line_scores[0], torch.tensor([24.27]), rtol=8e-2, atol=8e-2)
+
+def test_paf_scorer_match_candidates():
+    edge_inds = [torch.tensor([0, 0], dtype=torch.int32)]
+    edge_peak_inds = [torch.tensor([[0, 1], [2, 1]], dtype=torch.int32)]
+    line_scores = [torch.tensor([-0.5, 1.0], dtype=torch.float32)]
+    n_edges = 1
+
+    config = OmegaConf.create(
+        {
+            "confmaps": {"part_names": ["a", "b"]},
+            "pafs": {"edges": [("a", "b")], "output_stride": 1},
+        }
+    )
+    paf_scorer = PAFScorer.from_config(
+        config=config,
+    )
+    paf_scorer.n_edges = n_edges
+
+    (
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    ) = paf_scorer.match_candidates(
+        edge_inds, edge_peak_inds, line_scores
+    )
+
+    assert len(match_edge_inds) == 1
+    assert len(match_src_peak_inds) == 1
+    assert len(match_dst_peak_inds) == 1
+    assert len(match_line_scores) == 1
+    assert match_edge_inds[0].numpy().tolist() == [0]
+    assert match_src_peak_inds[0].numpy().tolist() == [1]
+    assert match_dst_peak_inds[0].numpy().tolist() == [0]
+    assert match_line_scores[0].numpy().tolist() == [1.0]
+
+def test_paf_scorer_group_instances():
+    gt_predicted_instances = [
+        [[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]],
+        [[6.0, 7.0], [8.0, 9.0], [np.nan, np.nan]],
+    ]
+
+    peaks = [torch.arange(10, dtype=torch.float32).reshape(5, 2)]
+    peak_scores = [torch.arange(5, dtype=torch.float32)]
+    peak_channel_inds = [torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)]
+    match_edge_inds = [torch.tensor([0, 1, 0], dtype=torch.int32)]
+    match_src_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    match_dst_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    match_line_scores = [torch.ones(3, dtype=torch.float32)]
+
+    n_nodes = 3
+    sorted_edge_inds = (0, 1)
+    edge_types = [EdgeType(0, 1), EdgeType(1, 2)]
+    min_instance_peaks = 0
+
+    config = OmegaConf.create(
+        {
+            "confmaps": {"part_names": ["a", "b"]},
+            "pafs": {"edges": [("a", "b")], "output_stride": 1},
+        }
+    )
+    paf_scorer = PAFScorer.from_config(
+        config=config,
+    )
+    paf_scorer.n_nodes = n_nodes
+    paf_scorer.sorted_edge_inds = sorted_edge_inds
+    paf_scorer.edge_types = edge_types
+    paf_scorer.min_instance_peaks = min_instance_peaks
+
+    (
+        predicted_instances,
+        predicted_peak_scores,
+        predicted_instance_scores,
+    ) = paf_scorer.group_instances(
+        peaks,
+        peak_scores,
+        peak_channel_inds,
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    )
+
+    assert isinstance(predicted_instances, list)
+    assert isinstance(predicted_peak_scores, list)
+    assert isinstance(predicted_instance_scores, list)
+    assert len(predicted_instances) == 1
+    assert len(predicted_peak_scores) == 1
+    assert len(predicted_instance_scores) == 1
+
+    assert_array_equal(predicted_instances[0].numpy(), gt_predicted_instances)
+    assert_array_equal(
+        predicted_peak_scores[0].numpy(), [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]]
+    )
+    assert_array_equal(predicted_instance_scores[0].numpy(), [2.0, 1.0])
+
