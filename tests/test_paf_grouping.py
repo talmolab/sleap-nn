@@ -434,3 +434,44 @@ def test_paf_scorer_from_config():
     )
     paf_scorer = PAFScorer.from_config(config=config)
     assert paf_scorer
+
+def test_paf_scorer_score_paf_lines():
+    pafs = torch.arange(6 * 4 * 2, dtype=torch.float32).reshape(1, 6, 4, 2)
+    peaks = [torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)]
+    peak_channel_inds = [torch.tensor([0, 1], dtype=torch.int32)]
+    skeleton_edges = torch.tensor([[0, 1], [1, 2], [2, 3]], dtype=torch.int32)
+
+    n_line_points = 3
+    pafs_stride = 2
+    max_edge_length_ratio = 2 / 12
+    dist_penalty_weight = 1.0
+    n_nodes = 4
+
+    config = OmegaConf.create(
+        {
+            "confmaps": {"part_names": ["a", "b"]},
+            "pafs": {"edges": [("a", "b")], "output_stride": 1},
+        }
+    )
+    paf_scorer = PAFScorer.from_config(
+        config=config,
+        max_edge_length_ratio=max_edge_length_ratio,
+        dist_penalty_weight=dist_penalty_weight,
+        n_points=n_line_points,
+    )
+    paf_scorer.edge_inds = skeleton_edges
+    paf_scorer.pafs_stride = pafs_stride
+    paf_scorer.n_nodes = n_nodes
+
+    edge_inds, edge_peak_inds, line_scores = paf_scorer.score_paf_lines(
+        pafs, 
+        peaks, 
+        peak_channel_inds
+    )
+
+    assert len(edge_inds) == 1
+    assert edge_inds[0].numpy().tolist() == [0.0]
+    assert len(edge_peak_inds) == 1
+    assert edge_peak_inds[0].numpy().tolist() == [[0, 1]]
+    assert len(line_scores) == 1
+    assert_close(line_scores[0], torch.tensor([24.27]), rtol=8e-2, atol=8e-2)
