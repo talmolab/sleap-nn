@@ -1,0 +1,18 @@
+coverage:
+  ignore: 
+    - "tests"
+  status:
+    project:  # Measures overall project coverage.
+      default: false
+      non-gui:
+        target: auto
+        threshold: 0.05%  # Less leeway with backend code.
+        paths:
+          - "sleap_nn/"
+    patch:  #  Only measures lines adjusted in the pull request.
+      default: false
+      non-gui:
+        target: 100%  # All backend code should be tested...
+        threshold: 5%  # ... but some tests are infeasable.
+        paths:
+          - "sleap_nn/"
