@@ -297,6 +297,38 @@ def test_assign_connections_to_instances():
     )
     assert all(x == 0 for x in instance_assignments.values())
 
+    connections = {
+        EdgeType(src_node_ind=0, dst_node_ind=1): [
+            EdgeConnection(src_peak_ind=0, dst_peak_ind=0, score=1.0),
+            EdgeConnection(src_peak_ind=1, dst_peak_ind=1, score=1.0)
+        ],
+        EdgeType(src_node_ind=1, dst_node_ind=2): [
+            EdgeConnection(src_peak_ind=0, dst_peak_ind=0, score=1.0)
+        ],
+        EdgeType(src_node_ind=2, dst_node_ind=3): [
+            EdgeConnection(src_peak_ind=1, dst_peak_ind=1, score=1.0)
+        ]
+    }
+
+    min_instance_peaks = 0.5
+    instance_assignments = assign_connections_to_instances(
+        connections,
+        min_instance_peaks=min_instance_peaks,
+        n_nodes=4
+    )
+
+    expected_assignments = {
+        PeakID(node_ind=0, peak_ind=0): 0,
+        PeakID(node_ind=1, peak_ind=0): 0,
+        PeakID(node_ind=0, peak_ind=1): 1,
+        PeakID(node_ind=1, peak_ind=1): 1,
+        PeakID(node_ind=2, peak_ind=0): 0,
+        PeakID(node_ind=2, peak_ind=1): 2,
+        PeakID(node_ind=3, peak_ind=1): 2,
+    }
+
+    assert instance_assignments == expected_assignments
+
 
 def test_make_predicted_instances():
     peaks = np.array([[[0, 0], [1, 1]], [[2, 2], [3, 3]]])
@@ -570,4 +602,3 @@ def test_paf_scorer_group_instances():
         predicted_peak_scores[0].numpy(), [[0.0, 1.0, 2.0], [3.0, 4.0, np.nan]]
     )
     assert_array_equal(predicted_instance_scores[0].numpy(), [2.0, 1.0])
-

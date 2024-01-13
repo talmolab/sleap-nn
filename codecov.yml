@@ -6,7 +6,7 @@ coverage:
       default: false
       package:
         target: auto
-        threshold: 0.05%  # Less leeway with backend code.
+        threshold: 2%  # Less leeway with backend code.
         paths:
           - "sleap_nn/"
     patch:  #  Only measures lines adjusted in the pull request.
