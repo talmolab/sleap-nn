@@ -300,21 +300,19 @@ def test_assign_connections_to_instances():
     connections = {
         EdgeType(src_node_ind=0, dst_node_ind=1): [
             EdgeConnection(src_peak_ind=0, dst_peak_ind=0, score=1.0),
-            EdgeConnection(src_peak_ind=1, dst_peak_ind=1, score=1.0)
+            EdgeConnection(src_peak_ind=1, dst_peak_ind=1, score=1.0),
         ],
         EdgeType(src_node_ind=1, dst_node_ind=2): [
             EdgeConnection(src_peak_ind=0, dst_peak_ind=0, score=1.0)
         ],
         EdgeType(src_node_ind=2, dst_node_ind=3): [
             EdgeConnection(src_peak_ind=1, dst_peak_ind=1, score=1.0)
-        ]
+        ],
     }
 
     min_instance_peaks = 0.5
     instance_assignments = assign_connections_to_instances(
-        connections,
-        min_instance_peaks=min_instance_peaks,
-        n_nodes=4
+        connections, min_instance_peaks=min_instance_peaks, n_nodes=4
     )
 
     expected_assignments = {
@@ -467,6 +465,7 @@ def test_paf_scorer_from_config():
     paf_scorer = PAFScorer.from_config(config=config)
     assert paf_scorer
 
+
 def test_paf_scorer_score_paf_lines():
     pafs = torch.arange(6 * 4 * 2, dtype=torch.float32).reshape(1, 6, 4, 2)
     peaks = [torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)]
@@ -496,9 +495,7 @@ def test_paf_scorer_score_paf_lines():
     paf_scorer.n_nodes = n_nodes
 
     edge_inds, edge_peak_inds, line_scores = paf_scorer.score_paf_lines(
-        pafs, 
-        peaks, 
-        peak_channel_inds
+        pafs, peaks, peak_channel_inds
     )
 
     assert len(edge_inds) == 1
@@ -507,6 +504,7 @@ def test_paf_scorer_score_paf_lines():
     assert edge_peak_inds[0].numpy().tolist() == [[0, 1]]
     assert len(line_scores) == 1
     assert_close(line_scores[0], torch.tensor([24.27]), rtol=8e-2, atol=8e-2)
+
 
 def test_paf_scorer_match_candidates():
     edge_inds = [torch.tensor([0, 0], dtype=torch.int32)]
@@ -530,9 +528,7 @@ def test_paf_scorer_match_candidates():
         match_src_peak_inds,
         match_dst_peak_inds,
         match_line_scores,
-    ) = paf_scorer.match_candidates(
-        edge_inds, edge_peak_inds, line_scores
-    )
+    ) = paf_scorer.match_candidates(edge_inds, edge_peak_inds, line_scores)
 
     assert len(match_edge_inds) == 1
     assert len(match_src_peak_inds) == 1
@@ -542,6 +538,7 @@ def test_paf_scorer_match_candidates():
     assert match_src_peak_inds[0].numpy().tolist() == [1]
     assert match_dst_peak_inds[0].numpy().tolist() == [0]
     assert match_line_scores[0].numpy().tolist() == [1.0]
+
 
 def test_paf_scorer_group_instances():
     gt_predicted_instances = [
