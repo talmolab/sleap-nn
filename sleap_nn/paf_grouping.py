@@ -24,6 +24,7 @@ References:
 """
 
 import attr
+import attrs
 from typing import Tuple, List, Dict, Union, Text
 import torch
 import numpy as np
@@ -32,7 +33,7 @@ import networkx as nx
 from omegaconf import OmegaConf
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@attrs.define(auto_attribs=True, frozen=True)
 class PeakID:
     """Indices to uniquely identify a single peak.
 
@@ -47,7 +48,7 @@ class PeakID:
     peak_ind: int
 
 
-@attr.s(auto_attribs=True, slots=True, frozen=True)
+@attrs.define(auto_attribs=True, frozen=True)
 class EdgeType:
     """Indices to uniquely identify a single edge type.
 
@@ -62,7 +63,7 @@ class EdgeType:
     dst_node_ind: int
 
 
-@attr.s(auto_attribs=True, slots=True)
+@attrs.define(auto_attribs=True)
 class EdgeConnection:
     """Indices to specify a matched connection between two peaks.
 
@@ -1115,7 +1116,7 @@ def group_instances_batch(
     )
 
 
-@attr.s(auto_attribs=True)
+@attrs.define
 class PAFScorer:
     """Scoring pipeline based on part affinity fields.
 
