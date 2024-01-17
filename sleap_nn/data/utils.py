@@ -36,7 +36,7 @@ def make_grid_vectors(
     yv = torch.arange(0, image_height, step=output_stride, dtype=torch.float32)
     return xv, yv
 
-def expand_to_rank_pytorch(x: torch.Tensor, target_rank: int, prepend: bool = True) -> torch.Tensor:
+def expand_to_rank(x: torch.Tensor, target_rank: int, prepend: bool = True) -> torch.Tensor:
     """
     Expand a tensor to a target rank by adding singleton dimensions in PyTorch.
 

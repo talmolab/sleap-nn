@@ -1,6 +1,6 @@
 import torch
 
-from sleap_nn.data.utils import make_grid_vectors
+from sleap_nn.data.utils import make_grid_vectors, expand_to_rank
 
 
 def test_make_grid_vectors():
@@ -13,4 +13,18 @@ def test_make_grid_vectors():
     assert yv.shape == torch.Size([40])
 
 def test_expand_to_rank():
-    pass
+    out = expand_to_rank(torch.arange(3), target_rank=2, prepend=True)
+    assert out.numpy().tolist() == [[0, 1, 2]]
+
+    out = expand_to_rank(torch.arange(3), target_rank=3, prepend=True)
+    assert out.numpy().tolist() == [[[0, 1, 2]]]
+
+    out = expand_to_rank(torch.arange(3), target_rank=2, prepend=False)
+    assert out.numpy().tolist() == [[0], [1], [2]]
+
+    out = expand_to_rank(torch.reshape(torch.arange(3), (1, 3)), target_rank=2, prepend=True)
+    assert out.numpy().tolist() == [[0, 1, 2]]
+
+    gt = torch.reshape(torch.arange(2 * 3 * 4), (2, 3, 4))
+    out = expand_to_rank(torch.arange(2* 3 * 4).reshape(2, 3, 4), target_rank=2, prepend=True)
+    assert gt.numpy().tolist() == out.numpy().tolist()
