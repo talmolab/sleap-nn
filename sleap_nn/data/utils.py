@@ -59,3 +59,17 @@ def expand_to_rank(x: torch.Tensor, target_rank: int, prepend: bool = True) -> t
     else:
         new_shape = list(x.shape) + singleton_dims
     return x.reshape(new_shape)
+
+
+def gaussian_pdf(x: torch.Tensor, sigma: float) -> torch.Tensor:
+    """Compute the PDF of an unnormalized 0-centered Gaussian distribution.
+
+    Args:
+        x: A tensor of dtype torch.float32 with values to compute the PDF for.
+        sigma: Standard deviation of the Gaussian distribution.
+
+    Returns:
+        A tensor of the same shape as `x`, but with values of a PDF of an unnormalized
+        Gaussian distribution. Values of 0 have an unnormalized PDF value of 1.0.
+    """
+    return torch.exp(-(x ** 2) / (2 * sigma ** 2))

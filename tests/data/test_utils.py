@@ -1,6 +1,6 @@
 import torch
 
-from sleap_nn.data.utils import make_grid_vectors, expand_to_rank
+from sleap_nn.data.utils import make_grid_vectors, expand_to_rank, gaussian_pdf
 
 
 def test_make_grid_vectors():
@@ -28,3 +28,8 @@ def test_expand_to_rank():
     gt = torch.reshape(torch.arange(2 * 3 * 4), (2, 3, 4))
     out = expand_to_rank(torch.arange(2* 3 * 4).reshape(2, 3, 4), target_rank=2, prepend=True)
     assert gt.numpy().tolist() == out.numpy().tolist()
+
+def test_gaussian_pdf():
+    assert gaussian_pdf(torch.tensor([0]), sigma=1) == 1.0
+    assert gaussian_pdf(torch.tensor([1]), sigma=1) == 0.6065306597126334
+    assert gaussian_pdf(torch.tensor([1]), sigma=2) == 0.8824969025845955
