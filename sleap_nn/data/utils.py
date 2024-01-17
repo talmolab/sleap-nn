@@ -35,3 +35,27 @@ def make_grid_vectors(
     xv = torch.arange(0, image_width, step=output_stride, dtype=torch.float32)
     yv = torch.arange(0, image_height, step=output_stride, dtype=torch.float32)
     return xv, yv
+
+def expand_to_rank_pytorch(x: torch.Tensor, target_rank: int, prepend: bool = True) -> torch.Tensor:
+    """
+    Expand a tensor to a target rank by adding singleton dimensions in PyTorch.
+
+    Args:
+        x: Any `torch.Tensor` with rank <= `target_rank`. If the rank is higher than
+            `target_rank`, the tensor will be returned with the same shape.
+        target_rank: Rank to expand the input to.
+        prepend: If True, singleton dimensions are added before the first axis of the
+            data. If False, singleton dimensions are added after the last axis.
+
+    Returns:
+        The expanded tensor of the same dtype as the input, but with rank `target_rank`.
+        The output has the same exact data as the input tensor and will be identical if
+        they are both flattened.
+    """
+    n_singleton_dims = max(target_rank - x.dim(), 0)
+    singleton_dims = [1] * n_singleton_dims
+    if prepend:
+        new_shape = singleton_dims + list(x.shape)
+    else:
+        new_shape = list(x.shape) + singleton_dims
+    return x.reshape(new_shape)

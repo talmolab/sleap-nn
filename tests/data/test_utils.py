@@ -11,3 +11,6 @@ def test_make_grid_vectors():
     xv, yv = make_grid_vectors(image_height=40, image_width=20, output_stride=1)
     assert xv.shape == torch.Size([20])
     assert yv.shape == torch.Size([40])
+
+def test_expand_to_rank():
+    pass
