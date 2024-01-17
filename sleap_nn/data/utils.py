@@ -1,8 +1,13 @@
 """Miscellaneous utility functions for data processing."""
-from typing import Tuple
+from typing import Tuple, List, Any
 
 import torch
 
+def ensure_list(x: Any) -> List[Any]:
+    """Convert the input into a list if it is not already."""
+    if not isinstance(x, list):
+        return [x]
+    return x
 
 def make_grid_vectors(
     image_height: int, image_width: int, output_stride: int = 1

@@ -1,7 +1,12 @@
 import torch
 
-from sleap_nn.data.utils import make_grid_vectors, expand_to_rank, gaussian_pdf
+from sleap_nn.data.utils import ensure_list, make_grid_vectors, expand_to_rank, gaussian_pdf
 
+
+def test_ensure_list():
+    assert ensure_list([0, 1, 2]) == [0, 1, 2]
+    assert ensure_list(0) == [0]
+    assert ensure_list([0]) == [0]
 
 def test_make_grid_vectors():
     xv, yv = make_grid_vectors(image_height=100, image_width=80, output_stride=2)
