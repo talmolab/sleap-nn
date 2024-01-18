@@ -12,6 +12,23 @@ from sleap_nn.data.utils import (
 def distance_to_edge(
     points: torch.Tensor, edge_source: torch.Tensor, edge_destination: torch.Tensor
 ) -> torch.Tensor:
+    """Compute pairwise distance between points and undirected edges.
+
+    Args:
+        points: Tensor of dtype torch.float32 of shape (d_0, ..., d_n, 2) where the last
+            axis corresponds to x- and y-coordinates. Distances will be broadcast across
+            all point dimensions.
+        edge_source: Tensor of dtype torch.float32 of shape (n_edges, 2) where the last
+            axis corresponds to x- and y-coordinates of the source points of each edge.
+        edge_destination: Tensor of dtype torch.float32 of shape (n_edges, 2) where the
+            last axis corresponds to x- and y-coordinates of the source points of each
+            edge.
+
+    Returns:
+        A tensor of dtype torch.float32 of shape (d_0, ..., d_n, n_edges) where the first
+        axes correspond to the initial dimensions of `points`, and the last indicates
+        the distance of each point to each edge.
+    """
     # Ensure all points are at least rank 2.
     points = expand_to_rank(points, 2)
     edge_source = expand_to_rank(edge_source, 2)

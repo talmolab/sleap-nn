@@ -7,7 +7,6 @@ def test_distance_to_edge():
 
     edge_source = torch.tensor([[1, 0.5], [0, 0]], dtype=torch.float32)
     edge_destination = torch.tensor([[1, 1.5], [2, 2]], dtype=torch.float32)
-    sigma = 1.0
 
     yy, xx = torch.meshgrid(yv, xv, indexing='ij')
     points = torch.stack((xx, yy), dim=-1)
