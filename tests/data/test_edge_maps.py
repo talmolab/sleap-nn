@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from sleap_nn.data.utils import make_grid_vectors
-from sleap_nn.data.edge_maps import distance_to_edge, make_edge_maps
+from sleap_nn.data.edge_maps import distance_to_edge, make_edge_maps, make_pafs
 
 
 def test_distance_to_edge():
@@ -48,6 +48,43 @@ def test_make_edge_maps():
             [[0.458, 1.000], [0.969, 0.882], [0.458, 0.135]],
             [[0.607, 0.882], [1.000, 1.000], [0.607, 0.882]],
             [[0.458, 0.135], [0.969, 0.882], [0.458, 1.000]],
+        ],
+        atol=1e-3,
+    )
+
+
+def test_make_pafs():
+    xv, yv = make_grid_vectors(image_height=3, image_width=3, output_stride=1)
+    edge_source = torch.tensor([[1, 0.5], [0, 0]], dtype=torch.float32)
+    edge_destination = torch.tensor([[1, 1.5], [2, 2]], dtype=torch.float32)
+    sigma = 1.0
+
+    pafs = make_pafs(
+        xv=xv,
+        yv=yv,
+        edge_source=edge_source,
+        edge_destination=edge_destination,
+        sigma=sigma,
+    )
+
+    np.testing.assert_allclose(
+        pafs,
+        [
+            [
+                [[0.0, 0.458], [0.707, 0.707]],
+                [[0.0, 0.969], [0.624, 0.624]],
+                [[0.0, 0.458], [0.096, 0.096]],
+            ],
+            [
+                [[0.0, 0.607], [0.624, 0.624]],
+                [[0.0, 1.0], [0.707, 0.707]],
+                [[0.0, 0.607], [0.624, 0.624]],
+            ],
+            [
+                [[0.0, 0.458], [0.096, 0.096]],
+                [[0.0, 0.969], [0.624, 0.624]],
+                [[0.0, 0.458], [0.707, 0.707]],
+            ],
         ],
         atol=1e-3,
     )
