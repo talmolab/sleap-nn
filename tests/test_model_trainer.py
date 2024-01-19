@@ -53,6 +53,7 @@ def test_wandb():
 
 
 def test_trainer(config, tmp_path: str):
+    # for topdown centered instance model
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -136,6 +137,23 @@ def test_trainer(config, tmp_path: str):
     assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
+
+    # For Single instance model
+
+    single_instance_config = config.copy()
+    OmegaConf.update(
+        single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
+    )
+    OmegaConf.update(
+        single_instance_config,
+        "model_config.head_configs.head_type",
+        "SingleInstanceConfmapsHead",
+    )
+    del single_instance_config.model_config.head_configs.head_config.anchor_part
+
+    trainer = ModelTrainer(single_instance_config)
+    trainer._initialize_model()
+    assert isinstance(trainer.model, SingleInstanceModel)
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):

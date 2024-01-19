@@ -32,7 +32,8 @@ class Predictor(ABC):
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            model_paths: List of paths to the directory where the best.ckpt and training_config.yaml are saved.
+            model_paths: List of paths to the directory where the best.ckpt and training_config.yaml
+            are saved.
 
         Returns:
             A subclass of `Predictor`.
@@ -275,9 +276,13 @@ class TopDownInferenceModel(L.LightningModule):
 
     Attributes:
         centroid_crop: A centroid cropping layer. This can be either `CentroidCrop` or
-            `None`. This layer takes the full image as input and outputs a set of centroids and cropped boxes. If `None`, the centroids are calculated with the provided anchor index using InstanceCentroid module and the centroid vals are set as 1.
-        instance_peaks: A instance peak detection layer. This can be either
-            `FindInstancePeaks` or `None`. This layer takes as input the output of the centroid cropper (if CentroidCrop not None else the image is cropped with the InstanceCropper module) and outputs the detected peaks for the instances within each crop.
+            `None`. This layer takes the full image as input and outputs a set of centroids
+            and cropped boxes. If `None`, the centroids are calculated with the provided anchor index
+            using InstanceCentroid module and the centroid vals are set as 1.
+        instance_peaks: A instance peak detection layer. This can be either `FindInstancePeaks`
+            or `None`. This layer takes as input the output of the centroid cropper
+            (if CentroidCrop not None else the image is cropped with the InstanceCropper module)
+            and outputs the detected peaks for the instances within each crop.
     """
 
     def __init__(
@@ -300,7 +305,8 @@ class TopDownInferenceModel(L.LightningModule):
                 example from a `TopDownConfMapsPipeline` is required for providing the metadata.
 
         Returns:
-            The predicted instances as a dictionary of tensors with the entries in example along with the below keys:
+            The predicted instances as a dictionary of tensors with the entries in example
+            along with the below keys:
 
             `"centroids": (batch_size, 1, 2)`: Instance centroids.
             `"centroid_val": (batch_size, 1)`: Instance centroid confidence
@@ -333,7 +339,8 @@ class TopDownInferenceModel(L.LightningModule):
 class TopDownPredictor(Predictor):
     """Top-down multi-instance predictor.
 
-    This high-level class handles initialization, preprocessing and predicting using a trained top-down SLEAP-NN model.
+    This high-level class handles initialization, preprocessing and predicting using a trained
+    TopDown SLEAP-NN model.
 
     This should be initialized using the `from_trained_models()` constructor.
 
@@ -341,7 +348,8 @@ class TopDownPredictor(Predictor):
         centroid_config: A Dictionary with the configs used for training the centroid model
         confmap_config: A Dictionary with the configs used for training the centered-instance model
         centroid_model: A LightningModule instance created from the trained weights for centroid model.
-        confmap_model: A LightningModule instance created from the trained weights for centered-instance model.
+        confmap_model: A LightningModule instance created from the trained weights
+                       for centered-instance model.
 
     """
 
@@ -565,10 +573,10 @@ class TopDownPredictor(Predictor):
 class SingleInstanceInferenceModel(L.LightningModule):
     """Single instance prediction model.
 
-    This model encapsulates the single instance model where instances are first detected by
-    local peak detection of an anchor point and then cropped. These instance-centered
-    crops are then passed to an instance peak detector which is trained to detect all
-    remaining body parts for the instance that is centered within the crop.
+    This model encapsulates the basic single instance approach where it is assumed that
+    there is only one instance in the frame. The images are passed to a peak detector
+    which is trained to detect all body parts for the instance assuming a single peak
+    per body part.
 
     Attributes:
         torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
@@ -648,13 +656,15 @@ class SingleInstanceInferenceModel(L.LightningModule):
 class SingleInstancePredictor(Predictor):
     """Single-Instance predictor.
 
-    This high-level class handles initialization, preprocessing and predicting using a trained single instance SLEAP-NN model.
+    This high-level class handles initialization, preprocessing and predicting using a
+    trained single instance SLEAP-NN model.
 
     This should be initialized using the `from_trained_models()` constructor.
 
     Attributes:
         confmap_config: A Dictionary with the configs used for training the single-instance model
-        confmap_model: A LightningModule instance created from the trained weights for single-instance model.
+        confmap_model: A LightningModule instance created from the trained weights for
+                       single-instance model.
 
     """
 

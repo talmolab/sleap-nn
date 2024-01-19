@@ -22,6 +22,13 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 import os
 
 
+def xavier_init_weights(x):
+    """Function to initilaise the model weights with Xavier initialization method."""
+    if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
+        nn.init.xavier_uniform_(x.weight)
+        nn.init.constant_(x.bias, 0)
+
+
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
 
@@ -45,15 +52,18 @@ class ModelTrainer:
         # set seed
         torch.manual_seed(self.seed)
 
+        self.is_single_instance_model = False
+        if self.config.data_config.pipeline == "SingleInstanceConfmaps":
+            self.is_single_instance_model = True
+
     def _create_data_loaders(self):
         """Creates a DataLoader for train, validation and test sets using the data_config."""
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
-        self.is_single_instance_model = False
+
         # create pipelines
-        if self.config.data_config.pipeline == "SingleInstanceConfmaps":
-            self.is_single_instance_model = True
+        if self.is_single_instance_model:
             train_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config.train
             )
@@ -104,6 +114,12 @@ class ModelTrainer:
 
     def _set_wandb(self):
         wandb.login(key=self.config.trainer_config.wandb.api_key)
+
+    def _initialize_model(self):
+        if self.is_single_instance_model:
+            self.model = SingleInstanceModel(self.config)
+        else:
+            self.model = TopDownCenteredInstanceModel(self.config)
 
     def train(self):
         """Function to initiate the training by calling the fit method of Trainer."""
@@ -161,10 +177,9 @@ class ModelTrainer:
                     "edges": skl.edges,
                     "symmetries": skl.symmetries,
                 }
-        if self.is_single_instance_model:
-            self.model = SingleInstanceModel(self.config)
-        else:
-            self.model = TopDownCenteredInstanceModel(self.config)
+
+        self._initialize_model()
+
         trainer = L.Trainer(
             callbacks=callbacks,
             logger=self.logger,
@@ -185,21 +200,15 @@ class ModelTrainer:
             OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
 
-def xavier_init_weights(x):
-    """Function to initilaise the model weights with Xavier initialization method."""
-    if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
-        nn.init.xavier_uniform_(x.weight)
-        nn.init.constant_(x.bias, 0)
-
-
-class LightningModel(L.LightningModule):
+class TrainingModel(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
 
     This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
 
     Args:
         config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
+                (i) data_config: data loading pre-processing configs to be passed to
+                `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
 
@@ -300,16 +309,18 @@ class LightningModel(L.LightningModule):
         }
 
 
-class SingleInstanceModel(LightningModel):
-    """PyTorch Lightning Module.
+class SingleInstanceModel(TrainingModel):
+    """Lightning Module for SingleInstance Model.
 
-    This is a sub-class of LightningModel specific to SingleInstance Model.
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
+    forward pass specific to Single Instance model.
 
     Args:
         config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+            (i) data_config: data loading pre-processing configs to be passed to
+            `TopdownConfmapsPipeline` class.
+            (ii) model_config: backbone and head configs to be passed to `Model` class.
+            (iii) trainer_config: trainer configs like accelerator, optimiser params.
 
     """
 
@@ -365,14 +376,16 @@ class SingleInstanceModel(LightningModel):
         )
 
 
-class TopDownCenteredInstanceModel(LightningModel):
-    """PyTorch Lightning Module.
+class TopDownCenteredInstanceModel(TrainingModel):
+    """Lightning Module for TopDownCenteredInstance Model.
 
-    This is a sub-class of LightningModel specific to TopDown Centered Instance Model.
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
+    forward pass specific to TopDown Centered instance model.
 
     Args:
         config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
+                (i) data_config: data loading pre-processing configs to be passed to
+                `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
 
