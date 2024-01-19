@@ -4,6 +4,7 @@ import pytest
 from omegaconf import OmegaConf
 import lightning as L
 import numpy as np
+import torch
 from pathlib import Path
 from torch.utils.data.dataloader import DataLoader
 from sleap_nn.data.providers import LabelsReader
@@ -94,7 +95,22 @@ def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt):
         outputs.append(topdown_inf_layer(x))
     for i in outputs:
         assert i["centroid_val"] == 1
-        assert "pred_instance_peaks" in i.keys() and "pred_peak_values" in i.keys()
+        assert "pred_instance_peaks" in i and "pred_peak_values" in i
+
+    # if find peaks is None
+    topdown_inf_layer = TopDownInferenceModel(centroid_crop=None, instance_peaks=None)
+    example = next(iter(data_pipeline))
+    # output = topdown_inf_layer(example)
+    # assert output["pred_peak_values"]==torch.Tensor([1,1,1,1])
+    # assert output["pred_instance_peaks"]==output["instance"]
+
+    # if both centroid and find peaks layers are None
+    del example["instance"]
+    with pytest.raises(
+        Exception,
+        match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
+    ):
+        topdown_inf_layer(example)
 
 
 def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt):
