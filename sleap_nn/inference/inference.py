@@ -135,7 +135,6 @@ class Predictor(ABC):
     def predict(
         self,
         make_labels: bool = True,
-        save_labels: bool = False,
         save_path: str = None,
     ) -> Union[List[Dict[str, np.ndarray]], sio.Labels]:
         """Run inference on a data source.
@@ -144,7 +143,6 @@ class Predictor(ABC):
             make_labels: If `True` (the default), returns a `sio.Labels` instance with
                 `sio.PredictedInstance`s. If `False`, just return a list of
                 dictionaries containing the raw arrays returned by the inference model.
-            save_labels: If `True` , saves the labels object in a `.slp` file
             save_path: Path to save the labels file if `save_labels` is True.
 
         Returns:
@@ -158,7 +156,7 @@ class Predictor(ABC):
         if make_labels:
             # Create SLEAP data structures from the predictions.
             pred_labels = self._make_labeled_frames_from_generator(generator)
-            if save_labels:
+            if save_path:
                 sio.io.slp.write_labels(save_path, pred_labels)
             return pred_labels
 
@@ -277,12 +275,9 @@ class TopDownInferenceModel(L.LightningModule):
 
     Attributes:
         centroid_crop: A centroid cropping layer. This can be either `CentroidCrop` or
-            `None`. This layer takes the full image as input and
-            outputs a set of centroids and cropped boxes. If `None`, the centroids are calculated with the provided anchor index using InstanceCentroid module and the centroid vals are set as 1.
+            `None`. This layer takes the full image as input and outputs a set of centroids and cropped boxes. If `None`, the centroids are calculated with the provided anchor index using InstanceCentroid module and the centroid vals are set as 1.
         instance_peaks: A instance peak detection layer. This can be either
-            `FindInstancePeaks` or `None`. This layer takes as
-            input the output of the centroid cropper (if CentroidCrop not None else the image is cropped with the InstanceCropper module) and outputs the detected peaks for
-            the instances within each crop.
+            `FindInstancePeaks` or `None`. This layer takes as input the output of the centroid cropper (if CentroidCrop not None else the image is cropped with the InstanceCropper module) and outputs the detected peaks for the instances within each crop.
     """
 
     def __init__(
@@ -315,14 +310,13 @@ class TopDownInferenceModel(L.LightningModule):
             `"pred_peak_vals": (batch_size, n_nodes)`: Confidence
                 values for the instance skeleton points.
         """
+        batch_size = batch["image"].shape[0]
         if self.centroid_crop is None:
-            batch["centroid_val"] = torch.ones(batch["instance"].shape[0])
-
-        else:
-            pass
+            batch["centroid_val"] = torch.ones(batch_size)
 
         if self.instance_peaks is None:
             if "instance" in batch:
+                # TODO: centroid model pass the ground truth instances
                 pass
             else:
                 raise ValueError(
@@ -367,11 +361,10 @@ class TopDownPredictor(Predictor):
             self.model_config["centroid"] = self.centroid_config
             self.model_config["data"] = self.centroid_config.inference_config.data
             self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
-            pass
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
         if self.confmap_config is None:
-            pass
+            instance_peaks_layer = None
         else:
             self.model_config["confmaps"] = self.confmap_config
             self.model_config["data"] = self.confmap_config.inference_config.data

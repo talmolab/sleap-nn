@@ -138,15 +138,24 @@ trainer_config:
     monitor: val_loss
     mode: min
     auto_insert_metric_name: false
+    save_weights_only: true
   device: cpu
   trainer_devices: 1
   trainer_accelerator: cpu
+<<<<<<< HEAD
   enable_progress_bar: false
+=======
+  enable_progress_bar: true
+>>>>>>> divya/topdown_predictor
   max_epochs: 2
   seed: 1000
   use_wandb: false
   save_ckpt: true
+<<<<<<< HEAD
   save_ckpt_path: ''
+=======
+  save_ckpt_path: 17_01_ckpt_gen
+>>>>>>> divya/topdown_predictor
   wandb:
     project: test
     name: test_run
