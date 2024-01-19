@@ -6,8 +6,9 @@ from sleap_nn.data.utils import (
     expand_to_rank,
     make_grid_vectors,
     ensure_list,
-    gaussian_pdf
+    gaussian_pdf,
 )
+
 
 def distance_to_edge(
     points: torch.Tensor, edge_source: torch.Tensor, edge_destination: torch.Tensor
@@ -63,13 +64,17 @@ def distance_to_edge(
     # Compute distance from each point to the edge.
     distances = torch.sum(
         torch.square(
-            (line_projections.unsqueeze(-1) * expand_to_rank(direction_vector, n_pt_dims + 2))
+            (
+                line_projections.unsqueeze(-1)
+                * expand_to_rank(direction_vector, n_pt_dims + 2)
+            )
             - source_relative_points
         ),
-        dim=-1
+        dim=-1,
     )  # (..., n_edges)
 
     return distances
+
 
 def make_edge_maps(
     xv: torch.Tensor,
@@ -100,8 +105,8 @@ def make_edge_maps(
         sampling grid being on each edge. These will be in a tensor of shape
         (grid_height, grid_width, n_edges) of dtype torch.float32.
     """
-    yy, xx = torch.meshgrid(yv, xv, indexing='ij')
-    sampling_grid = torch.stack((yy, xx), dim=-1)  # (height, width, 2)
+    yy, xx = torch.meshgrid(yv, xv, indexing="ij")
+    sampling_grid = torch.stack((xx, yy), dim=-1)  # (height, width, 2)
 
     distances = distance_to_edge(
         sampling_grid, edge_source=edge_source, edge_destination=edge_destination

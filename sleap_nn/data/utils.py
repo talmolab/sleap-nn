@@ -3,11 +3,13 @@ from typing import Tuple, List, Any
 
 import torch
 
+
 def ensure_list(x: Any) -> List[Any]:
     """Convert the input into a list if it is not already."""
     if not isinstance(x, list):
         return [x]
     return x
+
 
 def make_grid_vectors(
     image_height: int, image_width: int, output_stride: int = 1
@@ -41,7 +43,10 @@ def make_grid_vectors(
     yv = torch.arange(0, image_height, step=output_stride, dtype=torch.float32)
     return xv, yv
 
-def expand_to_rank(x: torch.Tensor, target_rank: int, prepend: bool = True) -> torch.Tensor:
+
+def expand_to_rank(
+    x: torch.Tensor, target_rank: int, prepend: bool = True
+) -> torch.Tensor:
     """
     Expand a tensor to a target rank by adding singleton dimensions in PyTorch.
 
@@ -77,4 +82,4 @@ def gaussian_pdf(x: torch.Tensor, sigma: float) -> torch.Tensor:
         A tensor of the same shape as `x`, but with values of a PDF of an unnormalized
         Gaussian distribution. Values of 0 have an unnormalized PDF value of 1.0.
     """
-    return torch.exp(-(x ** 2) / (2 * sigma ** 2))
+    return torch.exp(-(x**2) / (2 * sigma**2))
