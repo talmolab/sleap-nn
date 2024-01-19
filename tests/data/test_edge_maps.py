@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from sleap_nn.data.utils import make_grid_vectors
-from sleap_nn.data.edge_maps import distance_to_edge, make_edge_maps, make_pafs, make_multi_pafs
+from sleap_nn.data.edge_maps import distance_to_edge, make_edge_maps, make_pafs, make_multi_pafs, get_edge_points
 
 
 def test_distance_to_edge():
@@ -114,4 +114,50 @@ def test_make_multi_pafs():
         edge_sources=edge_source,
         edge_destinations=edge_destination,
         sigma=sigma,
+    )
+
+    np.testing.assert_allclose(
+        pafs,
+        [
+            [
+                [[0.0, 0.916], [1.414, 1.414]],
+                [[0.0, 1.938], [1.248, 1.248]],
+                [[0.0, 0.916], [0.191, 0.191]],
+            ],
+            [
+                [[0.0, 1.213], [1.248, 1.248]],
+                [[0.0, 2.0], [1.414, 1.414]],
+                [[0.0, 1.213], [1.248, 1.248]],
+            ],
+            [
+                [[0.0, 0.916], [0.191, 0.191]],
+                [[0.0, 1.938], [1.248, 1.248]],
+                [[0.0, 0.916], [1.414, 1.414]],
+            ],
+        ],
+        atol=1e-3,
+    )
+
+def test_get_edge_points():
+    instances = torch.arange(4 * 3 * 2).reshape(4, 3, 2)
+    edge_inds = torch.tensor([[0, 1], [1, 2], [0, 2]], dtype=torch.int32)
+    edge_sources, edge_destinations = get_edge_points(instances, edge_inds)
+
+    np.testing.assert_array_equal(
+        edge_sources,
+        [
+            [[0, 1], [2, 3], [0, 1]],
+            [[6, 7], [8, 9], [6, 7]],
+            [[12, 13], [14, 15], [12, 13]],
+            [[18, 19], [20, 21], [18, 19]],
+        ],
+    )
+    np.testing.assert_array_equal(
+        edge_destinations,
+        [
+            [[2, 3], [4, 5], [4, 5]],
+            [[8, 9], [10, 11], [10, 11]],
+            [[14, 15], [16, 17], [16, 17]],
+            [[20, 21], [22, 23], [22, 23]],
+        ],
     )

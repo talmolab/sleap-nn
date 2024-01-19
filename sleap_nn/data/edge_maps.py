@@ -1,5 +1,5 @@
 """Transformers for generating edge confidence maps and part affinity fields."""
-
+from typing import Tuple
 import torch
 
 from sleap_nn.data.utils import (
@@ -215,3 +215,30 @@ def make_multi_pafs(
         pafs += paf
 
     return pafs
+
+
+def get_edge_points(
+    instances: torch.Tensor, edge_inds: torch.Tensor
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Return the points in each instance that form a directed graph.
+
+    Args:
+        instances: A tensor of shape (n_instances, n_nodes, 2) and dtype torch.float32
+            containing instance points where the last axis corresponds to (x, y) pixel
+            coordinates on the image. This must be rank-3 even if a single instance is
+            present.
+        edge_inds: A tensor of shape (n_edges, 2) and dtype torch.int32 containing the node
+            indices that define a directed graph, where the last axis corresponds to the
+            source and destination node indices.
+
+    Returns:
+        Tuple of (edge_sources, edge_destinations) containing the edge and destination
+        points respectively. Both will be tensors of shape (n_instances, n_edges, 2),
+        where the last axis corresponds to (x, y) pixel coordinates on the image.
+    """
+    source_inds = edge_inds[:, 0].to(torch.int32)
+    destination_inds = edge_inds[:, 1].to(torch.int32)
+
+    edge_sources = instances[:, source_inds]
+    edge_destinations = instances[:, destination_inds]
+    return edge_sources, edge_destinations
