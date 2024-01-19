@@ -1,7 +1,13 @@
 import numpy as np
 import torch
 from sleap_nn.data.utils import make_grid_vectors
-from sleap_nn.data.edge_maps import distance_to_edge, make_edge_maps, make_pafs, make_multi_pafs, get_edge_points
+from sleap_nn.data.edge_maps import (
+    distance_to_edge,
+    make_edge_maps,
+    make_pafs,
+    make_multi_pafs,
+    get_edge_points,
+)
 
 
 def test_distance_to_edge():
@@ -89,6 +95,7 @@ def test_make_pafs():
         atol=1e-3,
     )
 
+
 def test_make_multi_pafs():
     xv, yv = make_grid_vectors(image_height=3, image_width=3, output_stride=1)
     edge_source = torch.tensor(
@@ -96,7 +103,7 @@ def test_make_multi_pafs():
             [[1, 0.5], [0, 0]],
             [[1, 0.5], [0, 0]],
         ],
-        dtype=torch.float32
+        dtype=torch.float32,
     )
 
     edge_destination = torch.tensor(
@@ -104,7 +111,7 @@ def test_make_multi_pafs():
             [[1, 1.5], [2, 2]],
             [[1, 1.5], [2, 2]],
         ],
-        dtype=torch.float32
+        dtype=torch.float32,
     )
     sigma = 1.0
 
@@ -137,6 +144,7 @@ def test_make_multi_pafs():
         ],
         atol=1e-3,
     )
+
 
 def test_get_edge_points():
     instances = torch.arange(4 * 3 * 2).reshape(4, 3, 2)
