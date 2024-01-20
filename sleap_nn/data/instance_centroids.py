@@ -80,7 +80,7 @@ class InstanceCentroidFinder(IterDataPipe):
         source_dp: IterDataPipe,
         anchor_ind: Optional[int] = None,
     ) -> None:
-        """Initialize InstanceCentroidFinder with the source `DataPipe."""
+        """Initialize InstanceCentroidFinder with the source `IterDataPipe`."""
         self.source_dp = source_dp
         self.anchor_ind = anchor_ind
 

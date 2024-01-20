@@ -1,6 +1,9 @@
 """Transformers for generating edge confidence maps and part affinity fields."""
-from typing import Tuple
+from typing import Tuple, Optional, List, Text
 import torch
+import attrs
+import attr
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 from sleap_nn.data.utils import (
     expand_to_rank,
@@ -242,3 +245,77 @@ def get_edge_points(
     edge_sources = instances[:, source_inds]
     edge_destinations = instances[:, destination_inds]
     return edge_sources, edge_destinations
+
+
+class PartAffinityFieldsGenerator(IterDataPipe):
+    """Transformer to generate part affinity fields.
+
+    Attributes:
+        sigma: Standard deviation of the 2D Gaussian distribution sampled to weight the
+            part affinity fields by their distance to the edges. This defines the spread
+            in units of the input image's grid, i.e., it does not take scaling in
+            previous steps into account.
+        output_stride: Relative stride of the generated confidence maps. This is
+            effectively the reciprocal of the output scale, i.e., increase this to
+            generate confidence maps that are smaller than the input images.
+        skeletons: List of `torch.Tensor`s to use for looking up the index of the
+            edges.
+        flatten_channels: If False, the generated tensors are of shape
+            [height, width, n_edges, 2]. If True, generated tensors are of shape
+            [height, width, n_edges * 2] by flattening the last 2 axes.
+    """
+    def __init__(
+        self,
+        source_dp: IterDataPipe,
+        sigma: float = attr.ib(default=1.0, converter=float),
+        output_stride: int = attr.ib(default=1, converter=int),
+        skeletons: Optional[List[torch.Tensor]] = attr.ib(
+            default=None, converter=attr.converters.optional(ensure_list)
+        ),
+        flatten_channels: bool = False
+    ) -> None:
+        self.source_dp = source_dp
+        self.sigma = sigma
+        self.output_stride = output_stride
+        self.skeletons = skeletons
+        self.flatten_channels = flatten_channels
+
+    @property
+    def input_keys(self) -> List[Text]:
+        """Return the keys that incoming elements are expected to have."""
+        return ["image", "instances", "skeleton_inds"]
+
+    @property
+    def output_keys(self) -> List[Text]:
+        """Return the keys that outgoing elements will have."""
+        return self.input_keys + ["part_affinity_fields"]
+    
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
+        """Create a dataset that contains the generated confidence maps.
+
+        Args:
+            input_ds: A dataset with elements that contain the keys "image",
+                "instances" and "skeleton_inds".
+
+        Returns:
+            A `tf.data.Dataset` with the same keys as the input, as well as
+            "part_affinity_fields".
+
+            The "part_affinity_fields" key will be a tensor of shape
+            (grid_height, grid_width, n_edges, 2) containing the combined part affinity
+            fields of all instances in the frame.
+
+            If the `flatten_channels` attribute is set to True, the last 2 axes of the
+            "part_affinity_fields" are flattened to produce a tensor of shape
+            (grid_height, grid_width, n_edges * 2). This is a convenient form when
+            training models as a rank-4 (batched) tensor will generally be expected.
+
+        Notes:
+            The output stride is relative to the current scale of the image. To map
+            points on the part affinity fields to the raw image, first multiply them by
+            the output stride, and then scale the x- and y-coordinates by the "scale"
+            key.
+
+            Importantly, the sigma will be proportional to the current image grid, not
+            the original grid prior to scaling operations.
+        """

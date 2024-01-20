@@ -6,9 +6,9 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 class Normalizer(IterDataPipe):
-    """DataPipe for applying normalization.
+    """IterDataPipe for applying normalization.
 
-    This DataPipe will normalize the image from `uint8` to `float32` and scale the
+    This IterDataPipe will normalize the image from `uint8` to `float32` and scale the
     values to the range `[0, 1]`.
 
     Attributes:
@@ -19,7 +19,7 @@ class Normalizer(IterDataPipe):
         self,
         source_dp: IterDataPipe,
     ) -> None:
-        """Initialize the block."""
+        """Initialize the `IterDataPipe`."""
         self.source_dp = source_dp
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:

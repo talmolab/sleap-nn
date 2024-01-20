@@ -9,14 +9,14 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 class LabelsReader(IterDataPipe):
-    """Datapipe for reading frames from Labels object.
+    """IterDataPipe for reading frames from Labels object.
 
-    This DataPipe will produce examples containing a frame and an sleap_io.Instance
+    This IterDataPipe will produce examples containing a frame and an sleap_io.Instance
     from a sleap_io.Labels instance.
 
     Attributes:
         labels: sleap_io.Labels object that contains LabeledFrames that will be
-            accessed through a torchdata DataPipe
+            accessed through a torchdata IterDataPipe
         user_instances_only: True if filter labels only to user instances else False. Default value True
 
     """

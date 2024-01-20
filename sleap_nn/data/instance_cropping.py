@@ -50,17 +50,17 @@ def make_centered_bboxes(
 
 
 class InstanceCropper(IterDataPipe):
-    """Datapipe for cropping instances.
+    """IterDataPipe for cropping instances.
 
-    This DataPipe will produce examples that are instance cropped.
+    This IterDataPipe will produce examples that are instance cropped.
 
     Attributes:
-        source_dp: The previous `DataPipe` with samples that contain an `instances` key.
+        source_dp: The previous `IterDataPipe` with samples that contain an `instances` key.
         crop_hw: Height and Width of the crop in pixels
     """
 
     def __init__(self, source_dp: IterDataPipe, crop_hw: Tuple[int, int]) -> None:
-        """Initialize InstanceCropper with the source `DataPipe."""
+        """Initialize InstanceCropper with the source `IterDataPipe`."""
         self.source_dp = source_dp
         self.crop_hw = crop_hw
 
