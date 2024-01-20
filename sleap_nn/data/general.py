@@ -18,8 +18,8 @@ class KeyFilter(IterDataPipe):
 
         The input dictionary includes:
         - image: the full frame image
-        - video: the source video of the image
-        - frame_idx: the frame idx of the image in `video`
+        - video_idx: the index of the source video in the list of videos
+        - frame_idx: the frame idx of the image in video[`video_idx`]
         - instances: all keypoints of all instances in the frame image
         - centroids: all centroids of all instances in the frame image
         - instance: the individual instance's keypoints
