@@ -1,5 +1,5 @@
 """Transformers for generating edge confidence maps and part affinity fields."""
-from typing import Tuple, Optional, List, Text
+from typing import Tuple, Optional, List, Text, Iterator, Dict
 import torch
 import attrs
 import attr
@@ -274,6 +274,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
         ),
         flatten_channels: bool = False
     ) -> None:
+        """Initialize PartAffinityFieldsGenerator with the source `DataPipe`."""
         self.source_dp = source_dp
         self.sigma = sigma
         self.output_stride = output_stride
@@ -319,3 +320,4 @@ class PartAffinityFieldsGenerator(IterDataPipe):
             Importantly, the sigma will be proportional to the current image grid, not
             the original grid prior to scaling operations.
         """
+        pass
