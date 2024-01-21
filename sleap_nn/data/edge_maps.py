@@ -258,7 +258,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
         output_stride: Relative stride of the generated confidence maps. This is
             effectively the reciprocal of the output scale, i.e., increase this to
             generate confidence maps that are smaller than the input images.
-        skeletons: List of `torch.Tensor`s to use for looking up the index of the
+        edge_inds: `torch.Tensor` to use for looking up the index of the
             edges.
         flatten_channels: If False, the generated tensors are of shape
             [height, width, n_edges, 2]. If True, generated tensors are of shape
@@ -269,7 +269,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
         source_dp: IterDataPipe,
         sigma: float = attr.ib(default=1.0, converter=float),
         output_stride: int = attr.ib(default=1, converter=int),
-        skeletons: Optional[List[torch.Tensor]] = attr.ib(
+        edge_inds: Optional[torch.Tensor] = attr.ib(
             default=None, converter=attr.converters.optional(ensure_list)
         ),
         flatten_channels: bool = False
@@ -278,7 +278,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
         self.source_dp = source_dp
         self.sigma = sigma
         self.output_stride = output_stride
-        self.skeletons = skeletons
+        self.edge_inds = edge_inds
         self.flatten_channels = flatten_channels
 
     @property
@@ -320,4 +320,46 @@ class PartAffinityFieldsGenerator(IterDataPipe):
             Importantly, the sigma will be proportional to the current image grid, not
             the original grid prior to scaling operations.
         """
-        pass
+        for ex in self.source_dp:
+            image_height = ex["image"].shape[2]
+            image_width = ex["image"].shape[3]
+
+            # Generate sampling grid vectors.
+            xv, yv = make_grid_vectors(
+                image_height=image_height,
+                image_width=image_width,
+                output_stride=self.output_stride,
+            )
+            grid_height = len(yv)
+            grid_width = len(xv)
+            n_edges = len(self.edge_inds)
+
+            instances = ex["instances"][0]  # batch size=1
+            in_img = (instances > 0) & (instances < torch.stack([xv[-1], yv[-1]]).view(1, 1, 2))
+            in_img = in_img.all(dim=-1).any(dim=1)
+            assert len(in_img.shape()) == 1
+            instances = instances[in_img]
+
+            edge_sources, edge_destinations = get_edge_points(instances, self.edge_inds)
+            assert len(edge_sources.shape()) == 3
+            assert edge_sources.shape()[1:] == (n_edges, 2)
+
+            assert len(edge_destinations.shape()) == 3
+            assert edge_destinations.shape()[1:] == (n_edges, 2)
+
+            pafs = make_multi_pafs(
+                xv=xv,
+                yv=yv,
+                edge_sources=edge_sources,
+                edge_destinations=edge_destinations,
+                sigma=self.sigma,
+            )
+            assert pafs.shape() == (grid_height, grid_width, n_edges, 2)
+
+            if self.flatten_channels:
+                pafs = pafs.reshape(grid_height, grid_width, n_edges * 2)
+                assert pafs.shape() == (grid_height, grid_width, n_edges * 2)
+
+            ex["part_affinity_fields"] = pafs
+
+            yield ex
