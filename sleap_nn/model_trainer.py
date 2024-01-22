@@ -46,7 +46,7 @@ class ModelTrainer:
         torch.manual_seed(self.seed)
 
     def _create_data_loaders(self):
-        """Creates a DataLoader for train, validation and test sets using the data_config."""
+        """Create a DataLoader for train, validation and test sets using the data_config."""
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
@@ -104,7 +104,7 @@ class ModelTrainer:
         wandb.login(key=self.config.trainer_config.wandb.api_key)
 
     def train(self):
-        """Function to initiate the training by calling the fit method of Trainer."""
+        """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         self.logger = []
         if self.config.trainer_config.save_ckpt:
@@ -166,7 +166,7 @@ class ModelTrainer:
 
 
 def xavier_init_weights(x):
-    """Function to initilaise the model weights with Xavier initialization method."""
+    """Initilaise the model weights with Xavier initialization method."""
     if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
         nn.init.xavier_uniform_(x.weight)
         nn.init.constant_(x.bias, 0)
@@ -259,7 +259,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         )
 
     def training_step(self, batch, batch_idx):
-        """Training step."""
+        """Perform training step."""
         X, y = torch.squeeze(batch["instance_image"], dim=1).to(
             self.m_device
         ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
@@ -273,7 +273,7 @@ class TopDownCenteredInstanceModel(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        """Validation step."""
+        """Perform validation step."""
         X, y = torch.squeeze(batch["instance_image"], dim=1).to(
             self.m_device
         ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)

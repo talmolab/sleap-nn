@@ -19,6 +19,7 @@ def minimal_instance(sleap_data_dir):
 
 @pytest.fixture
 def config(sleap_data_dir):
+    """Training configuration."""
     config = OmegaConf.create(
         {
             "data_config": {

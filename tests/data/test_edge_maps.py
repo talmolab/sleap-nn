@@ -8,7 +8,7 @@ from sleap_nn.data.edge_maps import (
     make_pafs,
     make_multi_pafs,
     get_edge_points,
-    PartAffinityFieldsGenerator
+    PartAffinityFieldsGenerator,
 )
 
 
@@ -176,10 +176,10 @@ def test_get_edge_points():
 def test_part_affinity_fields_generator(minimal_instance):
     provider = LabelsReader.from_filename(minimal_instance)
     paf_generator = PartAffinityFieldsGenerator(
-        provider, 
-        sigma=8, 
-        output_stride=2, 
-        edge_inds=torch.tensor(provider.labels.skeletons[0].edge_inds)
+        provider,
+        sigma=8,
+        output_stride=2,
+        edge_inds=torch.tensor(provider.labels.skeletons[0].edge_inds),
     )
     out = next(iter(paf_generator))
     assert out["part_affinity_fields"].shape == (192, 192, 1, 2)

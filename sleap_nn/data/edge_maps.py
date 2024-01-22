@@ -264,6 +264,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
             [height, width, n_edges, 2]. If True, generated tensors are of shape
             [height, width, n_edges * 2] by flattening the last 2 axes.
     """
+
     def __init__(
         self,
         source_dp: IterDataPipe,
@@ -272,7 +273,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
         edge_inds: Optional[torch.Tensor] = attr.ib(
             default=None, converter=attr.converters.optional(ensure_list)
         ),
-        flatten_channels: bool = False
+        flatten_channels: bool = False,
     ) -> None:
         """Initialize PartAffinityFieldsGenerator with the source `DataPipe`."""
         self.source_dp = source_dp
@@ -290,7 +291,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
     def output_keys(self) -> List[Text]:
         """Return the keys that outgoing elements will have."""
         return self.input_keys + ["part_affinity_fields"]
-    
+
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Create a dataset that contains the generated confidence maps.
 
@@ -335,7 +336,9 @@ class PartAffinityFieldsGenerator(IterDataPipe):
             n_edges = len(self.edge_inds)
 
             instances = ex["instances"][0]  # batch size=1
-            in_img = (instances > 0) & (instances < torch.stack([xv[-1], yv[-1]]).view(1, 1, 2))
+            in_img = (instances > 0) & (
+                instances < torch.stack([xv[-1], yv[-1]]).view(1, 1, 2)
+            )
             in_img = in_img.all(dim=-1).any(dim=1)
             assert len(in_img.shape) == 1
             instances = instances[in_img]
