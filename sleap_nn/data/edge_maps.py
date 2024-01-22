@@ -337,15 +337,15 @@ class PartAffinityFieldsGenerator(IterDataPipe):
             instances = ex["instances"][0]  # batch size=1
             in_img = (instances > 0) & (instances < torch.stack([xv[-1], yv[-1]]).view(1, 1, 2))
             in_img = in_img.all(dim=-1).any(dim=1)
-            assert len(in_img.shape()) == 1
+            assert len(in_img.shape) == 1
             instances = instances[in_img]
 
             edge_sources, edge_destinations = get_edge_points(instances, self.edge_inds)
-            assert len(edge_sources.shape()) == 3
-            assert edge_sources.shape()[1:] == (n_edges, 2)
+            assert len(edge_sources.shape) == 3
+            assert edge_sources.shape[1:] == (n_edges, 2)
 
-            assert len(edge_destinations.shape()) == 3
-            assert edge_destinations.shape()[1:] == (n_edges, 2)
+            assert len(edge_destinations.shape) == 3
+            assert edge_destinations.shape[1:] == (n_edges, 2)
 
             pafs = make_multi_pafs(
                 xv=xv,
@@ -354,11 +354,11 @@ class PartAffinityFieldsGenerator(IterDataPipe):
                 edge_destinations=edge_destinations,
                 sigma=self.sigma,
             )
-            assert pafs.shape() == (grid_height, grid_width, n_edges, 2)
+            assert pafs.shape == (grid_height, grid_width, n_edges, 2)
 
             if self.flatten_channels:
                 pafs = pafs.reshape(grid_height, grid_width, n_edges * 2)
-                assert pafs.shape() == (grid_height, grid_width, n_edges * 2)
+                assert pafs.shape == (grid_height, grid_width, n_edges * 2)
 
             ex["part_affinity_fields"] = pafs
 
