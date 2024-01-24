@@ -513,10 +513,16 @@ class TopDownPredictor(Predictor):
                 sio.model.skeleton.Edge(e["source"], e["destination"])
                 for e in self.data_config.skeletons[name].edges
             ]
-            symmetries = [
-                sio.model.skeleton.Symmetry(s["nodes"])
+            list_args = [
+                set(
+                    [
+                        sio.model.skeleton.Node(s[0]["name"]),
+                        sio.model.skeleton.Node(s[1]["name"]),
+                    ]
+                )
                 for s in self.data_config.skeletons[name].symmetries
             ]
+            symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
 
             skeletons.append(
                 sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
@@ -780,10 +786,16 @@ class SingleInstancePredictor(Predictor):
                 sio.model.skeleton.Edge(e["source"], e["destination"])
                 for e in self.confmap_config.data_config.skeletons[name].edges
             ]
-            symmetries = [
-                sio.model.skeleton.Symmetry(s["nodes"])
-                for s in self.confmap_config.data_config.skeletons[name].symmetries
+            list_args = [
+                set(
+                    [
+                        sio.model.skeleton.Node(s[0]["name"]),
+                        sio.model.skeleton.Node(s[1]["name"]),
+                    ]
+                )
+                for s in self.data_config.skeletons[name].symmetries
             ]
+            symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
 
             skeletons.append(
                 sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)

@@ -172,10 +172,14 @@ class ModelTrainer:
             # save the skeleton in the config
             self.config["data_config"]["skeletons"] = {}
             for skl in self.skeletons:
+                if skl.symmetries:
+                    symm = [list(s.nodes) for s in skl.symmetries]
+                else:
+                    symm = None
                 self.config["data_config"]["skeletons"][skl.name] = {
                     "nodes": skl.nodes,
                     "edges": skl.edges,
-                    "symmetries": skl.symmetries,
+                    "symmetries": symm,
                 }
 
         self._initialize_model()
