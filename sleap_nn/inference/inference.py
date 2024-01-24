@@ -793,7 +793,7 @@ class SingleInstancePredictor(Predictor):
                         sio.model.skeleton.Node(s[1]["name"]),
                     ]
                 )
-                for s in self.data_config.skeletons[name].symmetries
+                for s in self.confmap_config.data_config.skeletons[name].symmetries
             ]
             symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
 
