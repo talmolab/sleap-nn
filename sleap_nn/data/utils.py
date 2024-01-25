@@ -47,8 +47,7 @@ def make_grid_vectors(
 def expand_to_rank(
     x: torch.Tensor, target_rank: int, prepend: bool = True
 ) -> torch.Tensor:
-    """
-    Expand a tensor to a target rank by adding singleton dimensions in PyTorch.
+    """Expand a tensor to a target rank by adding singleton dimensions in PyTorch.
 
     Args:
         x: Any `torch.Tensor` with rank <= `target_rank`. If the rank is higher than
