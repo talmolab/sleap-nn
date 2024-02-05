@@ -1,6 +1,7 @@
 data_config:
   provider: LabelsReader
   pipeline: TopdownConfmaps
+  max_instances: 30
   train:
     labels_path: minimal_instance.pkg.slp
     preprocessing:
@@ -167,6 +168,7 @@ inference_config:
   data:
     labels_path: ./tests/assets/minimal_instance.pkg.slp
     provider: LabelsReader
+    max_instances: 30
     data_loader:
       batch_size: 4
       shuffle: false

@@ -18,12 +18,19 @@ class LabelsReader(IterDataPipe):
         labels: sleap_io.Labels object that contains LabeledFrames that will be
             accessed through a torchdata DataPipe
         user_instances_only: True if filter labels only to user instances else False. Default value True
+        max_instances: Upper limit for number of empty instances to be appended in 'instances'. For singleinstance models, max_instances=1.
 
     """
 
-    def __init__(self, labels: sio.Labels, user_instances_only: bool = True):
+    def __init__(
+        self,
+        labels: sio.Labels,
+        user_instances_only: bool = True,
+        max_instances: int = 30,
+    ):
         """Initialize labels attribute of the class."""
         self.labels = copy.deepcopy(labels)
+        self.max_instances = max_instances
 
         # Filter to user instances
         if user_instances_only:
@@ -39,10 +46,12 @@ class LabelsReader(IterDataPipe):
             )
 
     @classmethod
-    def from_filename(cls, filename: str, user_instances_only: bool = True):
+    def from_filename(
+        cls, filename: str, user_instances_only: bool = True, max_instances: int = 30
+    ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
-        return cls(labels, user_instances_only)
+        return cls(labels, user_instances_only, max_instances)
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.
@@ -66,11 +75,19 @@ class LabelsReader(IterDataPipe):
                 instances, axis=0
             )  # (1, num_instances, num_nodes, 2)
 
+            instances = torch.from_numpy(instances.astype("float32"))
+            num_instances, nodes = instances.shape[1:3]
+            nans = torch.full(
+                (1, self.max_instances - num_instances, nodes, 2), torch.nan
+            )
+            instances = torch.cat([instances, nans], dim=1)
+
             yield {
                 "image": torch.from_numpy(image),
-                "instances": torch.from_numpy(instances.astype("float32")),
+                "instances": instances,
                 "video_idx": torch.tensor(
                     self.labels.videos.index(lf.video), dtype=torch.int32
                 ),
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
+                "num_instances": num_instances,
             }
