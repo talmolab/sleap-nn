@@ -534,7 +534,9 @@ class TopDownPredictor(Predictor):
 
         labels = sio.load_slp(self.data_config.labels_path)
         self.videos = labels.videos
-        provider_pipeline = provider(labels, max_instances=max_instances)
+        provider_pipeline = provider(
+            labels, max_instances=self.data_config.max_instances
+        )
         self.pipeline = self.pipeline.make_training_pipeline(
             data_provider=provider_pipeline
         )

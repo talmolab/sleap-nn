@@ -1,4 +1,5 @@
 """This module implements pipeline blocks for reading input data such as labels."""
+
 from typing import Dict, Iterator
 
 import numpy as np

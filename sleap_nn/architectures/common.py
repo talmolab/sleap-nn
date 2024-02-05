@@ -1,4 +1,5 @@
 """Common utilities for architecture and model building."""
+
 from typing import List
 
 import torch
@@ -71,17 +72,21 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
 
             pad_h = self._calc_same_pad(
                 i=ih,
-                k=self.kernel_size
-                if type(self.kernel_size) is int
-                else self.kernel_size[0],
+                k=(
+                    self.kernel_size
+                    if type(self.kernel_size) is int
+                    else self.kernel_size[0]
+                ),
                 s=self.stride if type(self.stride) is int else self.stride[0],
                 d=self.dilation if type(self.dilation) is int else self.dilation[0],
             )
             pad_w = self._calc_same_pad(
                 i=iw,
-                k=self.kernel_size
-                if type(self.kernel_size) is int
-                else self.kernel_size[1],
+                k=(
+                    self.kernel_size
+                    if type(self.kernel_size) is int
+                    else self.kernel_size[1]
+                ),
                 s=self.stride if type(self.stride) is int else self.stride[1],
                 d=self.dilation if type(self.dilation) is int else self.dilation[1],
             )

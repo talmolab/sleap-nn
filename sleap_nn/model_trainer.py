@@ -92,9 +92,8 @@ class ModelTrainer:
 
         # val
         val_labels_reader = self.provider(
-            sio.load_slp(
-                self.config.data_config.val.labels_path, max_instances=max_instances
-            )
+            sio.load_slp(self.config.data_config.val.labels_path),
+            max_instances=max_instances,
         )
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,

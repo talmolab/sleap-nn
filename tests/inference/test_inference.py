@@ -21,6 +21,11 @@ from sleap_nn.inference.inference import (
 def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     # for centered instance model
     # check if labels are created from ckpt
+    data_pipeline, _, find_peaks_layer = initialize_model(
+        "/home/jovyan/talmolab-smb/divya/sleap_nn_exp/old_exps/minimal_instance.pkg.slp",
+        "/home/jovyan/talmolab-smb/divya/sleap_nn_exp/old_exps/17_01_ckpt_gen",
+    )
+
     predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
     pred_labels = predictor.predict(make_labels=True)
     assert predictor.centroid_config is None
@@ -88,6 +93,7 @@ def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt):
     data_pipeline, _, find_peaks_layer = initialize_model(
         minimal_instance, minimal_instance_ckpt
     )
+
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=None, instance_peaks=find_peaks_layer
     )
@@ -98,8 +104,10 @@ def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt):
         assert i["centroid_val"] == 1
         assert "pred_instance_peaks" in i and "pred_peak_values" in i
 
-    # if both centroid and find peaks layers are None
-    topdown_inf_layer = TopDownInferenceModel(centroid_crop=None, instance_peaks=None)
+    # if centroid layer is none and "instances" not in data
+    topdown_inf_layer = TopDownInferenceModel(
+        centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
+    )
     example = next(iter(data_pipeline))
 
     with pytest.raises(

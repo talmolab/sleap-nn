@@ -1,4 +1,5 @@
 """Handle cropping of instances."""
+
 from typing import Iterator, Tuple, Dict
 
 import torch
