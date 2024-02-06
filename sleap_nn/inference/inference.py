@@ -171,7 +171,8 @@ class CentroidCrop(L.LightningModule):
 class FindInstancePeaksGroundTruth(L.LightningModule):
     """LightningModule that simulates a centered instance peaks model.
 
-    This layer is useful for testing and evaluating centroid models."""
+    This layer is useful for testing and evaluating centroid models.
+    """
 
     def __init__(
         self,
@@ -205,7 +206,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         subs = torch.argwhere(
             ~torch.all(dists == torch.inf, dim=-1)
         )  # each element represents an index with (batch, 1, n_centroids)
-        valid_matches = torch.Tensor([matches[tuple(i)] for i in subs]).int()
+        valid_matches = matches[subs[:, 0], 0, subs[:, 2]]
         matched_batch_inds = subs[:, 0]
 
         counts = Counter(matched_batch_inds.detach().numpy())
@@ -526,19 +527,18 @@ class TopDownPredictor(Predictor):
             This method also creates the class attribute `data_pipeline` and will be
             called automatically when predicting on data from a new source.
         """
-        self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
-
         provider = self.data_config.provider
         if provider == "LabelsReader":
             provider = LabelsReader
 
+        # load slp file
         labels = sio.load_slp(self.data_config.labels_path)
         self.videos = labels.videos
-        provider_pipeline = provider(
-            labels, max_instances=self.data_config.max_instances
-        )
+
+        # create pipeline
+        self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
         self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=provider_pipeline
+            data_provider=provider(labels, max_instances=self.data_config.max_instances)
         )
 
         # Remove duplicates.
