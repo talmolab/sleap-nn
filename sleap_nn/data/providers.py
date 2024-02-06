@@ -79,7 +79,7 @@ class LabelsReader(IterDataPipe):
             instances = torch.from_numpy(instances.astype("float32"))
             num_instances, nodes = instances.shape[1:3]
             nans = torch.full(
-                (1, self.max_instances - num_instances, nodes, 2), torch.nan
+                (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
             )
             instances = torch.cat([instances, nans], dim=1)
 

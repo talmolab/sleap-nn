@@ -18,12 +18,37 @@ from sleap_nn.inference.inference import (
 )
 
 
-def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
+def initialize_model(minimal_instance, minimal_instance_ckpt):
+    # for centered instance model
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+        f"{minimal_instance_ckpt}/best.ckpt", config=config
+    )
+    data_pipeline = TopdownConfmapsPipeline(config.inference_config.data)
+
+    labels = sio.load_slp(minimal_instance)
+    provider_pipeline = LabelsReader(labels)
+    pipeline = data_pipeline.make_training_pipeline(data_provider=provider_pipeline)
+
+    pipeline = pipeline.sharding_filter()
+    data_pipeline = DataLoader(
+        pipeline,
+        **dict(config.inference_config.data.data_loader),
+    )
+    find_peaks_layer = FindInstancePeaks(
+        torch_model=torch_model,
+        output_stride=2,
+        peak_threshold=0.0,
+        return_confmaps=False,
+    )
+    return data_pipeline, torch_model, find_peaks_layer
+
+
+def test_topdown_centered_predictor(minimal_instance, minimal_instance_ckpt):
     # for centered instance model
     # check if labels are created from ckpt
     data_pipeline, _, find_peaks_layer = initialize_model(
-        "/home/jovyan/talmolab-smb/divya/sleap_nn_exp/old_exps/minimal_instance.pkg.slp",
-        "/home/jovyan/talmolab-smb/divya/sleap_nn_exp/old_exps/17_01_ckpt_gen",
+        minimal_instance, minimal_instance_ckpt
     )
 
     predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
@@ -60,32 +85,6 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     OmegaConf.update(config, "model_config.head_configs.head_type", model_name)
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
-
-
-def initialize_model(minimal_instance, minimal_instance_ckpt):
-    # for centered instance model
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/best.ckpt", config=config
-    )
-    data_pipeline = TopdownConfmapsPipeline(config.inference_config.data)
-
-    labels = sio.load_slp(minimal_instance)
-    provider_pipeline = LabelsReader(labels)
-    pipeline = data_pipeline.make_training_pipeline(data_provider=provider_pipeline)
-
-    pipeline = pipeline.sharding_filter()
-    data_pipeline = DataLoader(
-        pipeline,
-        **dict(config.inference_config.data.data_loader),
-    )
-    find_peaks_layer = FindInstancePeaks(
-        torch_model=torch_model,
-        output_stride=2,
-        peak_threshold=0.0,
-        return_confmaps=False,
-    )
-    return data_pipeline, torch_model, find_peaks_layer
 
 
 def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt):
