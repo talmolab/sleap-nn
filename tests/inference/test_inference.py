@@ -16,14 +16,45 @@ from sleap_nn.model_trainer import TopDownCenteredInstanceModel, SingleInstanceM
 from sleap_nn.inference.inference import (
     Predictor,
     FindInstancePeaks,
+    FindInstancePeaksGroundTruth,
     TopDownInferenceModel,
     SingleInstanceInferenceModel,
 )
 
 
-def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
+def initialize_model(minimal_instance, minimal_instance_ckpt):
+    # for centered instance model
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+        f"{minimal_instance_ckpt}/best.ckpt", config=config
+    )
+    data_pipeline = TopdownConfmapsPipeline(config.inference_config.data)
+
+    labels = sio.load_slp(minimal_instance)
+    provider_pipeline = LabelsReader(labels)
+    pipeline = data_pipeline.make_training_pipeline(data_provider=provider_pipeline)
+
+    pipeline = pipeline.sharding_filter()
+    data_pipeline = DataLoader(
+        pipeline,
+        **dict(config.inference_config.data.data_loader),
+    )
+    find_peaks_layer = FindInstancePeaks(
+        torch_model=torch_model,
+        output_stride=2,
+        peak_threshold=0.0,
+        return_confmaps=False,
+    )
+    return data_pipeline, torch_model, find_peaks_layer
+
+
+def test_topdown_centered_predictor(minimal_instance, minimal_instance_ckpt):
     # for centered instance model
     # check if labels are created from ckpt
+    data_pipeline, _, find_peaks_layer = initialize_model(
+        minimal_instance, minimal_instance_ckpt
+    )
+
     predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
     pred_labels = predictor.predict(make_labels=True)
     assert predictor.centroid_config is None
@@ -60,37 +91,12 @@ def test_topdown_centered_predictor(minimal_instance_ckpt, minimal_instance):
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
 
-def initialize_model(minimal_instance, minimal_instance_ckpt):
-    # for centered instance model
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/best.ckpt", config=config
-    )
-    data_pipeline = TopdownConfmapsPipeline(config.inference_config.data)
-
-    labels = sio.load_slp(minimal_instance)
-    provider_pipeline = LabelsReader(labels)
-    pipeline = data_pipeline.make_training_pipeline(data_provider=provider_pipeline)
-
-    pipeline = pipeline.sharding_filter()
-    data_pipeline = DataLoader(
-        pipeline,
-        **dict(config.inference_config.data.data_loader),
-    )
-    find_peaks_layer = FindInstancePeaks(
-        torch_model=torch_model,
-        output_stride=2,
-        peak_threshold=0.0,
-        return_confmaps=False,
-    )
-    return data_pipeline, torch_model, find_peaks_layer
-
-
 def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt):
     # for centered instance model
     data_pipeline, _, find_peaks_layer = initialize_model(
         minimal_instance, minimal_instance_ckpt
     )
+
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=None, instance_peaks=find_peaks_layer
     )
@@ -101,20 +107,47 @@ def test_topdown_inference_model(minimal_instance, minimal_instance_ckpt):
         assert i["centroid_val"] == 1
         assert "pred_instance_peaks" in i and "pred_peak_values" in i
 
-    # if find peaks is None
-    topdown_inf_layer = TopDownInferenceModel(centroid_crop=None, instance_peaks=None)
+    # if centroid layer is none and "instances" not in data
+    topdown_inf_layer = TopDownInferenceModel(
+        centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
+    )
     example = next(iter(data_pipeline))
-    # output = topdown_inf_layer(example)
-    # assert output["pred_peak_values"]==torch.Tensor([1,1,1,1])
-    # assert output["pred_instance_peaks"]==output["instance"]
 
-    # if both centroid and find peaks layers are None
-    del example["instance"]
     with pytest.raises(
         Exception,
         match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
     ):
         topdown_inf_layer(example)
+
+
+def test_find_instance_peaks_groundtruth(minimal_instance, minimal_instance_ckpt):
+    data_pipeline, _, _ = initialize_model(minimal_instance, minimal_instance_ckpt)
+    p = iter(data_pipeline)
+    e1 = next(p)
+    e2 = next(p)
+    example = e1.copy()
+    example["instance"] = e1["instance"].unsqueeze(dim=1)
+    example["centroid"] = e1["centroid"].unsqueeze(dim=1)
+    inst = e2["instance"].unsqueeze(dim=1) + 300
+    cent = e2["centroid"].unsqueeze(dim=1) + 300
+    inst[0, 0, 0, 0, 0] = torch.nan
+    example["instances"] = torch.cat(
+        [example["instance"], inst, torch.full(example["instance"].shape, torch.nan)],
+        dim=2,
+    )
+    example["centroids"] = torch.cat(
+        [example["centroid"], cent, torch.full(example["centroid"].shape, torch.nan)],
+        dim=2,
+    )
+    example["num_instances"] = [2, 2, 2, 2]
+    topdown_inf_layer = TopDownInferenceModel(
+        centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
+    )
+    output = topdown_inf_layer(example)
+    assert torch.isclose(
+        output["pred_instance_peaks"], example["instances"], atol=1e-6, equal_nan=True
+    ).all()
+    assert output["pred_peak_values"].shape == (1, 1, 3, 2)
 
 
 def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt):

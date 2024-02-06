@@ -1,4 +1,5 @@
 """Dataset fixtures for unit testing."""
+
 from pathlib import Path
 from omegaconf import OmegaConf
 
@@ -29,6 +30,7 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
+                "max_instances": 30,
                 "pipeline": "TopdownConfmaps",
                 "train": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
@@ -188,6 +190,7 @@ def config(sleap_data_dir):
                 "data": {
                     "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
                     "provider": "LabelsReader",
+                    "max_instances": 30,
                     "data_loader": {
                         "batch_size": 4,
                         "shuffle": False,

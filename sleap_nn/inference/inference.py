@@ -8,7 +8,7 @@ import attr
 import torch.nn as nn
 from pathlib import Path
 from abc import ABC, abstractmethod
-from collections import defaultdict
+from collections import defaultdict, Counter
 import lightning as L
 from torch.utils.data.dataloader import DataLoader
 from omegaconf.dictconfig import DictConfig
@@ -19,7 +19,6 @@ from sleap_nn.data.pipelines import (
 )
 from sleap_nn.inference.peak_finding import find_global_peaks
 from sleap_nn.model_trainer import TopDownCenteredInstanceModel, SingleInstanceModel
-
 from time import time
 from omegaconf import OmegaConf
 
@@ -172,6 +171,87 @@ class CentroidCrop(L.LightningModule):
     pass
 
 
+class FindInstancePeaksGroundTruth(L.LightningModule):
+    """LightningModule that simulates a centered instance peaks model.
+
+    This layer is useful for testing and evaluating centroid models.
+    """
+
+    def __init__(
+        self,
+        **kwargs,
+    ):
+        """Initialise the model attributes."""
+        super().__init__(**kwargs)
+
+    def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
+        """Return the ground truth instance peaks given a set of crops."""
+        # num_inst = batch["num_instances"]
+        b, _, max_inst, nodes, _ = batch["instances"].shape
+        inst = (
+            batch["instances"].unsqueeze(dim=-4).float()
+        )  # (batch, 1, 1, n_inst, nodes, 2)
+        cent = (
+            batch["centroids"].unsqueeze(dim=-2).unsqueeze(dim=-3).float()
+        )  # (batch, 1, n_centroids, 1, 1, 2)
+        dists = torch.sum(
+            (inst - cent) ** 2, dim=-1
+        )  # (batch, 1, n_centroids, n_inst, nodes)
+        dists = torch.sqrt(dists)
+
+        dists = torch.where(torch.isnan(dists), torch.inf, dists)
+        dists = torch.min(dists, dim=-1).values  # (batch, 1, n_centroids, n_inst)
+
+        # find nearest gt instance
+        matches = torch.argmin(dists, dim=-1)  # (batch, 1, n_centroids)
+
+        # filter matches without NaNs (nans have been converted to inf)
+        subs = torch.argwhere(
+            ~torch.all(dists == torch.inf, dim=-1)
+        )  # each element represents an index with (batch, 1, n_centroids)
+        valid_matches = matches[subs[:, 0], 0, subs[:, 2]]
+        matched_batch_inds = subs[:, 0]
+
+        counts = Counter(matched_batch_inds.detach().numpy())
+        peaks_list = batch["instances"][matched_batch_inds, 0, valid_matches, :, :]
+        parsed = 0
+        for i in range(b):
+            if i not in counts.keys():
+                batch_peaks = torch.full((max_inst, nodes, 2), torch.nan).unsqueeze(
+                    dim=0
+                )
+                vals = torch.full((max_inst, nodes), torch.nan).unsqueeze(dim=0)
+            else:
+                c = counts[i]
+                batch_peaks = peaks_list[parsed : parsed + c]
+                num_inst = len(batch_peaks)
+                vals = torch.ones((num_inst, nodes))
+                if c != max_inst:
+                    batch_peaks = torch.cat(
+                        [
+                            batch_peaks,
+                            torch.full((max_inst - num_inst, nodes, 2), torch.nan),
+                        ]
+                    ).unsqueeze(dim=0)
+                    vals = torch.cat(
+                        [vals, torch.full((max_inst - num_inst, nodes), torch.nan)]
+                    ).unsqueeze(dim=0)
+                parsed += c
+
+            if i != 0:
+                peaks = torch.cat([peaks, batch_peaks])
+                peaks_vals = torch.cat([peaks_vals, vals])
+            else:
+                peaks = batch_peaks
+                peaks_vals = vals
+
+        peaks_output = batch.copy()
+        peaks_output["pred_instance_peaks"] = peaks.unsqueeze(dim=1)
+        peaks_output["pred_peak_values"] = peaks_vals.unsqueeze(dim=1)
+
+        return peaks_output
+
+
 class FindInstancePeaks(L.LightningModule):
     """Lightning Module that predicts instance peaks from images using a trained model.
 
@@ -288,7 +368,7 @@ class TopDownInferenceModel(L.LightningModule):
     def __init__(
         self,
         centroid_crop: Union[CentroidCrop, None],
-        instance_peaks: Union[FindInstancePeaks, None],
+        instance_peaks: Union[FindInstancePeaks, FindInstancePeaksGroundTruth],
         **kwargs,
     ):
         """Initialize the class with Inference models."""
@@ -320,10 +400,9 @@ class TopDownInferenceModel(L.LightningModule):
         if self.centroid_crop is None:
             batch["centroid_val"] = torch.ones(batch_size)
 
-        if self.instance_peaks is None:
-            if "instance" in batch:
-                # TODO: centroid model pass the ground truth instances
-                pass
+        if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+            if "instances" in batch:
+                peaks_output = self.instance_peaks(batch)
             else:
                 raise ValueError(
                     "Ground truth data was not detected... "
@@ -372,7 +451,7 @@ class TopDownPredictor(Predictor):
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
         if self.confmap_config is None:
-            instance_peaks_layer = None
+            instance_peaks_layer = FindInstancePeaksGroundTruth()
         else:
             self.model_config["confmaps"] = self.confmap_config
             self.model_config["data"] = self.confmap_config.inference_config.data
@@ -458,17 +537,18 @@ class TopDownPredictor(Predictor):
             This method also creates the class attribute `data_pipeline` and will be
             called automatically when predicting on data from a new source.
         """
-        self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
-
         provider = self.data_config.provider
         if provider == "LabelsReader":
             provider = LabelsReader
 
+        # load slp file
         labels = sio.load_slp(self.data_config.labels_path)
         self.videos = labels.videos
-        provider_pipeline = provider(labels)
+
+        # create pipeline
+        self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
         self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=provider_pipeline
+            data_provider=provider(labels, max_instances=self.data_config.max_instances)
         )
 
         # Remove duplicates.

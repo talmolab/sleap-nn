@@ -1,4 +1,5 @@
 """Peak finding for inference."""
+
 from typing import Optional, Tuple
 
 import kornia as K

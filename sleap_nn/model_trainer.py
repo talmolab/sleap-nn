@@ -70,6 +70,7 @@ class ModelTrainer:
             val_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config.val
             )
+            max_instances = 1
 
         elif self.config.data_config.pipeline == "TopdownConfmaps":
             train_pipeline = TopdownConfmapsPipeline(
@@ -78,6 +79,7 @@ class ModelTrainer:
             val_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config.val
             )
+            max_instances = self.config.data_config.max_instances
 
         else:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
@@ -86,7 +88,7 @@ class ModelTrainer:
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
         self.skeletons = train_labels.skeletons
 
-        train_labels_reader = self.provider(train_labels)
+        train_labels_reader = self.provider(train_labels, max_instances=max_instances)
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
         )
@@ -101,7 +103,8 @@ class ModelTrainer:
 
         # val
         val_labels_reader = self.provider(
-            sio.load_slp(self.config.data_config.val.labels_path)
+            sio.load_slp(self.config.data_config.val.labels_path),
+            max_instances=max_instances,
         )
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,
