@@ -821,7 +821,7 @@ class SingleInstancePredictor(Predictor):
 
         labels = sio.load_slp(self.data_config.labels_path)
         self.videos = labels.videos
-        provider_pipeline = provider(labels)
+        provider_pipeline = provider(labels, max_instances=1)
         self.pipeline = self.pipeline.make_training_pipeline(
             data_provider=provider_pipeline
         )

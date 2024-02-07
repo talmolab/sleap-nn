@@ -209,7 +209,7 @@ def test_single_instance_inference_model(
     for lf in labels:
         lf.instances = lf.instances[:1]
 
-    provider_pipeline = LabelsReader(labels)
+    provider_pipeline = LabelsReader(labels, max_instances=1)
     pipeline = data_pipeline.make_training_pipeline(data_provider=provider_pipeline)
 
     pipeline = pipeline.sharding_filter()
