@@ -590,8 +590,11 @@ class TopDownPredictor(Predictor):
                 for n in self.data_config.skeletons[name].nodes
             ]
             edges = [
-                sio.model.skeleton.Edge(e["source"], e["destination"])
-                for e in self.data_config.skeletons[name].edges
+                sio.model.skeleton.Edge(
+                    sio.model.skeleton.Node(e["source"]["name"]),
+                    sio.model.skeleton.Node(e["destination"]["name"]),
+                )
+                for e in self.confmap_config.data_config.skeletons[name].edges
             ]
             list_args = [
                 set(
@@ -863,7 +866,10 @@ class SingleInstancePredictor(Predictor):
                 for n in self.confmap_config.data_config.skeletons[name].nodes
             ]
             edges = [
-                sio.model.skeleton.Edge(e["source"], e["destination"])
+                sio.model.skeleton.Edge(
+                    sio.model.skeleton.Node(e["source"]["name"]),
+                    sio.model.skeleton.Node(e["destination"]["name"]),
+                )
                 for e in self.confmap_config.data_config.skeletons[name].edges
             ]
             list_args = [
