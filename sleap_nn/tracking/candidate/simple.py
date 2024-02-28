@@ -5,9 +5,10 @@ from typing import List
 from typing import Deque
 
 from sleap_nn.tracking.core.instance import MatchedFrameInstances, Instance
+from sleap_nn.tracking.candidate.base import BaseCandidateMaker
 
 @attrs.define(auto_attribs=True)
-class SimpleCandidateMaker:
+class SimpleCandidateMaker(BaseCandidateMaker):
     """Class for producing list of matching candidates from prior frames."""
 
     min_points: int = 0

@@ -1,12 +1,13 @@
 """Base candidate selector/maker class."""
 
 import attrs
+from abc import ABC
 from typing import Deque, List
 
 from sleap_nn.tracking.core.instance import MatchedFrameInstances, Instance
 
 @attrs.define(auto_attribs=True)
-class BaseCandidateMaker:
+class BaseCandidateMaker(ABC):
     """Base class for producing list of matching candidates from prior frames."""
 
     min_points: int = 0
