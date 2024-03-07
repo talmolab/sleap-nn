@@ -596,16 +596,14 @@ class TopDownPredictor(Predictor):
                 )
                 for e in self.confmap_config.data_config.skeletons[name].edges
             ]
-            list_args = [
-                set(
-                    [
-                        sio.model.skeleton.Node(s[0]["name"]),
-                        sio.model.skeleton.Node(s[1]["name"]),
-                    ]
-                )
-                for s in self.data_config.skeletons[name].symmetries
-            ]
-            symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
+            if self.data_config.skeletons[name].symmetries: 
+                list_args =[set([sio.model.skeleton.Node(s[0]["name"]), sio.model.skeleton.Node(s[1]["name"])]) for s in self.data_config.skeletons[name].symmetries]
+                symmetries = [
+                    sio.model.skeleton.Symmetry(x)
+                    for x in list_args
+                ]
+            else:
+                symmetries = []
 
             skeletons.append(
                 sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
@@ -872,16 +870,14 @@ class SingleInstancePredictor(Predictor):
                 )
                 for e in self.confmap_config.data_config.skeletons[name].edges
             ]
-            list_args = [
-                set(
-                    [
-                        sio.model.skeleton.Node(s[0]["name"]),
-                        sio.model.skeleton.Node(s[1]["name"]),
-                    ]
-                )
-                for s in self.confmap_config.data_config.skeletons[name].symmetries
-            ]
-            symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
+            if self.data_config.skeletons[name].symmetries: 
+                list_args =[set([sio.model.skeleton.Node(s[0]["name"]), sio.model.skeleton.Node(s[1]["name"])]) for s in self.data_config.skeletons[name].symmetries]
+                symmetries = [
+                    sio.model.skeleton.Symmetry(x)
+                    for x in list_args
+                ]
+            else:
+                symmetries = []
 
             skeletons.append(
                 sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
