@@ -68,7 +68,14 @@ def test_trainer(config, tmp_path: str):
 
     # disable ckpt, check if ckpt is created
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
-    assert not folder_created
+    assert (
+        Path(config.trainer_config.save_ckpt_path)
+        .joinpath("training_config.yaml")
+        .exists()
+    )
+    assert not (
+        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+    )
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)

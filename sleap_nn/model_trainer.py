@@ -51,7 +51,6 @@ class ModelTrainer:
         self.seed = self.config.trainer_config.seed
         # set seed
         torch.manual_seed(self.seed)
-
         self.is_single_instance_model = False
         if self.config.data_config.pipeline == "SingleInstanceConfmaps":
             self.is_single_instance_model = True
@@ -61,7 +60,6 @@ class ModelTrainer:
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
-
         # create pipelines
         if self.is_single_instance_model:
             train_pipeline = SingleInstanceConfmapsPipeline(
@@ -128,19 +126,19 @@ class ModelTrainer:
         """Function to initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         self.logger = []
-        if self.config.trainer_config.save_ckpt:
-            if not self.config.trainer_config.save_ckpt_path:
-                dir_path = "."
-            else:
-                dir_path = self.config.trainer_config.save_ckpt_path
+        if not self.config.trainer_config.save_ckpt_path:
+            dir_path = "."
+        else:
+            dir_path = self.config.trainer_config.save_ckpt_path
 
-            if not Path(dir_path).exists():
-                try:
-                    Path(dir_path).mkdir(parents=True, exist_ok=True)
-                except OSError as e:
-                    print(
-                        f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
-                    )
+        if not Path(dir_path).exists():
+            try:
+                Path(dir_path).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                print(
+                    f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
+                )
+        if self.config.trainer_config.save_ckpt:
 
             # create checkpoint callback
             checkpoint_callback = ModelCheckpoint(
@@ -167,23 +165,22 @@ class ModelTrainer:
             )
             self.logger.append(self.wandb_logger)
 
-        if self.config.trainer_config.save_ckpt:
-            # save the configs as yaml in the checkpoint dir
-            self.config.trainer_config.wandb.api_key = ""
-            OmegaConf.save(config=self.config, f=f"{dir_path}/initial_config.yaml")
+        # save the configs as yaml in the checkpoint dir
+        self.config.trainer_config.wandb.api_key = ""
+        OmegaConf.save(config=self.config, f=f"{dir_path}/initial_config.yaml")
 
-            # save the skeleton in the config
-            self.config["data_config"]["skeletons"] = {}
-            for skl in self.skeletons:
-                if skl.symmetries:
-                    symm = [list(s.nodes) for s in skl.symmetries]
-                else:
-                    symm = None
-                self.config["data_config"]["skeletons"][skl.name] = {
-                    "nodes": skl.nodes,
-                    "edges": skl.edges,
-                    "symmetries": symm,
-                }
+        # save the skeleton in the config
+        self.config["data_config"]["skeletons"] = {}
+        for skl in self.skeletons:
+            if skl.symmetries:
+                symm = [list(s.nodes) for s in skl.symmetries]
+            else:
+                symm = None
+            self.config["data_config"]["skeletons"][skl.name] = {
+                "nodes": skl.nodes,
+                "edges": skl.edges,
+                "symmetries": symm,
+            }
 
         self._initialize_model()
 
@@ -200,11 +197,18 @@ class ModelTrainer:
         trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
 
         if self.config.trainer_config.use_wandb:
+            self.config.trainer_config.wandb.run_id = wandb.run.id
+            for m in self.config.trainer_config.wandb.log_params:
+                list_keys = m.split(".")
+                key = list_keys[-1]
+                value = self.config[list_keys[0]]
+                for l in list_keys[1:]:
+                    value = value[l]
+                self.wandb_logger.experiment.config.update({key: value})
             wandb.finish()
 
-        if self.config.trainer_config.save_ckpt:
-            # save the configs as yaml in the checkpoint dir
-            OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
+        # save the configs as yaml in the checkpoint dir
+        OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
 
 class TrainingModel(L.LightningModule):
@@ -215,7 +219,7 @@ class TrainingModel(L.LightningModule):
     Args:
         config: OmegaConf dictionary which has the following:
                 (i) data_config: data loading pre-processing configs to be passed to
-                `TopdownConfmapsPipeline` class.
+                a pipeline class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
 
@@ -237,11 +241,9 @@ class TrainingModel(L.LightningModule):
         # Initializing the model weights
         if self.model_config.init_weights == "xavier":
             self.model.apply(xavier_init_weights)
-        self.seed = self.trainer_config.seed
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
-        torch.manual_seed(self.seed)
 
     @property
     def device(self):
@@ -299,10 +301,16 @@ class TrainingModel(L.LightningModule):
 
     def configure_optimizers(self):
         """Configure optimiser and learning rate scheduler."""
-        optimizer = torch.optim.Adam(
-            self.parameters(),
-            **dict(self.trainer_config.optimizer),
-        )
+        if self.trainer_config.optimizer_name == "Adam":
+            optimizer = torch.optim.Adam(
+                self.parameters(),
+                **dict(self.trainer_config.optimizer),
+            )
+        elif self.trainer_config.optimizer_name == "AdamW":
+            optimizer = torch.optim.AdamW(
+                self.parameters(),
+                **dict(self.trainer_config.optimizer),
+            )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             **dict(self.trainer_config.lr_scheduler),

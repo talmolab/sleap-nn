@@ -167,11 +167,19 @@ def config(sleap_data_dir):
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",
+                "optimizer_name": "Adam",
                 "wandb": {
                     "project": "test",
                     "name": "test_run",
                     "wandb_mode": "offline",
                     "api_key": "",
+                    "log_params": [
+                        "trainer_config.optimizer_name",
+                        "trainer_config.optimizer.amsgrad",
+                        "trainer_config.optimizer.lr",
+                        "model_config.backbone_config.backbone_type",
+                        "model_config.init_weights",
+                    ],
                 },
                 "optimizer": {
                     "lr": 1e-4,

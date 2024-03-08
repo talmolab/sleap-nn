@@ -31,8 +31,7 @@ class Predictor(ABC):
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            model_paths: List of paths to the directory where the best.ckpt and training_config.yaml
-            are saved.
+            model_paths: List of paths to the directory where the best.ckpt and training_config.yaml are saved.
 
         Returns:
             A subclass of `Predictor`.
@@ -451,7 +450,7 @@ class TopDownPredictor(Predictor):
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
         if self.confmap_config is None:
-            instance_peaks_layer = FindInstancePeaksGroundTruth()
+            pass
         else:
             self.model_config["confmaps"] = self.confmap_config
             self.model_config["data"] = self.confmap_config.inference_config.data
@@ -596,12 +595,17 @@ class TopDownPredictor(Predictor):
                 )
                 for e in self.confmap_config.data_config.skeletons[name].edges
             ]
-            if self.data_config.skeletons[name].symmetries: 
-                list_args =[set([sio.model.skeleton.Node(s[0]["name"]), sio.model.skeleton.Node(s[1]["name"])]) for s in self.data_config.skeletons[name].symmetries]
-                symmetries = [
-                    sio.model.skeleton.Symmetry(x)
-                    for x in list_args
+            if self.data_config.skeletons[name].symmetries:
+                list_args = [
+                    set(
+                        [
+                            sio.model.skeleton.Node(s[0]["name"]),
+                            sio.model.skeleton.Node(s[1]["name"]),
+                        ]
+                    )
+                    for s in self.data_config.skeletons[name].symmetries
                 ]
+                symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
             else:
                 symmetries = []
 
@@ -856,7 +860,6 @@ class SingleInstancePredictor(Predictor):
             arrays returned from the inference result generator.
         """
         predicted_frames = []
-
         skeletons = []
         for name in self.confmap_config.data_config.skeletons.keys():
             nodes = [
@@ -870,12 +873,17 @@ class SingleInstancePredictor(Predictor):
                 )
                 for e in self.confmap_config.data_config.skeletons[name].edges
             ]
-            if self.data_config.skeletons[name].symmetries: 
-                list_args =[set([sio.model.skeleton.Node(s[0]["name"]), sio.model.skeleton.Node(s[1]["name"])]) for s in self.data_config.skeletons[name].symmetries]
-                symmetries = [
-                    sio.model.skeleton.Symmetry(x)
-                    for x in list_args
+            if self.confmap_config.data_config.skeletons[name].symmetries:
+                list_args = [
+                    set(
+                        [
+                            sio.model.skeleton.Node(s[0]["name"]),
+                            sio.model.skeleton.Node(s[1]["name"]),
+                        ]
+                    )
+                    for s in self.confmap_config.data_config.skeletons[name].symmetries
                 ]
+                symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
             else:
                 symmetries = []
 
