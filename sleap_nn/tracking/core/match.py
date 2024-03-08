@@ -5,6 +5,10 @@ import numpy as np
 from typing import List, Optional, Callable
 from collections import defaultdict
 
+from sleap_nn.tracking.core.track import Track
+from sleap_nn.tracking.core.instance import Instance
+
+
 @attrs.define(auto_attribs=True)
 class Match:
     """Stores a match between a specific instance and specific track."""
@@ -40,7 +44,7 @@ class FrameMatches:
 
     matches: List[Match]
     cost_matrix: np.ndarray
-    unmatched_instances: List[InstanceType] = attrs.field(factory=list)
+    unmatched_instances: List[Instance] = attrs.field(factory=list)
 
     @property
     def has_only_first_choice_matches(self) -> bool:
@@ -54,8 +58,8 @@ class FrameMatches:
     @classmethod
     def from_candidate_instances(
         cls,
-        untracked_instances: List[InstanceType],
-        candidate_instances: List[InstanceType],
+        untracked_instances: List[Instance],
+        candidate_instances: List[Instance],
         similarity_function: Callable,
         matching_function: Callable,
         robust_best_instance: float = 1.0,
@@ -132,7 +136,7 @@ class FrameMatches:
     def from_cost_matrix(
         cls,
         cost_matrix: np.ndarray,
-        instances: List[InstanceType],
+        instances: List[Instance],
         tracks: List[Track],
         matching_function: Callable,
     ):

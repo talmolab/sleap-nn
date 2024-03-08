@@ -1,17 +1,30 @@
 """SimpleTracker."""
 
 import attrs
-from typing import Optional, List, Callable, Deque
+from typing import Optional, List, Callable, Deque, Dict
 import numpy as np
 
 from sleap_nn.tracking.core.instance import Instance, MatchedFrameInstances
 from sleap_nn.tracking.candidate.simple import SimpleCandidateMaker
+from sleap_nn.tracking.trackers.base import BaseTracker
+from sleap_nn.tracking.core.match import FrameMatches
+from sleap_nn.tracking.functional.iou import instance_iou
+from sleap_nn.tracking.functional.hungarian_matching import hungarian_matching
 
-class SimpleTracker:
+@attrs.define(auto_attribs=True)
+class SimpleTracker(BaseTracker):
 
     pre_cull_function: Optional[Callable] = None
-    candidate_maker: object = attrs.field(factory=SimpleCandidateMaker)
-    track_matching_queue: Deque[MatchedFrameInstances] = attrs.field()
+    similarity_function: Callable = instance_iou
+    matching_function: Callable = hungarian_matching
+    robust_best_instance: float = 1.0
+    candidate_maker: SimpleCandidateMaker
+    save_tracked_instances: bool = False
+
+    track_matching_queue: Deque[MatchedFrameInstances]
+    tracked_instances: Dict[int, List[Instance]] = attrs.field(
+        factory=dict
+    )  # Keyed by t.
 
     def track(
         self,

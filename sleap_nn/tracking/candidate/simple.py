@@ -23,7 +23,7 @@ class SimpleCandidateMaker(BaseCandidateMaker):
         # Build a pool of matchable candidate instances.
         candidate_instances = []
         for matched_item in track_matching_queue:
-            ref_t, ref_instances = matched_item.t, matched_item.instances_t
+            _, ref_instances = matched_item.t, matched_item.instances_t
             for ref_instance in ref_instances:
                 if ref_instance.n_visible_points >= self.min_points:
                     candidate_instances.append(ref_instance)

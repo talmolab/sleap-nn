@@ -4,8 +4,12 @@ import attrs
 from typing import List, Optional
 import numpy as np
 
+from sleap_nn.tracking.core.track import Track
+
 class Instance:
-    """A single instance in a frame."""
+    track: Track
+    n_visible_points: int
+    bounding_box: np.ndarray
 
 @attrs.define(auto_attribs=True)
 class MatchedFrameInstances:
