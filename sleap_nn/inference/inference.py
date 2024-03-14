@@ -19,7 +19,6 @@ from sleap_nn.data.pipelines import (
 )
 from sleap_nn.inference.peak_finding import find_global_peaks
 from sleap_nn.model_trainer import TopDownCenteredInstanceModel, SingleInstanceModel
-from time import time
 from omegaconf import OmegaConf
 
 
@@ -547,7 +546,13 @@ class TopDownPredictor(Predictor):
         # create pipeline
         self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
         self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=provider(labels, max_instances=self.data_config.max_instances)
+            data_provider=provider(
+                labels,
+                max_instances=self.data_config.max_instances,
+                max_height=self.data_config.max_height,
+                max_width=self.data_config.max_width,
+                is_rgb=self.data_config.is_rgb,
+            )
         )
 
         # Remove duplicates.
@@ -624,6 +629,7 @@ class TopDownPredictor(Predictor):
                 pred_instances,
                 pred_values,
                 instance_score,
+                org_size,
             ) in zip(
                 ex["video_idx"],
                 ex["frame_idx"],
@@ -631,8 +637,15 @@ class TopDownPredictor(Predictor):
                 ex["pred_instance_peaks"],
                 ex["pred_peak_values"],
                 ex["centroid_val"],
+                ex["orig_size"],
             ):
-                pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
+                pad_height = (self.data_config.max_height - org_size[0]) // 2
+                pad_width = (self.data_config.max_width - org_size[1]) // 2
+                pred_instances = (
+                    pred_instances
+                    + bbox.squeeze(axis=0)[0, :]
+                    - [pad_height, pad_width]
+                )
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
                         points=pred_instances,
@@ -899,12 +912,17 @@ class SingleInstancePredictor(Predictor):
                 frame_idx,
                 pred_instances,
                 pred_values,
+                org_size,
             ) in zip(
                 ex["video_idx"],
                 ex["frame_idx"],
                 ex["pred_instance_peaks"],
                 ex["pred_peak_values"],
+                ex["orig_size"],
             ):
+                pad_height = (self.data_config.max_height - org_size[0]) // 2
+                pad_width = (self.data_config.max_width - org_size[1]) // 2
+                pred_instances = pred_instances - [pad_height, pad_width]
                 inst = sio.PredictedInstance.from_numpy(
                     points=pred_instances,
                     skeleton=skeletons[skeleton_idx],

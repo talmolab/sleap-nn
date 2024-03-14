@@ -462,6 +462,22 @@ class Decoder(nn.Module):
 
             self.current_strides.append(current_stride)
             current_stride = next_stride
+        while current_stride != 1:
+            next_stride = current_stride // 2
+            self.decoder_stack.append(
+                SimpleUpsamplingBlock(
+                    x_in_shape=(x_in_shape),
+                    current_stride=current_stride,
+                    upsampling_stride=2,
+                    interp_method="bilinear",
+                    refine_convs=0,  # self.convs_per_block,
+                    refine_convs_filters=block_filters_out,
+                    refine_convs_kernel_size=self.kernel_size,
+                    refine_convs_batch_norm=False,
+                )
+            )
+            self.current_strides.append(current_stride)
+            current_stride = next_stride
 
     def forward(
         self, x: torch.Tensor, features: List[torch.Tensor]
@@ -480,7 +496,10 @@ class Decoder(nn.Module):
             "outputs": [],
         }
         for i in range(len(self.decoder_stack)):
-            x = self.decoder_stack[i](x, features[i])
+            if i < len(features):
+                x = self.decoder_stack[i](x, features[i])
+            else:
+                x = self.decoder_stack[i](x, None)
             outputs["outputs"].append(x)
         outputs["strides"] = self.current_strides
 

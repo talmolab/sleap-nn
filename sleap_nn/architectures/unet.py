@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from sleap_nn.architectures.encoder_decoder import Decoder, Encoder
+from sleap_nn.architectures.common import xavier_init_weights
 
 
 class UNet(nn.Module):
@@ -34,6 +35,7 @@ class UNet(nn.Module):
 
     def __init__(
         self,
+        init_weights: str = "default",
         in_channels: int = 1,
         kernel_size: int = 3,
         filters: int = 32,
@@ -46,6 +48,7 @@ class UNet(nn.Module):
         super().__init__()
 
         self.in_channels = in_channels
+        self.init_weights = init_weights
         self.kernel_size = kernel_size
         self.filters = filters
         self.filters_rate = filters_rate
@@ -83,6 +86,11 @@ class UNet(nn.Module):
             down_blocks=down_blocks,
             filters_rate=filters_rate,
         )
+
+        # Initializing the model weights
+        if init_weights == "xavier":
+            self.enc.apply(xavier_init_weights)
+            self.dec.apply(xavier_init_weights)
 
     @property
     def output_channels(self):

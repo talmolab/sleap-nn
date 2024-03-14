@@ -18,20 +18,28 @@ class LabelsReader(IterDataPipe):
     Attributes:
         labels: sleap_io.Labels object that contains LabeledFrames that will be
             accessed through a torchdata DataPipe
+        max_height: Maximum height the image should be padded to. If not provided, the original image size will be retained.
+        max_width: Maximum width the image should be padded to. If not provided, the original image size will be retained.
         user_instances_only: True if filter labels only to user instances else False. Default value True
         max_instances: Upper limit for number of empty instances to be appended in 'instances'. For singleinstance models, max_instances=1.
-
+        is_rgb: True if the image has 3 channels (RGB image)
     """
 
     def __init__(
         self,
         labels: sio.Labels,
+        max_height: int = -1,
+        max_width: int = -1,
         user_instances_only: bool = True,
         max_instances: int = 30,
+        is_rgb: bool = False,
     ):
         """Initialize labels attribute of the class."""
         self.labels = copy.deepcopy(labels)
         self.max_instances = max_instances
+        self.max_width = max_width
+        self.max_height = max_height
+        self.is_rgb = is_rgb
 
         # Filter to user instances
         if user_instances_only:
@@ -48,11 +56,19 @@ class LabelsReader(IterDataPipe):
 
     @classmethod
     def from_filename(
-        cls, filename: str, user_instances_only: bool = True, max_instances: int = 30
+        cls,
+        filename: str,
+        user_instances_only: bool = True,
+        max_instances: int = 30,
+        max_height: int = -1,
+        max_width: int = -1,
+        is_rgb=False,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
-        return cls(labels, user_instances_only, max_instances)
+        return cls(
+            labels, max_height, max_width, user_instances_only, max_instances, is_rgb
+        )
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.
@@ -67,7 +83,8 @@ class LabelsReader(IterDataPipe):
 
             instances = []
             for inst in lf:
-                instances.append(inst.numpy())
+                if not np.all(np.isnan(inst.numpy())):
+                    instances.append(inst.numpy())
             instances = np.stack(instances, axis=0)
 
             # Add singleton time dimension for single frames.
@@ -82,6 +99,23 @@ class LabelsReader(IterDataPipe):
                 (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
             )
             instances = torch.cat([instances, nans], dim=1)
+            img_height, img_width = image.shape[-2:]
+
+            # pad images to max_height and max_width
+            if self.max_height != -1:  # only if user provides
+                print(f"max height: {self.max_height} img_height: {img_height}")
+                pad_height = (self.max_height - img_height) // 2
+                pad_width = (self.max_width - img_width) // 2
+                image = np.pad(
+                    image,
+                    ((0, 0), (0, 0), (pad_height, pad_height), (pad_width, pad_width)),
+                    mode="constant",
+                ).astype("float32")
+                instances = instances + torch.Tensor([pad_width, pad_height])
+
+            # convert to rgb
+            if self.is_rgb and image.shape[-3] != 3:
+                image = np.concatenate([image, image, image], axis=-3)
 
             yield {
                 "image": torch.from_numpy(image),
@@ -91,4 +125,5 @@ class LabelsReader(IterDataPipe):
                 ),
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                 "num_instances": num_instances,
+                "orig_size": (img_height, img_width),
             }

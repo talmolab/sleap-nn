@@ -22,13 +22,6 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 import os
 
 
-def xavier_init_weights(x):
-    """Function to initilaise the model weights with Xavier initialization method."""
-    if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
-        nn.init.xavier_uniform_(x.weight)
-        nn.init.constant_(x.bias, 0)
-
-
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
 
@@ -86,7 +79,13 @@ class ModelTrainer:
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
         self.skeletons = train_labels.skeletons
 
-        train_labels_reader = self.provider(train_labels, max_instances=max_instances)
+        train_labels_reader = self.provider(
+            train_labels,
+            max_instances=max_instances,
+            max_height=self.config.data_config.max_height,
+            max_width=self.config.data_config.max_width,
+            is_rgb=self.config.data_config.is_rgb,
+        )
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
         )
@@ -103,6 +102,9 @@ class ModelTrainer:
         val_labels_reader = self.provider(
             sio.load_slp(self.config.data_config.val.labels_path),
             max_instances=max_instances,
+            max_height=self.config.data_config.max_height,
+            max_width=self.config.data_config.max_width,
+            is_rgb=self.config.data_config.is_rgb,
         )
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,
@@ -237,10 +239,6 @@ class TrainingModel(L.LightningModule):
             backbone_config=self.model_config.backbone_config,
             head_configs=[self.model_config.head_configs],
         ).to(self.m_device)
-
-        # Initializing the model weights
-        if self.model_config.init_weights == "xavier":
-            self.model.apply(xavier_init_weights)
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
