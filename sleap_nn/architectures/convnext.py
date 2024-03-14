@@ -24,10 +24,7 @@ __all__ = [
     "ConvNeXt_Small_Weights",
     "ConvNeXt_Base_Weights",
     "ConvNeXt_Large_Weights",
-    # "convnext_tiny",
-    # "convnext_small",
-    # "convnext_base",
-    # "convnext_large",
+    "ConvNextWrapper",
 ]
 
 
@@ -269,9 +266,10 @@ class ConvNextWrapper(nn.Module):
             ckpt = eval(pretrained_weights).DEFAULT.get_state_dict(
                 progress=True, check_hash=True
             )
-            ckpt["features.0.0.weight"] = torch.unsqueeze(
-                ckpt["features.0.0.weight"].mean(dim=1), dim=1
-            )
+            if in_channels == 1:
+                ckpt["features.0.0.weight"] = torch.unsqueeze(
+                    ckpt["features.0.0.weight"].mean(dim=1), dim=1
+                )
             self.enc.load_state_dict(ckpt, strict=False)
 
     @property

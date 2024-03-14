@@ -103,7 +103,6 @@ class LabelsReader(IterDataPipe):
 
             # pad images to max_height and max_width
             if self.max_height != -1:  # only if user provides
-                print(f"max height: {self.max_height} img_height: {img_height}")
                 pad_height = (self.max_height - img_height) // 2
                 pad_width = (self.max_width - img_width) // 2
                 image = np.pad(
