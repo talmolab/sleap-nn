@@ -60,8 +60,8 @@ class LabelsReader(IterDataPipe):
         filename: str,
         user_instances_only: bool = True,
         max_instances: int = 30,
-        max_height: int = -1,
-        max_width: int = -1,
+        max_height: int = None,
+        max_width: int = None,
         is_rgb=False,
     ):
         """Create LabelsReader from a .slp filename."""
@@ -102,7 +102,7 @@ class LabelsReader(IterDataPipe):
             img_height, img_width = image.shape[-2:]
 
             # pad images to max_height and max_width
-            if self.max_height != -1:  # only if user provides
+            if self.max_height is not None:  # only if user provides
                 pad_height = (self.max_height - img_height) // 2
                 pad_width = (self.max_width - img_width) // 2
                 image = np.pad(

@@ -24,6 +24,7 @@ from sleap_nn.architectures.heads import (
 )
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
+from sleap_nn.architectures.swint import SwinTWrapper
 
 
 def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
@@ -42,7 +43,7 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
     Raises:
         KeyError: If the provided backbone name is not one of the supported values.
     """
-    backbones = {"unet": UNet, "convnext": ConvNextWrapper}  # TODO
+    backbones = {"unet": UNet, "convnext": ConvNextWrapper, "swint": SwinTWrapper} 
 
     if backbone not in backbones:
         raise KeyError(

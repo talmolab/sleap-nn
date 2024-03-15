@@ -18,7 +18,7 @@ from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from torch import nn
 import pandas as pd
 from sleap_nn.architectures.model import Model
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint,  EarlyStopping
 import os
 
 
@@ -155,6 +155,9 @@ class ModelTrainer:
 
         else:
             callbacks = []
+
+        if self.config.trainer_config.early_stopping.early_stopping.stop_training_on_plateau:
+            callbacks.append(EarlyStopping(monitor="val_loss", mode="min",verbose=False, min_delta=self.config.trainer_config.early_stopping.min_delta, patience=self.config.trainer_config.early_stopping.patience)))
 
         if self.config.trainer_config.use_wandb:
             wandb_config = self.config.trainer_config.wandb
