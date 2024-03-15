@@ -43,7 +43,7 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
     Raises:
         KeyError: If the provided backbone name is not one of the supported values.
     """
-    backbones = {"unet": UNet, "convnext": ConvNextWrapper, "swint": SwinTWrapper} 
+    backbones = {"unet": UNet, "convnext": ConvNextWrapper, "swint": SwinTWrapper}
 
     if backbone not in backbones:
         raise KeyError(

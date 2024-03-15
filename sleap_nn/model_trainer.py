@@ -18,7 +18,7 @@ from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from torch import nn
 import pandas as pd
 from sleap_nn.architectures.model import Model
-from lightning.pytorch.callbacks import ModelCheckpoint,  EarlyStopping
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 import os
 
 
@@ -124,6 +124,9 @@ class ModelTrainer:
         else:
             self.model = TopDownCenteredInstanceModel(self.config)
 
+    def _get_param_count(self):
+        return sum(p.numel() for p in self.model.parameters())
+
     def train(self):
         """Function to initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
@@ -156,8 +159,18 @@ class ModelTrainer:
         else:
             callbacks = []
 
-        if self.config.trainer_config.early_stopping.early_stopping.stop_training_on_plateau:
-            callbacks.append(EarlyStopping(monitor="val_loss", mode="min",verbose=False, min_delta=self.config.trainer_config.early_stopping.min_delta, patience=self.config.trainer_config.early_stopping.patience)))
+        if (
+            self.config.trainer_config.early_stopping.early_stopping.stop_training_on_plateau
+        ):
+            callbacks.append(
+                EarlyStopping(
+                    monitor="val_loss",
+                    mode="min",
+                    verbose=False,
+                    min_delta=self.config.trainer_config.early_stopping.min_delta,
+                    patience=self.config.trainer_config.early_stopping.patience,
+                )
+            )
 
         if self.config.trainer_config.use_wandb:
             wandb_config = self.config.trainer_config.wandb
@@ -201,8 +214,11 @@ class ModelTrainer:
 
         trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
 
+        total_params = self._get_param_count()
+
         if self.config.trainer_config.use_wandb:
             self.config.trainer_config.wandb.run_id = wandb.run.id
+            self.config.model_config.total_params = total_params
             for m in self.config.trainer_config.wandb.log_params:
                 list_keys = m.split(".")
                 key = list_keys[-1]
@@ -210,6 +226,7 @@ class ModelTrainer:
                 for l in list_keys[1:]:
                     value = value[l]
                 self.wandb_logger.experiment.config.update({key: value})
+            self.wandb_logger.experiment.config.update({"model_params": total_params})
             wandb.finish()
 
         # save the configs as yaml in the checkpoint dir
