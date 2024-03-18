@@ -124,5 +124,5 @@ class LabelsReader(IterDataPipe):
                 ),
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                 "num_instances": num_instances,
-                "orig_size": (img_height, img_width),
+                "orig_size": torch.Tensor([img_height, img_width]),
             }

@@ -10,14 +10,27 @@ from torchvision.transforms._presets import ImageClassification, InterpolationMo
 from torchvision.utils import _log_api_usage_once
 from torchvision.models._api import register_model, Weights, WeightsEnum
 from torchvision.models._meta import _IMAGENET_CATEGORIES
-from torchvision.models.swin_transformer import PatchMergingV2, SwinTransformerBlockV2
+from torchvision.models.swin_transformer import (
+    _patch_merging_pad,
+    _get_relative_position_bias,
+    PatchMerging,
+    PatchMergingV2,
+    shifted_window_attention,
+    ShiftedWindowAttention,
+    ShiftedWindowAttentionV2,
+    SwinTransformerBlock,
+    SwinTransformerBlockV2,
+    Swin_T_Weights,
+    Swin_S_Weights,
+    Swin_B_Weights,
+    Swin_V2_T_Weights,
+    Swin_V2_S_Weights,
+    Swin_V2_B_Weights,
+)
 
 
 __all__ = [
     "SwinTransformer",
-    "Swin_V2_T_Weights",
-    "Swin_V2_S_Weights",
-    "Swin_V2_B_Weights",
     "SwinTWrapper",
 ]
 
@@ -65,8 +78,8 @@ class SwinTransformer(nn.Module):
         super().__init__()
         _log_api_usage_once(self)
 
-        block = SwinTransformerBlockV2
-        downsample_layer = PatchMergingV2
+        block = SwinTransformerBlock  # or v2
+        downsample_layer = PatchMerging  # or v2
 
         if not norm_layer:
             norm_layer = partial(nn.LayerNorm, eps=1e-5)
@@ -143,90 +156,6 @@ class SwinTransformer(nn.Module):
 _COMMON_META = {
     "categories": _IMAGENET_CATEGORIES,
 }
-
-
-class Swin_V2_T_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        url="https://download.pytorch.org/models/swin_v2_t-b137f0e2.pth",
-        transforms=partial(
-            ImageClassification,
-            crop_size=256,
-            resize_size=260,
-            interpolation=InterpolationMode.BICUBIC,
-        ),
-        meta={
-            **_COMMON_META,
-            "num_params": 28351570,
-            "min_size": (256, 256),
-            "recipe": "https://github.com/pytorch/vision/tree/main/references/classification#swintransformer-v2",
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 82.072,
-                    "acc@5": 96.132,
-                }
-            },
-            "_ops": 5.94,
-            "_file_size": 108.626,
-            "_docs": """These weights reproduce closely the results of the paper using a similar training recipe.""",
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
-
-
-class Swin_V2_S_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        url="https://download.pytorch.org/models/swin_v2_s-637d8ceb.pth",
-        transforms=partial(
-            ImageClassification,
-            crop_size=256,
-            resize_size=260,
-            interpolation=InterpolationMode.BICUBIC,
-        ),
-        meta={
-            **_COMMON_META,
-            "num_params": 49737442,
-            "min_size": (256, 256),
-            "recipe": "https://github.com/pytorch/vision/tree/main/references/classification#swintransformer-v2",
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 83.712,
-                    "acc@5": 96.816,
-                }
-            },
-            "_ops": 11.546,
-            "_file_size": 190.675,
-            "_docs": """These weights reproduce closely the results of the paper using a similar training recipe.""",
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
-
-
-class Swin_V2_B_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        url="https://download.pytorch.org/models/swin_v2_b-781e5279.pth",
-        transforms=partial(
-            ImageClassification,
-            crop_size=256,
-            resize_size=272,
-            interpolation=InterpolationMode.BICUBIC,
-        ),
-        meta={
-            **_COMMON_META,
-            "num_params": 87930848,
-            "min_size": (256, 256),
-            "recipe": "https://github.com/pytorch/vision/tree/main/references/classification#swintransformer-v2",
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 84.112,
-                    "acc@5": 96.864,
-                }
-            },
-            "_ops": 20.325,
-            "_file_size": 336.372,
-            "_docs": """These weights reproduce closely the results of the paper using a similar training recipe.""",
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
 
 
 class SwinTWrapper(nn.Module):

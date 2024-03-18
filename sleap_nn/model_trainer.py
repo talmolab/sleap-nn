@@ -159,9 +159,7 @@ class ModelTrainer:
         else:
             callbacks = []
 
-        if (
-            self.config.trainer_config.early_stopping.stop_training_on_plateau
-        ):
+        if self.config.trainer_config.early_stopping.stop_training_on_plateau:
             callbacks.append(
                 EarlyStopping(
                     monitor="val_loss",
