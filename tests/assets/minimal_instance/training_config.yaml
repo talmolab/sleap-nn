@@ -154,7 +154,7 @@ trainer_config:
   device: cpu
   trainer_devices: 1
   trainer_accelerator: cpu
-  enable_progress_bar: true
+  enable_progress_bar: false
   max_epochs: 2
   seed: 1000
   use_wandb: false
@@ -165,6 +165,13 @@ trainer_config:
     name: test_run
     wandb_mode: offline
     api_key: ''
+    log_params:
+    - trainer_config.optimizer_name
+    - trainer_config.optimizer.amsgrad
+    - trainer_config.optimizer.lr
+    - model_config.backbone_config.backbone_type
+    - model_config.init_weights
+  optimizer_name: Adam
   optimizer:
     lr: 0.0001
     amsgrad: true
