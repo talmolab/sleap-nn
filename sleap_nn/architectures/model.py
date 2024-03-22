@@ -4,6 +4,7 @@ This is a higher level wrapper around `nn.Module` that holds all the configurati
 parameters required to construct the actual model. This allows for easy querying of the
 model configuration without actually instantiating the model itself.
 """
+
 from typing import List
 
 import torch

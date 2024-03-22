@@ -3,6 +3,7 @@
 This allows for convenient ways to configure individual variants of common pipelines, as
 well as to define training vs inference versions based on the same configurations.
 """
+
 from omegaconf.omegaconf import DictConfig
 from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder

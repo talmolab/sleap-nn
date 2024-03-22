@@ -1,4 +1,5 @@
 """Dataset fixtures for unit testing."""
+
 from pathlib import Path
 from omegaconf import OmegaConf
 
@@ -13,8 +14,14 @@ def sleap_data_dir(pytestconfig):
 
 @pytest.fixture
 def minimal_instance(sleap_data_dir):
-    """Sleap single fly .slp and video file paths."""
+    """Sleap fly .slp and video file paths."""
     return Path(sleap_data_dir) / "minimal_instance.pkg.slp"
+
+
+@pytest.fixture
+def minimal_instance_ckpt(sleap_data_dir):
+    """Checkpoint file for trained model."""
+    return Path(sleap_data_dir) / "minimal_instance"
 
 
 @pytest.fixture
@@ -23,19 +30,10 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
+                "max_instances": 30,
                 "pipeline": "TopdownConfmaps",
                 "train": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                    "general": {
-                        "keep_keys": [
-                            "instance_image",
-                            "confidence_maps",
-                            "instance",
-                            "video_idx",
-                            "frame_idx",
-                            "instance_bbox",
-                        ]
-                    },
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": (160, 160),
@@ -75,16 +73,6 @@ def config(sleap_data_dir):
                 },
                 "val": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                    "general": {
-                        "keep_keys": [
-                            "instance_image",
-                            "confidence_maps",
-                            "instance",
-                            "video_idx",
-                            "frame_idx",
-                            "instance_bbox",
-                        ]
-                    },
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": (160, 160),
@@ -154,26 +142,18 @@ def config(sleap_data_dir):
                     "shuffle": True,
                     "num_workers": 2,
                     "pin_memory": True,
-                    "drop_last": True,
+                    "drop_last": False,
                 },
                 "val_data_loader": {
                     "batch_size": 1,
                     "shuffle": False,
                     "num_workers": 0,
                     "pin_memory": True,
-                    "drop_last": True,
-                },
-                "test_data_loader": {
-                    "batch_size": 1,
-                    "shuffle": False,
-                    "num_workers": 0,
-                    "pin_memory": True,
-                    "drop_last": True,
+                    "drop_last": False,
                 },
                 "model_ckpt": {
                     "save_top_k": 1,
                     "save_last": True,
-                    "every_n_epochs": 0,
                     "monitor": "val_loss",
                     "mode": "min",
                     "auto_insert_metric_name": False,
@@ -187,11 +167,19 @@ def config(sleap_data_dir):
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",
+                "optimizer_name": "Adam",
                 "wandb": {
                     "project": "test",
                     "name": "test_run",
                     "wandb_mode": "offline",
                     "api_key": "",
+                    "log_params": [
+                        "trainer_config.optimizer_name",
+                        "trainer_config.optimizer.amsgrad",
+                        "trainer_config.optimizer.lr",
+                        "model_config.backbone_config.backbone_type",
+                        "model_config.init_weights",
+                    ],
                 },
                 "optimizer": {
                     "lr": 1e-4,
@@ -204,6 +192,61 @@ def config(sleap_data_dir):
                     "factor": 0.5,
                     "min_lr": 1e-8,
                 },
+            },
+            "inference_config": {
+                "device": "cpu",
+                "data": {
+                    "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
+                    "provider": "LabelsReader",
+                    "max_instances": 30,
+                    "data_loader": {
+                        "batch_size": 4,
+                        "shuffle": False,
+                        "num_workers": 2,
+                        "pin_memory": True,
+                        "drop_last": False,
+                    },
+                    "preprocessing": {
+                        "anchor_ind": 0,
+                        "crop_hw": (160, 160),
+                        "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+                    },
+                    "augmentation_config": {
+                        "random_crop": {
+                            "random_crop_p": 0,
+                            "random_crop_hw": (160, 160),
+                        },
+                        "use_augmentations": False,
+                        "augmentations": {
+                            "intensity": {
+                                "uniform_noise": (0.0, 0.04),
+                                "uniform_noise_p": 0,
+                                "gaussian_noise_mean": 0.02,
+                                "gaussian_noise_std": 0.004,
+                                "gaussian_noise_p": 0,
+                                "contrast": (0.5, 2.0),
+                                "contrast_p": 0,
+                                "brightness": 0.0,
+                                "brightness_p": 0,
+                            },
+                            "geometric": {
+                                "rotation": 180.0,
+                                "scale": 0,
+                                "translate": (0, 0),
+                                "affine_p": 0.5,
+                                "erase_scale": (0.0001, 0.01),
+                                "erase_ratio": (1, 1),
+                                "erase_p": 0,
+                                "mixup_lambda": None,
+                                "mixup_p": 0,
+                            },
+                        },
+                    },
+                },
+                "peak_threshold": 0.0,
+                "integral_refinement": "integral",
+                "integral_patch_size": 5,
+                "return_confmaps": False,
             },
         }
     )
