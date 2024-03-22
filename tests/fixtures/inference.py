@@ -1,4 +1,5 @@
 """Inference fixtures for unit testing."""
+
 from pathlib import Path
 
 import pytest

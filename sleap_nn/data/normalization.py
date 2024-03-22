@@ -1,4 +1,5 @@
 """This module implements data pipeline blocks for normalization operations."""
+
 from typing import Dict, Iterator
 
 import torch

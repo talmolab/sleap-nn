@@ -1,6 +1,6 @@
 """Miscellaneous utility functions for data processing."""
-from typing import Tuple, List, Any
 
+from typing import Tuple, List, Any
 import torch
 
 
