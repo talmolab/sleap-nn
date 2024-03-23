@@ -211,8 +211,6 @@ class ModelTrainer:
         OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
 
-
-
 class TrainingModel(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
 
