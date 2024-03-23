@@ -211,11 +211,6 @@ class ModelTrainer:
         OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
 
-def xavier_init_weights(x):
-    """Initilaise the model weights with Xavier initialization method."""
-    if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
-        nn.init.xavier_uniform_(x.weight)
-        nn.init.constant_(x.bias, 0)
 
 
 class TrainingModel(L.LightningModule):
