@@ -56,7 +56,7 @@ class ModelTrainer:
             self.is_single_instance_model = True
 
     def _create_data_loaders(self):
-        """Creates a DataLoader for train, validation and test sets using the data_config."""
+        """Create a DataLoader for train, validation and test sets using the data_config."""
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
@@ -123,7 +123,7 @@ class ModelTrainer:
             self.model = TopDownCenteredInstanceModel(self.config)
 
     def train(self):
-        """Function to initiate the training by calling the fit method of Trainer."""
+        """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         self.logger = []
         if not self.config.trainer_config.save_ckpt_path:
@@ -209,6 +209,8 @@ class ModelTrainer:
 
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
+
+
 
 
 class TrainingModel(L.LightningModule):
@@ -431,7 +433,7 @@ class TopDownCenteredInstanceModel(TrainingModel):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        """Validation step."""
+        """Perform validation step."""
         X, y = torch.squeeze(batch["instance_image"], dim=1).to(
             self.m_device
         ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)

@@ -116,8 +116,12 @@ def test_score_paf_lines():
 
 def test_score_paf_lines_batch():
     pafs = torch.arange(6 * 4 * 2, dtype=torch.float32).reshape(1, 6, 4, 2)
-    peaks = [torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)]
-    peak_channel_inds = [torch.tensor([0, 1], dtype=torch.int32)]
+    peaks = torch.nested.nested_tensor(
+        [torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)]
+    )
+    peak_channel_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 1], dtype=torch.int32)]
+    )
     skeleton_edges = torch.tensor([[0, 1], [1, 2], [2, 3]], dtype=torch.int32)
 
     n_line_points = 3
@@ -138,11 +142,11 @@ def test_score_paf_lines_batch():
         n_nodes,
     )
 
-    assert len(edge_inds) == 1
+    assert edge_inds.size(0) == 1
     assert edge_inds[0].numpy().tolist() == [0.0]
-    assert len(edge_peak_inds) == 1
+    assert edge_peak_inds.size(0) == 1
     assert edge_peak_inds[0].numpy().tolist() == [[0, 1]]
-    assert len(line_scores) == 1
+    assert line_scores.size(0) == 1
     assert_close(line_scores[0], torch.tensor([24.27]), rtol=8e-2, atol=8e-2)
 
 
@@ -173,9 +177,13 @@ def test_match_candidates_sample():
 
 
 def test_match_candidates_batch():
-    edge_inds = [torch.tensor([0, 0], dtype=torch.int32)]
-    edge_peak_inds = [torch.tensor([[0, 1], [2, 1]], dtype=torch.int32)]
-    line_scores = [torch.tensor([-0.5, 1.0], dtype=torch.float32)]
+    edge_inds = torch.nested.nested_tensor([torch.tensor([0, 0], dtype=torch.int32)])
+    edge_peak_inds = torch.nested.nested_tensor(
+        [torch.tensor([[0, 1], [2, 1]], dtype=torch.int32)]
+    )
+    line_scores = torch.nested.nested_tensor(
+        [torch.tensor([-0.5, 1.0], dtype=torch.float32)]
+    )
     n_edges = 1
 
     (
@@ -184,10 +192,10 @@ def test_match_candidates_batch():
         match_dst_peak_inds,
         match_line_scores,
     ) = match_candidates_batch(edge_inds, edge_peak_inds, line_scores, n_edges)
-    assert len(match_edge_inds) == 1
-    assert len(match_src_peak_inds) == 1
-    assert len(match_dst_peak_inds) == 1
-    assert len(match_line_scores) == 1
+    assert match_edge_inds.size(0) == 1
+    assert match_src_peak_inds.size(0) == 1
+    assert match_dst_peak_inds.size(0) == 1
+    assert match_line_scores.size(0) == 1
     assert match_edge_inds[0].numpy().tolist() == [0]
     assert match_src_peak_inds[0].numpy().tolist() == [1]
     assert match_dst_peak_inds[0].numpy().tolist() == [0]
@@ -410,13 +418,23 @@ def test_group_instances_batch():
         [[6.0, 7.0], [8.0, 9.0], [np.nan, np.nan]],
     ]
 
-    peaks = [torch.arange(10, dtype=torch.float32).reshape(5, 2)]
-    peak_scores = [torch.arange(5, dtype=torch.float32)]
-    peak_channel_inds = [torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)]
-    match_edge_inds = [torch.tensor([0, 1, 0], dtype=torch.int32)]
-    match_src_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
-    match_dst_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
-    match_line_scores = [torch.ones(3, dtype=torch.float32)]
+    peaks = torch.nested.nested_tensor(
+        [torch.arange(10, dtype=torch.float32).reshape(5, 2)]
+    )
+    peak_scores = torch.nested.nested_tensor([torch.arange(5, dtype=torch.float32)])
+    peak_channel_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)]
+    )
+    match_edge_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 1, 0], dtype=torch.int32)]
+    )
+    match_src_peak_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    )
+    match_dst_peak_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    )
+    match_line_scores = torch.nested.nested_tensor([torch.ones(3, dtype=torch.float32)])
 
     n_nodes = 3
     sorted_edge_inds = (0, 1)
@@ -441,12 +459,12 @@ def test_group_instances_batch():
         min_instance_peaks,
     )
 
-    assert isinstance(predicted_instances, list)
-    assert isinstance(predicted_peak_scores, list)
-    assert isinstance(predicted_instance_scores, list)
-    assert len(predicted_instances) == 1
-    assert len(predicted_peak_scores) == 1
-    assert len(predicted_instance_scores) == 1
+    assert isinstance(predicted_instances, torch.Tensor)
+    assert isinstance(predicted_peak_scores, torch.Tensor)
+    assert isinstance(predicted_instance_scores, torch.Tensor)
+    assert predicted_instances.size(0) == 1
+    assert predicted_peak_scores.size(0) == 1
+    assert predicted_instance_scores.size(0) == 1
 
     assert_array_equal(predicted_instances[0].numpy(), gt_predicted_instances)
     assert_array_equal(
@@ -468,8 +486,12 @@ def test_paf_scorer_from_config():
 
 def test_paf_scorer_score_paf_lines():
     pafs = torch.arange(6 * 4 * 2, dtype=torch.float32).reshape(1, 6, 4, 2)
-    peaks = [torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)]
-    peak_channel_inds = [torch.tensor([0, 1], dtype=torch.int32)]
+    peaks = torch.nested.nested_tensor(
+        [torch.tensor([[0, 0], [4, 8]], dtype=torch.float32)]
+    )
+    peak_channel_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 1], dtype=torch.int32)]
+    )
     skeleton_edges = torch.tensor([[0, 1], [1, 2], [2, 3]], dtype=torch.int32)
 
     n_line_points = 3
@@ -498,18 +520,22 @@ def test_paf_scorer_score_paf_lines():
         pafs, peaks, peak_channel_inds
     )
 
-    assert len(edge_inds) == 1
+    assert edge_inds.size(0) == 1
     assert edge_inds[0].numpy().tolist() == [0.0]
-    assert len(edge_peak_inds) == 1
+    assert edge_peak_inds.size(0) == 1
     assert edge_peak_inds[0].numpy().tolist() == [[0, 1]]
-    assert len(line_scores) == 1
+    assert line_scores.size(0) == 1
     assert_close(line_scores[0], torch.tensor([24.27]), rtol=8e-2, atol=8e-2)
 
 
 def test_paf_scorer_match_candidates():
-    edge_inds = [torch.tensor([0, 0], dtype=torch.int32)]
-    edge_peak_inds = [torch.tensor([[0, 1], [2, 1]], dtype=torch.int32)]
-    line_scores = [torch.tensor([-0.5, 1.0], dtype=torch.float32)]
+    edge_inds = torch.nested.nested_tensor([torch.tensor([0, 0], dtype=torch.int32)])
+    edge_peak_inds = torch.nested.nested_tensor(
+        [torch.tensor([[0, 1], [2, 1]], dtype=torch.int32)]
+    )
+    line_scores = torch.nested.nested_tensor(
+        [torch.tensor([-0.5, 1.0], dtype=torch.float32)]
+    )
     n_edges = 1
 
     config = OmegaConf.create(
@@ -530,10 +556,10 @@ def test_paf_scorer_match_candidates():
         match_line_scores,
     ) = paf_scorer.match_candidates(edge_inds, edge_peak_inds, line_scores)
 
-    assert len(match_edge_inds) == 1
-    assert len(match_src_peak_inds) == 1
-    assert len(match_dst_peak_inds) == 1
-    assert len(match_line_scores) == 1
+    assert match_edge_inds.size(0) == 1
+    assert match_src_peak_inds.size(0) == 1
+    assert match_dst_peak_inds.size(0) == 1
+    assert match_line_scores.size(0) == 1
     assert match_edge_inds[0].numpy().tolist() == [0]
     assert match_src_peak_inds[0].numpy().tolist() == [1]
     assert match_dst_peak_inds[0].numpy().tolist() == [0]
@@ -546,13 +572,23 @@ def test_paf_scorer_group_instances():
         [[6.0, 7.0], [8.0, 9.0], [np.nan, np.nan]],
     ]
 
-    peaks = [torch.arange(10, dtype=torch.float32).reshape(5, 2)]
-    peak_scores = [torch.arange(5, dtype=torch.float32)]
-    peak_channel_inds = [torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)]
-    match_edge_inds = [torch.tensor([0, 1, 0], dtype=torch.int32)]
-    match_src_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
-    match_dst_peak_inds = [torch.tensor([0, 0, 1], dtype=torch.int32)]
-    match_line_scores = [torch.ones(3, dtype=torch.float32)]
+    peaks = torch.nested.nested_tensor(
+        [torch.arange(10, dtype=torch.float32).reshape(5, 2)]
+    )
+    peak_scores = torch.nested.nested_tensor([torch.arange(5, dtype=torch.float32)])
+    peak_channel_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 1, 2, 0, 1], dtype=torch.int32)]
+    )
+    match_edge_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 1, 0], dtype=torch.int32)]
+    )
+    match_src_peak_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    )
+    match_dst_peak_inds = torch.nested.nested_tensor(
+        [torch.tensor([0, 0, 1], dtype=torch.int32)]
+    )
+    match_line_scores = torch.nested.nested_tensor([torch.ones(3, dtype=torch.float32)])
 
     n_nodes = 3
     sorted_edge_inds = (0, 1)
@@ -587,12 +623,12 @@ def test_paf_scorer_group_instances():
         match_line_scores,
     )
 
-    assert isinstance(predicted_instances, list)
-    assert isinstance(predicted_peak_scores, list)
-    assert isinstance(predicted_instance_scores, list)
-    assert len(predicted_instances) == 1
-    assert len(predicted_peak_scores) == 1
-    assert len(predicted_instance_scores) == 1
+    assert isinstance(predicted_instances, torch.Tensor)
+    assert isinstance(predicted_peak_scores, torch.Tensor)
+    assert isinstance(predicted_instance_scores, torch.Tensor)
+    assert predicted_instances.size(0) == 1
+    assert predicted_peak_scores.size(0) == 1
+    assert predicted_instance_scores.size(0) == 1
 
     assert_array_equal(predicted_instances[0].numpy(), gt_predicted_instances)
     assert_array_equal(

@@ -385,15 +385,15 @@ def score_paf_lines(
 
 def score_paf_lines_batch(
     pafs: torch.Tensor,
-    peaks: List[torch.Tensor],
-    peak_channel_inds: List[torch.Tensor],
+    peaks: torch.Tensor,
+    peak_channel_inds: torch.Tensor,
     skeleton_edges: torch.Tensor,
     n_line_points: int,
     pafs_stride: int,
     max_edge_length_ratio: float,
     dist_penalty_weight: float,
     n_nodes: int,
-) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Process a batch of images to score the Part Affinity Fields (PAFs) lines formed between connection candidates for each sample.
 
     This function loops over each sample in the batch and applies the process of
@@ -403,9 +403,9 @@ def score_paf_lines_batch(
     Args:
         pafs: A tensor of shape `(n_samples, height, width, 2 * n_edges)`
             containing the part affinity fields for each sample in the batch.
-        peaks: A list of tensors of shape `(n_samples, (n_peaks), 2)` containing the
+        peaks: A list of tensors (torch nested tensors) of shape `(n_samples, (n_peaks), 2)` containing the
             (x, y) coordinates of the detected peaks for each sample.
-        peak_channel_inds: A list of tensors of shape `(n_samples, (n_peaks))` indicating
+        peak_channel_inds: A list of tensors (torch nested tensors) of shape `(n_samples, (n_peaks))` indicating
             the channel (node) index that each peak corresponds to.
         skeleton_edges: A tensor of shape `(n_edges, 2)` indicating the indices
             of the nodes that form each edge of the skeleton.
@@ -420,11 +420,11 @@ def score_paf_lines_batch(
 
     Returns:
         A tuple containing three lists for each sample in the batch:
-            - A list of tensors of shape `(n_samples, (n_connections,))` indicating the indices
+            - A list of tensors (torch nested tensors) of shape `(n_samples, (n_connections,))` indicating the indices
               of the edges that each connection corresponds to.
-            - A list of tensors of shape `(n_samples, (n_connections, 2))` containing the indices
+            - A list of tensors (torch nested tensors) of shape `(n_samples, (n_connections, 2))` containing the indices
               of the source and destination peaks forming each connection.
-            - A list of tensors of shape `(n_samples, (n_connections,))` containing the scores
+            - A list of tensors (torch nested tensors) of shape `(n_samples, (n_connections,))` containing the scores
               for each connection based on the PAFs.
     """
     max_edge_length = (
@@ -465,7 +465,11 @@ def score_paf_lines_batch(
         batch_edge_peak_inds.append(edge_peak_inds_sample)
         batch_line_scores.append(line_scores_sample)
 
-    return batch_edge_inds, batch_edge_peak_inds, batch_line_scores
+    return (
+        torch.nested.nested_tensor(batch_edge_inds),
+        torch.nested.nested_tensor(batch_edge_peak_inds),
+        torch.nested.nested_tensor(batch_line_scores),
+    )
 
 
 def match_candidates_sample(
@@ -585,26 +589,24 @@ def match_candidates_sample(
 
 
 def match_candidates_batch(
-    edge_inds: List[torch.Tensor],
-    edge_peak_inds: List[torch.Tensor],
-    line_scores: List[torch.Tensor],
+    edge_inds: torch.Tensor,
+    edge_peak_inds: torch.Tensor,
+    line_scores: torch.Tensor,
     n_edges: int,
-) -> Tuple[
-    List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]
-]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Match candidate connections for a batch based on PAF scores.
 
     Args:
-        edge_inds: Sample-grouped edge indices as a list of `torch.Tensor`s of shape
+        edge_inds: Sample-grouped edge indices as a torch nested `torch.Tensor`s of shape
             `(n_samples, (n_candidates))` and dtype `torch.int32` indicating the indices
             of the edge that each of the candidate connections belongs to. Can be
             generated using `score_paf_lines_batch()`.
         edge_peak_inds: Sample-grouped indices of the peaks that form the source and
-            destination of each candidate connection as a list of `torch.Tensor`s of shape
+            destination of each candidate connection as a torch nested `torch.Tensor`s of shape
             `(n_samples, (n_candidates), 2)` and dtype `torch.int32`. Can be generated
             using `score_paf_lines_batch()`.
         line_scores: Sample-grouped scores for each candidate connection as a
-            list of `torch.Tensor`s of shape `(n_samples, (n_candidates))` and dtype
+            torch nested `torch.Tensor`s of shape `(n_samples, (n_candidates))` and dtype
             `torch.float32`. Can be generated using `score_paf_lines_batch()`.
         n_edges: A scalar `int` denoting the number of edges in the skeleton.
 
@@ -613,21 +615,21 @@ def match_candidates_batch(
         `(match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores)`
 
         `match_edge_inds`: Sample-grouped indices of the skeleton edge for each
-        connection as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))` and
+        connection as a torch nested `torch.Tensor`s of shape `(n_samples, (n_connections))` and
         dtype `torch.int32`.
 
         `match_src_peak_inds`: Sample-grouped indices of the source peaks that form each
-        connection as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))` and
+        connection as a torch nested `torch.Tensor`s of shape `(n_samples, (n_connections))` and
         dtype `torch.int32`. Important: These indices correspond to the edge-grouped peaks,
         not the set of all peaks in the sample.
 
         `match_dst_peak_inds`: Sample-grouped indices of the destination peaks that form
-        each connection as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))`
+        each connection as a torch nested `torch.Tensor`s of shape `(n_samples, (n_connections))`
         and dtype `torch.int32`. Important: These indices correspond to the edge-grouped
         peaks, not the set of all peaks in the sample.
 
         `match_line_scores`: Sample-grouped PAF line scores of the matched connections
-        as a list of `torch.Tensor`s of shape `(n_samples, (n_connections))` and dtype
+        as a torch nested `torch.Tensor`s of shape `(n_samples, (n_connections))` and dtype
         `torch.float32`.
 
     Notes:
@@ -636,13 +638,13 @@ def match_candidates_batch(
 
     See also: match_candidates_sample, score_paf_lines_batch, group_instances_batch
     """
-    match_sample_inds: List[torch.Tensor] = []
-    match_edge_inds: List[torch.Tensor] = []
-    match_src_peak_inds: List[torch.Tensor] = []
-    match_dst_peak_inds: List[torch.Tensor] = []
-    match_line_scores: List[torch.Tensor] = []
+    match_sample_inds = []
+    match_edge_inds = []
+    match_src_peak_inds = []
+    match_dst_peak_inds = []
+    match_line_scores = []
 
-    for sample in range(len(edge_inds)):
+    for sample in range(edge_inds.size(0)):
         edge_inds_sample = edge_inds[sample]
         edge_peak_inds_sample = edge_peak_inds[sample]
         line_scores_sample = line_scores[sample]
@@ -666,7 +668,12 @@ def match_candidates_batch(
         match_dst_peak_inds.append(match_dst_peak_inds_sample)
         match_line_scores.append(match_line_scores_sample)
 
-    return match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores
+    return (
+        torch.nested.nested_tensor(match_edge_inds),
+        torch.nested.nested_tensor(match_src_peak_inds),
+        torch.nested.nested_tensor(match_dst_peak_inds),
+        torch.nested.nested_tensor(match_line_scores),
+    )
 
 
 def assign_connections_to_instances(
@@ -1006,52 +1013,52 @@ def group_instances_sample(
 
 
 def group_instances_batch(
-    peaks: List[torch.Tensor],
-    peak_vals: List[torch.Tensor],
-    peak_channel_inds: List[torch.Tensor],
-    match_edge_inds: List[torch.Tensor],
-    match_src_peak_inds: List[torch.Tensor],
-    match_dst_peak_inds: List[torch.Tensor],
-    match_line_scores: List[torch.Tensor],
+    peaks: torch.Tensor,
+    peak_vals: torch.Tensor,
+    peak_channel_inds: torch.Tensor,
+    match_edge_inds: torch.Tensor,
+    match_src_peak_inds: torch.Tensor,
+    match_dst_peak_inds: torch.Tensor,
+    match_line_scores: torch.Tensor,
     n_nodes: int,
     sorted_edge_inds: Tuple[int],
     edge_types: List[EdgeType],
     min_instance_peaks: int,
     min_line_scores: float = 0.25,
-) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Group matched connections into full instances for a batch.
 
     Args:
-        peaks: The sample-grouped detected peaks in a batch as a list of `torch.Tensor` of
+        peaks: The sample-grouped detected peaks in a batch as a torch nested `torch.Tensor` of
             shape `(n_samples, (n_peaks), 2)` and dtype `torch.float32`. These should be
             `(x, y)` coordinates of each peak in the image scale.
         peak_vals: The sample-grouped scores of the detected peaks in a batch as a
-            list of `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype `torch.float32`.
+            torch nested `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype `torch.float32`.
         peak_channel_inds: The sample-grouped indices of the channel (node) that each
-            detected peak is associated with as a list of `torch.Tensor` of shape
+            detected peak is associated with as a torch nested `torch.Tensor` of shape
             `(n_samples, (n_peaks))` and dtype `torch.int32`.
         match_edge_inds: Sample-grouped indices of the skeleton edge that each
-            connection corresponds to as a list of `torch.Tensor` of shape
+            connection corresponds to as a torch nested `torch.Tensor` of shape
             `(n_samples, (n_connections))` and dtype `torch.int32`. This can be generated
             by `match_candidates_batch()`.
         match_src_peak_inds: Sample-grouped indices of the source peaks that form each
-            connection as a list of `torch.Tensor` of shape `(n_samples, (n_connections))`
+            connection as a torch nested `torch.Tensor` of shape `(n_samples, (n_connections))`
             and dtype `torch.int32`. Important: These indices correspond to the
             edge-grouped peaks, not the set of all peaks in each sample. This can be
             generated by `match_candidates_batch()`.
         match_dst_peak_inds: Sample-grouped indices of the destination peaks that form
-            each connection as a list of `torch.Tensor` of shape
+            each connection as a torch nested `torch.Tensor` of shape
             `(n_samples, (n_connections))` and dtype `torch.int32`. Important: These
             indices correspond to the edge-grouped peaks, not the set of all peaks in
             the sample. This can be generated by `match_candidates_batch()`.
         match_line_scores: Sample-grouped PAF line scores of the matched connections as
-            a list of `torch.Tensor` of shape `(n_samples, (n_connections))` and dtype
+            a torch nested `torch.Tensor` of shape `(n_samples, (n_connections))` and dtype
             `torch.float32`. This can be generated by `match_candidates_batch()`.
         n_nodes: The total number of nodes in the skeleton as a scalar integer.
         sorted_edge_inds: A tuple of indices specifying the topological order that the
             edge types should be accessed in during instance assembly
             (`assign_connections_to_instances`).
-        edge_types: A list of `EdgeType`s associated with the skeleton.
+        edge_types: A torch nested `EdgeType`s associated with the skeleton.
         min_instance_peaks: If this is greater than 0, grouped instances with fewer
             assigned peaks than this threshold will be excluded. If a `float` in the
             range `(0., 1.]` is provided, this is interpreted as a fraction of the total
@@ -1065,20 +1072,20 @@ def group_instances_batch(
         sample:
 
         `predicted_instances`: The sample- and instance-grouped coordinates for each
-        instance as a list of `torch.Tensor` of shape `(n_samples, (n_instances), n_nodes, 2)`
+        instance as a torch nested `torch.Tensor` of shape `(n_samples, (n_instances), n_nodes, 2)`
         and dtype `torch.float32`. Missing peaks are represented by `NaN`s.
 
         `predicted_peak_scores`: The sample- and instance-grouped confidence map values
-        for each peak as a list of `torch.Tensor` of shape `(n_samples, (n_instances), n_nodes)` and dtype
+        for each peak as a torch nested `torch.Tensor` of shape `(n_samples, (n_instances), n_nodes)` and dtype
         `torch.float32`.
 
         `predicted_instance_scores`: The sample-grouped instance grouping score for each
-        instance as a list of `torch.Tensor` of shape `(n_samples, (n_instances))` and dtype
+        instance as a torch nested `torch.Tensor` of shape `(n_samples, (n_instances))` and dtype
         `torch.float32`.
 
     See also: match_candidates_batch, group_instances_sample
     """
-    n_samples = len(peaks)
+    n_samples = peaks.size(0)
     predicted_instances_batch = []
     predicted_peak_scores_batch = []
     predicted_instance_scores_batch = []
@@ -1110,9 +1117,9 @@ def group_instances_batch(
         )
 
     return (
-        predicted_instances_batch,
-        predicted_peak_scores_batch,
-        predicted_instance_scores_batch,
+        torch.nested.nested_tensor(predicted_instances_batch),
+        torch.nested.nested_tensor(predicted_peak_scores_batch),
+        torch.nested.nested_tensor(predicted_instance_scores_batch),
     )
 
 
@@ -1250,26 +1257,26 @@ class PAFScorer:
     def score_paf_lines(
         self,
         pafs: torch.Tensor,
-        peaks: List[torch.Tensor],
-        peak_channel_inds: List[torch.Tensor],
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        peaks: torch.Tensor,
+        peak_channel_inds: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Create and score PAF lines formed between connection candidates.
 
         Args:
-            pafs: A tensor of shape `(n_samples, height, width, 2 * n_edges)`
+            pafs: A nested torch tensor of shape `(n_samples, height, width, 2 * n_edges)`
                 containing the part affinity fields for each sample in the batch.
-            peaks: A list of tensors of shape `(n_samples, (n_peaks), 2)` containing the
+            peaks: A nested torch tensor of shape `(n_samples, (n_peaks), 2)` containing the
                 (x, y) coordinates of the detected peaks for each sample.
-            peak_channel_inds: A list of tensors of shape `(n_samples, (n_peaks))` indicating
+            peak_channel_inds: A nested torch tensor of shape `(n_samples, (n_peaks))` indicating
                 the channel (node) index that each peak corresponds to.
 
         Returns:
             A tuple containing three lists for each sample in the batch:
-                - A list of tensors of shape `(n_samples, (n_connections,))` indicating the indices
+                - A nested torch tensor of shape `(n_samples, (n_connections,))` indicating the indices
                 of the edges that each connection corresponds to.
-                - A list of tensors of shape `(n_samples, (n_connections, 2))` containing the indices
+                - A nested torch tensor of shape `(n_samples, (n_connections, 2))` containing the indices
                 of the source and destination peaks forming each connection.
-                - A list of tensors of shape `(n_samples, (n_connections,))` containing the scores
+                - A nested torch tensor of shape `(n_samples, (n_connections,))` containing the scores
                 for each connection based on the PAFs.
 
         Notes:
@@ -1291,25 +1298,23 @@ class PAFScorer:
 
     def match_candidates(
         self,
-        edge_inds: List[torch.Tensor],
-        edge_peak_inds: List[torch.Tensor],
-        line_scores: List[torch.Tensor],
-    ) -> Tuple[
-        List[torch.Tensor], List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]
-    ]:
+        edge_inds: torch.Tensor,
+        edge_peak_inds: torch.Tensor,
+        line_scores: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Match candidate connections for a batch based on PAF scores.
 
         Args:
-            edge_inds: Sample-grouped edge indices as a list of `torch.Tensor` of shape
+            edge_inds: Sample-grouped edge indices as a nested `torch.Tensor` of shape
                 `(n_samples, (n_candidates))` and dtype `torch.int32` indicating the
                 indices of the edge that each of the candidate connections belongs to.
                 Can be generated using `PAFScorer.score_paf_lines()`.
             edge_peak_inds: Sample-grouped indices of the peaks that form the source and
-                destination of each candidate connection as a list of `torch.Tensor` of shape
+                destination of each candidate connection as a nested `torch.Tensor` of shape
                 `(n_samples, (n_candidates), 2)` and dtype `torch.int32`. Can be generated
                 using `PAFScorer.score_paf_lines()`.
             line_scores: Sample-grouped scores for each candidate connection as a
-                list of `torch.Tensor` of shape `(n_samples, (n_candidates))` and dtype
+                nested `torch.Tensor` of shape `(n_samples, (n_candidates))` and dtype
                 `torch.float32`. Can be generated using `PAFScorer.score_paf_lines()`.
 
         Returns:
@@ -1317,23 +1322,23 @@ class PAFScorer:
             `(match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores)`
 
             `match_edge_inds`: Sample-grouped indices of the skeleton edge for each
-            connection as a list of `torch.Tensor` of shape `(n_samples, (n_connections))`
+            connection as a nested `torch.Tensor` of shape `(n_samples, (n_connections))`
             and dtype `torch.int32`.
 
             `match_src_peak_inds`: Sample-grouped indices of the source peaks that form
-            each connection as a list of `torch.Tensor` of shape
+            each connection as a nested `torch.Tensor` of shape
             `(n_samples, (n_connections))` and dtype `torch.int32`. Important: These
             indices correspond to the edge-grouped peaks, not the set of all peaks in
             the sample.
 
             `match_dst_peak_inds`: Sample-grouped indices of the destination peaks that
-            form each connection as a list of `torch.Tensor` of shape
+            form each connection as a nested `torch.Tensor` of shape
             `(n_samples, (n_connections))` and dtype `torch.int32`. Important: These
             indices correspond to the edge-grouped peaks, not the set of all peaks in
             the sample.
 
             `match_line_scores`: Sample-grouped PAF line scores of the matched
-            connections as a list of `torch.Tensor` of shape `(n_samples, (n_connections))`
+            connections as a nested `torch.Tensor` of shape `(n_samples, (n_connections))`
             and dtype `torch.float32`.
 
         Notes:
@@ -1347,42 +1352,42 @@ class PAFScorer:
 
     def group_instances(
         self,
-        peaks: List[torch.Tensor],
-        peak_vals: List[torch.Tensor],
-        peak_channel_inds: List[torch.Tensor],
-        match_edge_inds: List[torch.Tensor],
-        match_src_peak_inds: List[torch.Tensor],
-        match_dst_peak_inds: List[torch.Tensor],
-        match_line_scores: List[torch.Tensor],
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        peaks: torch.Tensor,
+        peak_vals: torch.Tensor,
+        peak_channel_inds: torch.Tensor,
+        match_edge_inds: torch.Tensor,
+        match_src_peak_inds: torch.Tensor,
+        match_dst_peak_inds: torch.Tensor,
+        match_line_scores: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Group matched connections into full instances for a batch.
 
         Args:
-            peaks: The sample-grouped detected peaks in a batch as a list of `torch.Tensor`
+            peaks: The sample-grouped detected peaks in a batch as a nested tensor `torch.Tensor`
                 of shape `(n_samples, (n_peaks), 2)` and dtype `torch.float32`. These
                 should be `(x, y)` coordinates of each peak in the image scale.
             peak_vals: The sample-grouped scores of the detected peaks in a batch as a
-                list of `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
+                nested tensor `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
                 `torch.float32`.
             peak_channel_inds: The sample-grouped indices of the channel (node) that
-                each detected peak is associated with as a list of `torch.Tensor` of shape
+                each detected peak is associated with as a nested tensor `torch.Tensor` of shape
                 `(n_samples, (n_peaks))` and dtype `torch.int32`.
             match_edge_inds: Sample-grouped indices of the skeleton edge that each
-                connection corresponds to as a list of `torch.Tensor` of shape
+                connection corresponds to as a nested tensor `torch.Tensor` of shape
                 `(n_samples, (n_connections))` and dtype `torch.int32`. This can be
                 generated by `PAFScorer.match_candidates()`.
             match_src_peak_inds: Sample-grouped indices of the source peaks that form
-                each connection as a list of `torch.Tensor` of shape
+                each connection as a nested tensor `torch.Tensor` of shape
                 `(n_samples, (n_connections))` and dtype `torch.int32`. Important: These
                 indices correspond to the edge-grouped peaks, not the set of all peaks
                 in each sample. This can be generated by `PAFScorer.match_candidates()`.
             match_dst_peak_inds: Sample-grouped indices of the destination peaks that
-                form each connection as a list of `torch.Tensor` of shape
+                form each connection as a nested tensor `torch.Tensor` of shape
                 `(n_samples, (n_connections))` and dtype `torch.int32`. Important: These
                 indices correspond to the edge-grouped peaks, not the set of all peaks
                 in the sample. This can be generated by `PAFScorer.match_candidates()`.
             match_line_scores: Sample-grouped PAF line scores of the matched connections
-                as a list of `torch.Tensor` of shape `(n_samples, (n_connections))` and dtype
+                as a nested tensor `torch.Tensor` of shape `(n_samples, (n_connections))` and dtype
                 `torch.float32`. This can be generated by `PAFScorer.match_candidates()`.
 
         Returns:
@@ -1390,7 +1395,7 @@ class PAFScorer:
             sample:
 
             `predicted_instances`: The sample- and instance-grouped coordinates for each
-            instance as list of `torch.Tensor` of shape
+            instance as nested `torch.Tensor` of shape
             `(n_samples, (n_instances), n_nodes, 2)` and dtype `torch.float32`. Missing
             peaks are represented by `NaN`s.
 
@@ -1425,22 +1430,22 @@ class PAFScorer:
     def predict(
         self,
         pafs: torch.Tensor,
-        peaks: List[torch.Tensor],
-        peak_vals: List[torch.Tensor],
-        peak_channel_inds: List[torch.Tensor],
-    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        peaks: torch.Tensor,
+        peak_vals: torch.Tensor,
+        peak_channel_inds: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Group a batch of predicted peaks into full instance predictions using PAFs.
 
         Args:
             pafs: The batch of part affinity fields as a `torch.Tensor` of shape
                 `(n_samples, height, width, 2 * n_edges)` and type `torch.float32`.
-            peaks: The coordinates of the peaks grouped by sample as a list of `torch.Tensor`
+            peaks: The coordinates of the peaks grouped by sample as a nested `torch.Tensor`
                 of shape `(n_samples, (n_peaks), 2)`.
             peak_vals: The sample-grouped scores of the detected peaks in a batch as a
-                list of `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
+                nested `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
                 `torch.float32`.
             peak_channel_inds: The channel (node) that each peak in `peaks` corresponds
-                to as a list of `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
+                to as a nested `torch.Tensor` of shape `(n_samples, (n_peaks))` and dtype
                 `torch.int32`.
 
         Returns:
@@ -1448,7 +1453,7 @@ class PAFScorer:
             sample:
 
             `predicted_instances`: The sample- and instance-grouped coordinates for each
-            instance as list of `torch.Tensor` of shape
+            instance as nested `torch.Tensor` of shape
             `(n_samples, (n_instances), n_nodes, 2)` and dtype `torch.float32`. Missing
             peaks are represented by `NaN`s.
 
