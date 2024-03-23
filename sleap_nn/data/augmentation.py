@@ -1,4 +1,5 @@
 """This module implements data pipeline blocks for augmentation operations."""
+
 from typing import Any, Dict, Optional, Tuple, Union, Iterator
 
 import kornia as K

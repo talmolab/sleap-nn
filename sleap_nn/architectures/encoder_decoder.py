@@ -445,9 +445,11 @@ class Decoder(nn.Module):
 
             self.decoder_stack.append(
                 SimpleUpsamplingBlock(
-                    x_in_shape=(x_in_shape + block_filters_in)
-                    if block == 0
-                    else (prev_block_filters_in + block_filters_in),
+                    x_in_shape=(
+                        (x_in_shape + block_filters_in)
+                        if block == 0
+                        else (prev_block_filters_in + block_filters_in)
+                    ),
                     current_stride=current_stride,
                     upsampling_stride=2,
                     interp_method="bilinear",

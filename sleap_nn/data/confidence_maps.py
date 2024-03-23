@@ -1,4 +1,5 @@
 """Generate confidence maps."""
+
 from typing import Dict, Iterator
 
 import torch
@@ -37,9 +38,7 @@ def make_confmaps(
     xv_reshaped = torch.reshape(xv, (1, 1, 1, -1))
     yv_reshaped = torch.reshape(yv, (1, 1, -1, 1))
 
-    cm = torch.exp(
-        -((xv_reshaped - x) ** 2 + (yv_reshaped - y) ** 2) / (2 * sigma**2)
-    )
+    cm = torch.exp(-((xv_reshaped - x) ** 2 + (yv_reshaped - y) ** 2) / (2 * sigma**2))
 
     # Replace NaNs with 0.
     cm = torch.nan_to_num(cm)

@@ -1,0 +1,229 @@
+data_config:
+  provider: LabelsReader
+  pipeline: TopdownConfmaps
+  max_instances: 30
+  train:
+    labels_path: minimal_instance.pkg.slp
+    preprocessing:
+      anchor_ind: 0
+      crop_hw:
+      - 160
+      - 160
+      conf_map_gen:
+        sigma: 1.5
+        output_stride: 2
+    augmentation_config:
+      random_crop:
+        random_crop_p: 0
+        random_crop_hw:
+        - 160
+        - 160
+      use_augmentations: false
+      augmentations:
+        intensity:
+          uniform_noise:
+          - 0.0
+          - 0.04
+          uniform_noise_p: 0
+          gaussian_noise_mean: 0.02
+          gaussian_noise_std: 0.004
+          gaussian_noise_p: 0
+          contrast:
+          - 0.5
+          - 2.0
+          contrast_p: 0
+          brightness: 0.0
+          brightness_p: 0
+        geometric:
+          rotation: 180.0
+          scale: 0
+          translate:
+          - 0
+          - 0
+          affine_p: 0.5
+          erase_scale:
+          - 0.0001
+          - 0.01
+          erase_ratio:
+          - 1
+          - 1
+          erase_p: 0
+          mixup_lambda: null
+          mixup_p: 0
+  val:
+    labels_path: minimal_instance.pkg.slp
+    preprocessing:
+      anchor_ind: 0
+      crop_hw:
+      - 160
+      - 160
+      conf_map_gen:
+        sigma: 1.5
+        output_stride: 2
+    augmentation_config:
+      random_crop:
+        random_crop_p: 0
+        random_crop_hw:
+        - 160
+        - 160
+      use_augmentations: false
+      augmentations:
+        intensity:
+          uniform_noise:
+          - 0.0
+          - 0.04
+          uniform_noise_p: 0
+          gaussian_noise_mean: 0.02
+          gaussian_noise_std: 0.004
+          gaussian_noise_p: 0
+          contrast:
+          - 0.5
+          - 2.0
+          contrast_p: 0
+          brightness: 0.0
+          brightness_p: 0
+        geometric:
+          rotation: 180.0
+          scale: 0
+          translate:
+          - 0
+          - 0
+          affine_p: 0.5
+          erase_scale:
+          - 0.0001
+          - 0.01
+          erase_ratio:
+          - 1
+          - 1
+          erase_p: 0
+          mixup_lambda: null
+          mixup_p: 0
+model_config:
+  init_weights: default
+  backbone_config:
+    backbone_type: unet
+    backbone_config:
+      in_channels: 1
+      kernel_size: 3
+      filters: 16
+      filters_rate: 2
+      down_blocks: 4
+      up_blocks: 3
+      convs_per_block: 2
+  head_configs:
+    head_type: CenteredInstanceConfmapsHead
+    head_config:
+      part_names:
+      - '0'
+      - '1'
+      anchor_part: 0
+      sigma: 1.5
+      output_stride: 2
+      loss_weight: 1.0
+trainer_config:
+  train_data_loader:
+    batch_size: 1
+    shuffle: true
+    num_workers: 2
+    pin_memory: true
+    drop_last: false
+  val_data_loader:
+    batch_size: 1
+    shuffle: false
+    num_workers: 0
+    pin_memory: true
+    drop_last: false
+  model_ckpt:
+    save_top_k: 1
+    save_last: true
+    monitor: val_loss
+    mode: min
+    auto_insert_metric_name: false
+    save_weights_only: true
+  device: cpu
+  trainer_devices: 1
+  trainer_accelerator: cpu
+  enable_progress_bar: false
+  max_epochs: 2
+  seed: 1000
+  use_wandb: false
+  save_ckpt: true
+  save_ckpt_path: 17_01_ckpt_gen
+  wandb:
+    project: test
+    name: test_run
+    wandb_mode: offline
+    api_key: ''
+    log_params: ["trainer_config.optimizer_name", "trainer_config.optimizer.amsgrad", "trainer_config.optimizer.lr", "model_config.backbone_config.backbone_type", "model_config.init_weights"]
+  optimizer_name: Adam
+  optimizer:
+    lr: 0.0001
+    amsgrad: true
+  lr_scheduler:
+    threshold: 1.0e-06
+    cooldown: 3
+    patience: 5
+    factor: 0.5
+    min_lr: 1.0e-08
+inference_config:
+  device: cpu
+  data:
+    labels_path: ./tests/assets/minimal_instance.pkg.slp
+    provider: LabelsReader
+    max_instances: 30
+    data_loader:
+      batch_size: 4
+      shuffle: false
+      num_workers: 2
+      pin_memory: true
+      drop_last: false
+    preprocessing:
+      anchor_ind: 0
+      crop_hw:
+      - 160
+      - 160
+      conf_map_gen:
+        sigma: 1.5
+        output_stride: 2
+    augmentation_config:
+      random_crop:
+        random_crop_p: 0
+        random_crop_hw:
+        - 160
+        - 160
+      use_augmentations: false
+      augmentations:
+        intensity:
+          uniform_noise:
+          - 0.0
+          - 0.04
+          uniform_noise_p: 0
+          gaussian_noise_mean: 0.02
+          gaussian_noise_std: 0.004
+          gaussian_noise_p: 0
+          contrast:
+          - 0.5
+          - 2.0
+          contrast_p: 0
+          brightness: 0.0
+          brightness_p: 0
+        geometric:
+          rotation: 180.0
+          scale: 0
+          translate:
+          - 0
+          - 0
+          affine_p: 0.5
+          erase_scale:
+          - 0.0001
+          - 0.01
+          erase_ratio:
+          - 1
+          - 1
+          erase_p: 0
+          mixup_lambda: null
+          mixup_p: 0
+  peak_threshold: 0.0
+  integral_refinement: integral
+  integral_patch_size: 5
+  return_confmaps: false

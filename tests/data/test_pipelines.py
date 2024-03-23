@@ -15,7 +15,7 @@ from sleap_nn.data.providers import LabelsReader
 
 
 def test_key_filter(minimal_instance):
-    datapipe = LabelsReader.from_filename(filename=minimal_instance)
+    datapipe = LabelsReader.from_filename(filename=minimal_instance, max_instances=30)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (160, 160))
@@ -37,6 +37,9 @@ def test_key_filter(minimal_instance):
         "confidence_maps",
         "video_idx",
         "frame_idx",
+        "num_instances",
+        "centroids",
+        "instances",
     ]
 
     sample = next(iter(datapipe))
@@ -48,6 +51,7 @@ def test_key_filter(minimal_instance):
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
     assert sample["frame_idx"] == 0
     assert sample["video_idx"] == 0
+    assert sample["num_instances"] == 2
 
 
 def test_topdownconfmapspipeline(minimal_instance):
@@ -90,7 +94,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(data_config=base_topdown_data_config)
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReader(
+        labels=sio.load_slp(minimal_instance), max_instances=30
+    )
+
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
     gt_sample_keys = [
@@ -150,6 +157,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(data_config=base_topdown_data_config)
+
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
@@ -219,7 +227,8 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     pipeline = SingleInstanceConfmapsPipeline(
         data_config=base_singleinstance_data_config
     )
-    data_provider = LabelsReader(labels=labels)
+    data_provider = LabelsReader(labels=labels, max_instances=1)
+
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
     sample = next(iter(datapipe))
@@ -276,7 +285,8 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     pipeline = SingleInstanceConfmapsPipeline(
         data_config=base_singleinstance_data_config
     )
-    data_provider = LabelsReader(labels=labels)
+
+    data_provider = LabelsReader(labels=labels, max_instances=1)
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
     sample = next(iter(datapipe))
@@ -293,3 +303,4 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert sample["instances"].shape == (1, 1, 2, 2)

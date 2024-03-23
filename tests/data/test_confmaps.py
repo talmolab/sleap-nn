@@ -9,7 +9,7 @@ from sleap_nn.data.utils import make_grid_vectors
 
 
 def test_confmaps(minimal_instance):
-    datapipe = LabelsReader.from_filename(minimal_instance)
+    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=30)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCropper(datapipe, (100, 100))

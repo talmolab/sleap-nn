@@ -1,4 +1,5 @@
 """Handle calculation of instance centroids."""
+
 from typing import Dict, Iterator, Optional
 
 import torch
