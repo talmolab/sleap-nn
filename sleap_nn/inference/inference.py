@@ -639,13 +639,16 @@ class TopDownPredictor(Predictor):
                 ex["centroid_val"],
                 ex["orig_size"],
             ):
-                pad_height = (self.data_config.max_height - org_size[0]) // 2
-                pad_width = (self.data_config.max_width - org_size[1]) // 2
                 pred_instances = (
-                    pred_instances
-                    + bbox.squeeze(axis=0)[0, :]
-                    - [pad_height, pad_width]
-                )
+                        pred_instances
+                        + bbox.squeeze(axis=0)[0, :])
+                if self.data_config.max_height is not None:
+                    pad_height = (self.data_config.max_height - org_size[0]) // 2
+                    pad_width = (self.data_config.max_width - org_size[1]) // 2
+                    pred_instances = (
+                        pred_instances
+                        - [pad_height, pad_width]
+                    )
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
                         points=pred_instances,
