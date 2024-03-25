@@ -26,12 +26,14 @@ def minimal_instance_ckpt(sleap_data_dir):
 
 @pytest.fixture
 def config(sleap_data_dir):
-    """Training configuration."""
-    config = OmegaConf.create(
+    init_config = OmegaConf.create(
         {
             "data_config": {
                 "provider": "LabelsReader",
                 "max_instances": 30,
+                "max_width": 1024,
+                "max_height": 1280,
+                "is_rgb": False,
                 "pipeline": "TopdownConfmaps",
                 "train": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
@@ -113,10 +115,10 @@ def config(sleap_data_dir):
                 },
             },
             "model_config": {
-                "init_weights": "default",
                 "backbone_config": {
                     "backbone_type": "unet",
                     "backbone_config": {
+                        "init_weights": "default",
                         "in_channels": 1,
                         "kernel_size": 3,
                         "filters": 16,
@@ -170,6 +172,7 @@ def config(sleap_data_dir):
                 "save_ckpt_path": "",
                 "optimizer_name": "Adam",
                 "wandb": {
+                    "entity": "team-ucsd",
                     "project": "test",
                     "name": "test_run",
                     "wandb_mode": "offline",
@@ -199,7 +202,10 @@ def config(sleap_data_dir):
                 "data": {
                     "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
                     "provider": "LabelsReader",
-                    "max_instances": 30,
+                    "max_instances": 10,
+                    "max_width": 1024,
+                    "max_height": 1280,
+                    "is_rgb": False,
                     "data_loader": {
                         "batch_size": 4,
                         "shuffle": False,
@@ -251,5 +257,4 @@ def config(sleap_data_dir):
             },
         }
     )
-
-    return config
+    return init_config

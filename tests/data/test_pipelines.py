@@ -40,6 +40,7 @@ def test_key_filter(minimal_instance):
         "num_instances",
         "centroids",
         "instances",
+        "orig_size",
     ]
 
     sample = next(iter(datapipe))
@@ -109,6 +110,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         "confidence_maps",
         "frame_idx",
         "video_idx",
+        "orig_size",
     ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -170,6 +172,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         "confidence_maps",
         "frame_idx",
         "video_idx",
+        "orig_size",
     ]
 
     sample = next(iter(datapipe))
@@ -239,6 +242,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "frame_idx",
         "instances",
         "confidence_maps",
+        "orig_size",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -297,6 +301,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "frame_idx",
         "instances",
         "confidence_maps",
+        "orig_size",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):

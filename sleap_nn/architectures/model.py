@@ -23,6 +23,7 @@ from sleap_nn.architectures.heads import (
     OffsetRefinementHead,
 )
 from sleap_nn.architectures.unet import UNet
+from sleap_nn.architectures.convnext import ConvNextWrapper
 
 
 def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
@@ -41,7 +42,7 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
     Raises:
         KeyError: If the provided backbone name is not one of the supported values.
     """
-    backbones = {"unet": UNet}
+    backbones = {"unet": UNet, "convnext": ConvNextWrapper}  # TODO
 
     if backbone not in backbones:
         raise KeyError(

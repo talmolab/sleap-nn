@@ -86,6 +86,7 @@ class TopdownConfmapsPipeline:
                 "instance_bbox",
                 "instance_image",
                 "confidence_maps",
+                "orig_size",
             ],
         )
 
@@ -149,6 +150,7 @@ class SingleInstanceConfmapsPipeline:
                 "frame_idx",
                 "instances",
                 "confidence_maps",
+                "orig_size",
             ],
         )
 
