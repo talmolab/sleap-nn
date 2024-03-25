@@ -19,6 +19,7 @@ from sleap_nn.data.pipelines import (
 )
 from sleap_nn.inference.peak_finding import find_global_peaks
 from sleap_nn.model_trainer import TopDownCenteredInstanceModel, SingleInstanceModel
+from time import time
 from omegaconf import OmegaConf
 
 
@@ -923,6 +924,7 @@ class SingleInstancePredictor(Predictor):
                 pad_height = (self.data_config.max_height - org_size[0]) // 2
                 pad_width = (self.data_config.max_width - org_size[1]) // 2
                 pred_instances = pred_instances - [pad_height, pad_width]
+
                 inst = sio.PredictedInstance.from_numpy(
                     points=pred_instances,
                     skeleton=skeletons[skeleton_idx],

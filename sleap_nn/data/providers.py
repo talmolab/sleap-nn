@@ -10,9 +10,9 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 class LabelsReader(IterDataPipe):
-    """Datapipe for reading frames from Labels object.
+    """IterDataPipe for reading frames from Labels object.
 
-    This DataPipe will produce examples containing a frame and an sleap_io.Instance
+    This IterDataPipe will produce examples containing a frame and an sleap_io.Instance
     from a sleap_io.Labels instance.
 
     Attributes:

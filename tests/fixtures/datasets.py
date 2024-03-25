@@ -31,8 +31,8 @@ def config(sleap_data_dir):
             "data_config": {
                 "provider": "LabelsReader",
                 "max_instances": 30,
-                # "max_width": 1024,
-                # "max_height": 1280
+                "max_width": 1024,
+                "max_height": 1280,
                 "is_rgb": False,
                 "pipeline": "TopdownConfmaps",
                 "train": {
@@ -182,7 +182,7 @@ def config(sleap_data_dir):
                         "trainer_config.optimizer.amsgrad",
                         "trainer_config.optimizer.lr",
                         "model_config.backbone_config.backbone_type",
-                        "model_config.backbone_config.backbone_config.init_weights",
+                        "model_config.init_weights",
                     ],
                 },
                 "optimizer": {
@@ -203,6 +203,8 @@ def config(sleap_data_dir):
                     "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
                     "provider": "LabelsReader",
                     "max_instances": 10,
+                    "max_width": 1024,
+                    "max_height": 1280,
                     "is_rgb": False,
                     "data_loader": {
                         "batch_size": 4,

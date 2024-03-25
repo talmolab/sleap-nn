@@ -22,3 +22,4 @@ def test_providers(minimal_instance):
     assert image.shape == torch.Size([1, 3, 1000, 1000])
     assert instances.shape == torch.Size([1, 20, 2, 2])
     assert torch.isnan(instances[:, 2:, :, :]).all()
+
