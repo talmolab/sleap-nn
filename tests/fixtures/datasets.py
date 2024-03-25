@@ -115,10 +115,13 @@ def config(sleap_data_dir):
                 },
             },
             "model_config": {
+                "init_weights": "default",
+                "pre_trained_weights": None,
                 "backbone_config": {
                     "backbone_type": "unet",
+                    
                     "backbone_config": {
-                        "init_weights": "default",
+                        
                         "in_channels": 1,
                         "kernel_size": 3,
                         "filters": 16,

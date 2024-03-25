@@ -20,7 +20,7 @@ import pandas as pd
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 import os
-
+from sleap_nn.architectures.common import xavier_init_weights
 
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
@@ -260,6 +260,23 @@ class TrainingModel(L.LightningModule):
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
+
+        if self.model_config.init_weights=="xavier":
+            self.model.apply(xavier_init_weights)
+
+        if self.model_config.pre_trained_weights:
+            self._init_pretrain_model()
+
+    def _init_pretrain_model(self):
+        if self.model_config.backbone_config.backbone_type in ["swint", "convnext"] :
+            ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
+                progress=True, check_hash=True
+            )
+            if self.model_config.backbone_config.backbone_config.in_channels == 1:
+                ckpt["features.0.0.weight"] = torch.unsqueeze(
+                    ckpt["features.0.0.weight"].mean(dim=1), dim=1
+                )
+            self.enc.load_state_dict(ckpt, strict=False)
 
     @property
     def device(self):

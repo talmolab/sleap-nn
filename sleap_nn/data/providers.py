@@ -28,8 +28,8 @@ class LabelsReader(IterDataPipe):
     def __init__(
         self,
         labels: sio.Labels,
-        max_height: int = -1,
-        max_width: int = -1,
+        max_height: int = None,
+        max_width: int = None,
         user_instances_only: bool = True,
         max_instances: int = 30,
         is_rgb: bool = False,
