@@ -21,6 +21,15 @@ from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 import os
 from sleap_nn.architectures.common import xavier_init_weights
+from torchvision.models.swin_transformer import (
+    Swin_T_Weights,
+    Swin_S_Weights,
+    Swin_B_Weights,
+    Swin_V2_T_Weights,
+    Swin_V2_S_Weights,
+    Swin_V2_B_Weights,
+)
+from sleap_nn.architectures.convnext import ConvNeXt_Tiny_Weights, ConvNeXt_Small_Weights, ConvNeXt_Base_Weights, ConvNeXt_Large_Weights
 
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
