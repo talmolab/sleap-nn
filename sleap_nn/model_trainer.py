@@ -18,9 +18,18 @@ from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from torch import nn
 import pandas as pd
 from sleap_nn.architectures.model import Model
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 import os
-
+from sleap_nn.architectures.common import xavier_init_weights
+from torchvision.models.swin_transformer import (
+    Swin_T_Weights,
+    Swin_S_Weights,
+    Swin_B_Weights,
+    Swin_V2_T_Weights,
+    Swin_V2_S_Weights,
+    Swin_V2_B_Weights,
+)
+from sleap_nn.architectures.convnext import ConvNeXt_Tiny_Weights, ConvNeXt_Small_Weights, ConvNeXt_Base_Weights, ConvNeXt_Large_Weights
 
 def xavier_init_weights(x):
     """Function to initilaise the model weights with Xavier initialization method."""
@@ -133,6 +142,9 @@ class ModelTrainer:
         else:
             self.model = TopDownCenteredInstanceModel(self.config)
 
+    def _get_param_count(self):
+        return sum(p.numel() for p in self.model.parameters())
+
     def train(self):
         """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
@@ -164,6 +176,17 @@ class ModelTrainer:
 
         else:
             callbacks = []
+
+        if self.config.trainer_config.early_stopping.stop_training_on_plateau:
+            callbacks.append(
+                EarlyStopping(
+                    monitor="val_loss",
+                    mode="min",
+                    verbose=False,
+                    min_delta=self.config.trainer_config.early_stopping.min_delta,
+                    patience=self.config.trainer_config.early_stopping.patience,
+                )
+            )
 
         if self.config.trainer_config.use_wandb:
             wandb_config = self.config.trainer_config.wandb
@@ -207,8 +230,11 @@ class ModelTrainer:
 
         trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
 
+        total_params = self._get_param_count()
+
         if self.config.trainer_config.use_wandb:
             self.config.trainer_config.wandb.run_id = wandb.run.id
+            self.config.model_config.total_params = total_params
             for m in self.config.trainer_config.wandb.log_params:
                 list_keys = m.split(".")
                 key = list_keys[-1]
@@ -216,6 +242,7 @@ class ModelTrainer:
                 for l in list_keys[1:]:
                     value = value[l]
                 self.wandb_logger.experiment.config.update({key: value})
+            self.wandb_logger.experiment.config.update({"model_params": total_params})
             wandb.finish()
 
         # save the configs as yaml in the checkpoint dir
@@ -250,6 +277,23 @@ class TrainingModel(L.LightningModule):
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
+
+        if self.model_config.init_weights=="xavier":
+            self.model.apply(xavier_init_weights)
+
+        if self.model_config.pre_trained_weights:
+            self._init_pretrain_model()
+
+    def _init_pretrain_model(self):
+        if self.model_config.backbone_config.backbone_type in ["swint", "convnext"] :
+            ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
+                progress=True, check_hash=True
+            )
+            if self.model_config.backbone_config.backbone_config.in_channels == 1:
+                ckpt["features.0.0.weight"] = torch.unsqueeze(
+                    ckpt["features.0.0.weight"].mean(dim=1), dim=1
+                )
+            self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
     @property
     def device(self):

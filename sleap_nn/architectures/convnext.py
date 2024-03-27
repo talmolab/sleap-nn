@@ -221,8 +221,6 @@ class ConvNextWrapper(nn.Module):
         filters_rate: int = 1.5,
         up_blocks: int = 3,
         convs_per_block: int = 2,
-        init_weights: str = "default",
-        pretrained_weights=None,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -255,22 +253,6 @@ class ConvNextWrapper(nn.Module):
             down_blocks=self.down_blocks,
             filters_rate=filters_rate,
         )
-
-        # Initializing the model weights
-        if init_weights == "xavier":
-            self.enc.apply(xavier_init_weights)
-            self.dec.apply(xavier_init_weights)
-
-        # mpretrained weights
-        if pretrained_weights:
-            ckpt = eval(pretrained_weights).DEFAULT.get_state_dict(
-                progress=True, check_hash=True
-            )
-            if in_channels == 1:
-                ckpt["features.0.0.weight"] = torch.unsqueeze(
-                    ckpt["features.0.0.weight"].mean(dim=1), dim=1
-                )
-            self.enc.load_state_dict(ckpt, strict=False)
 
     @property
     def output_channels(self):

@@ -28,8 +28,8 @@ class LabelsReader(IterDataPipe):
     def __init__(
         self,
         labels: sio.Labels,
-        max_height: int = -1,
-        max_width: int = -1,
+        max_height: int = None,
+        max_width: int = None,
         user_instances_only: bool = True,
         max_instances: int = 30,
         is_rgb: bool = False,
@@ -60,8 +60,8 @@ class LabelsReader(IterDataPipe):
         filename: str,
         user_instances_only: bool = True,
         max_instances: int = 30,
-        max_height: int = -1,
-        max_width: int = -1,
+        max_height: int = None,
+        max_width: int = None,
         is_rgb=False,
     ):
         """Create LabelsReader from a .slp filename."""
@@ -102,7 +102,7 @@ class LabelsReader(IterDataPipe):
             img_height, img_width = image.shape[-2:]
 
             # pad images to max_height and max_width
-            if self.max_height != -1:  # only if user provides
+            if self.max_height is not None:  # only if user provides
                 pad_height = (self.max_height - img_height) // 2
                 pad_width = (self.max_width - img_width) // 2
                 image = np.pad(
@@ -110,7 +110,7 @@ class LabelsReader(IterDataPipe):
                     ((0, 0), (0, 0), (pad_height, pad_height), (pad_width, pad_width)),
                     mode="constant",
                 ).astype("float32")
-                instances = instances + torch.Tensor([pad_width, pad_height])
+                instances = instances + torch.Tensor([pad_height, pad_width])
 
             # convert to rgb
             if self.is_rgb and image.shape[-3] != 3:
@@ -124,5 +124,5 @@ class LabelsReader(IterDataPipe):
                 ),
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                 "num_instances": num_instances,
-                "orig_size": (img_height, img_width),
+                "orig_size": torch.Tensor([img_height, img_width]),
             }

@@ -87,11 +87,6 @@ class UNet(nn.Module):
             filters_rate=filters_rate,
         )
 
-        # Initializing the model weights
-        if init_weights == "xavier":
-            self.enc.apply(xavier_init_weights)
-            self.dec.apply(xavier_init_weights)
-
     @property
     def output_channels(self):
         """Returns the output channels of the UNet."""
