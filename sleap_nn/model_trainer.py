@@ -285,7 +285,7 @@ class TrainingModel(L.LightningModule):
                 ckpt["features.0.0.weight"] = torch.unsqueeze(
                     ckpt["features.0.0.weight"].mean(dim=1), dim=1
                 )
-            self.enc.load_state_dict(ckpt, strict=False)
+            self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
     @property
     def device(self):
