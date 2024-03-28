@@ -30,9 +30,9 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "max_instances": 30,
-                # "max_width": 1024,
-                # "max_height": 1280
+                "max_instances": 10,
+                "max_width": None,
+                "max_height": None,
                 "is_rgb": False,
                 "pipeline": "TopdownConfmaps",
                 "train": {
@@ -168,6 +168,7 @@ def config(sleap_data_dir):
                 "trainer_devices": 1,
                 "trainer_accelerator": "cpu",
                 "enable_progress_bar": False,
+                "steps_per_epoch": None,
                 "max_epochs": 2,
                 "seed": 1000,
                 "use_wandb": False,
@@ -206,6 +207,8 @@ def config(sleap_data_dir):
                     "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
                     "provider": "LabelsReader",
                     "max_instances": 10,
+                    "max_width": None,
+                    "max_height": None,
                     "is_rgb": False,
                     "data_loader": {
                         "batch_size": 4,

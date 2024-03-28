@@ -1,10 +1,12 @@
 """This module is to train a sleap-nn model using Lightning."""
 
+from pathlib import Path
+import time
+from torch import nn
+import os
 import torch
 import sleap_io as sio
 from torch.utils.data import DataLoader
-from typing import Text
-from pathlib import Path
 from omegaconf import OmegaConf
 import lightning as L
 from sleap_nn.data.providers import LabelsReader
@@ -13,14 +15,11 @@ from sleap_nn.data.pipelines import (
     SingleInstanceConfmapsPipeline,
 )
 import wandb
-import time
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
-from torch import nn
-import pandas as pd
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-import os
 from sleap_nn.architectures.common import xavier_init_weights
+from torchdata.datapipes.iter import Cycler
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -51,6 +50,7 @@ class ModelTrainer:
 
         self.m_device = self.config.trainer_config.device
         self.seed = self.config.trainer_config.seed
+        self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
         # set seed
         torch.manual_seed(self.seed)
         self.is_single_instance_model = False
@@ -98,6 +98,9 @@ class ModelTrainer:
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
         )
+
+        if self.steps_per_epoch is not None:
+            train_datapipe = Cycler(train_datapipe)
 
         # to remove duplicates when multiprocessing is used
         train_datapipe = train_datapipe.sharding_filter()
@@ -217,6 +220,7 @@ class ModelTrainer:
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
+            limit_train_batches=self.steps_per_epoch,
         )
 
         trainer.fit(self.model, self.train_data_loader, self.val_data_loader)

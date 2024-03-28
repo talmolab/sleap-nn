@@ -923,9 +923,13 @@ class SingleInstancePredictor(Predictor):
                 ex["pred_peak_values"],
                 ex["orig_size"],
             ):
-                pad_height = (self.data_config.max_height - org_size[0]) // 2
-                pad_width = (self.data_config.max_width - org_size[1]) // 2
-                pred_instances = pred_instances - [pad_height, pad_width]
+                if self.data_config.max_height is not None:
+                    pad_height = (self.data_config.max_height - org_size[0]) // 2
+                    pad_width = (self.data_config.max_width - org_size[1]) // 2
+                    pred_instances = (
+                        pred_instances
+                        - [pad_height, pad_width]
+                    )
                 inst = sio.PredictedInstance.from_numpy(
                     points=pred_instances,
                     skeleton=skeletons[skeleton_idx],
