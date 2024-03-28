@@ -11,8 +11,8 @@ def xavier_init_weights(x):
     """Function to initilaise the model weights with Xavier initialization method."""
     if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
         nn.init.xavier_uniform_(x.weight)
-        nn.init.constant_(x.bias, 0)
-
+        if hasattr(x, 'bias'):
+            nn.init.constant_(x.bias, 0)
 
 class MaxPool2dWithSamePadding(nn.MaxPool2d):
     """A MaxPool2d module with support for same padding.
