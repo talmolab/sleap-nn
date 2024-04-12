@@ -131,7 +131,6 @@ class ModelTrainer:
             max_height=self.config.data_config.max_height,
             max_width=self.config.data_config.max_width,
             is_rgb=self.config.data_config.is_rgb,
-
         )
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,

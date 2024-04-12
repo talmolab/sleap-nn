@@ -1,4 +1,5 @@
 """Transformers for generating edge confidence maps and part affinity fields."""
+
 from typing import Tuple, Optional, List, Text, Iterator, Dict
 import torch
 import attrs

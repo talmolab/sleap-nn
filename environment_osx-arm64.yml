@@ -11,6 +11,7 @@ dependencies:
   - lightning=2.0.5 # due to dependency conflict Lightning Issue (#18027)
   - pytorch
   - torchvision
+  - torchdata
   - imageio
   - wandb
   - av
