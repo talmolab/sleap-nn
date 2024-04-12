@@ -90,9 +90,9 @@ class RandomUniformNoise(IntensityAugmentationBase2D):
 
 
 class KorniaAugmenter(IterDataPipe):
-    """DataPipe for applying rotation and scaling augmentations using Kornia.
+    """IterDataPipe for applying rotation and scaling augmentations using Kornia.
 
-    This DataPipe will apply augmentations to images and instances in examples from the
+    This IterDataPipe will apply augmentations to images and instances in examples from the
     input pipeline.
 
     Attributes:

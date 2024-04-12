@@ -19,6 +19,7 @@ from sleap_nn.data.pipelines import (
 )
 from sleap_nn.inference.peak_finding import find_global_peaks
 from sleap_nn.model_trainer import TopDownCenteredInstanceModel, SingleInstanceModel
+from time import time
 from omegaconf import OmegaConf
 
 

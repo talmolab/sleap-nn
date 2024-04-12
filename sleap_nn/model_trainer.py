@@ -36,6 +36,13 @@ from torchvision.models.convnext import (
 )
 
 
+def xavier_init_weights(x):
+    """Function to initilaise the model weights with Xavier initialization method."""
+    if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
+        nn.init.xavier_uniform_(x.weight)
+        nn.init.constant_(x.bias, 0)
+
+
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
 
@@ -64,7 +71,7 @@ class ModelTrainer:
             self.is_single_instance_model = True
 
     def _create_data_loaders(self):
-        """Creates a DataLoader for train, validation and test sets using the data_config."""
+        """Create a DataLoader for train, validation and test sets using the data_config."""
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
@@ -101,6 +108,7 @@ class ModelTrainer:
             max_width=self.config.data_config.max_width,
             is_rgb=self.config.data_config.is_rgb,
         )
+
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
         )
@@ -123,6 +131,7 @@ class ModelTrainer:
             max_height=self.config.data_config.max_height,
             max_width=self.config.data_config.max_width,
             is_rgb=self.config.data_config.is_rgb,
+
         )
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,
@@ -146,7 +155,7 @@ class ModelTrainer:
         return sum(p.numel() for p in self.model.parameters())
 
     def train(self):
-        """Function to initiate the training by calling the fit method of Trainer."""
+        """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         self.logger = []
         if not self.config.trainer_config.save_ckpt_path:
@@ -252,7 +261,6 @@ class ModelTrainer:
 
 class TrainingModel(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
-
     This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
 
     Args:
@@ -483,7 +491,7 @@ class TopDownCenteredInstanceModel(TrainingModel):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        """Validation step."""
+        """Perform validation step."""
         X, y = torch.squeeze(batch["instance_image"], dim=1).to(
             self.m_device
         ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)

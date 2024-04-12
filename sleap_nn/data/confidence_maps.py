@@ -47,9 +47,9 @@ def make_confmaps(
 
 
 class ConfidenceMapGenerator(IterDataPipe):
-    """DataPipe for generating confidence maps.
+    """IterDataPipe for generating confidence maps.
 
-    This DataPipe will generate confidence maps for examples from the input pipeline.
+    This IterDataPipe will generate confidence maps for examples from the input pipeline.
     Input examples must contain image of shape (frames, channels, crop_height, crop_width)
     and instance of shape (n_instances, 2).
 
@@ -72,7 +72,7 @@ class ConfidenceMapGenerator(IterDataPipe):
         image_key: str = "image",
         instance_key: str = "instances",
     ) -> None:
-        """Initialize ConfidenceMapGenerator with input `DataPipe`, sigma, and output stride."""
+        """Initialize ConfidenceMapGenerator with input `IterDataPipe`, sigma, and output stride."""
         self.source_dp = source_dp
         self.sigma = sigma
         self.output_stride = output_stride
