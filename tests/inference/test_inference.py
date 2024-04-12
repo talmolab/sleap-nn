@@ -70,6 +70,7 @@ def test_topdown_centered_predictor(minimal_instance, minimal_instance_ckpt):
     assert lf.frame_idx == gt_lf.frame_idx
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
     assert lf.instances[1].numpy().shape == gt_lf.instances[1].numpy().shape
+    assert lf.image.shape == gt_lf.image.shape
 
     # check if dictionaries are created when make labels is set to False
     preds = predictor.predict(make_labels=False)

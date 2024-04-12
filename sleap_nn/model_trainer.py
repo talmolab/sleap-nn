@@ -28,7 +28,13 @@ from torchvision.models.swin_transformer import (
     Swin_V2_S_Weights,
     Swin_V2_B_Weights,
 )
-from sleap_nn.architectures.convnext import ConvNeXt_Tiny_Weights, ConvNeXt_Small_Weights, ConvNeXt_Base_Weights, ConvNeXt_Large_Weights
+from torchvision.models.convnext import (
+    ConvNeXt_Base_Weights,
+    ConvNeXt_Tiny_Weights,
+    ConvNeXt_Small_Weights,
+    ConvNeXt_Large_Weights,
+)
+
 
 class ModelTrainer:
     """Train sleap-nn model using PyTorch Lightning.
@@ -274,14 +280,14 @@ class TrainingModel(L.LightningModule):
         self.val_loss = {}
         self.learning_rate = {}
 
-        if self.model_config.init_weights=="xavier":
+        if self.model_config.init_weights == "xavier":
             self.model.apply(xavier_init_weights)
 
         if self.model_config.pre_trained_weights:
             self._init_pretrain_model()
 
     def _init_pretrain_model(self):
-        if self.model_config.backbone_config.backbone_type in ["swint", "convnext"] :
+        if self.model_config.backbone_config.backbone_type in ["swint", "convnext"]:
             ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
                 progress=True, check_hash=True
             )

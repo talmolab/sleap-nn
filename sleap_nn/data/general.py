@@ -27,6 +27,8 @@ class KeyFilter(IterDataPipe):
         - instance_bbox: the individual instance's bbox
         - instance_image: the individual instance's cropped image
         - confidence_maps: the individual instance's heatmap
+        - orig_size: Original Image size
+        - num_instances: Number of instances in the frame
         """
         for example in self.dp:
             if self.keep_keys is None:

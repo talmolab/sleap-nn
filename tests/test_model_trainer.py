@@ -108,6 +108,8 @@ def test_trainer(config, tmp_path: str):
     training_config = OmegaConf.load(
         f"{config.trainer_config.save_ckpt_path}/training_config.yaml"
     )
+    assert training_config.trainer_config.wandb.run_id is not None
+    assert training_config.model_config.total_params is not None
     assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
 
@@ -144,6 +146,26 @@ def test_trainer(config, tmp_path: str):
     assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
+
+    # check early stopping
+    config_early_stopping = config.copy()
+    OmegaConf.update(
+        config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-3
+    )
+    OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
+    OmegaConf.update(
+        config_early_stopping,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_model_trainer/",
+    )
+
+    trainer = ModelTrainer(config_early_stopping)
+    trainer.train()
+
+    checkpoint = torch.load(
+        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 1
 
     # For Single instance model
 

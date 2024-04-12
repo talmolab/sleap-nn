@@ -639,16 +639,11 @@ class TopDownPredictor(Predictor):
                 ex["centroid_val"],
                 ex["orig_size"],
             ):
-                pred_instances = (
-                        pred_instances
-                        + bbox.squeeze(axis=0)[0, :])
+                pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
                 if self.data_config.max_height is not None:
                     pad_height = (self.data_config.max_height - org_size[0]) // 2
                     pad_width = (self.data_config.max_width - org_size[1]) // 2
-                    pred_instances = (
-                        pred_instances
-                        - [pad_height, pad_width]
-                    )
+                    pred_instances = pred_instances - [pad_height, pad_width]
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
                         points=pred_instances,
@@ -842,7 +837,13 @@ class SingleInstancePredictor(Predictor):
 
         labels = sio.load_slp(self.data_config.labels_path)
         self.videos = labels.videos
-        provider_pipeline = provider(labels, max_instances=1)
+        provider_pipeline = provider(
+            labels,
+            max_instances=1,
+            max_height=self.data_config.max_height,
+            max_width=self.data_config.max_width,
+            is_rgb=self.data_config.is_rgb,
+        )
         self.pipeline = self.pipeline.make_training_pipeline(
             data_provider=provider_pipeline
         )
@@ -926,10 +927,7 @@ class SingleInstancePredictor(Predictor):
                 if self.data_config.max_height is not None:
                     pad_height = (self.data_config.max_height - org_size[0]) // 2
                     pad_width = (self.data_config.max_width - org_size[1]) // 2
-                    pred_instances = (
-                        pred_instances
-                        - [pad_height, pad_width]
-                    )
+                    pred_instances = pred_instances - [pad_height, pad_width]
                 inst = sio.PredictedInstance.from_numpy(
                     points=pred_instances,
                     skeleton=skeletons[skeleton_idx],

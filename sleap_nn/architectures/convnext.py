@@ -1,40 +1,40 @@
+"""This module provides a generalized implementation of ConvNext.
+
+See the `ConvNextWrapper` class docstring for more information.
+"""
+
 from functools import partial
-from typing import Any, Callable, List, Optional, Sequence, Dict, Tuple, Union, Text
+from typing import Any, Callable, List, Optional, Dict, Tuple
 
 import torch
 from torch import nn, Tensor
-from torch.nn import functional as F
-
-from torchvision.ops.misc import Conv2dNormActivation, Permute
-from torchvision.ops.stochastic_depth import StochasticDepth
-from torchvision.transforms._presets import ImageClassification
+from torchvision.ops.misc import Conv2dNormActivation
 from torchvision.utils import _log_api_usage_once
-from torchvision.models._api import register_model, Weights, WeightsEnum
-from torchvision.models._meta import _IMAGENET_CATEGORIES
-from torchvision.models._utils import _ovewrite_named_param, handle_legacy_interface
 from sleap_nn.architectures.encoder_decoder import Decoder
-import numpy as np
-from sleap_nn.architectures.common import xavier_init_weights
-
 from torchvision.models.convnext import LayerNorm2d, CNBlock, CNBlockConfig
 
-__all__ = [
-    "ConvNeXt",
-    "ConvNeXt_Tiny_Weights",
-    "ConvNeXt_Small_Weights",
-    "ConvNeXt_Base_Weights",
-    "ConvNeXt_Large_Weights",
-    "ConvNextWrapper",
-]
 
+class ConvNeXtEncoder(nn.Module):
+    """
+    Src: torchvision.models
+    Implements ConvNext from the `A ConvNet for the 2020s <https://arxiv.org/abs/2201.03545>`_ paper.
+    Args:
+        blocks (dict) : Dictionary of depths and channels. Default is "Tiny architecture" {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
+        in_channels (int): Input number of channels. Default: 1.
+        stem_kernel (int): Size of the convolutional kernels in the stem layer. Default is 4.
+        stem_stride (int): Convolutional stride in the stem layer. Default is 2.
+        stochastic_depth_prob (float): Stochastic depth rate. Default: 0.1.
+        layer_scale (float): Scale for Layer normalization layer. Default: 1e-6.
+        block (nn.Module, optional): SwinTransformer Block. Default: None.
+        norm_layer (nn.Module, optional): Normalization layer. Default: None.
+    """
 
-class ConvNeXt(nn.Module):
     def __init__(
         self,
-        blocks: Dict,
+        blocks: dict = {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
         in_channels: int = 1,
         stem_kernel: int = 4,
-        stem_stride: int = 4,
+        stem_stride: int = 2,
         stochastic_depth_prob: float = 0.0,
         layer_scale: float = 1e-6,
         block: Optional[Callable[..., nn.Module]] = None,
@@ -118,109 +118,38 @@ class ConvNeXt(nn.Module):
         return self._forward_impl(x)
 
 
-_COMMON_META = {
-    "min_size": (32, 32),
-    "categories": _IMAGENET_CATEGORIES,
-    "recipe": "https://github.com/pytorch/vision/tree/main/references/classification#convnext",
-    "_docs": """
-        These weights improve upon the results of the original paper by using a modified version of TorchVision's
-        `new training recipe
-        <https://pytorch.org/blog/how-to-train-state-of-the-art-models-using-torchvision-latest-primitives/>`_.
-    """,
-}
-
-
-class ConvNeXt_Tiny_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        url="https://download.pytorch.org/models/convnext_tiny-983f1562.pth",
-        transforms=partial(ImageClassification, crop_size=224, resize_size=236),
-        meta={
-            **_COMMON_META,
-            "num_params": 28589128,
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 82.520,
-                    "acc@5": 96.146,
-                }
-            },
-            "_ops": 4.456,
-            "_file_size": 109.119,
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
-
-
-class ConvNeXt_Small_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        url="https://download.pytorch.org/models/convnext_small-0c510722.pth",
-        transforms=partial(ImageClassification, crop_size=224, resize_size=230),
-        meta={
-            **_COMMON_META,
-            "num_params": 50223688,
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 83.616,
-                    "acc@5": 96.650,
-                }
-            },
-            "_ops": 8.684,
-            "_file_size": 191.703,
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
-
-
-class ConvNeXt_Base_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        url="https://download.pytorch.org/models/convnext_base-6075fbad.pth",
-        transforms=partial(ImageClassification, crop_size=224, resize_size=232),
-        meta={
-            **_COMMON_META,
-            "num_params": 88591464,
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 84.062,
-                    "acc@5": 96.870,
-                }
-            },
-            "_ops": 15.355,
-            "_file_size": 338.064,
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
-
-
-class ConvNeXt_Large_Weights(WeightsEnum):
-    IMAGENET1K_V1 = Weights(
-        url="https://download.pytorch.org/models/convnext_large-ea097f82.pth",
-        transforms=partial(ImageClassification, crop_size=224, resize_size=232),
-        meta={
-            **_COMMON_META,
-            "num_params": 197767336,
-            "_metrics": {
-                "ImageNet-1K": {
-                    "acc@1": 84.414,
-                    "acc@5": 96.976,
-                }
-            },
-            "_ops": 34.361,
-            "_file_size": 754.537,
-        },
-    )
-    DEFAULT = IMAGENET1K_V1
-
-
 class ConvNextWrapper(nn.Module):
+    """ConvNext architecture for pose estimation.
+
+    This class defines the ConvNext architecture for pose estimation, combining an
+    ConvNext as the encoder and a decoder. The encoder extracts features from the input, while the
+    decoder generates confidence maps based on the features.
+
+    Args:
+        in_channels: Number of input channels. Default is 1.
+        arch: Dictionary of depths and channels. Default is "Tiny architecture" {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
+        kernel_size: Size of the convolutional kernels. Default is 3.
+        stem_patch_kernel: Size of the convolutional kernels in the stem layer. Default is 4.
+        stem_patch_stride: Convolutional stride in the stem layer. Default is 2.
+        filters_rate: Factor to adjust the number of filters per block. Default is 2.
+        up_blocks: Number of upsampling blocks in the decoder. Default is 3.
+        convs_per_block: Number of convolutional layers per block. Default is 2.
+
+    Attributes:
+        Inherits all attributes from torchvision.models.
+    """
+
     def __init__(
         self,
+        arch: dict = {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
         in_channels: int = 1,
-        arch: Dict = None,
         kernel_size: int = 3,
         stem_patch_kernel: int = 4,
         stem_patch_stride: int = 2,
-        filters_rate: int = 1.5,
+        filters_rate: int = 2,
         up_blocks: int = 3,
         convs_per_block: int = 2,
+        **kwargs,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -234,15 +163,15 @@ class ConvNextWrapper(nn.Module):
         self.stem_patch_stride = stem_patch_stride
         self.arch = arch
         self.down_blocks = len(self.arch["depths"]) - 1
-        self.enc = ConvNeXt(
+        self.enc = ConvNeXtEncoder(
             blocks=arch,
             in_channels=in_channels,
             stem_stride=stem_patch_stride,
             stem_kernel=stem_patch_kernel,
+            kwargs=kwargs,
         )
 
         current_stride = self.stem_patch_stride * (2 ** (self.down_blocks - 1))
-
         x_in_shape = self.arch["channels"][-1]
 
         self.dec = Decoder(
@@ -252,24 +181,25 @@ class ConvNextWrapper(nn.Module):
             up_blocks=self.up_blocks,
             down_blocks=self.down_blocks,
             filters_rate=filters_rate,
+            kernel_size=self.kernel_size,
         )
 
     @property
     def output_channels(self):
-        """Returns the output channels of the UNet."""
+        """Returns the output channels of the ConvNext model."""
         return int(
             self.arch["channels"][0]
             * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:
-        """Forward pass through the U-Net architecture.
+        """Forward pass through the ConvNext architecture.
 
         Args:
             x: Input tensor.
 
         Returns:
-            x: Output a tensor after applying the U-Net operations.
+            x: Output a tensor after applying the ConvNext Encoder and Decoder operations.
             current_strides: a list of the current strides from the decoder.
         """
         enc_output = self.enc(x)

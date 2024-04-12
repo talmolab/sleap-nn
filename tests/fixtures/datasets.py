@@ -26,11 +26,12 @@ def minimal_instance_ckpt(sleap_data_dir):
 
 @pytest.fixture
 def config(sleap_data_dir):
+
     init_config = OmegaConf.create(
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "max_instances": 10,
+                "max_instances": 6,
                 "max_width": None,
                 "max_height": None,
                 "is_rgb": False,
@@ -39,23 +40,23 @@ def config(sleap_data_dir):
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                     "preprocessing": {
                         "anchor_ind": 0,
-                        "crop_hw": (160, 160),
+                        "crop_hw": [160, 160],
                         "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
                     },
                     "augmentation_config": {
                         "random_crop": {
                             "random_crop_p": 0,
-                            "random_crop_hw": (160, 160),
+                            "random_crop_hw": [160, 160],
                         },
                         "use_augmentations": False,
                         "augmentations": {
                             "intensity": {
-                                "uniform_noise": (0.0, 0.04),
+                                "uniform_noise": [0.0, 0.04],
                                 "uniform_noise_p": 0,
                                 "gaussian_noise_mean": 0.02,
                                 "gaussian_noise_std": 0.004,
                                 "gaussian_noise_p": 0,
-                                "contrast": (0.5, 2.0),
+                                "contrast": [0.5, 2.0],
                                 "contrast_p": 0,
                                 "brightness": 0.0,
                                 "brightness_p": 0,
@@ -63,10 +64,10 @@ def config(sleap_data_dir):
                             "geometric": {
                                 "rotation": 180.0,
                                 "scale": 0,
-                                "translate": (0, 0),
+                                "translate": [0, 0],
                                 "affine_p": 0.5,
-                                "erase_scale": (0.0001, 0.01),
-                                "erase_ratio": (1, 1),
+                                "erase_scale": [0.0001, 0.01],
+                                "erase_ratio": [1, 1],
                                 "erase_p": 0,
                                 "mixup_lambda": None,
                                 "mixup_p": 0,
@@ -78,23 +79,23 @@ def config(sleap_data_dir):
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                     "preprocessing": {
                         "anchor_ind": 0,
-                        "crop_hw": (160, 160),
+                        "crop_hw": [160, 160],
                         "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
                     },
                     "augmentation_config": {
                         "random_crop": {
                             "random_crop_p": 0,
-                            "random_crop_hw": (160, 160),
+                            "random_crop_hw": [160, 160],
                         },
                         "use_augmentations": False,
                         "augmentations": {
                             "intensity": {
-                                "uniform_noise": (0.0, 0.04),
+                                "uniform_noise": [0.0, 0.04],
                                 "uniform_noise_p": 0,
                                 "gaussian_noise_mean": 0.02,
                                 "gaussian_noise_std": 0.004,
                                 "gaussian_noise_p": 0,
-                                "contrast": (0.5, 2.0),
+                                "contrast": [0.5, 2.0],
                                 "contrast_p": 0,
                                 "brightness": 0.0,
                                 "brightness_p": 0,
@@ -102,10 +103,10 @@ def config(sleap_data_dir):
                             "geometric": {
                                 "rotation": 180.0,
                                 "scale": 0,
-                                "translate": (0, 0),
+                                "translate": [0, 0],
                                 "affine_p": 0.5,
-                                "erase_scale": (0.0001, 0.01),
-                                "erase_ratio": (1, 1),
+                                "erase_scale": [0.0001, 0.01],
+                                "erase_ratio": [1, 1],
                                 "erase_p": 0,
                                 "mixup_lambda": None,
                                 "mixup_p": 0,
@@ -119,9 +120,7 @@ def config(sleap_data_dir):
                 "pre_trained_weights": None,
                 "backbone_config": {
                     "backbone_type": "unet",
-                    
                     "backbone_config": {
-                        
                         "in_channels": 1,
                         "kernel_size": 3,
                         "filters": 16,
@@ -134,8 +133,11 @@ def config(sleap_data_dir):
                 "head_configs": {
                     "head_type": "CenteredInstanceConfmapsHead",
                     "head_config": {
-                        "part_names": [f"{i}" for i in range(2)],
-                        "anchor_part": 0,
+                        "part_names": [
+                            "0",
+                            "1",
+                        ],
+                        "anchor_part": 1,
                         "sigma": 1.5,
                         "output_stride": 2,
                         "loss_weight": 1.0,
@@ -164,6 +166,11 @@ def config(sleap_data_dir):
                     "mode": "min",
                     "auto_insert_metric_name": False,
                 },
+                "early_stopping": {
+                    "stop_training_on_plateau": True,
+                    "min_delta": 1e-08,
+                    "patience": 20,
+                },
                 "device": "cpu",
                 "trainer_devices": 1,
                 "trainer_accelerator": "cpu",
@@ -174,7 +181,6 @@ def config(sleap_data_dir):
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",
-                "optimizer_name": "Adam",
                 "wandb": {
                     "entity": "team-ucsd",
                     "project": "test",
@@ -186,30 +192,28 @@ def config(sleap_data_dir):
                         "trainer_config.optimizer.amsgrad",
                         "trainer_config.optimizer.lr",
                         "model_config.backbone_config.backbone_type",
-                        "model_config.backbone_config.backbone_config.init_weights",
+                        "model_config.init_weights",
                     ],
                 },
-                "optimizer": {
-                    "lr": 1e-4,
-                    "amsgrad": True,
-                },
+                "optimizer_name": "Adam",
+                "optimizer": {"lr": 0.0001, "amsgrad": False},
                 "lr_scheduler": {
-                    "threshold": 1e-6,
+                    "threshold": 1e-07,
                     "cooldown": 3,
                     "patience": 5,
                     "factor": 0.5,
-                    "min_lr": 1e-8,
+                    "min_lr": 1e-08,
                 },
             },
             "inference_config": {
                 "device": "cpu",
                 "data": {
                     "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
-                    "provider": "LabelsReader",
                     "max_instances": 10,
                     "max_width": None,
                     "max_height": None,
                     "is_rgb": False,
+                    "provider": "LabelsReader",
                     "data_loader": {
                         "batch_size": 4,
                         "shuffle": False,
@@ -219,23 +223,23 @@ def config(sleap_data_dir):
                     },
                     "preprocessing": {
                         "anchor_ind": 0,
-                        "crop_hw": (160, 160),
+                        "crop_hw": [160, 160],
                         "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
                     },
                     "augmentation_config": {
                         "random_crop": {
                             "random_crop_p": 0,
-                            "random_crop_hw": (160, 160),
+                            "random_crop_hw": [160, 160],
                         },
                         "use_augmentations": False,
                         "augmentations": {
                             "intensity": {
-                                "uniform_noise": (0.0, 0.04),
+                                "uniform_noise": [0.0, 0.04],
                                 "uniform_noise_p": 0,
                                 "gaussian_noise_mean": 0.02,
                                 "gaussian_noise_std": 0.004,
                                 "gaussian_noise_p": 0,
-                                "contrast": (0.5, 2.0),
+                                "contrast": [0.5, 2.0],
                                 "contrast_p": 0,
                                 "brightness": 0.0,
                                 "brightness_p": 0,
@@ -243,10 +247,10 @@ def config(sleap_data_dir):
                             "geometric": {
                                 "rotation": 180.0,
                                 "scale": 0,
-                                "translate": (0, 0),
+                                "translate": [0, 0],
                                 "affine_p": 0.5,
-                                "erase_scale": (0.0001, 0.01),
-                                "erase_ratio": (1, 1),
+                                "erase_scale": [0.0001, 0.01],
+                                "erase_ratio": [1, 1],
                                 "erase_p": 0,
                                 "mixup_lambda": None,
                                 "mixup_p": 0,
@@ -261,4 +265,5 @@ def config(sleap_data_dir):
             },
         }
     )
+
     return init_config

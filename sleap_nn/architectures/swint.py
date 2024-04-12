@@ -1,3 +1,8 @@
+"""This module provides a generalized implementation of SwinT.
+
+See the `SwinTWrapper` class docstring for more information.
+"""
+
 from functools import partial
 from typing import Any, Callable, List, Optional, Dict, Tuple
 
@@ -6,13 +11,8 @@ from torch import nn
 from sleap_nn.architectures.encoder_decoder import Decoder
 
 from torchvision.ops.misc import Permute
-from torchvision.transforms._presets import ImageClassification, InterpolationMode
 from torchvision.utils import _log_api_usage_once
-from torchvision.models._api import register_model, Weights, WeightsEnum
-from torchvision.models._meta import _IMAGENET_CATEGORIES
 from torchvision.models.swin_transformer import (
-    _patch_merging_pad,
-    _get_relative_position_bias,
     PatchMerging,
     PatchMergingV2,
     shifted_window_attention,
@@ -20,19 +20,7 @@ from torchvision.models.swin_transformer import (
     ShiftedWindowAttentionV2,
     SwinTransformerBlock,
     SwinTransformerBlockV2,
-    Swin_T_Weights,
-    Swin_S_Weights,
-    Swin_B_Weights,
-    Swin_V2_T_Weights,
-    Swin_V2_S_Weights,
-    Swin_V2_B_Weights,
 )
-
-
-__all__ = [
-    "SwinTransformer",
-    "SwinTWrapper",
-]
 
 
 torch.fx.wrap("_patch_merging_pad")
@@ -40,16 +28,19 @@ torch.fx.wrap("_get_relative_position_bias")
 torch.fx.wrap("shifted_window_attention")
 
 
-class SwinTransformer(nn.Module):
+class SwinTransformerEncoder(nn.Module):
     """
+    Src: torchvision.models
     Implements Swin Transformer from the `"Swin Transformer: Hierarchical Vision Transformer using
     Shifted Windows" <https://arxiv.org/abs/2103.14030>`_ paper.
     Args:
-        patch_size (List[int]): Patch size.
-        embed_dim (int): Patch embedding dimension.
-        depths (List(int)): Depth of each Swin Transformer layer.
-        num_heads (List(int)): Number of attention heads in different layers.
-        window_size (List[int]): Window size.
+        in_channels (int): Number of input channels. Default is 1.
+        patch_size (List[int]): Patch size. Default: [4,4]
+        embed_dim (int): Patch embedding dimension. Default: 96
+        depths (List(int)): Depth of each Swin Transformer layer. Default: [2,2,6,2].
+        num_heads (List(int)): Number of attention heads in different layers. Default: [3,6,12,24].
+        window_size (List[int]): Window size. Default: [7,7].
+        stem_stride (int): Stride for the patch. Default is 2.
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4.0.
         dropout (float): Dropout rate. Default: 0.0.
         attention_dropout (float): Attention dropout rate. Default: 0.0.
@@ -62,13 +53,13 @@ class SwinTransformer(nn.Module):
 
     def __init__(
         self,
-        in_channels: int,
-        patch_size: List[int],
-        embed_dim: int,
-        depths: List[int],
-        num_heads: List[int],
-        window_size: List[int],
-        stem_stride=4,
+        in_channels: int = 1,
+        patch_size: List[int] = [4, 4],
+        embed_dim: int = 96,
+        depths: List[int] = [2, 2, 6, 2],
+        num_heads: List[int] = [3, 6, 12, 24],
+        window_size: List[int] = [7, 7],
+        stem_stride=2,
         mlp_ratio: float = 4.0,
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
@@ -88,9 +79,6 @@ class SwinTransformer(nn.Module):
         # split image into non-overlapping patches
         layers.append(
             nn.Sequential(
-                # nn.Conv2d(
-                #     in_channels, embed_dim, kernel_size=(patch_size[0], patch_size[1]), stride=(patch_size[0], patch_size[1])
-                # ),
                 nn.Conv2d(
                     in_channels,
                     embed_dim,
@@ -153,25 +141,45 @@ class SwinTransformer(nn.Module):
         return features_list
 
 
-_COMMON_META = {
-    "categories": _IMAGENET_CATEGORIES,
-}
-
-
 class SwinTWrapper(nn.Module):
+    """SwinT architecture for pose estimation.
+
+    This class defines the SwinT architecture for pose estimation, combining an
+    SwinT as the encoder and a decoder. The encoder extracts features from the input, while the
+    decoder generates confidence maps based on the features.
+
+    Args:
+        in_channels: Number of input channels. Default is 1.
+        patch_size (List[int]): Patch size. Default: [4,4]
+        embed_dim (int): Patch embedding dimension. Default: 96
+        depths (List(int)): Depth of each Swin Transformer layer. Default: [2,2,6,2].
+        num_heads (List(int)): Number of attention heads in different layers. Default: [3,6,12,24].
+        window_size (List[int]): Window size. Default: [7,7].
+        stem_stride (int): Stride for the patch. Default is 2.
+        stochastic_depth_prob (float): Stochastic depth rate. Default: 0.1.
+        norm_layer: Normalization layer. Default: None.
+        kernel_size: Size of the convolutional kernels. Default is 3.
+        filters_rate: Factor to adjust the number of filters per block. Default is 2.
+        up_blocks: Number of upsampling blocks in the decoder. Default is 3.
+        convs_per_block: Number of convolutional layers per block. Default is 2.
+
+    Attributes:
+        Inherits all attributes from torchvision.models.
+    """
+
     def __init__(
         self,
         in_channels: int = 1,
-        patch_size=[4, 4],
-        embed_dim=96,
-        depths=[2, 2, 6, 2],
-        num_heads=[3, 6, 12, 24],
-        window_size=[8, 8],
-        stem_stride=2,
-        stochastic_depth_prob=0.2,
-        norm_layer="",
+        patch_size: List[int] = [4, 4],
+        embed_dim: int = 96,
+        depths: List[int] = [2, 2, 6, 2],
+        num_heads: List[int] = [3, 6, 12, 24],
+        window_size: List[int] = [7, 7],
+        stem_stride: int = 2,
+        stochastic_depth_prob: float = 0.1,
+        norm_layer: Optional[Callable[..., nn.Module]] = "",
         kernel_size: int = 3,
-        filters_rate: int = 1.5,
+        filters_rate: int = 2,
         up_blocks: int = 3,
         convs_per_block: int = 2,
     ) -> None:
@@ -180,13 +188,14 @@ class SwinTWrapper(nn.Module):
 
         self.in_channels = in_channels
         self.patch_size = patch_size
+        self.kernel_size = kernel_size
         self.filters_rate = filters_rate
         self.up_blocks = up_blocks
         self.convs_per_block = convs_per_block
         self.embed_dim = embed_dim
         self.stem_stride = stem_stride
         self.down_blocks = len(depths) - 1
-        self.enc = SwinTransformer(
+        self.enc = SwinTransformerEncoder(
             in_channels=in_channels,
             patch_size=patch_size,
             embed_dim=embed_dim,
@@ -208,6 +217,7 @@ class SwinTWrapper(nn.Module):
             up_blocks=self.up_blocks,
             down_blocks=self.down_blocks,
             filters_rate=filters_rate,
+            kernel_size=self.kernel_size,
         )
 
     @property
