@@ -86,6 +86,8 @@ class TopdownConfmapsPipeline:
                 "instance_bbox",
                 "instance_image",
                 "confidence_maps",
+                "num_instances",
+                "centroids",
                 "orig_size",
             ],
         )

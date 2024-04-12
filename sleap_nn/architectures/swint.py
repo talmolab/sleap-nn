@@ -29,10 +29,11 @@ torch.fx.wrap("shifted_window_attention")
 
 
 class SwinTransformerEncoder(nn.Module):
-    """
-    Src: torchvision.models
+    """Src: torchvision.models.
+
     Implements Swin Transformer from the `"Swin Transformer: Hierarchical Vision Transformer using
-    Shifted Windows" <https://arxiv.org/abs/2103.14030>`_ paper.
+    Shifted Windows `<https://arxiv.org/abs/2103.14030>`paper.
+
     Args:
         in_channels (int): Number of input channels. Default is 1.
         patch_size (List[int]): Patch size. Default: [4,4]
@@ -66,6 +67,7 @@ class SwinTransformerEncoder(nn.Module):
         stochastic_depth_prob: float = 0.1,
         norm_layer: Optional[Callable[..., nn.Module]] = None,
     ):
+        """Initialize the class."""
         super().__init__()
         _log_api_usage_once(self)
 
@@ -131,6 +133,14 @@ class SwinTransformerEncoder(nn.Module):
         self.permute = Permute([0, 3, 1, 2])  # B H W C -> B C H W
 
     def forward(self, x):
+        """Forward pass through the SwinT encoder.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Outputs a list of tensors from each stage after applying the SwinT backbone.
+        """
         features_list = []
         features_list.append(x)
         for idx, l in enumerate(self.features):
@@ -222,21 +232,21 @@ class SwinTWrapper(nn.Module):
 
     @property
     def output_channels(self):
-        """Returns the output channels of the UNet."""
+        """Returns the output channels of the SwinT."""
         return int(
             self.embed_dim
             * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:
-        """Forward pass through the U-Net architecture.
+        """Forward pass through the SwinT architecture.
 
         Args:
             x: Input tensor.
 
         Returns:
-            x: Output a tensor after applying the U-Net operations.
-            current_strides: a list of the current strides from the decoder.
+            x: Outputs a dictionary with `outputs` and `strides` containing the output
+            at different strides.
         """
         enc_output = self.enc(x)
         x, features = enc_output[-1], enc_output[::2]

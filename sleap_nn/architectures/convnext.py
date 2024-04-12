@@ -15,9 +15,10 @@ from torchvision.models.convnext import LayerNorm2d, CNBlock, CNBlockConfig
 
 
 class ConvNeXtEncoder(nn.Module):
-    """
-    Src: torchvision.models
-    Implements ConvNext from the `A ConvNet for the 2020s <https://arxiv.org/abs/2201.03545>`_ paper.
+    """Src: torchvision.models.
+
+    Implements ConvNext from the `A ConvNet for the 2020s <https://arxiv.org/abs/2201.03545>` paper.
+
     Args:
         blocks (dict) : Dictionary of depths and channels. Default is "Tiny architecture" {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
         in_channels (int): Input number of channels. Default: 1.
@@ -41,6 +42,7 @@ class ConvNeXtEncoder(nn.Module):
         norm_layer: Optional[Callable[..., nn.Module]] = None,
         **kwargs: Any,
     ) -> None:
+        """Initialize the ConvNext Encoder."""
         super().__init__()
         _log_api_usage_once(self)
 
@@ -115,6 +117,14 @@ class ConvNeXtEncoder(nn.Module):
         return features_list
 
     def forward(self, x: Tensor) -> Tensor:
+        """Forward pass through the ConvNext encoder.
+
+        Args:
+            x: Input tensor.
+
+        Returns:
+            Outputs a list of tensors from each stage after applying the ConvNext backbone.
+        """
         return self._forward_impl(x)
 
 
@@ -199,8 +209,8 @@ class ConvNextWrapper(nn.Module):
             x: Input tensor.
 
         Returns:
-            x: Output a tensor after applying the ConvNext Encoder and Decoder operations.
-            current_strides: a list of the current strides from the decoder.
+            x: Outputs a dictionary with `outputs` and `strides` containing the output
+            at different strides.
         """
         enc_output = self.enc(x)
         x, features = enc_output[-1], enc_output[::2]

@@ -260,6 +260,7 @@ class ModelTrainer:
 
 class TrainingModel(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
+
     This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
 
     Args:

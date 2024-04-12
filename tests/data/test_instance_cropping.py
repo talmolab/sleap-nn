@@ -40,6 +40,7 @@ def test_instance_cropper(minimal_instance):
         "instances",
         "num_instances",
         "centroids",
+        "orig_size",
     ]
 
     # Test shapes.
