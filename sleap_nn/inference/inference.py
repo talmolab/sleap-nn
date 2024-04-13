@@ -16,9 +16,16 @@ from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
+    CentroidConfmapsPipeline,
 )
-from sleap_nn.inference.peak_finding import find_global_peaks
-from sleap_nn.model_trainer import TopDownCenteredInstanceModel, SingleInstanceModel
+from sleap_nn.inference.peak_finding import crop_bboxes
+from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
+from sleap_nn.model_trainer import (
+    TopDownCenteredInstanceModel,
+    SingleInstanceModel,
+    CentroidModel,
+)
 from time import time
 from omegaconf import OmegaConf
 
@@ -60,7 +67,9 @@ class Predictor(ABC):
             centroid_ckpt_path = None
             confmap_ckpt_path = None
             if "CentroidConfmapsHead" in model_names:
-                pass
+                centroid_ckpt_path = model_paths[
+                    model_names.index("CentroidConfmapsHead")
+                ]
             if "CenteredInstanceConfmapsHead" in model_names:
                 confmap_ckpt_path = model_paths[
                     model_names.index("CenteredInstanceConfmapsHead")
@@ -165,9 +174,139 @@ class Predictor(ABC):
 
 
 class CentroidCrop(L.LightningModule):
-    """Lightning Module to predict the centroids of instances using a trained centroid model."""
+    """Lightning Module for running inference for a centroid model.
 
-    pass
+    This layer encapsulates all of the inference operations requires for generating
+    predictions from a centroid confidence map model. This includes model forward pass,
+    peak finding, coordinate adjustment and cropping.
+
+    Attributes:
+        torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
+            rank-4 confidence maps as output. This should be a model that is trained on
+            centered instance confidence maps.
+        output_stride: Output stride of the model, denoting the scale of the output
+            confidence maps relative to the images (after input scaling). This is used
+            for adjusting the peak coordinates to the image grid.
+        peak_threshold: Minimum confidence map value to consider a global peak as valid.
+        refinement: If `None`, returns the grid-aligned peaks with no refinement. If
+            `"integral"`, peaks will be refined with integral regression. If `"local"`,
+            peaks will be refined with quarter pixel local gradient offset. This has no
+            effect if the model has an offset regression head.
+        integral_patch_size: Size of patches to crop around each rough peak for integral
+            refinement as an integer scalar.
+        return_confmaps: If `True`, the confidence maps will be returned together with
+            the predicted peaks.
+        return_crops: If `True`, the output dictionary would also contain `instance_image` which is the cropped
+            image of size (batch, 1, channels, crop_height, crop_width)
+            ???
+    """
+
+    def __init__(
+        self,
+        torch_model: L.LightningModule,
+        output_stride: Optional[int] = None,
+        peak_threshold: float = 0.0,
+        refinement: Optional[str] = "integral",
+        integral_patch_size: int = 5,
+        return_confmaps: Optional[bool] = False,
+        return_crops: Optional[bool] = False,
+        max_instances: int = 10,
+        crop_hw: tuple = (160, 160),
+        **kwargs,
+    ):
+        """Initialise the model attributes."""
+        super().__init__(**kwargs)
+        self.torch_model = torch_model
+        self.peak_threshold = peak_threshold
+        self.refinement = refinement
+        self.integral_patch_size = integral_patch_size
+        self.output_stride = output_stride
+        self.return_confmaps = return_confmaps
+        self.max_instances = max_instances
+        self.return_crops = return_crops
+        self.crop_hw = crop_hw
+
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """Predict centroid confidence maps and crop around peaks.
+
+        This layer can be chained with a `FindInstancePeaks` layer to create a top-down
+        inference function from full images.
+
+        Args:
+            inputs: Dictionary with keys:
+                `"image"`: Cropped images.
+                Other keys will be passed down the pipeline.
+
+        Returns:
+            A dictionary of outputs grouped by sample with keys:
+
+            `"centroids"`: The predicted centroids of shape `(batch, max_instances, 2)`.
+            `"centroid_vals": The centroid confidence values of shape `(batch, max_instances)`.
+        """
+
+        # Network forward pass.
+        cms = self.torch_model(inputs["image"])
+
+        refined_peaks, peak_vals, peak_sample_inds, _ = find_local_peaks(
+            cms.detach(),
+            threshold=self.peak_threshold,
+            refinement=self.refinement,
+            integral_patch_size=self.integral_patch_size,
+        )
+
+        # Adjust for stride and scale.
+        refined_peaks = refined_peaks * self.output_stride
+
+        # Append NaNs till max_instances
+        n_peaks = refined_peaks.shape[0]
+        (
+            b,
+            num_instances,
+        ) = refined_peaks.shape[:-1]
+        nans = torch.full((b, np.abs(self.max_instances - num_instances), 2), torch.nan)
+        refined_peaks_with_nans = torch.cat([refined_peaks, nans], dim=1)
+
+        # Build outputs.
+        outputs = {"pred_centroids": refined_peaks_with_nans, "centroid_val": peak_vals}
+        if self.return_confmaps:
+            outputs["pred_centroid_confmaps"] = cms.detach()
+        inputs.update(outputs)
+
+        for cnt, (instance, centroid, samp_ind) in enumerate(
+            zip(inputs["instances"][0], inputs["pred_centroids"], peak_sample_inds)
+        ):
+            if cnt == inputs["num_instances"]:
+                break
+
+            # Generate bounding boxes from centroid.
+            instance_bbox = torch.unsqueeze(
+                make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
+            )  # (B=1, 4, 2)
+
+            box_size = (self.crop_hw[0], self.crop_hw[1])
+
+            # Generate cropped image of shape (B=1, C, crop_H, crop_W)
+            instance_image = crop_bboxes(
+                inputs["image"],
+                boxes=instance_bbox,
+                sample_inds=samp_ind,
+            )
+
+            # Access top left point (x,y) of bounding box and subtract this offset from
+            # position of nodes.
+            point = instance_bbox[0][0]
+            center_instance = instance - point
+            centered_centroid = centroid - point
+
+            instance_example = {
+                "instance_image": instance_image,  # (B=1, C, crop_H, crop_W)
+                "instance_bbox": instance_bbox,  # (B=1, 4, 2)
+                "instance": center_instance.unsqueeze(0),  # (B=1, num_nodes, 2)
+                "centroid": centered_centroid.unsqueeze(0),  # (B=1, 2)
+            }
+            inputs.update(instance_example)
+
+        return inputs
 
 
 class FindInstancePeaksGroundTruth(L.LightningModule):
@@ -191,7 +330,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
         cent = (
-            batch["centroids"].unsqueeze(dim=-2).unsqueeze(dim=-3).float()
+            batch["pred_centroids"].unsqueeze(dim=-2).unsqueeze(dim=-3).float()
         )  # (batch, 1, n_centroids, 1, 1, 2)
         dists = torch.sum(
             (inst - cent) ** 2, dim=-1
@@ -247,6 +386,9 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         peaks_output = batch.copy()
         peaks_output["pred_instance_peaks"] = peaks.unsqueeze(dim=1)
         peaks_output["pred_peak_values"] = peaks_vals.unsqueeze(dim=1)
+        peaks_output["instance_bbox"] = torch.unsqueeze(
+            make_centered_bboxes(batch["pred_centroids"], 0, 0), 0
+        )
 
         return peaks_output
 
@@ -302,13 +444,9 @@ class FindInstancePeaks(L.LightningModule):
         inference function from full images.
 
         Args:
-            inputs: Dictionary with
-                keys:
-                `"instance_image"`: Cropped images in either format above.
-                `"centroid"`: (Optional) If provided, will be passed through to the
-                    output.
-                `"centroid_val"`: (Optional) If provided, will be passed through to the
-                    output.
+            inputs: Dictionary with keys:
+                `"instance_image"`: Cropped images.
+                Other keys will be passed down the pipeline.
 
         Returns:
             A dictionary of outputs with keys:
@@ -399,6 +537,10 @@ class TopDownInferenceModel(L.LightningModule):
         if self.centroid_crop is None:
             batch["centroid_val"] = torch.ones(batch_size)
 
+        else:
+            self.centroid_crop.eval()
+            batch = self.centroid_crop(batch)
+
         if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
             if "instances" in batch:
                 peaks_output = self.instance_peaks(batch)
@@ -447,10 +589,26 @@ class TopDownPredictor(Predictor):
             self.model_config["centroid"] = self.centroid_config
             self.model_config["data"] = self.centroid_config.inference_config.data
             self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
+            if self.confmap_model:
+                retrun_crops = True
+            centroid_crop_layer = CentroidCrop(
+                torch_model=self.centroid_model,
+                output_stride=None,
+                peak_threshold=self.centroid_config.inference_config.peak_threshold,
+                output_stride=self.centroid_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+                refinement=self.centroid_config.inference_config.integral_refinement,
+                integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
+                return_confmaps=self.centroid_config.inference_config.return_confmaps,
+                return_crops=retrun_crops,
+                max_instances=self.centroid_config.inference_config.data.max_instances,
+                crop_hw=tuple(
+                    self.centroid_config.inference_config.data.preprocessing.crop_hw
+                ),
+            )
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
         if self.confmap_config is None:
-            pass
+            instance_peaks_layer = FindInstancePeaksGroundTruth()
         else:
             self.model_config["confmaps"] = self.confmap_config
             self.model_config["data"] = self.confmap_config.inference_config.data
@@ -496,7 +654,14 @@ class TopDownPredictor(Predictor):
         """
         if centroid_ckpt_path is not None:
             # Load centroid model.
-            pass
+            centroid_config = OmegaConf.load(
+                f"{centroid_ckpt_path}/training_config.yaml"
+            )
+            centroid_model = CentroidModel.load_from_checkpoint(
+                f"{centroid_ckpt_path}/best.ckpt", config=centroid_config
+            )
+            centroid_model.to(centroid_config.inference_config.device)
+            centroid_model.m_device = centroid_model.inference_config.device
 
         else:
             centroid_config = None
@@ -545,7 +710,11 @@ class TopDownPredictor(Predictor):
         self.videos = labels.videos
 
         # create pipeline
-        self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
+        if self.centroid_model:
+            self.pipeline = CentroidConfmapsPipeline(data_config=self.data_config)
+        else:
+            self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
+
         self.pipeline = self.pipeline.make_training_pipeline(
             data_provider=provider(
                 labels,

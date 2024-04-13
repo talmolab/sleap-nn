@@ -13,6 +13,7 @@ from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
+    CentroidConfmapsPipeline,
 )
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
@@ -94,6 +95,15 @@ class ModelTrainer:
             )
             max_instances = self.config.data_config.max_instances
 
+        elif self.config.data_config.pipeline == "CentroidConfmaps":
+            train_pipeline = CentroidConfmapsPipeline(
+                data_config=self.config.data_config.train
+            )
+            val_pipeline = CentroidConfmapsPipeline(
+                data_config=self.config.data_config.val
+            )
+            max_instances = self.config.data_config.max_instances
+
         else:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
 
@@ -118,7 +128,6 @@ class ModelTrainer:
 
         # to remove duplicates when multiprocessing is used
         train_datapipe = train_datapipe.sharding_filter()
-        # create torch Data Loaders
         self.train_data_loader = DataLoader(
             train_datapipe,
             **dict(self.config.trainer_config.train_data_loader),
@@ -147,6 +156,8 @@ class ModelTrainer:
     def _initialize_model(self):
         if self.is_single_instance_model:
             self.model = SingleInstanceModel(self.config)
+        elif self.config.data_config.pipeline == "CentroidConfmaps":
+            self.model = CentroidModel(self.config)
         else:
             self.model = TopDownCenteredInstanceModel(self.config)
 
@@ -497,6 +508,73 @@ class TopDownCenteredInstanceModel(TrainingModel):
         ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        y = y.to(self.m_device)
+        val_loss = nn.MSELoss()(y_preds, y)
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+        self.log(
+            "val_loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+
+
+class CentroidModel(TrainingModel):
+    """Lightning Module for Centroid Model.
+
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
+    forward pass specific to centroid model.
+
+    Args:
+        config: OmegaConf dictionary which has the following:
+                (i) data_config: data loading pre-processing configs to be passed to
+                `CentroidConfmapsPipeline` class.
+                (ii) model_config: backbone and head configs to be passed to `Model` class.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+
+    """
+
+    def __init__(self, config: OmegaConf):
+        """Initialise the configs and the model."""
+        super().__init__(config)
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1)
+        img = img.to(self.m_device)
+        return self.model(img)["CentroidConfmapsHead"]
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+            batch["centroids_confidence_maps"], dim=1
+        ).to(self.m_device)
+
+        y_preds = self.model(X)["CentroidConfmapsHead"]
+        y = y.to(self.m_device)
+        loss = nn.MSELoss()(y_preds, y)
+        self.log(
+            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+            batch["centroids_confidence_maps"], dim=1
+        ).to(self.m_device)
+
+        y_preds = self.model(X)["CentroidConfmapsHead"]
         y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
         lr = self.optimizers().optimizer.param_groups[0]["lr"]

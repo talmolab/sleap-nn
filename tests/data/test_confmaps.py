@@ -1,6 +1,11 @@
 import torch
 
-from sleap_nn.data.confidence_maps import ConfidenceMapGenerator, make_confmaps
+from sleap_nn.data.confidence_maps import (
+    ConfidenceMapGenerator,
+    MultiConfidenceMapGenerator,
+    make_multi_confmaps,
+    make_confmaps,
+)
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
@@ -54,3 +59,41 @@ def test_confmaps(minimal_instance):
     )
 
     torch.testing.assert_close(gt.unsqueeze(0), cms, atol=0.001, rtol=0.0)
+
+
+def test_multi_confmaps(minimal_instance):
+    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=30)
+    datapipe = Normalizer(datapipe)
+    datapipe = InstanceCentroidFinder(datapipe)
+    datapipe1 = MultiConfidenceMapGenerator(
+        datapipe,
+        sigma=1.5,
+        output_stride=1,
+        centroids=True,
+        image_key="image",
+        instance_key="instances",
+    )
+    sample = next(iter(datapipe1))
+
+    assert sample["centroids_confidence_maps"].shape == (1, 1, 384, 384)
+
+    datapipe2 = MultiConfidenceMapGenerator(
+        datapipe,
+        sigma=3,
+        output_stride=2,
+        centroids=True,
+        image_key="image",
+        instance_key="instances",
+    )
+    sample = next(iter(datapipe2))
+
+    assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
+    assert torch.sum(sample["centroids_confidence_maps"] > 0.98) == 2
+
+    xv, yv = make_grid_vectors(2, 2, 1)
+    points = torch.Tensor([[torch.nan, torch.nan], [torch.nan, torch.nan]])
+    cms = make_multi_confmaps(points.unsqueeze(0).unsqueeze(0), xv, yv, 1)
+    print(cms)
+    print(f"shape of cms:{cms.shape}")
+    gt = torch.Tensor([[0.0000, 0.0000], [0.0000, 0.0000]])
+    torch.testing.assert_close(gt, cms[0, 0], atol=0.001, rtol=0.0)
