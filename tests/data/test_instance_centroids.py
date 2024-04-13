@@ -9,7 +9,7 @@ from sleap_nn.data.providers import LabelsReader
 
 def test_instance_centroids(minimal_instance):
     # Undefined anchor_ind.
-    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=3)
+    datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     sample = next(iter(datapipe))
     instances = sample["instances"]

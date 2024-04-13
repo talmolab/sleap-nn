@@ -62,7 +62,7 @@ def test_confmaps(minimal_instance):
 
 
 def test_multi_confmaps(minimal_instance):
-    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=30)
+    datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe1 = MultiConfidenceMapGenerator(

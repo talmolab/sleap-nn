@@ -12,7 +12,7 @@ from collections import defaultdict, Counter
 import lightning as L
 from torch.utils.data.dataloader import DataLoader
 from omegaconf.dictconfig import DictConfig
-from sleap_nn.data.providers import LabelsReader
+from sleap_nn.data.providers import LabelsReader, get_max_instances
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
@@ -198,19 +198,20 @@ class CentroidCrop(L.LightningModule):
             the predicted peaks.
         return_crops: If `True`, the output dictionary would also contain `instance_image` which is the cropped
             image of size (batch, 1, channels, crop_height, crop_width)
-            ???
+        TODO:
     """
 
     def __init__(
         self,
         torch_model: L.LightningModule,
+        max_instances: int,
         output_stride: Optional[int] = None,
         peak_threshold: float = 0.0,
         refinement: Optional[str] = "integral",
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         return_crops: Optional[bool] = False,
-        max_instances: int = 10,
+        
         crop_hw: tuple = (160, 160),
         **kwargs,
     ):
@@ -591,16 +592,16 @@ class TopDownPredictor(Predictor):
             self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
             if self.confmap_model:
                 retrun_crops = True
+            labels = sio.load_slp(self.centroid_config.inference_config.data.labels_path)
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
-                output_stride=None,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
                 output_stride=self.centroid_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
                 refinement=self.centroid_config.inference_config.integral_refinement,
                 integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
                 return_confmaps=self.centroid_config.inference_config.return_confmaps,
                 return_crops=retrun_crops,
-                max_instances=self.centroid_config.inference_config.data.max_instances,
+                max_instances=get_max_instances(labels),
                 crop_hw=tuple(
                     self.centroid_config.inference_config.data.preprocessing.crop_hw
                 ),
@@ -707,6 +708,13 @@ class TopDownPredictor(Predictor):
 
         # load slp file
         labels = sio.load_slp(self.data_config.labels_path)
+        data_provider=provider(
+                labels,
+                max_height=self.data_config.max_height,
+                max_width=self.data_config.max_width,
+                is_rgb=self.data_config.is_rgb,
+            )
+        
         self.videos = labels.videos
 
         # create pipeline
@@ -716,13 +724,7 @@ class TopDownPredictor(Predictor):
             self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
 
         self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=provider(
-                labels,
-                max_instances=self.data_config.max_instances,
-                max_height=self.data_config.max_height,
-                max_width=self.data_config.max_width,
-                is_rgb=self.data_config.is_rgb,
-            )
+            data_provider=self.data_provider
         )
 
         # Remove duplicates.
@@ -1009,7 +1011,6 @@ class SingleInstancePredictor(Predictor):
         self.videos = labels.videos
         provider_pipeline = provider(
             labels,
-            max_instances=1,
             max_height=self.data_config.max_height,
             max_width=self.data_config.max_width,
             is_rgb=self.data_config.is_rgb,

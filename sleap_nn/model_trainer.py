@@ -84,7 +84,6 @@ class ModelTrainer:
             val_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config.val
             )
-            max_instances = 1
 
         elif self.config.data_config.pipeline == "TopdownConfmaps":
             train_pipeline = TopdownConfmapsPipeline(
@@ -93,7 +92,6 @@ class ModelTrainer:
             val_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config.val
             )
-            max_instances = self.config.data_config.max_instances
 
         elif self.config.data_config.pipeline == "CentroidConfmaps":
             train_pipeline = CentroidConfmapsPipeline(
@@ -102,7 +100,6 @@ class ModelTrainer:
             val_pipeline = CentroidConfmapsPipeline(
                 data_config=self.config.data_config.val
             )
-            max_instances = self.config.data_config.max_instances
 
         else:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
@@ -113,7 +110,6 @@ class ModelTrainer:
 
         train_labels_reader = self.provider(
             train_labels,
-            max_instances=max_instances,
             max_height=self.config.data_config.max_height,
             max_width=self.config.data_config.max_width,
             is_rgb=self.config.data_config.is_rgb,
@@ -136,7 +132,6 @@ class ModelTrainer:
         # val
         val_labels_reader = self.provider(
             sio.load_slp(self.config.data_config.val.labels_path),
-            max_instances=max_instances,
             max_height=self.config.data_config.max_height,
             max_width=self.config.data_config.max_width,
             is_rgb=self.config.data_config.is_rgb,

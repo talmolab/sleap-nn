@@ -50,9 +50,8 @@ def make_multi_confmaps(
     points_batch: torch.Tensor, xv: torch.Tensor, yv: torch.Tensor, sigma: float
 ) -> torch.Tensor:
     """Make confidence maps for multiple instances through reduction.
-
     Args:
-        instances: A tensor of shape `(n_instances, n_nodes, 2)` and dtype `tf.float32`
+        points_batch: A tensor of shape `(n_instances, n_nodes, 2)` and dtype `tf.float32`
             containing instance points where the last axis corresponds to (x, y) pixel
             coordinates on the image. This must be rank-3 even if a single instance is
             present.
@@ -73,7 +72,6 @@ def make_multi_confmaps(
         generated from all individual points for the associated node.
 
     """
-
     batch_size, _, n_nodes, _ = points_batch.shape
     h, w = xv.shape[0], yv.shape[0]
     cms = torch.zeros((batch_size, 1, h, w), dtype=torch.float32)
@@ -82,7 +80,6 @@ def make_multi_confmaps(
         cm_instance = make_confmaps(p, xv, yv, sigma)
         cms = torch.maximum(cms, cm_instance)
     return cms
-
 
 class MultiConfidenceMapGenerator(IterDataPipe):
     """IterDataPipe for generating multi-instance confidence maps.
