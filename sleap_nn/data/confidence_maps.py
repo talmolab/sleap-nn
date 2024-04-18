@@ -50,6 +50,7 @@ def make_multi_confmaps(
     points_batch: torch.Tensor, xv: torch.Tensor, yv: torch.Tensor, sigma: float
 ) -> torch.Tensor:
     """Make confidence maps for multiple instances through reduction.
+
     Args:
         points_batch: A tensor of shape `(batch_size, points, 2)` and dtype `tf.float32`
             containing instance points where the last axis corresponds to (x, y) pixel

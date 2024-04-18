@@ -184,6 +184,7 @@ class CentroidCrop(L.LightningModule):
         torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
             rank-4 confidence maps as output. This should be a model that is trained on
             centered instance confidence maps.
+        max_instances: Max number of instances to consider during centroid predictions.
         output_stride: Output stride of the model, denoting the scale of the output
             confidence maps relative to the images (after input scaling). This is used
             for adjusting the peak coordinates to the image grid.
@@ -198,7 +199,8 @@ class CentroidCrop(L.LightningModule):
             the predicted peaks.
         return_crops: If `True`, the output dictionary would also contain `instance_image` which is the cropped
             image of size (batch, 1, channels, crop_height, crop_width)
-        TODO:
+        crop_hw: Tuple (height, width) representing the crop size.
+
     """
 
     def __init__(
@@ -211,7 +213,6 @@ class CentroidCrop(L.LightningModule):
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         return_crops: Optional[bool] = False,
-        batch_size: Optional[int] = 4,
         crop_hw: tuple = (160, 160),
         **kwargs,
     ):
@@ -226,7 +227,6 @@ class CentroidCrop(L.LightningModule):
         self.max_instances = max_instances
         self.return_crops = return_crops
         self.crop_hw = crop_hw
-        self.batch_size = batch_size
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict centroid confidence maps and crop around peaks.
@@ -245,7 +245,6 @@ class CentroidCrop(L.LightningModule):
             `"centroids"`: The predicted centroids of shape `(batch, max_instances, 2)`.
             `"centroid_vals": The centroid confidence values of shape `(batch, max_instances)`.
         """
-
         # Network forward pass.
         cms = self.torch_model(inputs["image"])
 
