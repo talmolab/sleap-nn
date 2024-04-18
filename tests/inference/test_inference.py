@@ -428,3 +428,4 @@ def test_centroid_inference_model(config):
     assert tuple(out["centroid"].shape) == (2, 2)
     assert tuple(out["centroid_val"].shape) == (2,)
     assert tuple(out["instance_image"].shape) == (2, 1, 1, 160, 160)
+    assert tuple(out["instance_bbox"].shape) == (2, 1, 4, 2)

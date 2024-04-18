@@ -259,8 +259,7 @@ class CentroidCrop(L.LightningModule):
         refined_peaks = refined_peaks * self.output_stride  # (n_centroids, 2)
         batch, channels, height, width = cms.shape
 
-        print(f"sample indices: {peak_sample_inds} shape: {peak_sample_inds.shape}")
-        batch_indxs = Counter(peak_sample_inds.detach().numpy())
+        batch_indxs = Counter(peak_sample_inds.detach().cpu().numpy().tolist())
 
         refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
         peak_vals_with_nans = torch.zeros((batch, self.max_instances))
@@ -280,10 +279,14 @@ class CentroidCrop(L.LightningModule):
             else:
                 num_nans = self.max_instances - len(current_peaks)
             nans = torch.full((np.abs(num_nans), 2), torch.nan)
-            refined_peaks_with_nans[b] = torch.cat([current_peaks, nans], dim=0)
+            refined_peaks_with_nans[b] = torch.cat(
+                [current_peaks, nans.to(current_peaks.device)], dim=0
+            )
 
             nans = torch.full((np.abs(num_nans),), torch.nan)
-            peak_vals_with_nans[b] = torch.cat([current_peak_vals, nans], dim=0)
+            peak_vals_with_nans[b] = torch.cat(
+                [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
+            )
 
             parsed += batch_indxs[b]
 
@@ -310,18 +313,24 @@ class CentroidCrop(L.LightningModule):
                     inputs["orig_size"],
                 )
             ):
-
+                if torch.any(torch.isnan(centroid)):
+                    if torch.all(torch.isnan(centroid)):
+                        continue
+                    else:
+                        non_nans = ~torch.any(centroid.isnan(), dim=-1)
+                        centroid = centroid[non_nans]
+                        if len(centroid.shape) == 1:
+                            centroid = centroid.unsqueeze(dim=0)
+                        centroid_val = centroid_val[non_nans]
                 n = centroid.shape[0]
                 instance_bbox = torch.unsqueeze(
                     make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
                 )  # (1, n, 4, 2)
-                print(f"instance bbox: {instance_bbox.shape}")
-                print(f"image shape: {image.shape}")
 
                 # Generate cropped image of shape (n, C, crop_H, crop_W)
                 instance_image = crop_bboxes(
                     image,
-                    bboxes=instance_bbox.squeeze(),
+                    bboxes=instance_bbox.squeeze(dim=0),
                     sample_inds=[0] * n,
                 )
 
@@ -336,7 +345,7 @@ class CentroidCrop(L.LightningModule):
                 ex["centroid_val"] = centroid_val
                 ex["frame_idx"] = torch.Tensor([fidx] * n)
                 ex["video_idx"] = torch.Tensor([vidx] * n)
-                ex["instance_bbox"] = instance_bbox
+                ex["instance_bbox"] = instance_bbox.squeeze(dim=0).unsqueeze(dim=1)
                 ex["instance_image"] = instance_image.unsqueeze(dim=1)
                 ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
                 crops_dict.append(ex)
@@ -386,7 +395,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         valid_matches = matches[subs[:, 0], 0, subs[:, 2]]
         matched_batch_inds = subs[:, 0]
 
-        counts = Counter(matched_batch_inds.detach().numpy())
+        counts = Counter(matched_batch_inds.detach().cpu().numpy().tolist())
         peaks_list = batch["instances"][matched_batch_inds, 0, valid_matches, :, :]
         parsed = 0
         for i in range(b):
@@ -707,7 +716,7 @@ class TopDownPredictor(Predictor):
                 f"{centroid_ckpt_path}/best.ckpt", config=centroid_config
             )
             centroid_model.to(centroid_config.inference_config.device)
-            centroid_model.m_device = centroid_model.inference_config.device
+            centroid_model.m_device = centroid_config.inference_config.device
 
         else:
             centroid_config = None

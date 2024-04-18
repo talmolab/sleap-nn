@@ -227,9 +227,7 @@ def find_local_peaks_rough(
         the channel each peak belongs to.
     """
     # Build custom local NMS kernel.
-    kernel = torch.tensor([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=torch.float32).to(
-        cms.device
-    )
+    kernel = torch.tensor([[1, 1, 1], [1, 0, 1], [1, 1, 1]], dtype=torch.float32)
 
     # Reshape to have singleton channels.
     height = cms.size(2)
@@ -238,7 +236,7 @@ def find_local_peaks_rough(
     flat_img = cms.reshape(-1, 1, height, width)
 
     # Perform dilation filtering to find local maxima per channel and reshape back.
-    max_img = K.morphology.dilation(flat_img, kernel)
+    max_img = K.morphology.dilation(flat_img, kernel.to(flat_img.device))
     max_img = max_img.reshape(-1, channels, height, width)
 
     # Filter for maxima and threshold.
