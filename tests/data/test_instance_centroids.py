@@ -15,12 +15,12 @@ def test_instance_centroids(minimal_instance):
     instances = sample["instances"]
     centroids = sample["centroids"]
     centroids = centroids.int()
-    gt = torch.Tensor([[[122, 180], [242, 195], [torch.nan, torch.nan]]]).int()
+    gt = torch.Tensor([[[122, 180], [242, 195]]]).int()
     assert torch.equal(centroids, gt)
 
     # Defined anchor_ind.
     centroids = find_centroids(instances, 1).int()
-    gt = torch.Tensor([[[152, 158], [278, 203], [torch.nan, torch.nan]]]).int()
+    gt = torch.Tensor([[[152, 158], [278, 203]]]).int()
     assert torch.equal(centroids, gt)
 
     # Defined anchor_ind, but missing one.

@@ -16,7 +16,7 @@ from sleap_nn.data.providers import LabelsReader
 
 
 def test_key_filter(minimal_instance):
-    datapipe = LabelsReader.from_filename(filename=minimal_instance, max_instances=30)
+    datapipe = LabelsReader.from_filename(filename=minimal_instance)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (160, 160))
@@ -96,9 +96,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(data_config=base_topdown_data_config)
-    data_provider = LabelsReader(
-        labels=sio.load_slp(minimal_instance), max_instances=30
-    )
+    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
@@ -235,7 +233,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     pipeline = SingleInstanceConfmapsPipeline(
         data_config=base_singleinstance_data_config
     )
-    data_provider = LabelsReader(labels=labels, max_instances=1)
+    data_provider = LabelsReader(labels=labels)
 
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
@@ -295,7 +293,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         data_config=base_singleinstance_data_config
     )
 
-    data_provider = LabelsReader(labels=labels, max_instances=1)
+    data_provider = LabelsReader(labels=labels)
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
     sample = next(iter(datapipe))
@@ -355,9 +353,7 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
 
     pipeline = CentroidConfmapsPipeline(data_config=base_centroid_data_config)
-    data_provider = LabelsReader(
-        labels=sio.load_slp(minimal_instance), max_instances=10
-    )
+    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
     labels_pipe = next(iter(data_provider))
 

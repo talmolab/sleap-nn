@@ -8,6 +8,7 @@ import torch
 import copy
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
+
 def get_max_instances(labels: sio.Labels):
     """Function to get the maximum number of instances in a single Labeled Frame."""
     max_instances = -1
@@ -16,6 +17,7 @@ def get_max_instances(labels: sio.Labels):
         if num_inst > max_instances:
             max_instances = num_inst
     return max_instances
+
 
 class LabelsReader(IterDataPipe):
     """IterDataPipe for reading frames from Labels object.
@@ -71,9 +73,7 @@ class LabelsReader(IterDataPipe):
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
-        return cls(
-            labels, max_height, max_width, user_instances_only, is_rgb
-        )
+        return cls(labels, max_height, max_width, user_instances_only, is_rgb)
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.

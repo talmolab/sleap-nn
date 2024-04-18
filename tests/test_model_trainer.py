@@ -50,7 +50,7 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 1
     assert len(list(iter(model_trainer.val_data_loader))) == 1
     ex = next(iter(model_trainer.train_data_loader))
-    assert ex["centroids"].shape == (1, 1, 6, 2)
+    assert ex["centroids"].shape == (1, 1, 2, 2)
 
 
 def test_wandb():

@@ -14,7 +14,7 @@ from sleap_nn.data.utils import make_grid_vectors
 
 
 def test_confmaps(minimal_instance):
-    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=30)
+    datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCropper(datapipe, (100, 100))
@@ -91,9 +91,7 @@ def test_multi_confmaps(minimal_instance):
     assert torch.sum(sample["centroids_confidence_maps"] > 0.98) == 2
 
     xv, yv = make_grid_vectors(2, 2, 1)
-    points = torch.Tensor([[torch.nan, torch.nan], [torch.nan, torch.nan]])
-    cms = make_multi_confmaps(points.unsqueeze(0).unsqueeze(0), xv, yv, 1)
-    print(cms)
-    print(f"shape of cms:{cms.shape}")
+    points = torch.Tensor([[[torch.nan, torch.nan], [torch.nan, torch.nan]]])
+    cms = make_multi_confmaps(points, xv, yv, 1)
     gt = torch.Tensor([[0.0000, 0.0000], [0.0000, 0.0000]])
     torch.testing.assert_close(gt, cms[0, 0], atol=0.001, rtol=0.0)

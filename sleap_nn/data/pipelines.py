@@ -204,7 +204,7 @@ class CentroidConfmapsPipeline:
                 random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
                 image_key="image",
-                instance_key="instances",
+                instance_key="centroids",
             )
 
         if self.data_config.augmentation_config.use_augmentations:
@@ -212,7 +212,7 @@ class CentroidConfmapsPipeline:
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.geometric),
                 image_key="image",
-                instance_key="instances",
+                instance_key="centroids",
             )
 
         datapipe = MultiConfidenceMapGenerator(

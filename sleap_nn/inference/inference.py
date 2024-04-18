@@ -211,7 +211,7 @@ class CentroidCrop(L.LightningModule):
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         return_crops: Optional[bool] = False,
-        
+        batch_size: Optional[int] = 4,
         crop_hw: tuple = (160, 160),
         **kwargs,
     ):
@@ -226,6 +226,7 @@ class CentroidCrop(L.LightningModule):
         self.max_instances = max_instances
         self.return_crops = return_crops
         self.crop_hw = crop_hw
+        self.batch_size = batch_size
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict centroid confidence maps and crop around peaks.
@@ -256,57 +257,92 @@ class CentroidCrop(L.LightningModule):
         )
 
         # Adjust for stride and scale.
-        refined_peaks = refined_peaks * self.output_stride
+        refined_peaks = refined_peaks * self.output_stride  # (n_centroids, 2)
+        batch, channels, height, width = cms.shape
 
-        # Append NaNs till max_instances
-        n_peaks = refined_peaks.shape[0]
-        (
-            b,
-            num_instances,
-        ) = refined_peaks.shape[:-1]
-        nans = torch.full((b, np.abs(self.max_instances - num_instances), 2), torch.nan)
-        refined_peaks_with_nans = torch.cat([refined_peaks, nans], dim=1)
+        print(f"sample indices: {peak_sample_inds} shape: {peak_sample_inds.shape}")
+        batch_indxs = Counter(peak_sample_inds.detach().numpy())
+
+        refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
+        peak_vals_with_nans = torch.zeros((batch, self.max_instances))
+
+        parsed = 0
+        for b in range(batch):
+            parsed_idx = batch_indxs[b]
+            current_peaks = refined_peaks[parsed : parsed + parsed_idx]
+            current_peak_vals = peak_vals[parsed : parsed + parsed_idx]
+            if len(current_peaks) > self.max_instances:
+                # take top k
+                current_peak_vals, indices = torch.topk(
+                    current_peak_vals, self.max_instances
+                )
+                current_peaks = current_peaks[indices]
+                num_nans = 0
+            else:
+                num_nans = self.max_instances - len(current_peaks)
+            nans = torch.full((np.abs(num_nans), 2), torch.nan)
+            refined_peaks_with_nans[b] = torch.cat([current_peaks, nans], dim=0)
+
+            nans = torch.full((np.abs(num_nans),), torch.nan)
+            peak_vals_with_nans[b] = torch.cat([current_peak_vals, nans], dim=0)
+
+            parsed += batch_indxs[b]
 
         # Build outputs.
-        outputs = {"pred_centroids": refined_peaks_with_nans, "centroid_val": peak_vals}
+        outputs = {
+            "centroids": refined_peaks_with_nans,
+            "centroid_vals": peak_vals_with_nans,
+        }
         if self.return_confmaps:
             outputs["pred_centroid_confmaps"] = cms.detach()
         inputs.update(outputs)
 
-        for cnt, (instance, centroid, samp_ind) in enumerate(
-            zip(inputs["instances"][0], inputs["pred_centroids"], peak_sample_inds)
-        ):
-            if cnt == inputs["num_instances"]:
-                break
+        if self.return_crops:
 
-            # Generate bounding boxes from centroid.
-            instance_bbox = torch.unsqueeze(
-                make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
-            )  # (B=1, 4, 2)
+            crops_dict = []
 
-            box_size = (self.crop_hw[0], self.crop_hw[1])
+            for cnt, (centroid, centroid_val, image, fidx, vidx, sz) in enumerate(
+                zip(
+                    refined_peaks_with_nans,
+                    peak_vals_with_nans,
+                    inputs["image"],
+                    inputs["frame_idx"],
+                    inputs["video_idx"],
+                    inputs["orig_size"],
+                )
+            ):
 
-            # Generate cropped image of shape (B=1, C, crop_H, crop_W)
-            instance_image = crop_bboxes(
-                inputs["image"],
-                boxes=instance_bbox,
-                sample_inds=samp_ind,
-            )
+                n = centroid.shape[0]
+                instance_bbox = torch.unsqueeze(
+                    make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
+                )  # (1, n, 4, 2)
+                print(f"instance bbox: {instance_bbox.shape}")
+                print(f"image shape: {image.shape}")
 
-            # Access top left point (x,y) of bounding box and subtract this offset from
-            # position of nodes.
-            point = instance_bbox[0][0]
-            center_instance = instance - point
-            centered_centroid = centroid - point
+                # Generate cropped image of shape (n, C, crop_H, crop_W)
+                instance_image = crop_bboxes(
+                    image,
+                    bboxes=instance_bbox.squeeze(),
+                    sample_inds=[0] * n,
+                )
 
-            instance_example = {
-                "instance_image": instance_image,  # (B=1, C, crop_H, crop_W)
-                "instance_bbox": instance_bbox,  # (B=1, 4, 2)
-                "instance": center_instance.unsqueeze(0),  # (B=1, num_nodes, 2)
-                "centroid": centered_centroid.unsqueeze(0),  # (B=1, 2)
-            }
-            inputs.update(instance_example)
+                # Access top left point (x,y) of bounding box and subtract this offset from
+                # position of nodes.
+                point = instance_bbox[0, :, 0]
+                centered_centroid = centroid - point
 
+                ex = {}
+                ex["image"] = torch.cat([image] * n)
+                ex["centroid"] = centered_centroid
+                ex["centroid_val"] = centroid_val
+                ex["frame_idx"] = torch.Tensor([fidx] * n)
+                ex["video_idx"] = torch.Tensor([vidx] * n)
+                ex["instance_bbox"] = instance_bbox
+                ex["instance_image"] = instance_image.unsqueeze(dim=1)
+                ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
+                crops_dict.append(ex)
+
+            return crops_dict
         return inputs
 
 
@@ -331,7 +367,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
         cent = (
-            batch["pred_centroids"].unsqueeze(dim=-2).unsqueeze(dim=-3).float()
+            batch["centroids"].unsqueeze(dim=-2).unsqueeze(dim=-3).float()
         )  # (batch, 1, n_centroids, 1, 1, 2)
         dists = torch.sum(
             (inst - cent) ** 2, dim=-1
@@ -369,7 +405,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                     batch_peaks = torch.cat(
                         [
                             batch_peaks,
-                            torch.full((max_inst - num_inst, nodes, 2), torch.nan),
+                            torch.full((abs(max_inst - num_inst), nodes, 2), torch.nan),
                         ]
                     ).unsqueeze(dim=0)
                     vals = torch.cat(
@@ -385,11 +421,8 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 peaks_vals = vals
 
         peaks_output = batch.copy()
-        peaks_output["pred_instance_peaks"] = peaks.unsqueeze(dim=1)
-        peaks_output["pred_peak_values"] = peaks_vals.unsqueeze(dim=1)
-        peaks_output["instance_bbox"] = torch.unsqueeze(
-            make_centered_bboxes(batch["pred_centroids"], 0, 0), 0
-        )
+        peaks_output["pred_instance_peaks"] = peaks  # .unsqueeze(dim=1)
+        peaks_output["pred_peak_values"] = peaks_vals  # .unsqueeze(dim=1)
 
         return peaks_output
 
@@ -537,22 +570,33 @@ class TopDownInferenceModel(L.LightningModule):
         batch_size = batch["image"].shape[0]
         if self.centroid_crop is None:
             batch["centroid_val"] = torch.ones(batch_size)
+            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+                if "instances" in batch:
+                    peaks_output = self.instance_peaks(batch)
+                else:
+                    raise ValueError(
+                        "Ground truth data was not detected... "
+                        "Please load both models when predicting on non-ground-truth data."
+                    )
+            else:
+                self.instance_peaks.eval()
+                peaks_output = self.instance_peaks(batch)
 
         else:
             self.centroid_crop.eval()
             batch = self.centroid_crop(batch)
-
-        if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-            if "instances" in batch:
-                peaks_output = self.instance_peaks(batch)
-            else:
-                raise ValueError(
-                    "Ground truth data was not detected... "
-                    "Please load both models when predicting on non-ground-truth data."
-                )
-        else:
-            self.instance_peaks.eval()
-            peaks_output = self.instance_peaks(batch)
+            for i in batch:
+                if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+                    if "instances" in batch:
+                        peaks_output = self.instance_peaks(batch)
+                    else:
+                        raise ValueError(
+                            "Ground truth data was not detected... "
+                            "Please load both models when predicting on non-ground-truth data."
+                        )
+                else:
+                    self.instance_peaks.eval()
+                    peaks_output = self.instance_peaks(i)
         return peaks_output
 
 
@@ -592,7 +636,9 @@ class TopDownPredictor(Predictor):
             self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
             if self.confmap_model:
                 retrun_crops = True
-            labels = sio.load_slp(self.centroid_config.inference_config.data.labels_path)
+            labels = sio.load_slp(
+                self.centroid_config.inference_config.data.labels_path
+            )
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
@@ -708,13 +754,13 @@ class TopDownPredictor(Predictor):
 
         # load slp file
         labels = sio.load_slp(self.data_config.labels_path)
-        data_provider=provider(
-                labels,
-                max_height=self.data_config.max_height,
-                max_width=self.data_config.max_width,
-                is_rgb=self.data_config.is_rgb,
-            )
-        
+        data_provider = provider(
+            labels,
+            max_height=self.data_config.max_height,
+            max_width=self.data_config.max_width,
+            is_rgb=self.data_config.is_rgb,
+        )
+
         self.videos = labels.videos
 
         # create pipeline
@@ -724,7 +770,7 @@ class TopDownPredictor(Predictor):
             self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
 
         self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=self.data_provider
+            data_provider=data_provider
         )
 
         # Remove duplicates.
