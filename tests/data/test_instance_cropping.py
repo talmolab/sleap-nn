@@ -23,7 +23,7 @@ def test_make_centered_bboxes():
 
 
 def test_instance_cropper(minimal_instance):
-    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=30)
+    datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCropper(datapipe, (100, 100))
@@ -53,8 +53,8 @@ def test_instance_cropper(minimal_instance):
     assert sample["instance_image"].shape == (1, 1, 100, 100)
     assert sample["instance_bbox"].shape == (1, 4, 2)
     assert sample["num_instances"] == 2
-    assert sample["instances"].shape == (1, 30, 2, 2)
-    assert sample["centroids"].shape == (1, 30, 2)
+    assert sample["instances"].shape == (1, 2, 2, 2)
+    assert sample["centroids"].shape == (1, 2, 2)
 
     # Test samples.
     gt = torch.Tensor(

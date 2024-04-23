@@ -236,8 +236,8 @@ def find_local_peaks_rough(
     flat_img = cms.reshape(-1, 1, height, width)
 
     # Perform dilation filtering to find local maxima per channel and reshape back.
-    max_img = K.morphology.dilation(flat_img, kernel)
-    max_img = max_img.permute(1, 0, 2, 3)
+    max_img = K.morphology.dilation(flat_img, kernel.to(flat_img.device))
+    max_img = max_img.reshape(-1, channels, height, width)
 
     # Filter for maxima and threshold.
     argmax_and_thresh_img = (cms > max_img) & (cms > threshold)

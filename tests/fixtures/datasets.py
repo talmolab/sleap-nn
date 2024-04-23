@@ -31,7 +31,6 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "max_instances": 6,
                 "max_width": None,
                 "max_height": None,
                 "is_rgb": False,
@@ -209,7 +208,6 @@ def config(sleap_data_dir):
                 "device": "cpu",
                 "data": {
                     "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
-                    "max_instances": 10,
                     "max_width": None,
                     "max_height": None,
                     "is_rgb": False,

@@ -9,6 +9,16 @@ import copy
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
+def get_max_instances(labels: sio.Labels):
+    """Function to get the maximum number of instances in a single Labeled Frame."""
+    max_instances = -1
+    for lf in labels:
+        num_inst = len(lf.instances)
+        if num_inst > max_instances:
+            max_instances = num_inst
+    return max_instances
+
+
 class LabelsReader(IterDataPipe):
     """IterDataPipe for reading frames from Labels object.
 
@@ -21,7 +31,6 @@ class LabelsReader(IterDataPipe):
         max_height: Maximum height the image should be padded to. If not provided, the original image size will be retained.
         max_width: Maximum width the image should be padded to. If not provided, the original image size will be retained.
         user_instances_only: True if filter labels only to user instances else False. Default value True
-        max_instances: Upper limit for number of empty instances to be appended in 'instances'. For singleinstance models, max_instances=1.
         is_rgb: True if the image has 3 channels (RGB image)
     """
 
@@ -31,12 +40,11 @@ class LabelsReader(IterDataPipe):
         max_height: int = None,
         max_width: int = None,
         user_instances_only: bool = True,
-        max_instances: int = 30,
         is_rgb: bool = False,
     ):
         """Initialize labels attribute of the class."""
         self.labels = copy.deepcopy(labels)
-        self.max_instances = max_instances
+        self.max_instances = get_max_instances(labels)
         self.max_width = max_width
         self.max_height = max_height
         self.is_rgb = is_rgb
@@ -59,16 +67,13 @@ class LabelsReader(IterDataPipe):
         cls,
         filename: str,
         user_instances_only: bool = True,
-        max_instances: int = 30,
         max_height: int = None,
         max_width: int = None,
         is_rgb=False,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
-        return cls(
-            labels, max_height, max_width, user_instances_only, max_instances, is_rgb
-        )
+        return cls(labels, max_height, max_width, user_instances_only, is_rgb)
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.
