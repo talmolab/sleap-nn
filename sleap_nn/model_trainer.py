@@ -20,7 +20,7 @@ from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from sleap_nn.architectures.common import xavier_init_weights
-from torchdata.datapipes.iter import Cycler
+from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
