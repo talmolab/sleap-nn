@@ -12,14 +12,19 @@ dependencies:
   - pytorch
   - torchvision
   - h5py
+  - pandas
+  - scipy
   - attrs
   - opencv
   - imageio
+  - omegaconf
   - wandb
   - av
   - ffmpeg
   - kornia
   - matplotlib
+  - pynwb
+  - ndx-pose
   - pip
   - pip:
     - "--editable=.[dev]"
