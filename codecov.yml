@@ -1,6 +1,7 @@
 coverage:
   ignore: 
     - "tests"
+    - "sleap_nn/data/cycle.py"  # Vendored from torchdata.
   status:
     project:  # Measures overall project coverage.
       default: false
