@@ -1,8 +1,9 @@
-# This module implements CyclerIterDataPipe and RepeaterIterDataPipe classes.
-#
-# This was repurposed from the original source code at:
-# https://github.com/pytorch/data/blob/6355127638b18354386914161b9b2161f7c17787/torchdata/datapipes/iter/util/cycler.py
-#
+"""This module implements CyclerIterDataPipe and RepeaterIterDataPipe classes.
+
+This was repurposed from the original source code at:
+https://github.com/pytorch/data/blob/6355127638b18354386914161b9b2161f7c17787/torchdata/datapipes/iter/util/cycler.py
+"""
+
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # All rights reserved.
 #
@@ -19,9 +20,10 @@ T_co = TypeVar("T_co", covariant=True)
 
 @functional_datapipe("cycle")
 class CyclerIterDataPipe(IterDataPipe[T_co]):
-    """
-    Cycles the specified input in perpetuity by default, or for the specified number
-    of times (functional name: ``cycle``).
+    """IterDataPipe that cycles through the input data elements.
+
+    Cycles the specified input in perpetuity by default, or for the specified number of
+    times (functional name: ``cycle``).
 
     If the ordering does not matter (e.g. because you plan to ``shuffle`` later) or if you would like to
     repeat an element multiple times before moving onto the next element, use :class:`.Repeater`.
@@ -41,18 +43,21 @@ class CyclerIterDataPipe(IterDataPipe[T_co]):
     def __init__(
         self, source_datapipe: IterDataPipe[T_co], count: Optional[int] = None
     ) -> None:
+        """Constructs a CyclerIterDataPipe."""
         self.source_datapipe: IterDataPipe[T_co] = source_datapipe
         self.count: Optional[int] = count
         if count is not None and count < 0:
             raise ValueError(f"Expected non-negative count, got {count}")
 
     def __iter__(self) -> Iterator[T_co]:
+        """Iterates through the source DataPipe."""
         i = 0
         while self.count is None or i < self.count:
             yield from self.source_datapipe
             i += 1
 
     def __len__(self) -> int:
+        """Returns the length of the CyclerIterDataPipe."""
         if self.count is None:
             raise TypeError(
                 f"This {type(self).__name__} instance cycles forever, and therefore doesn't have valid length"
@@ -63,7 +68,8 @@ class CyclerIterDataPipe(IterDataPipe[T_co]):
 
 @functional_datapipe("repeat")
 class RepeaterIterDataPipe(IterDataPipe[T_co]):
-    """
+    """IterDataPipe that repeats each element a number of times.
+
     Repeatedly yield each element of source DataPipe for the specified number of times before
     moving onto the next element (functional name: ``repeat``). Note that no copy is made in this DataPipe,
     the same element is yielded repeatedly.
@@ -83,15 +89,18 @@ class RepeaterIterDataPipe(IterDataPipe[T_co]):
     """
 
     def __init__(self, source_datapipe: IterDataPipe[T_co], times: int) -> None:
+        """Constructs a RepeaterIterDataPipe."""
         self.source_datapipe: IterDataPipe[T_co] = source_datapipe
         self.times: int = times
         if times <= 1:
             raise ValueError(f"The number of repetition must be > 1, got {times}")
 
     def __iter__(self) -> Iterator[T_co]:
+        """Iterates through the source DataPipe."""
         for element in self.source_datapipe:
             for _ in range(self.times):
                 yield element
 
     def __len__(self) -> int:
+        """Returns the length of the RepeaterIterDataPipe."""
         return self.times * len(self.source_datapipe)

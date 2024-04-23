@@ -59,11 +59,10 @@ Repository = "https://github.com/talmolab/sleap-nn"
 [tool.black]
 line-length = 88
 
-[tool.ruff]
+[tool.ruff.lint]
 select = [
     "D",  # pydocstyle
 ]
-target-version = "py39"
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
