@@ -2,11 +2,11 @@
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
-import attr
+import attrs
 import sleap_io as sio
 
 
-@attr.s(auto_attribs=True, slots=True)
+@attrs.define(auto_attribs=True, slots=True)
 class MatchInstance:
     """Class to have a new structure for sio.Instance object."""
 

@@ -12,6 +12,8 @@ dependencies:
   - lightning
   - cpuonly
   - torchvision
+  - h5py
+  - attrs
   - opencv
   - imageio
   - wandb

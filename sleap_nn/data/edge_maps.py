@@ -3,7 +3,6 @@
 from typing import Tuple, Optional, List, Text, Iterator, Dict
 import torch
 import attrs
-import attr
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 from sleap_nn.data.utils import (
@@ -272,7 +271,7 @@ class PartAffinityFieldsGenerator(IterDataPipe):
         sigma: float = attrs.field(default=1.0, converter=float),
         output_stride: int = attrs.field(default=1, converter=int),
         edge_inds: Optional[torch.Tensor] = attrs.field(
-            default=None, converter=attr.converters.optional(ensure_list)
+            default=None, converter=attrs.converters.optional(ensure_list)
         ),
         flatten_channels: bool = False,
     ) -> None:

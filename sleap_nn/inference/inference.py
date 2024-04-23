@@ -4,7 +4,7 @@ import numpy as np
 import sleap_io as sio
 from typing import Any, Dict, List, Optional, Union, Iterator, Text
 import torch
-import attr
+import attrs
 import torch.nn as nn
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -608,7 +608,7 @@ class TopDownInferenceModel(L.LightningModule):
         return peaks_output
 
 
-@attr.s(auto_attribs=True)
+@attrs.define(auto_attribs=True)
 class TopDownPredictor(Predictor):
     """Top-down multi-instance predictor.
 
@@ -626,10 +626,10 @@ class TopDownPredictor(Predictor):
 
     """
 
-    centroid_config: Optional[DictConfig] = attr.ib(default=None)
-    confmap_config: Optional[DictConfig] = attr.ib(default=None)
-    centroid_model: Optional[L.LightningModule] = attr.ib(default=None)
-    confmap_model: Optional[L.LightningModule] = attr.ib(default=None)
+    centroid_config: Optional[DictConfig] = attrs.field(default=None)
+    confmap_config: Optional[DictConfig] = attrs.field(default=None)
+    centroid_model: Optional[L.LightningModule] = attrs.field(default=None)
+    confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -980,7 +980,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         return inputs
 
 
-@attr.s(auto_attribs=True)
+@attrs.define
 class SingleInstancePredictor(Predictor):
     """Single-Instance predictor.
 
@@ -996,8 +996,8 @@ class SingleInstancePredictor(Predictor):
 
     """
 
-    confmap_config: Optional[DictConfig] = attr.ib(default=None)
-    confmap_model: Optional[L.LightningModule] = attr.ib(default=None)
+    confmap_config: Optional[DictConfig] = attrs.field(default=None)
+    confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
