@@ -11,7 +11,8 @@
 
 from typing import Iterator, Optional, TypeVar
 
-from torch.utils.data.datapipes.datapipe import IterDataPipe, functional_datapipe
+from torch.utils.data import functional_datapipe
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 T_co = TypeVar("T_co", covariant=True)
 
