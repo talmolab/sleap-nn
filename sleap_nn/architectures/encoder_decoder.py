@@ -462,7 +462,7 @@ class Decoder(nn.Module):
 
             self.current_strides.append(current_stride)
             current_stride = next_stride
-        while current_stride != 1:
+        while current_stride >= 1:
             next_stride = current_stride // 2
             self.decoder_stack.append(
                 SimpleUpsamplingBlock(

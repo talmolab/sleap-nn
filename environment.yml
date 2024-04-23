@@ -9,17 +9,28 @@ channels:
 dependencies:
   - python=3.9
   - pytorch-cuda=11.8
-  - pydantic<2.0
-  - lightning=2.0.5 # due to dependency conflict Lightning Issue (#18027)
+  - pydantic
+  - lightning
   - cudnn
   - pytorch
   - torchvision
+  - h5py
+  - pandas
+  - simplejson
+  - scipy
+  - attrs
+  - opencv
+  - ffmpeg<6.1.0
   - imageio
-  - wandb
+  - imageio-ffmpeg
   - av
-  - ffmpeg
+  - omegaconf
+  - wandb
   - kornia
   - matplotlib
+  - rich
+  - pynwb
+  - ndx-pose
   - pip
   - pip:
     - "--editable=.[dev]"

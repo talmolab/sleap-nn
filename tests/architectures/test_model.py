@@ -11,8 +11,9 @@ def test_get_backbone():
     base_unet_model_config = OmegaConf.create(
         {
             "backbone_type": "unet",
+            "init_weights": "default",
+            "pre_trained_weights": None,
             "backbone_config": {
-                "init_weights": "default",
                 "in_channels": 1,
                 "kernel_size": 3,
                 "filters": 16,
@@ -33,9 +34,9 @@ def test_get_backbone():
     base_convnext_model_config = OmegaConf.create(
         {
             "backbone_type": "convnext",
+            "init_weights": "default",
+            "pretrained_weights": "",
             "backbone_config": {
-                "init_weights": "default",
-                "pretrained_weights": "",
                 "in_channels": 1,
                 "kernel_size": 3,
                 "filters_rate": 2,
@@ -47,6 +48,39 @@ def test_get_backbone():
                 },
                 "stem_patch_kernel": 4,
                 "stem_patch_stride": 2,
+            },
+        }
+    )
+
+    backbone = get_backbone(
+        base_convnext_model_config.backbone_type,
+        base_convnext_model_config.backbone_config,
+    )
+    assert isinstance(backbone, torch.nn.Module)
+
+    with pytest.raises(KeyError):
+        _ = get_backbone("invalid_input", base_unet_model_config.backbone_config)
+
+    # swint
+    base_convnext_model_config = OmegaConf.create(
+        {
+            "backbone_type": "swint",
+            "init_weights": "default",
+            "pretrained_weights": "",
+            "backbone_config": {
+                "patch_size": [4, 4],
+                "embed_dim": 96,
+                "depths": [2, 2, 6, 2],
+                "num_heads": [3, 6, 12, 24],
+                "window_size": [7, 7],
+                "stem_stride": 4,
+                "stochastic_depth_prob": 0.2,
+                "norm_layer": "",
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters_rate": 2,
+                "up_blocks": 2,
+                "convs_per_block": 2,
             },
         }
     )
@@ -82,7 +116,8 @@ def test_get_head():
 
 
 def test_unet_model():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
 
     base_unet_model_config = OmegaConf.create(
         {
@@ -143,76 +178,3 @@ def test_unet_model():
     assert len(z.keys()) == 1
     assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
     assert z[base_unet_head_config.head_type].dtype == torch.float32
-
-
-def test_convnext_model():
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
-
-    base_convnext_model_config = OmegaConf.create(
-        {
-            "backbone_type": "convnext",
-            "backbone_config": {
-                "init_weights": "default",
-                "pretrained_weights": "",
-                "in_channels": 1,
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "up_blocks": 4,
-                "convs_per_block": 2,
-                "arch": {
-                    "depths": [3, 3, 9, 3],
-                    "channels": [16, 32, 64, 128],
-                },
-                "stem_patch_kernel": 4,
-                "stem_patch_stride": 2,
-            },
-        }
-    )
-
-    base_convnext_head_config = OmegaConf.create(
-        {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
-                "part_names": [f"{i}" for i in range(13)],
-                "sigma": 5.0,
-                "output_stride": 1,
-                "loss_weight": 1.0,
-            },
-        }
-    )
-
-    model = Model(
-        backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
-    ).to(device)
-
-    assert model.backbone_config == base_convnext_model_config
-    assert model.head_configs == [base_convnext_head_config]
-
-    x = torch.rand(1, 1, 192, 192).to(device)
-    model.eval()
-
-    with torch.no_grad():
-        z = model(x)
-
-    assert type(z) is dict
-    assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32
-
-    model = Model.from_config(
-        backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
-    ).to(device)
-
-    x = torch.rand(1, 1, 192, 192).to(device)
-    model.eval()
-
-    with torch.no_grad():
-        z = model(x)
-
-    assert type(z) is dict
-    assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32

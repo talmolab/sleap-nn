@@ -1,0 +1,34 @@
+name: sleap-nn
+
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.9
+  - pydantic
+  - lightning
+  - pytorch
+  - torchvision
+  - h5py
+  - pandas
+  - simplejson
+  - scipy
+  - attrs
+  - opencv
+  - ffmpeg<6.1.0
+  - imageio
+  - imageio-ffmpeg
+  - av
+  - omegaconf
+  - wandb
+  - ffmpeg
+  - kornia
+  - matplotlib
+  - rich
+  - pynwb
+  - ndx-pose
+  - pip
+  - pip:
+    - "--editable=.[dev]"

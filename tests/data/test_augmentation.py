@@ -35,7 +35,7 @@ def test_uniform_noise(minimal_instance):
 
 
 def test_kornia_augmentation(minimal_instance):
-    p = LabelsReader.from_filename(minimal_instance, max_instances=20)
+    p = LabelsReader.from_filename(minimal_instance)
 
     p = Normalizer(p)
     p = KorniaAugmenter(
@@ -59,7 +59,7 @@ def test_kornia_augmentation(minimal_instance):
     assert torch.is_tensor(img)
     assert torch.is_tensor(pts)
     assert img.shape == (1, 1, 384, 384)
-    assert pts.shape == (1, 20, 2, 2)
+    assert pts.shape == (1, 2, 2, 2)
 
     # Test RandomCrop value error.
     p = LabelsReader.from_filename(minimal_instance)

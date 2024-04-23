@@ -7,7 +7,8 @@ from sleap_nn.architectures.utils import get_children_layers
 
 
 def test_unet_reference():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu"
 
     in_channels = 1
     filters = 64

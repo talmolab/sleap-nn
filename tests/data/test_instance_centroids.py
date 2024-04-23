@@ -9,18 +9,18 @@ from sleap_nn.data.providers import LabelsReader
 
 def test_instance_centroids(minimal_instance):
     # Undefined anchor_ind.
-    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=3)
+    datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     sample = next(iter(datapipe))
     instances = sample["instances"]
     centroids = sample["centroids"]
     centroids = centroids.int()
-    gt = torch.Tensor([[[122, 180], [242, 195], [torch.nan, torch.nan]]]).int()
+    gt = torch.Tensor([[[122, 180], [242, 195]]]).int()
     assert torch.equal(centroids, gt)
 
     # Defined anchor_ind.
     centroids = find_centroids(instances, 1).int()
-    gt = torch.Tensor([[[152, 158], [278, 203], [torch.nan, torch.nan]]]).int()
+    gt = torch.Tensor([[[152, 158], [278, 203]]]).int()
     assert torch.equal(centroids, gt)
 
     # Defined anchor_ind, but missing one.

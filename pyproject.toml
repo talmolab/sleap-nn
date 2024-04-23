@@ -5,6 +5,8 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sleap-nn"
 authors = [
+    {name = "Divya Seshadri Murali", email = "dimurali@salk.edu"},
+    {name = "Vincent Tu", email = "vitu@ucsd.edu"},
     {name = "Liezl Maree", email = "lmaree@salk.edu"},
     {name = "David Samy", email = "davidasamy@gmail.com"},
     {name = "Talmo Pereira", email = "talmo@salk.edu"}
@@ -17,16 +19,16 @@ classifiers = [
     "Programming Language :: Python :: 3.9"
 ]
 dependencies = [
-    "torch>=2.0.0",
+    "torch",
     "torchvision",
-    "pydantic<2.0",
-    "lightning==2.0.5",
+    "pydantic",
+    "lightning",
     "imageio",
     "imageio-ffmpeg",
     "av",
     "kornia",
     "hydra-core",
-    "sleap-io>=0.0.7",
+    "sleap-io>=0.1.0",
 ]
 dynamic = ["version", "readme"]
 
@@ -57,11 +59,10 @@ Repository = "https://github.com/talmolab/sleap-nn"
 [tool.black]
 line-length = 88
 
-[tool.ruff]
+[tool.ruff.lint]
 select = [
     "D",  # pydocstyle
 ]
-target-version = "py39"
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"

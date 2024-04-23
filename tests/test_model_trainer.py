@@ -10,6 +10,7 @@ from sleap_nn.model_trainer import (
     ModelTrainer,
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
+    CentroidModel,
 )
 from torch.nn.functional import mse_loss
 import os
@@ -43,11 +44,20 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 1
     assert len(list(iter(model_trainer.val_data_loader))) == 1
 
+    OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
+    model_trainer = ModelTrainer(config)
+    model_trainer._create_data_loaders()
+    assert len(list(iter(model_trainer.train_data_loader))) == 1
+    assert len(list(iter(model_trainer.val_data_loader))) == 1
+    ex = next(iter(model_trainer.train_data_loader))
+    assert ex["centroids"].shape == (1, 1, 2, 2)
+
 
 def test_wandb():
     # check for wandb
     os.environ["WANDB_MODE"] = "offline"
     wandb_logger = WandbLogger()
+    wandb.init()
     assert wandb.run is not None
     wandb.finish()
 
@@ -108,6 +118,8 @@ def test_trainer(config, tmp_path: str):
     training_config = OmegaConf.load(
         f"{config.trainer_config.save_ckpt_path}/training_config.yaml"
     )
+    assert training_config.trainer_config.wandb.run_id is not None
+    assert training_config.model_config.total_params is not None
     assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
 
@@ -145,8 +157,27 @@ def test_trainer(config, tmp_path: str):
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
 
-    # For Single instance model
+    # check early stopping
+    config_early_stopping = config.copy()
+    OmegaConf.update(
+        config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-3
+    )
+    OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
+    OmegaConf.update(
+        config_early_stopping,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_model_trainer/",
+    )
 
+    trainer = ModelTrainer(config_early_stopping)
+    trainer.train()
+
+    checkpoint = torch.load(
+        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 1
+
+    # For Single instance model
     single_instance_config = config.copy()
     OmegaConf.update(
         single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
@@ -162,6 +193,21 @@ def test_trainer(config, tmp_path: str):
     trainer._initialize_model()
     assert isinstance(trainer.model, SingleInstanceModel)
 
+    # Centroid model
+    centroid_config = config.copy()
+    OmegaConf.update(centroid_config, "data_config.pipeline", "CentroidConfmaps")
+    OmegaConf.update(
+        centroid_config,
+        "model_config.head_configs.head_type",
+        "CentroidConfmapsHead",
+    )
+
+    del centroid_config.model_config.head_configs.head_config.part_names
+
+    trainer = ModelTrainer(centroid_config)
+    trainer._initialize_model()
+    assert isinstance(trainer.model, CentroidModel)
+
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
     model = TopDownCenteredInstanceModel(config)
@@ -176,6 +222,33 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
+
+    # check the loss value
+    loss = model.training_step(input_, 0)
+    assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+
+
+def test_centroid_model(config, tmp_path: str):
+
+    OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
+    OmegaConf.update(
+        config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
+    )
+    del config.model_config.head_configs.head_config.part_names
+
+    model = CentroidModel(config)
+
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
+    model_trainer = ModelTrainer(config)
+    model_trainer._create_data_loaders()
+    input_ = next(iter(model_trainer.train_data_loader))
+    input_cm = input_["centroids_confidence_maps"]
+    preds = model(input_["image"])
+
+    # check the output shape
+    assert preds.shape == (1, 1, 192, 192)
 
     # check the loss value
     loss = model.training_step(input_, 0)
