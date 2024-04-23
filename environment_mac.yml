@@ -16,10 +16,12 @@ dependencies:
   - scipy
   - attrs
   - opencv
+  - ffmpeg<6.1.0
   - imageio
+  - imageio-ffmpeg
+  - av
   - omegaconf
   - wandb
-  - av
   - ffmpeg
   - kornia
   - matplotlib
