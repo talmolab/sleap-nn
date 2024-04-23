@@ -57,6 +57,7 @@ def test_wandb():
     # check for wandb
     os.environ["WANDB_MODE"] = "offline"
     wandb_logger = WandbLogger()
+    wandb.init()
     assert wandb.run is not None
     wandb.finish()
 
