@@ -14,6 +14,7 @@ dependencies:
   - torchvision
   - h5py
   - pandas
+  - simplejson
   - scipy
   - attrs
   - opencv
@@ -26,6 +27,7 @@ dependencies:
   - ffmpeg
   - kornia
   - matplotlib
+  - rich
   - pynwb
   - ndx-pose
   - pip
