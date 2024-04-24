@@ -45,6 +45,7 @@ def test_convnext_reference():
     assert y["outputs"][-1].shape == (1, 96, 192, 192)
     assert type(y["strides"]) is list
     assert len(y["strides"]) == 4
+    assert convnext.output_channels == 96
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"

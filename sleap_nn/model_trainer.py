@@ -118,7 +118,6 @@ class ModelTrainer:
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
         )
-
         if self.steps_per_epoch is not None:
             train_datapipe = Cycler(train_datapipe)
 

@@ -55,7 +55,9 @@ def initialize_model(minimal_instance, minimal_instance_ckpt):
     return data_pipeline, torch_model, find_peaks_layer
 
 
-def test_topdown_centered_predictor(minimal_instance, minimal_instance_ckpt):
+def test_topdown_predictor(
+    minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
+):
     # for centered instance model
     # check if labels are created from ckpt
     data_pipeline, _, find_peaks_layer = initialize_model(
@@ -97,6 +99,24 @@ def test_topdown_centered_predictor(minimal_instance, minimal_instance_ckpt):
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     OmegaConf.update(config, "model_config.head_configs.head_type", model_name)
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+
+    # centroid + centroid instance model
+    predictor = Predictor.from_model_paths(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
+    )
+    pred_labels = predictor.predict(make_labels=True)
+    assert predictor.centroid_config is not None
+    assert predictor.confmap_config is not None
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 1
+    assert len(pred_labels[0].instances) == 2
+
+    # centroid model
+    predictor = Predictor.from_model_paths(model_paths=[minimal_instance_centroid_ckpt])
+    pred_labels = predictor.predict(make_labels=False)
+    assert predictor.confmap_config is None
+    assert len(pred_labels) == 1
+    assert len(pred_labels[0]["centroids"].squeeze()) == 2
 
 
 def test_topdown_inference_model(config, minimal_instance, minimal_instance_ckpt):

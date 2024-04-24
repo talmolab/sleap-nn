@@ -46,9 +46,6 @@ class ConvNeXtEncoder(nn.Module):
         super().__init__()
         _log_api_usage_once(self)
 
-        if not blocks:
-            raise ValueError("The block_setting should not be empty")
-
         depths, channels = blocks["depths"], blocks["channels"]
         block_setting = [0] * len(depths)
         for idx in range(len(depths)):

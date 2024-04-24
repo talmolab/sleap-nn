@@ -636,6 +636,7 @@ class TopDownPredictor(Predictor):
         self.model_config = OmegaConf.create()
 
         # Create an instance of CentroidLayer if centroid_config is not None
+        return_crops = False
         if self.centroid_config is None:
             centroid_crop_layer = None
         else:
@@ -643,7 +644,7 @@ class TopDownPredictor(Predictor):
             self.model_config["data"] = self.centroid_config.inference_config.data
             self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
             if self.confmap_model:
-                retrun_crops = True
+                return_crops = True
             labels = sio.load_slp(
                 self.centroid_config.inference_config.data.labels_path
             )
@@ -654,7 +655,7 @@ class TopDownPredictor(Predictor):
                 refinement=self.centroid_config.inference_config.integral_refinement,
                 integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
                 return_confmaps=self.centroid_config.inference_config.return_confmaps,
-                return_crops=retrun_crops,
+                return_crops=return_crops,
                 max_instances=get_max_instances(labels),
                 crop_hw=tuple(
                     self.centroid_config.inference_config.data.preprocessing.crop_hw

@@ -25,6 +25,12 @@ def minimal_instance_ckpt(sleap_data_dir):
 
 
 @pytest.fixture
+def minimal_instance_centroid_ckpt(sleap_data_dir):
+    """Checkpoint file for trained model."""
+    return Path(sleap_data_dir) / "minimal_instance_centroid"
+
+
+@pytest.fixture
 def config(sleap_data_dir):
 
     init_config = OmegaConf.create(

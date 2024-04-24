@@ -62,6 +62,8 @@ def test_confmaps(minimal_instance):
 
 
 def test_multi_confmaps(minimal_instance):
+
+    # centroids = True
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
@@ -95,3 +97,20 @@ def test_multi_confmaps(minimal_instance):
     cms = make_multi_confmaps(points, xv, yv, 1)
     gt = torch.Tensor([[0.0000, 0.0000], [0.0000, 0.0000]])
     torch.testing.assert_close(gt, cms[0, 0], atol=0.001, rtol=0.0)
+
+    # centroids = False (for instances)
+    datapipe = LabelsReader.from_filename(minimal_instance)
+    datapipe = Normalizer(datapipe)
+    datapipe = InstanceCentroidFinder(datapipe)
+    datapipe1 = MultiConfidenceMapGenerator(
+        datapipe,
+        sigma=1.5,
+        output_stride=1,
+        centroids=False,
+        image_key="image",
+        instance_key="instances",
+    )
+    sample = next(iter(datapipe1))
+
+    assert sample["confidence_maps"].shape == (1, 1, 384, 384)
+    assert torch.sum(sample["confidence_maps"] > 0.93) == 4
