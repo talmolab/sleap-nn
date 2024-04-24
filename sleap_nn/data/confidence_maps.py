@@ -74,7 +74,7 @@ def make_multi_confmaps(
 
     """
     batch_size, n_nodes, _ = points_batch.shape
-    h, w = xv.shape[0], yv.shape[0]
+    w, h = xv.shape[0], yv.shape[0]
     cms = torch.zeros((batch_size, 1, h, w), dtype=torch.float32)
     points = points_batch.reshape(batch_size * n_nodes, 1, 2)
     for p in points:

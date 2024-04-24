@@ -58,6 +58,7 @@ def initialize_model(minimal_instance, minimal_instance_ckpt):
 def test_topdown_predictor(
     minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
 ):
+    """Test TopDownPredictor class for running inference on centroid and centered instance models."""
     # for centered instance model
     # check if labels are created from ckpt
     data_pipeline, _, find_peaks_layer = initialize_model(
@@ -120,6 +121,7 @@ def test_topdown_predictor(
 
 
 def test_topdown_inference_model(config, minimal_instance, minimal_instance_ckpt):
+    """Test TopDownInferenceModel class for centroid and cenetered model inferences."""
     # for centered instance model
     data_pipeline, _, find_peaks_layer = initialize_model(
         minimal_instance, minimal_instance_ckpt
@@ -181,6 +183,7 @@ def test_topdown_inference_model(config, minimal_instance, minimal_instance_ckpt
 def test_find_instance_peaks_groundtruth(
     config, minimal_instance, minimal_instance_ckpt
 ):
+    """Test FindInstancePeaksGroundTruth class for running inference on centroid model without cenetered instance model."""
     data_pipeline, _, _ = initialize_model(minimal_instance, minimal_instance_ckpt)
     p = iter(data_pipeline)
     e1 = next(p)
@@ -248,6 +251,7 @@ def test_find_instance_peaks_groundtruth(
 
 
 def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt):
+    """Test FindInstancePeaks class to run inference on the Centered instance model."""
     data_pipeline, torch_model, find_peaks_layer = initialize_model(
         minimal_instance, minimal_instance_ckpt
     )
@@ -399,7 +403,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
 
 def test_centroid_inference_model(config):
-
+    """Test CentroidCrop class to run inference on centroid models."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "CentroidConfmapsHead"

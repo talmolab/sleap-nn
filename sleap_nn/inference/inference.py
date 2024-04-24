@@ -228,6 +228,59 @@ class CentroidCrop(L.LightningModule):
         self.return_crops = return_crops
         self.crop_hw = crop_hw
 
+    def _generate_crops(self, inputs):
+        """Generate Crops from the predicted centroids."""
+        crops_dict = []
+
+        for cnt, (centroid, centroid_val, image, fidx, vidx, sz) in enumerate(
+            zip(
+                self.refined_peaks_with_nans,
+                self.peak_vals_with_nans,
+                inputs["image"],
+                inputs["frame_idx"],
+                inputs["video_idx"],
+                inputs["orig_size"],
+            )
+        ):
+            if torch.any(torch.isnan(centroid)):
+                if torch.all(torch.isnan(centroid)):
+                    continue
+                else:
+                    non_nans = ~torch.any(centroid.isnan(), dim=-1)
+                    centroid = centroid[non_nans]
+                    if len(centroid.shape) == 1:
+                        centroid = centroid.unsqueeze(dim=0)
+                    centroid_val = centroid_val[non_nans]
+            n = centroid.shape[0]
+            instance_bbox = torch.unsqueeze(
+                make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
+            )  # (1, n, 4, 2)
+
+            # Generate cropped image of shape (n, C, crop_H, crop_W)
+            instance_image = crop_bboxes(
+                image,
+                bboxes=instance_bbox.squeeze(dim=0),
+                sample_inds=[0] * n,
+            )
+
+            # Access top left point (x,y) of bounding box and subtract this offset from
+            # position of nodes.
+            point = instance_bbox[0, :, 0]
+            centered_centroid = centroid - point
+
+            ex = {}
+            ex["image"] = torch.cat([image] * n)
+            ex["centroid"] = centered_centroid
+            ex["centroid_val"] = centroid_val
+            ex["frame_idx"] = torch.Tensor([fidx] * n)
+            ex["video_idx"] = torch.Tensor([vidx] * n)
+            ex["instance_bbox"] = instance_bbox.squeeze(dim=0).unsqueeze(dim=1)
+            ex["instance_image"] = instance_image.unsqueeze(dim=1)
+            ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
+            crops_dict.append(ex)
+
+        return crops_dict
+
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict centroid confidence maps and crop around peaks.
 
@@ -261,8 +314,8 @@ class CentroidCrop(L.LightningModule):
 
         batch_indxs = Counter(peak_sample_inds.detach().cpu().numpy().tolist())
 
-        refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
-        peak_vals_with_nans = torch.zeros((batch, self.max_instances))
+        self.refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
+        self.peak_vals_with_nans = torch.zeros((batch, self.max_instances))
 
         parsed = 0
         for b in range(batch):
@@ -279,12 +332,12 @@ class CentroidCrop(L.LightningModule):
             else:
                 num_nans = self.max_instances - len(current_peaks)
             nans = torch.full((np.abs(num_nans), 2), torch.nan)
-            refined_peaks_with_nans[b] = torch.cat(
+            self.refined_peaks_with_nans[b] = torch.cat(
                 [current_peaks, nans.to(current_peaks.device)], dim=0
             )
 
             nans = torch.full((np.abs(num_nans),), torch.nan)
-            peak_vals_with_nans[b] = torch.cat(
+            self.peak_vals_with_nans[b] = torch.cat(
                 [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
             )
 
@@ -292,64 +345,16 @@ class CentroidCrop(L.LightningModule):
 
         # Build outputs.
         outputs = {
-            "centroids": refined_peaks_with_nans,
-            "centroid_vals": peak_vals_with_nans,
+            "centroids": self.refined_peaks_with_nans,
+            "centroid_vals": self.peak_vals_with_nans,
         }
         if self.return_confmaps:
             outputs["pred_centroid_confmaps"] = cms.detach()
         inputs.update(outputs)
 
+        # Generate crops if return_crops is True to pass the crops to CenteredInstance model.
         if self.return_crops:
-
-            crops_dict = []
-
-            for cnt, (centroid, centroid_val, image, fidx, vidx, sz) in enumerate(
-                zip(
-                    refined_peaks_with_nans,
-                    peak_vals_with_nans,
-                    inputs["image"],
-                    inputs["frame_idx"],
-                    inputs["video_idx"],
-                    inputs["orig_size"],
-                )
-            ):
-                if torch.any(torch.isnan(centroid)):
-                    if torch.all(torch.isnan(centroid)):
-                        continue
-                    else:
-                        non_nans = ~torch.any(centroid.isnan(), dim=-1)
-                        centroid = centroid[non_nans]
-                        if len(centroid.shape) == 1:
-                            centroid = centroid.unsqueeze(dim=0)
-                        centroid_val = centroid_val[non_nans]
-                n = centroid.shape[0]
-                instance_bbox = torch.unsqueeze(
-                    make_centered_bboxes(centroid, self.crop_hw[0], self.crop_hw[1]), 0
-                )  # (1, n, 4, 2)
-
-                # Generate cropped image of shape (n, C, crop_H, crop_W)
-                instance_image = crop_bboxes(
-                    image,
-                    bboxes=instance_bbox.squeeze(dim=0),
-                    sample_inds=[0] * n,
-                )
-
-                # Access top left point (x,y) of bounding box and subtract this offset from
-                # position of nodes.
-                point = instance_bbox[0, :, 0]
-                centered_centroid = centroid - point
-
-                ex = {}
-                ex["image"] = torch.cat([image] * n)
-                ex["centroid"] = centered_centroid
-                ex["centroid_val"] = centroid_val
-                ex["frame_idx"] = torch.Tensor([fidx] * n)
-                ex["video_idx"] = torch.Tensor([vidx] * n)
-                ex["instance_bbox"] = instance_bbox.squeeze(dim=0).unsqueeze(dim=1)
-                ex["instance_image"] = instance_image.unsqueeze(dim=1)
-                ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
-                crops_dict.append(ex)
-
+            crops_dict = self._generate_crops(inputs)
             return crops_dict
         return inputs
 

@@ -110,6 +110,14 @@ class LabelsReader(IterDataPipe):
             if self.max_height is not None:  # only if user provides
                 pad_height = self.max_height - img_height
                 pad_width = self.max_width - img_width
+                if pad_height < 0:
+                    raise Exception(
+                        f"Max height {self.max_height} should be greater than the current image height: {img_height}"
+                    )
+                if pad_width < 0:
+                    raise Exception(
+                        f"Max width {self.max_width} should be greater than the current image width: {img_width}"
+                    )
                 image = np.pad(
                     image,
                     ((0, 0), (0, 0), (0, pad_height), (0, pad_width)),

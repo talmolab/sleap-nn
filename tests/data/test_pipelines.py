@@ -16,6 +16,7 @@ from sleap_nn.data.providers import LabelsReader
 
 
 def test_key_filter(minimal_instance):
+    """Test KeyFilter module."""
     datapipe = LabelsReader.from_filename(filename=minimal_instance)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
@@ -315,6 +316,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
 
 def test_centroidconfmapspipeline(minimal_instance):
+    """Test CentroidConfmapsPipeline class."""
     base_centroid_data_config = OmegaConf.create(
         {
             "preprocessing": {
