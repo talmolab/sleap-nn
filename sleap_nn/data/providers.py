@@ -108,14 +108,13 @@ class LabelsReader(IterDataPipe):
 
             # pad images to max_height and max_width
             if self.max_height is not None:  # only if user provides
-                pad_height = (self.max_height - img_height) // 2
-                pad_width = (self.max_width - img_width) // 2
+                pad_height = self.max_height - img_height
+                pad_width = self.max_width - img_width
                 image = np.pad(
                     image,
-                    ((0, 0), (0, 0), (pad_height, pad_height), (pad_width, pad_width)),
+                    ((0, 0), (0, 0), (0, pad_height), (0, pad_width)),
                     mode="constant",
                 ).astype("float32")
-                # instances = instances + torch.Tensor([pad_height, pad_width])
 
             # convert to rgb
             if self.is_rgb and image.shape[-3] != 3:
