@@ -115,7 +115,7 @@ class LabelsReader(IterDataPipe):
                     ((0, 0), (0, 0), (pad_height, pad_height), (pad_width, pad_width)),
                     mode="constant",
                 ).astype("float32")
-                instances = instances + torch.Tensor([pad_height, pad_width])
+                # instances = instances + torch.Tensor([pad_height, pad_width])
 
             # convert to rgb
             if self.is_rgb and image.shape[-3] != 3:
