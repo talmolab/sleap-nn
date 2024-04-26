@@ -116,8 +116,7 @@ def test_get_head():
 
 
 def test_unet_model():
-    # device = "cuda" if torch.cuda.is_available() else "cpu"
-    device = "cpu"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     base_unet_model_config = OmegaConf.create(
         {

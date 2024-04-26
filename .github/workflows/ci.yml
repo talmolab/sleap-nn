@@ -11,15 +11,6 @@ on:
       - "environment_cpu.yml"
       - "environment_mac.yml"
       - "pyproject.toml"
-  # push:
-  #   branches:
-  #     - main
-  #   paths:
-  #     - "sleap_nn/**"
-  #     - "tests/**"
-  #     - ".github/workflows/ci.yml"
-  #     - "environment_cpu.yml"
-  #     - "pyproject.toml"
 
 defaults:
   # This is needed for running steps within conda environments.

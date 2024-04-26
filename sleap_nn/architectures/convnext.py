@@ -15,14 +15,18 @@ from torchvision.models.convnext import LayerNorm2d, CNBlock, CNBlockConfig
 
 
 class ConvNeXtEncoder(nn.Module):
-    """Src: torchvision.models.
+    """ConvNext backbone for pose estimation.
 
-    Implements ConvNext from the `A ConvNet for the 2020s <https://arxiv.org/abs/2201.03545>` paper.
+    This class implements ConvNext from the `A ConvNet for the 2020s <https://arxiv.org/abs/2201.03545>`
+    paper. Source: torchvision.models. This module serves as the backbone/ encoder
+    architecture to extract features from the input image.
 
     Args:
-        blocks (dict) : Dictionary of depths and channels. Default is "Tiny architecture" {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
+        blocks (dict) : Dictionary of depths and channels. Default is "Tiny architecture"
+                        {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
         in_channels (int): Input number of channels. Default: 1.
-        stem_kernel (int): Size of the convolutional kernels in the stem layer. Default is 4.
+        stem_kernel (int): Size of the convolutional kernels in the stem layer.
+                        Default is 4.
         stem_stride (int): Convolutional stride in the stem layer. Default is 2.
         stochastic_depth_prob (float): Stochastic depth rate. Default: 0.1.
         layer_scale (float): Scale for Layer normalization layer. Default: 1e-6.
@@ -129,8 +133,8 @@ class ConvNextWrapper(nn.Module):
     """ConvNext architecture for pose estimation.
 
     This class defines the ConvNext architecture for pose estimation, combining an
-    ConvNext as the encoder and a decoder. The encoder extracts features from the input, while the
-    decoder generates confidence maps based on the features.
+    ConvNext as the encoder and a decoder. The encoder extracts features from the input,
+    while the decoder generates confidence maps based on the features.
 
     Args:
         in_channels: Number of input channels. Default is 1.
@@ -143,7 +147,7 @@ class ConvNextWrapper(nn.Module):
         convs_per_block: Number of convolutional layers per block. Default is 2.
 
     Attributes:
-        Inherits all attributes from torchvision.models.
+        Inherits all attributes from torch.nn.Module.
     """
 
     def __init__(

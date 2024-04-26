@@ -1,6 +1,6 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
-from typing import Dict, Iterator
+from typing import Dict, Iterator, Optional
 
 import numpy as np
 import sleap_io as sio
@@ -10,7 +10,13 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 def get_max_instances(labels: sio.Labels):
-    """Function to get the maximum number of instances in a single Labeled Frame."""
+    """Get the maximum number of instances in a single LabeledFrame.
+    Args:
+        labels: sleap_io.Labels object that contains LabeledFrames.
+
+    Returns:
+        Maximum number of instances that could occur in a single LabeledFrame.
+    """
     max_instances = -1
     for lf in labels:
         num_inst = len(lf.instances)
@@ -27,18 +33,21 @@ class LabelsReader(IterDataPipe):
 
     Attributes:
         labels: sleap_io.Labels object that contains LabeledFrames that will be
-            accessed through a torchdata DataPipe
-        max_height: Maximum height the image should be padded to. If not provided, the original image size will be retained.
-        max_width: Maximum width the image should be padded to. If not provided, the original image size will be retained.
-        user_instances_only: True if filter labels only to user instances else False. Default value True
+                accessed through a torchdata DataPipe.
+        max_height: Maximum height the image should be padded to. If not provided,
+                the original image size will be retained.
+        max_width: Maximum width the image should be padded to. If not provided,
+                the original image size will be retained.
+        user_instances_only: True if filter labels only to user instances else False.
+                Default value True
         is_rgb: True if the image has 3 channels (RGB image)
     """
 
     def __init__(
         self,
         labels: sio.Labels,
-        max_height: int = None,
-        max_width: int = None,
+        max_height: Optional[int] = None,
+        max_width: Optional[int] = None,
         user_instances_only: bool = True,
         is_rgb: bool = False,
     ):
@@ -67,9 +76,9 @@ class LabelsReader(IterDataPipe):
         cls,
         filename: str,
         user_instances_only: bool = True,
-        max_height: int = None,
-        max_width: int = None,
-        is_rgb=False,
+        max_height: Optional[int] = None,
+        max_width: Optional[int] = None,
+        is_rgb: bool = False,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)

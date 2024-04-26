@@ -29,17 +29,20 @@ torch.fx.wrap("shifted_window_attention")
 
 
 class SwinTransformerEncoder(nn.Module):
-    """Src: torchvision.models.
+    """SwinT backbone for pose estimation.
 
-    Implements Swin Transformer from the `"Swin Transformer: Hierarchical Vision Transformer using
-    Shifted Windows `<https://arxiv.org/abs/2103.14030>`paper.
+    This class implements ConvNext from the `"Swin Transformer: Hierarchical Vision Transformer
+    using Shifted Windows `<https://arxiv.org/abs/2103.14030>`paper.
+    Source: torchvision.models. This module serves as the backbone/ encoder architecture
+    to extract features from the input image.
 
     Args:
         in_channels (int): Number of input channels. Default is 1.
         patch_size (List[int]): Patch size. Default: [4,4]
         embed_dim (int): Patch embedding dimension. Default: 96
         depths (List(int)): Depth of each Swin Transformer layer. Default: [2,2,6,2].
-        num_heads (List(int)): Number of attention heads in different layers. Default: [3,6,12,24].
+        num_heads (List(int)): Number of attention heads in different layers.
+                        Default: [3,6,12,24].
         window_size (List[int]): Window size. Default: [7,7].
         stem_stride (int): Stride for the patch. Default is 2.
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim. Default: 4.0.
@@ -60,7 +63,7 @@ class SwinTransformerEncoder(nn.Module):
         depths: List[int] = [2, 2, 6, 2],
         num_heads: List[int] = [3, 6, 12, 24],
         window_size: List[int] = [7, 7],
-        stem_stride=2,
+        stem_stride: int = 2,
         mlp_ratio: float = 4.0,
         dropout: float = 0.0,
         attention_dropout: float = 0.0,
@@ -155,15 +158,16 @@ class SwinTWrapper(nn.Module):
     """SwinT architecture for pose estimation.
 
     This class defines the SwinT architecture for pose estimation, combining an
-    SwinT as the encoder and a decoder. The encoder extracts features from the input, while the
-    decoder generates confidence maps based on the features.
+    SwinT as the encoder and a decoder. The encoder extracts features from the input,
+    while the decoder generates confidence maps based on the features.
 
     Args:
         in_channels: Number of input channels. Default is 1.
         patch_size (List[int]): Patch size. Default: [4,4]
         embed_dim (int): Patch embedding dimension. Default: 96
         depths (List(int)): Depth of each Swin Transformer layer. Default: [2,2,6,2].
-        num_heads (List(int)): Number of attention heads in different layers. Default: [3,6,12,24].
+        num_heads (List(int)): Number of attention heads in different layers.
+                            Default: [3,6,12,24].
         window_size (List[int]): Window size. Default: [7,7].
         stem_stride (int): Stride for the patch. Default is 2.
         stochastic_depth_prob (float): Stochastic depth rate. Default: 0.1.
@@ -174,7 +178,7 @@ class SwinTWrapper(nn.Module):
         convs_per_block: Number of convolutional layers per block. Default is 2.
 
     Attributes:
-        Inherits all attributes from torchvision.models.
+        Inherits all attributes from torch.nn.Module.
     """
 
     def __init__(

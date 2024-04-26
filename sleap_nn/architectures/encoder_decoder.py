@@ -262,6 +262,7 @@ class Encoder(nn.Module):
             list: List of intermediate feature tensors from different levels of the encoder.
         """
         features = []
+        features.append(x)
         for i in range(len(self.encoder_stack)):
             x = self.encoder_stack[i](x)
 
@@ -380,7 +381,9 @@ class SimpleUpsamplingBlock(nn.Module):
             torch.Tensor: Output tensor after applying the upsampling and refining operations.
         """
         for idx, b in enumerate(self.blocks):
-            if idx == 1:  # Right after upsampling or convtranspose2d.
+            if (
+                idx == 1 and feature is not None
+            ):  # Right after upsampling or convtranspose2d.
                 x = torch.concat((x, feature), dim=1)
             x = b(x)
 
@@ -466,11 +469,11 @@ class Decoder(nn.Module):
             next_stride = current_stride // 2
             self.decoder_stack.append(
                 SimpleUpsamplingBlock(
-                    x_in_shape=(x_in_shape),
+                    x_in_shape=(block_filters_out),
                     current_stride=current_stride,
                     upsampling_stride=2,
                     interp_method="bilinear",
-                    refine_convs=0,  # self.convs_per_block,
+                    refine_convs=self.convs_per_block,
                     refine_convs_filters=block_filters_out,
                     refine_convs_kernel_size=self.kernel_size,
                     refine_convs_batch_norm=False,
@@ -496,7 +499,7 @@ class Decoder(nn.Module):
             "outputs": [],
         }
         for i in range(len(self.decoder_stack)):
-            if i < len(features):
+            if i < len(features) - 1:
                 x = self.decoder_stack[i](x, features[i])
             else:
                 x = self.decoder_stack[i](x, None)

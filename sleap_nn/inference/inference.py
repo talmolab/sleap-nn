@@ -207,12 +207,12 @@ class CentroidCrop(L.LightningModule):
         self,
         torch_model: L.LightningModule,
         max_instances: int,
-        output_stride: Optional[int] = None,
+        output_stride: int = 1,
         peak_threshold: float = 0.0,
-        refinement: Optional[str] = "integral",
+        refinement: Optional[str] = None,
         integral_patch_size: int = 5,
-        return_confmaps: Optional[bool] = False,
-        return_crops: Optional[bool] = False,
+        return_confmaps: bool = False,
+        return_crops: bool = False,
         crop_hw: tuple = (160, 160),
         **kwargs,
     ):
@@ -617,13 +617,12 @@ class TopDownInferenceModel(L.LightningModule):
 class TopDownPredictor(Predictor):
     """Top-down multi-instance predictor.
 
-    This high-level class handles initialization, preprocessing and predicting using a trained
-    TopDown SLEAP-NN model.
-
-    This should be initialized using the `from_trained_models()` constructor.
+    This high-level class handles initialization, preprocessing and predicting using a
+    trained TopDown SLEAP-NN model. This should be initialized using the `from_trained_models()`
+    constructor.
 
     Attributes:
-        centroid_config: A Dictionary with the configs used for training the centroid model
+        centroid_config: A Dictionary with the configs used for training the centroid model.
         confmap_config: A Dictionary with the configs used for training the centered-instance model
         centroid_model: A LightningModule instance created from the trained weights for centroid model.
         confmap_model: A LightningModule instance created from the trained weights
@@ -958,8 +957,8 @@ class SingleInstanceInferenceModel(L.LightningModule):
         Returns:
             A dictionary of outputs with keys:
 
-            `"pred_instance_peaks"`: The predicted peaks for each instance in the batch as a
-                `torch.Tensor` of shape `(samples, nodes, 2)`.
+            `"pred_instance_peaks"`: The predicted peaks for each instance in the batch
+                as a `torch.Tensor` of shape `(samples, nodes, 2)`.
             `"pred_peak_vals"`: The value of the confidence maps at the predicted
                 peaks for each instance in the batch as a `torch.Tensor` of shape
                 `(samples, nodes)`.
@@ -996,7 +995,8 @@ class SingleInstancePredictor(Predictor):
     This should be initialized using the `from_trained_models()` constructor.
 
     Attributes:
-        confmap_config: A Dictionary with the configs used for training the single-instance model
+        confmap_config: A Dictionary with the configs used for training the
+                        single-instance model.
         confmap_model: A LightningModule instance created from the trained weights for
                        single-instance model.
 

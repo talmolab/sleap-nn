@@ -11,6 +11,7 @@ from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.utils import make_grid_vectors
+import numpy as np
 
 
 def test_confmaps(minimal_instance):
@@ -40,7 +41,10 @@ def test_confmaps(minimal_instance):
     sample = next(iter(datapipe2))
 
     assert sample["confidence_maps"].shape == (1, 2, 50, 50)
-    assert abs(torch.max(sample["confidence_maps"]) - torch.Tensor([0.9967])) < 1e-4
+    max_confmap = torch.max(sample["confidence_maps"])
+    torch.testing.assert_close(
+        max_confmap, torch.FloatTensor([0.9967])[0], atol=1e-4, rtol=0.0
+    )
 
     xv, yv = make_grid_vectors(2, 2, 1)
     points = torch.Tensor([[1.0, 1.0], [torch.nan, torch.nan]])
