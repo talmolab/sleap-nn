@@ -66,7 +66,7 @@ def make_multi_confmaps(
             confidence maps.
 
     Returns:
-        Confidence maps as a tensor of shape `(batch_size, n_nodes, grid_height, grid_width)` of
+        Confidence maps as a tensor of shape `(batch_size, 1, grid_height, grid_width)` of
         dtype `torch.float32`.
 
         Each channel will contain the elementwise maximum of the confidence maps
@@ -99,8 +99,8 @@ class MultiConfidenceMapGenerator(IterDataPipe):
             A larger stride will generate smaller confidence maps.
         centroids: If `True`, generate confidence maps for centroids rather than
             instance points.
-        image_key: The name of the key where the image (frames, channels, crop_height, crop_width) is.
-        instance_key: The name of the key where the instance points (n_instances, 2) are.
+        image_key: The name of the key where the image (1, channels, crop_height, crop_width) is.
+        instance_key: The name of the key where the instance points (1, n_instances, nodes, 2) are.
     """
 
     def __init__(
@@ -155,8 +155,8 @@ class ConfidenceMapGenerator(IterDataPipe):
     """IterDataPipe for generating confidence maps.
 
     This IterDataPipe will generate confidence maps for examples from the input pipeline.
-    Input examples must contain image of shape (frames, channels, crop_height, crop_width)
-    and instance of shape (n_instances, 2).
+    Input examples must contain image of shape (1, channels, crop_height, crop_width)
+    and instance of shape (1, n_instances, nodes, 2).
 
     Attributes:
         source_dp: The input `IterDataPipe` with examples that contain an instance and
@@ -165,8 +165,8 @@ class ConfidenceMapGenerator(IterDataPipe):
             generate confidence maps.
         output_stride: The relative stride to use when generating confidence maps.
             A larger stride will generate smaller confidence maps.
-        image_key: The name of the key where the image (frames, channels, crop_height, crop_width) is.
-        instance_key: The name of the key where the instance points (n_instances, 2) are.
+        image_key: The name of the key where the image (1, channels, crop_height, crop_width) is.
+        instance_key: The name of the key where the instance points (1, n_instances, nodes, 2) are.
     """
 
     def __init__(

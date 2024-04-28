@@ -146,7 +146,9 @@ def test_unet_model():
     )
 
     model = Model(
-        backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
@@ -164,7 +166,9 @@ def test_unet_model():
     assert z[base_unet_head_config.head_type].dtype == torch.float32
 
     model = Model.from_config(
-        backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)

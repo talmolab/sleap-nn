@@ -285,29 +285,39 @@ class TrainingModel(L.LightningModule):
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
         self.m_device = self.trainer_config.device
+        self.input_expand_channels = (
+            self.model_config.backbone_config.backbone_config.in_channels
+        )
+        if self.model_config.pre_trained_weights:
+            ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
+                progress=True, check_hash=True
+            )
+            input_channels = ckpt["features.0.0.weight"].shape[-3]
+            if (
+                self.model_config.backbone_config.backbone_config.in_channels
+                != input_channels
+            ):
+                self.input_expand_channels = input_channels
+                OmegaConf.update(
+                    self.model_config,
+                    "backbone_config.backbone_config.in_channels",
+                    input_channels,
+                )
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
             head_configs=[self.model_config.head_configs],
+            input_expand_channels=self.input_expand_channels,
         ).to(self.m_device)
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
 
+        # Initialization for encoder and decoder stacks.
         if self.model_config.init_weights == "xavier":
             self.model.apply(xavier_init_weights)
 
+        # Pre-trained weights for the encoder stack.
         if self.model_config.pre_trained_weights:
-            self._init_pretrain_model()
-
-    def _init_pretrain_model(self):
-        if self.model_config.backbone_config.backbone_type in ["swint", "convnext"]:
-            ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
-                progress=True, check_hash=True
-            )
-            if self.model_config.backbone_config.backbone_config.in_channels == 1:
-                ckpt["features.0.0.weight"] = torch.unsqueeze(
-                    ckpt["features.0.0.weight"].mean(dim=1), dim=1
-                )
             self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
     @property
@@ -459,8 +469,8 @@ class SingleInstanceModel(TrainingModel):
 class TopDownCenteredInstanceModel(TrainingModel):
     """Lightning Module for TopDownCenteredInstance Model.
 
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
-    forward pass specific to TopDown Centered instance model.
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    and forward pass specific to TopDown Centered instance model.
 
     Args:
         config: OmegaConf dictionary which has the following:
@@ -526,8 +536,8 @@ class TopDownCenteredInstanceModel(TrainingModel):
 class CentroidModel(TrainingModel):
     """Lightning Module for Centroid Model.
 
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
-    forward pass specific to centroid model.
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    and forward pass specific to centroid model.
 
     Args:
         config: OmegaConf dictionary which has the following:

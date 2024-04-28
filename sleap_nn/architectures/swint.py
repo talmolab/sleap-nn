@@ -145,7 +145,6 @@ class SwinTransformerEncoder(nn.Module):
             Outputs a list of tensors from each stage after applying the SwinT backbone.
         """
         features_list = []
-        features_list.append(x)
         for idx, l in enumerate(self.features):
             x = l(x)
             if idx == len(self.features) - 1:
@@ -232,6 +231,7 @@ class SwinTWrapper(nn.Module):
             down_blocks=self.down_blocks,
             filters_rate=filters_rate,
             kernel_size=self.kernel_size,
+            is_stem=True,
         )
 
     @property

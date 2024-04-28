@@ -11,6 +11,7 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 def get_max_instances(labels: sio.Labels):
     """Get the maximum number of instances in a single LabeledFrame.
+
     Args:
         labels: sleap_io.Labels object that contains LabeledFrames.
 

@@ -86,7 +86,7 @@ def test_swint_reference():
         features = features[:-1][::-1]
 
     assert x.shape == (1, 768, 12, 12)
-    assert len(features) == 4
+    assert len(features) == 3
     assert features[0].shape == (1, 384, 24, 24)
     assert features[1].shape == (1, 192, 48, 48)
     assert features[2].shape == (1, 96, 96, 96)
@@ -115,11 +115,10 @@ def test_swint_reference():
         features = features[:-1][::-1]
 
     assert x.shape == (1, 768, 6, 6)
-    assert len(features) == 4
+    assert len(features) == 3
     assert features[0].shape == (1, 384, 12, 12)
     assert features[1].shape == (1, 192, 24, 24)
     assert features[2].shape == (1, 96, 48, 48)
-    assert features[3].shape == (1, 1, 192, 192)
 
     swint = SwinTWrapper(
         in_channels=1,

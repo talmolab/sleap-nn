@@ -111,7 +111,6 @@ class ConvNeXtEncoder(nn.Module):
 
     def _forward_impl(self, x: Tensor) -> Tensor:
         features_list = []
-        features_list.append(x)
         for l in self.features:
             x = l(x)
             features_list.append(x)
@@ -138,7 +137,8 @@ class ConvNextWrapper(nn.Module):
 
     Args:
         in_channels: Number of input channels. Default is 1.
-        arch: Dictionary of depths and channels. Default is "Tiny architecture" {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
+        arch: Dictionary of depths and channels. Default is "Tiny architecture"
+        {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
         kernel_size: Size of the convolutional kernels. Default is 3.
         stem_patch_kernel: Size of the convolutional kernels in the stem layer. Default is 4.
         stem_patch_stride: Convolutional stride in the stem layer. Default is 2.
@@ -193,6 +193,7 @@ class ConvNextWrapper(nn.Module):
             down_blocks=self.down_blocks,
             filters_rate=filters_rate,
             kernel_size=self.kernel_size,
+            is_stem=True,
         )
 
     @property
@@ -207,7 +208,7 @@ class ConvNextWrapper(nn.Module):
         """Forward pass through the ConvNext architecture.
 
         Args:
-            x: Input tensor.
+            x: Input tensor (Batch, Channels, Height, Width).
 
         Returns:
             x: Outputs a dictionary with `outputs` and `strides` containing the output

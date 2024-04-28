@@ -97,9 +97,8 @@ def test_unet_reference():
         y, features = enc(x)
 
     assert y.shape == (1, 1024, 12, 12)
-    assert len(features) == 5
+    assert len(features) == 4
     assert features[0].shape == (1, 512, 24, 24)
     assert features[1].shape == (1, 256, 48, 48)
     assert features[2].shape == (1, 128, 96, 96)
     assert features[3].shape == (1, 64, 192, 192)
-    assert features[4].shape == (1, 1, 192, 192)

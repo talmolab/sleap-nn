@@ -106,15 +106,21 @@ class Model(nn.Module):
     Attributes:
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_config: An `DictConfig` configuration dictionary for the model head.
+        input_expand_channels: Integer representing the number of channels the image
+                                should be expanded to.
     """
 
     def __init__(
-        self, backbone_config: DictConfig, head_configs: List[DictConfig]
+        self,
+        backbone_config: DictConfig,
+        head_configs: List[DictConfig],
+        input_expand_channels: int,
     ) -> None:
         """Initialize the backbone and head based on the backbone_config."""
         super().__init__()
         self.backbone_config = backbone_config
         self.head_configs = head_configs
+        self.input_expand_channels = input_expand_channels
 
         self.backbone = get_backbone(
             backbone_config.backbone_type, backbone_config.backbone_config
@@ -132,13 +138,25 @@ class Model(nn.Module):
 
     @classmethod
     def from_config(
-        cls, backbone_config: DictConfig, head_configs: List[DictConfig]
+        cls,
+        backbone_config: DictConfig,
+        head_configs: List[DictConfig],
+        input_expand_channels: int,
     ) -> "Model":
         """Create the model from a config dictionary."""
-        return cls(backbone_config=backbone_config, head_configs=head_configs)
+        return cls(
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            input_expand_channels=input_expand_channels,
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
+        if self.input_expand_channels != 1:
+            input_list = []
+            for i in range(self.input_expand_channels):
+                input_list.append(x)
+            x = torch.concatenate(input_list, axis=-3)
         backbone_outputs = self.backbone(x)
 
         outputs = {}

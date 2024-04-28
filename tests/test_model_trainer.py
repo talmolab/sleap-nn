@@ -282,7 +282,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     assert all(
         np.abs(
             next(model.parameters())[0, 0, 0, :].detach().numpy()
-            - np.array([-0.0234, -0.0470, -0.0013, 0.0131])
+            - np.array([-0.1019, -0.1258, -0.0777, -0.0484])
         )
         < 1e-4
     )
