@@ -362,6 +362,7 @@ def test_single_instance_inference_model(
 
 
 def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
+    """Test SingleInstancePredictor."""
     # store the original config
     _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
 
@@ -404,6 +405,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
 def test_centroid_inference_model(config):
     """Test CentroidCrop class to run inference on centroid models."""
+
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "CentroidConfmapsHead"

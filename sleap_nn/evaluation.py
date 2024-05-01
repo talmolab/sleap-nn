@@ -409,7 +409,7 @@ def compute_dists(
 class Evaluator:
     """Compute the standard evaluation metrics with the predicted and the ground-truth Labels.
 
-    This class is used to calculate the common metrics for pose estimation models which 
+    This class is used to calculate the common metrics for pose estimation models which
     includes voc metrics (with oks and pck), mOKS, distance metrics, pck metrics and
     visibility metrics.
 

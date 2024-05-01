@@ -7,7 +7,7 @@ from sleap_nn.architectures.utils import get_children_layers
 
 
 def test_convnext_reference():
-
+    """Test ConvNextEncoder and ConvNextWrapper."""
     arch = {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]}
     in_channels = 1
     kernel_size = 3

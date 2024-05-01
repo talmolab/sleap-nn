@@ -1,3 +1,5 @@
+"""Test ModelTrainer and TrainingModule classes."""
+
 import torch
 import sleap_io as sio
 from typing import Text
@@ -21,6 +23,7 @@ import shutil
 
 
 def test_create_data_loader(config, tmp_path: str):
+    """Test _create_data_loader function of ModelTrainer class."""
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -56,7 +59,7 @@ def test_create_data_loader(config, tmp_path: str):
 
 
 def test_wandb():
-    # check for wandb
+    """Test wandb integration."""
     os.environ["WANDB_MODE"] = "offline"
     wandb_logger = WandbLogger()
     wandb.init()
@@ -289,7 +292,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 
 
 def test_centroid_model(config, tmp_path: str):
-
+    """Test CentroidModel training."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
