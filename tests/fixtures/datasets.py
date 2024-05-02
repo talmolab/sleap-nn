@@ -5,30 +5,30 @@ from omegaconf import OmegaConf
 
 import pytest
 
-
 @pytest.fixture
 def sleap_data_dir(pytestconfig):
     """Dir path to sleap data."""
     return Path(pytestconfig.rootdir) / "tests/assets"
 
-
 @pytest.fixture
 def minimal_instance(sleap_data_dir):
-    """Sleap fly .slp and video file paths."""
+    """Sleap-io fly .slp path."""
     return Path(sleap_data_dir) / "minimal_instance.pkg.slp"
 
+@pytest.fixture
+def centered_instance_video(sleap_data_dir):
+    """Sleap-io fly video .mp4 path."""
+    return Path(sleap_data_dir) / "centered_pair_small.mp4"
 
 @pytest.fixture
 def minimal_instance_ckpt(sleap_data_dir):
     """Checkpoint file for trained model."""
     return Path(sleap_data_dir) / "minimal_instance"
 
-
 @pytest.fixture
 def minimal_instance_centroid_ckpt(sleap_data_dir):
     """Checkpoint file for trained model."""
     return Path(sleap_data_dir) / "minimal_instance_centroid"
-
 
 @pytest.fixture
 def config(sleap_data_dir):
@@ -213,7 +213,7 @@ def config(sleap_data_dir):
             "inference_config": {
                 "device": "cpu",
                 "data": {
-                    "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
+                    "path": f"./tests/assets/minimal_instance.pkg.slp",
                     "max_width": None,
                     "max_height": None,
                     "is_rgb": False,
@@ -225,41 +225,17 @@ def config(sleap_data_dir):
                         "pin_memory": True,
                         "drop_last": False,
                     },
+                    "video_loader": {
+                        "batch_size": 4,
+                        "queue_maxsize": 8,
+                        "start_idx": 0,
+                        "end_idx": 100,
+
+                    },
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": [160, 160],
-                        "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-                    },
-                    "augmentation_config": {
-                        "random_crop": {
-                            "random_crop_p": 0,
-                            "random_crop_hw": [160, 160],
-                        },
-                        "use_augmentations": False,
-                        "augmentations": {
-                            "intensity": {
-                                "uniform_noise": [0.0, 0.04],
-                                "uniform_noise_p": 0,
-                                "gaussian_noise_mean": 0.02,
-                                "gaussian_noise_std": 0.004,
-                                "gaussian_noise_p": 0,
-                                "contrast": [0.5, 2.0],
-                                "contrast_p": 0,
-                                "brightness": 0.0,
-                                "brightness_p": 0,
-                            },
-                            "geometric": {
-                                "rotation": 180.0,
-                                "scale": 0,
-                                "translate": [0, 0],
-                                "affine_p": 0.5,
-                                "erase_scale": [0.0001, 0.01],
-                                "erase_ratio": [1, 1],
-                                "erase_p": 0,
-                                "mixup_lambda": None,
-                                "mixup_p": 0,
-                            },
-                        },
+                        "output_stride": 2,
                     },
                 },
                 "peak_threshold": 0.0,

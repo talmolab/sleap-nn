@@ -1,13 +1,13 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
 from typing import Dict, Iterator, Optional
-
-import numpy as np
+from threading import Thread
 import sleap_io as sio
+from queue import Queue
+import numpy as np
 import torch
 import copy
 from torch.utils.data.datapipes.datapipe import IterDataPipe
-
 
 def get_max_instances(labels: sio.Labels):
     """Get the maximum number of instances in a single LabeledFrame.
@@ -25,7 +25,6 @@ def get_max_instances(labels: sio.Labels):
             max_instances = num_inst
     return max_instances
 
-
 class LabelsReader(IterDataPipe):
     """IterDataPipe for reading frames from Labels object.
 
@@ -41,7 +40,11 @@ class LabelsReader(IterDataPipe):
                 the original image size will be retained.
         user_instances_only: True if filter labels only to user instances else False.
                 Default value True
-        is_rgb: True if the image has 3 channels (RGB image)
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one 
+                channel when this is set to `True`, then the images from single-channel 
+                is replicated along the channel axis. If input has three channels if this
+                is set to False, then we convert the image to grayscale (single-channel)
+                image.
     """
 
     def __init__(
@@ -138,6 +141,11 @@ class LabelsReader(IterDataPipe):
             if self.is_rgb and image.shape[-3] != 3:
                 image = np.concatenate([image, image, image], axis=-3)
 
+            # convert to grayscale
+            if not self.is_rgb and image.shape[-3] != 1:
+                red, green, blue = image[:, 0], image[:, 1], image[:, 2]
+                image = 0.2989 * red + 0.5870 * green + 0.1140 * blue
+
             yield {
                 "image": torch.from_numpy(image),
                 "instances": instances,
@@ -148,3 +156,83 @@ class LabelsReader(IterDataPipe):
                 "num_instances": num_instances,
                 "orig_size": torch.Tensor([img_height, img_width]),
             }
+
+class VideoReader(Thread):
+    """Thread module for reading frames from sleap-io Video object.
+
+    This module will load the frames from video and pushes them as Tensors into a buffer 
+    queue as a tuple in the format (image, frame index, (height, width)) which are then 
+    batched and consumed during the inference process.
+
+    Attributes:
+        video: sleap_io.Video object that contains LabeledFrames that will be
+                accessed through a torchdata DataPipe.
+        frame_buffer: Maximum height the image should be padded to. If not provided,
+                the original image size will be retained.
+        is_rgb:  True if input image has three channels (RGB). If input has only one 
+                channel when this is set to `True`, then the images from single-channel 
+                is replicated along the channel axis. If input has three channels if this
+                is set to False, then we convert the image to grayscale (single-channel)
+                image.
+        start_idx: start index of the frames to read. If None, 0 is set as the default.
+        end_idx: end index of the frames to read. If None, length of the video is set as
+                the default.
+    """
+    
+    def __init__(self, video: sio.Video, frame_buffer: Queue, is_rgb: bool=False,
+                 start_idx: Optional[int]=None, end_idx: Optional[int]=None):
+        """Initialize attribute of the class."""
+        super().__init__()
+        self.video = video
+        self.frame_buffer = frame_buffer
+        self.is_rgb = is_rgb
+        self.start_idx = start_idx
+        self.end_idx = end_idx
+        if self.start_idx is None:
+            self.start_idx = 0
+        if self.end_idx is None:
+            self.end_idx = self.video.shape[0]
+            
+    def total_len(self):
+        """Returns the total number of frames in the video."""
+        return self.end_idx - self.start_idx
+    
+    @classmethod
+    def from_filename(
+        cls,
+        filename: str,
+        frame_buffer: Queue, 
+        is_rgb: bool=False,
+        start_idx: Optional[int]=None, 
+        end_idx: Optional[int]=None
+    ):
+        """Create LabelsReader from a .slp filename."""
+        video = sio.load_video(filename)
+        return cls(video, frame_buffer, is_rgb, start_idx, end_idx)
+    
+    def run(self):
+        """Adds frames to the buffer queue."""
+        try:
+            for idx in range(self.start_idx, self.end_idx):
+                img = self.video[idx]
+                img = np.transpose(img, (2, 0, 1)) # convert H,W,C to C,H,W
+                img = np.expand_dims(img, axis=0)  # (1, C, H, W)
+
+                # convert to rgb
+                if self.is_rgb and img.shape[-3] != 3:
+                    img = np.concatenate([img, img, img], axis=-3)
+
+                # convert to grayscale
+                if not self.is_rgb and img.shape[-3] != 1:
+                    red, green, blue = img[:, 0], img[:, 1], img[:, 2]
+                    img = 0.2989 * red + 0.5870 * green + 0.1140 * blue
+
+                self.frame_buffer.put((torch.from_numpy(img), 
+                                       torch.tensor(idx, dtype=torch.int32), 
+                                       torch.Tensor(img.shape[-2:])))
+
+        except Exception as e:
+            print(f"Error when reading video frame. Stopping video reader.\n{e}")
+            
+        finally:
+            self.frame_buffer.put((None, None, None))

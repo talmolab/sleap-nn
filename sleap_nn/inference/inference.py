@@ -7,17 +7,16 @@ import torch
 import attrs
 import torch.nn as nn
 from pathlib import Path
+from queue import Queue
 from abc import ABC, abstractmethod
 from collections import defaultdict, Counter
 import lightning as L
 from torch.utils.data.dataloader import DataLoader
 from omegaconf.dictconfig import DictConfig
-from sleap_nn.data.providers import LabelsReader, get_max_instances
-from sleap_nn.data.pipelines import (
-    TopdownConfmapsPipeline,
-    SingleInstanceConfmapsPipeline,
-    CentroidConfmapsPipeline,
-)
+from sleap_nn.data.providers import LabelsReader, get_max_instances, VideoReader
+from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.instance_centroids import InstanceCentroidFinder
+from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
@@ -28,7 +27,6 @@ from sleap_nn.model_trainer import (
 )
 from time import time
 from omegaconf import OmegaConf
-
 
 class Predictor(ABC):
     """Base interface class for predictors."""
@@ -110,8 +108,9 @@ class Predictor(ABC):
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
         """Create a generator that yields batches of inference results.
 
-        This method handles creating a pipeline object depending on the model type
-        for loading the data, as well as looping over the batches and running inference.
+        This method handles creating a pipeline object depending on the model type and 
+        provider for loading the data, as well as looping over the batches and 
+        running inference.
 
         Returns:
             A generator yielding batches predicted results as dictionaries of numpy
@@ -137,8 +136,40 @@ class Predictor(ABC):
             return ex
 
         # Loop over data batches.
-        for ex in self.data_pipeline:
-            yield process_batch(ex)
+        if self.provider == "LabelsReader":
+            for ex in self.data_pipeline:
+                yield process_batch(ex)
+        elif self.provider == "VideoReader":
+            self.reader.start()
+            try:
+                done = False
+                while not done:
+                    imgs = []
+                    fidxs = []
+                    org_szs = []
+                    for i in range(self.batch_size):
+                        frame = self.reader.frame_buffer.get()
+                        if frame[0] is None:
+                            done = True
+                            break
+                        imgs.append(frame[0].unsqueeze(dim=0))
+                        fidxs.append(frame[1])
+                        org_szs.append(frame[2].unsqueeze(dim=0))
+                    if len(imgs):
+                        imgs = torch.concatenate(imgs, dim=0)
+                        fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                        org_szs = torch.concatenate(org_szs, dim=0)
+                        ex = {"image": imgs, "frame_idx": fidxs, 
+                            "video_idx": torch.tensor([0]*self.batch_size, dtype=torch.int32), "orig_size": org_szs}
+                        if not torch.is_floating_point(ex["image"]): # normalization
+                            ex["image"] = ex["image"].to(torch.float32) / 255.0
+
+                        yield process_batch(ex)
+            except Exception as e:
+                raise Exception(f"Error in VideoReader: {e}")
+            finally:
+                self.reader.join() 
+        
 
     def predict(
         self,
@@ -171,7 +202,6 @@ class Predictor(ABC):
         else:
             # Just return the raw results.
             return list(generator)
-
 
 class CentroidCrop(L.LightningModule):
     """Lightning Module for running inference for a centroid model.
@@ -358,7 +388,6 @@ class CentroidCrop(L.LightningModule):
             return crops_dict
         return inputs
 
-
 class FindInstancePeaksGroundTruth(L.LightningModule):
     """LightningModule that simulates a centered instance peaks model.
 
@@ -438,7 +467,6 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         peaks_output["pred_peak_values"] = peaks_vals  # .unsqueeze(dim=1)
 
         return peaks_output
-
 
 class FindInstancePeaks(L.LightningModule):
     """Lightning Module that predicts instance peaks from images using a trained model.
@@ -529,7 +557,6 @@ class FindInstancePeaks(L.LightningModule):
         inputs.update(outputs)
         return inputs
 
-
 class TopDownInferenceModel(L.LightningModule):
     """Top-down instance prediction model.
 
@@ -612,7 +639,6 @@ class TopDownInferenceModel(L.LightningModule):
                     peaks_output = self.instance_peaks(i)
         return peaks_output
 
-
 @attrs.define(auto_attribs=True)
 class TopDownPredictor(Predictor):
     """Top-down multi-instance predictor.
@@ -649,18 +675,15 @@ class TopDownPredictor(Predictor):
             self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
             if self.confmap_model:
                 return_crops = True
-            labels = sio.load_slp(
-                self.centroid_config.inference_config.data.labels_path
-            )
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
-                output_stride=self.centroid_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+                output_stride=self.centroid_config.inference_config.data.preprocessing.output_stride,
                 refinement=self.centroid_config.inference_config.integral_refinement,
                 integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
                 return_confmaps=self.centroid_config.inference_config.return_confmaps,
                 return_crops=return_crops,
-                max_instances=get_max_instances(labels),
+                max_instances=self.centroid_config.inference_config.data.max_instances,
                 crop_hw=tuple(
                     self.centroid_config.inference_config.data.preprocessing.crop_hw
                 ),
@@ -678,7 +701,7 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=self.confmap_config.inference_config.peak_threshold,
-                output_stride=self.confmap_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+                output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
                 refinement=self.confmap_config.inference_config.integral_refinement,
                 integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
                 return_confmaps=self.confmap_config.inference_config.return_confmaps,
@@ -751,51 +774,65 @@ class TopDownPredictor(Predictor):
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self) -> TopdownConfmapsPipeline:
+    def make_pipeline(self):
         """Make a data loading pipeline.
 
         Returns:
-            DataLoader with the pipeline created with `sleap_nn.pipelines.TopdownConfmapsPipeline`
+            Torch DataLoader if provider is LabelsReader. If provider is VideoReader,
+            this method initiates the reader class (doesn't return a pipeline)
+            and the Thread is started in Predictor._predict_generator() method.
 
         Notes:
-            This method also creates the class attribute `data_pipeline` and will be
-            called automatically when predicting on data from a new source.
+            This method creates the class attribute `data_pipeline` and will be
+            called automatically when predicting on data from a new source only when the
+            provider is LabelsReader.
         """
-        provider = self.data_config.provider
-        if provider == "LabelsReader":
+        self.provider = self.data_config.provider
+        if self.provider == "LabelsReader":
             provider = LabelsReader
+            data_provider = provider.from_filename(
+                self.data_config.path,
+                max_height=self.data_config.max_height,
+                max_width=self.data_config.max_width,
+                is_rgb=self.data_config.is_rgb,
+            )
+            self.videos = data_provider.labels.videos
 
-        # load slp file
-        labels = sio.load_slp(self.data_config.labels_path)
-        data_provider = provider(
-            labels,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
-            is_rgb=self.data_config.is_rgb,
-        )
+            pipeline = Normalizer(data_provider)
+            if not self.centroid_model:
+                pipeline = InstanceCentroidFinder(pipeline, 
+                                                  anchor_ind=self.data_config.preprocessing.anchor_ind,
+                                                  )
+                pipeline = InstanceCropper(pipeline, crop_hw=self.data_config.preprocessing.crop_hw)
 
-        self.videos = labels.videos
+            # Remove duplicates.
+            self.pipeline = pipeline.sharding_filter()
 
-        # create pipeline
-        if self.centroid_model:
-            self.pipeline = CentroidConfmapsPipeline(data_config=self.data_config)
-        else:
-            self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
+            self.data_pipeline = DataLoader(
+                self.pipeline,
+                **dict(self.data_config.data_loader),
+            )
 
-        self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=data_provider
-        )
-
-        # Remove duplicates.
-        self.pipeline = self.pipeline.sharding_filter()
-
-        self.data_pipeline = DataLoader(
-            self.pipeline,
-            **dict(self.data_config.data_loader),
-        )
-
-        return self.data_pipeline
-
+            return self.data_pipeline
+        
+        elif self.provider == "VideoReader":
+            provider = VideoReader
+            
+            frame_queue = Queue(maxsize=self.data_config.video_loader.queue_maxsize 
+                                if not None else 16)
+            self.batch_size = self.data_config.video_loader.batch_size
+            self.reader = provider.from_filename(filename=self.data_config.path, 
+                              frame_buffer=frame_queue,
+                              start_idx=self.data_config.video_loader.start_idx,
+                              end_idx=self.data_config.video_loader.end_idx,
+                              is_rgb=self.data_config.is_rgb)
+            self.videos = [self.reader.video]
+            if self.centroid_config is None:
+                raise ValueError(
+                        "Ground truth data was not detected... "
+                        "Please load both models when predicting on non-ground-truth data."
+                    )
+        
     def _make_labeled_frames_from_generator(
         self,
         generator: Iterator[Dict[str, np.ndarray]],
@@ -902,7 +939,6 @@ class TopDownPredictor(Predictor):
         )
         return pred_labels
 
-
 class SingleInstanceInferenceModel(L.LightningModule):
     """Single instance prediction model.
 
@@ -984,7 +1020,6 @@ class SingleInstanceInferenceModel(L.LightningModule):
         inputs.update(outputs)
         return inputs
 
-
 @attrs.define
 class SingleInstancePredictor(Predictor):
     """Single-Instance predictor.
@@ -1010,7 +1045,7 @@ class SingleInstancePredictor(Predictor):
         self.inference_model = SingleInstanceInferenceModel(
             torch_model=self.confmap_model,
             peak_threshold=self.confmap_config.inference_config.peak_threshold,
-            output_stride=self.confmap_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+            output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
             refinement=self.confmap_config.inference_config.integral_refinement,
             integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
             return_confmaps=self.confmap_config.inference_config.return_confmaps,
@@ -1051,43 +1086,55 @@ class SingleInstancePredictor(Predictor):
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self) -> SingleInstanceConfmapsPipeline:
+    def make_pipeline(self):
         """Make a data loading pipeline.
 
         Returns:
-            DataLoader with the pipeline created with `sleap_nn.pipelines.SingleInstanceConfmapsPipeline`
+            Torch DataLoader if provider is LabelsReader. If provider is VideoReader,
+            this method initiates the reader class (doesn't return a pipeline)
+            and the Thread is started in Predictor._predict_generator() method.
 
         Notes:
-            This method also creates the class attribute `data_pipeline` and will be
-            called automatically when predicting on data from a new source.
+            This method creates the class attribute `data_pipeline` and will be
+            called automatically when predicting on data from a new source only when the
+            provider is LabelsReader.
         """
-        self.pipeline = SingleInstanceConfmapsPipeline(data_config=self.data_config)
-
-        provider = self.data_config.provider
-        if provider == "LabelsReader":
+        self.provider = self.data_config.provider
+        if self.provider == "LabelsReader":
             provider = LabelsReader
+            data_provider = provider.from_filename(
+                self.data_config.path,
+                max_height=self.data_config.max_height,
+                max_width=self.data_config.max_width,
+                is_rgb=self.data_config.is_rgb,
+            )
+            self.videos = data_provider.labels.videos
 
-        labels = sio.load_slp(self.data_config.labels_path)
-        self.videos = labels.videos
-        provider_pipeline = provider(
-            labels,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
-            is_rgb=self.data_config.is_rgb,
-        )
-        self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=provider_pipeline
-        )
+            pipeline = Normalizer(data_provider)
 
-        # Remove duplicates.
-        self.pipeline = self.pipeline.sharding_filter()
+            # Remove duplicates.
+            self.pipeline = pipeline.sharding_filter()
 
-        self.data_pipeline = DataLoader(
-            self.pipeline,
-            **dict(self.data_config.data_loader),
-        )
+            self.data_pipeline = DataLoader(
+                self.pipeline,
+                **dict(self.data_config.data_loader),
+            )
 
-        return self.data_pipeline
+            return self.data_pipeline
+        
+        elif self.provider == "VideoReader":
+            provider = VideoReader
+            
+            frame_queue = Queue(maxsize=self.data_config.video_loader.queue_maxsize 
+                                if not None else 8)
+            self.batch_size = self.data_config.video_loader.batch_size
+            self.reader = provider.from_filename(filename=self.data_config.path, 
+                              frame_buffer=frame_queue,
+                              start_idx=self.data_config.video_loader.start_idx,
+                              end_idx=self.data_config.video_loader.end_idx,
+                              is_rgb=self.data_config.is_rgb)
+            self.videos = [self.reader.video]
+            
 
     def _make_labeled_frames_from_generator(
         self,
