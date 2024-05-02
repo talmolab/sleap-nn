@@ -39,7 +39,6 @@ class TopdownConfmapsPipeline:
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
-
         datapipe = data_provider
         datapipe = SizeMatcher(
             datapipe,

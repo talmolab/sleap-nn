@@ -117,7 +117,10 @@ def test_topdown_predictor(
     pred_labels = predictor.predict(make_labels=False)
     assert predictor.confmap_config is None
     assert len(pred_labels) == 1
-    assert len(pred_labels[0]["centroids"].squeeze()) == 2
+    assert (
+        len(pred_labels[0]["centroids"].squeeze())
+        == config.inference_config.data.max_instances
+    )
 
 
 def test_topdown_inference_model(config, minimal_instance, minimal_instance_ckpt):

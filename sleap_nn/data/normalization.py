@@ -35,9 +35,7 @@ class Normalizer(IterDataPipe):
 
             # convert to rgb
             if self.is_rgb and image.shape[-3] != 3:
-                image = F.to_grayscale(image, num_output_channels=3)
-
-                image = torch.concatenate([image, image, image], dim=-3)
+                image = image.repeat(1, 3, 1, 1)
 
             # convert to grayscale
             if not self.is_rgb and image.shape[-3] != 1:

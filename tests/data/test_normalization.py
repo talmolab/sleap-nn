@@ -5,6 +5,7 @@ from sleap_nn.data.providers import LabelsReader
 
 
 def test_normalizer(minimal_instance):
+    """Test Normalizer module."""
     p = LabelsReader.from_filename(minimal_instance)
     p = Normalizer(p)
 

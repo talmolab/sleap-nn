@@ -8,9 +8,8 @@ import sleap_io as sio
 import pytest
 
 
-def test_providers(minimal_instance):
+def test_resizer(minimal_instance):
     """Test SizeMatcher module."""
-
     l = LabelsReader.from_filename(minimal_instance)
     pipe = SizeMatcher(l, max_height=500, max_width=400)
     sample = next(iter(pipe))

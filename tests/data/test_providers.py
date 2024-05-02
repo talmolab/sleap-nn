@@ -8,6 +8,7 @@ import pytest
 
 
 def test_providers(minimal_instance):
+    """Test LabelsReader module."""
     l = LabelsReader.from_filename(minimal_instance)
     sample = next(iter(l))
     instances, image = sample["instances"], sample["image"]

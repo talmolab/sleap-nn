@@ -33,8 +33,7 @@ class SizeMatcher(IterDataPipe):
         self.max_height = max_height
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
-        """Return an example dictionary with the resized image and `orig_size` key to
-        represent the original shape of the source image."""
+        """Return an example dictionary with the resized image and `orig_size` key to represent the original shape of the source image."""
         for ex in self.source_datapipe:
             img_height, img_width = ex["image"].shape[-2:]
             # pad images to max_height and max_width
