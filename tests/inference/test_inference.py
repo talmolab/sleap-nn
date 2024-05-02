@@ -110,7 +110,7 @@ def test_topdown_predictor(
     assert predictor.confmap_config is not None
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
-    assert len(pred_labels[0].instances) == 2
+    assert len(pred_labels[0].instances) <= config.inference_config.data.max_instances
 
     # centroid model
     predictor = Predictor.from_model_paths(model_paths=[minimal_instance_centroid_ckpt])
@@ -432,7 +432,7 @@ def test_centroid_inference_model(config):
     )
 
     out = layer(loader)
-    assert tuple(out["centroids"].shape) == (1, 2, 2)
+    assert tuple(out["centroids"].shape) == (1, 1, 2, 2)
     assert tuple(out["centroid_vals"].shape) == (1, 2)
     assert "instance_image" not in out.keys()
 

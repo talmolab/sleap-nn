@@ -7,6 +7,7 @@ from sleap_nn.data.general import KeyFilter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import SizeMatcher
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
@@ -18,6 +19,7 @@ from sleap_nn.data.providers import LabelsReader
 def test_key_filter(minimal_instance):
     """Test KeyFilter module."""
     datapipe = LabelsReader.from_filename(filename=minimal_instance)
+    datapipe = SizeMatcher(datapipe)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (160, 160))
@@ -60,6 +62,9 @@ def test_key_filter(minimal_instance):
 def test_topdownconfmapspipeline(minimal_instance):
     base_topdown_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
@@ -124,6 +129,9 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     base_topdown_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
@@ -197,6 +205,9 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -256,6 +267,9 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -319,6 +333,9 @@ def test_centroidconfmapspipeline(minimal_instance):
     """Test CentroidConfmapsPipeline class."""
     base_centroid_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2, "centroids": True},
@@ -381,6 +398,9 @@ def test_centroidconfmapspipeline(minimal_instance):
 
     base_centroid_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2, "centroids": True},

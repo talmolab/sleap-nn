@@ -1,12 +1,11 @@
 data_config:
   provider: LabelsReader
-  max_instances: 6
-  max_width: null
-  max_height: null
-  is_rgb: false
   pipeline: CentroidConfmaps
   train:
     labels_path: minimal_instance.pkg.slp
+    max_width: null
+    max_height: null
+    is_rgb: false
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -55,6 +54,9 @@ data_config:
           mixup_p: 0
   val:
     labels_path: minimal_instance.pkg.slp
+    max_width: null
+    max_height: null
+    is_rgb: false
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -191,7 +193,7 @@ inference_config:
   device: cpu
   data:
     labels_path: ./tests/assets/minimal_instance.pkg.slp
-    max_instances: 6
+    max_instances: 10
     max_width: null
     max_height: null
     is_rgb: false

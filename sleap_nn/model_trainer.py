@@ -108,12 +108,7 @@ class ModelTrainer:
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
         self.skeletons = train_labels.skeletons
 
-        train_labels_reader = self.provider(
-            train_labels,
-            max_height=self.config.data_config.max_height,
-            max_width=self.config.data_config.max_width,
-            is_rgb=self.config.data_config.is_rgb,
-        )
+        train_labels_reader = self.provider(train_labels)
 
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
@@ -129,11 +124,8 @@ class ModelTrainer:
         )
 
         # val
-        val_labels_reader = self.provider(
-            sio.load_slp(self.config.data_config.val.labels_path),
-            max_height=self.config.data_config.max_height,
-            max_width=self.config.data_config.max_width,
-            is_rgb=self.config.data_config.is_rgb,
+        val_labels_reader = self.provider.from_filename(
+            self.config.data_config.val.labels_path,
         )
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,

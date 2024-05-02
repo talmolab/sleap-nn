@@ -9,6 +9,7 @@ from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import SizeMatcher
 from sleap_nn.data.confidence_maps import (
     ConfidenceMapGenerator,
     MultiConfidenceMapGenerator,
@@ -38,8 +39,14 @@ class TopdownConfmapsPipeline:
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
+
         datapipe = data_provider
-        datapipe = Normalizer(datapipe)
+        datapipe = SizeMatcher(
+            datapipe,
+            max_height=self.data_config.max_height,
+            max_width=self.data_config.max_width,
+        )
+        datapipe = Normalizer(datapipe, self.data_config.is_rgb)
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -120,7 +127,12 @@ class SingleInstanceConfmapsPipeline:
             An `IterDataPipe` instance configured to produce input examples.
         """
         datapipe = data_provider
-        datapipe = Normalizer(datapipe)
+        datapipe = SizeMatcher(
+            datapipe,
+            max_height=self.data_config.max_height,
+            max_width=self.data_config.max_width,
+        )
+        datapipe = Normalizer(datapipe, self.data_config.is_rgb)
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -184,7 +196,12 @@ class CentroidConfmapsPipeline:
             An `IterDataPipe` instance configured to produce input examples.
         """
         datapipe = data_provider
-        datapipe = Normalizer(datapipe)
+        datapipe = SizeMatcher(
+            datapipe,
+            max_height=self.data_config.max_height,
+            max_width=self.data_config.max_width,
+        )
+        datapipe = Normalizer(datapipe, self.data_config.is_rgb)
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(

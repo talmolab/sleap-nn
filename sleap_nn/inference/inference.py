@@ -312,7 +312,7 @@ class CentroidCrop(L.LightningModule):
         refined_peaks = refined_peaks * self.output_stride  # (n_centroids, 2)
         batch, channels, height, width = cms.shape
 
-        batch_indxs = Counter(peak_sample_inds.detach().cpu().numpy().tolist())
+        batch_indxs = torch.bincount(peak_sample_inds.detach())
 
         self.refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
         self.peak_vals_with_nans = torch.zeros((batch, self.max_instances))
@@ -345,14 +345,14 @@ class CentroidCrop(L.LightningModule):
 
         # Build outputs.
         outputs = {
-            "centroids": self.refined_peaks_with_nans,
+            "centroids": self.refined_peaks_with_nans.unsqueeze(dim=1),
             "centroid_vals": self.peak_vals_with_nans,
         }
         if self.return_confmaps:
             outputs["pred_centroid_confmaps"] = cms.detach()
         inputs.update(outputs)
 
-        # Generate crops if return_crops is True to pass the crops to CenteredInstance model.
+        # Generate crops if return_crops=True to pass the crops to CenteredInstance model.
         if self.return_crops:
             crops_dict = self._generate_crops(inputs)
             return crops_dict
@@ -375,7 +375,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
         """Return the ground truth instance peaks given a set of crops."""
         # num_inst = batch["num_instances"]
-        b, _, max_inst, nodes, _ = batch["instances"].shape
+        b, _, max_inst, nodes = batch["centroids"].shape
         inst = (
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
@@ -400,11 +400,11 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         valid_matches = matches[subs[:, 0], 0, subs[:, 2]]
         matched_batch_inds = subs[:, 0]
 
-        counts = Counter(matched_batch_inds.detach().cpu().numpy().tolist())
+        counts = torch.bincount(matched_batch_inds.detach())
         peaks_list = batch["instances"][matched_batch_inds, 0, valid_matches, :, :]
         parsed = 0
         for i in range(b):
-            if i not in counts.keys():
+            if i not in matched_batch_inds:
                 batch_peaks = torch.full((max_inst, nodes, 2), torch.nan).unsqueeze(
                     dim=0
                 )
@@ -434,8 +434,8 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 peaks_vals = vals
 
         peaks_output = batch.copy()
-        peaks_output["pred_instance_peaks"] = peaks  # .unsqueeze(dim=1)
-        peaks_output["pred_peak_values"] = peaks_vals  # .unsqueeze(dim=1)
+        peaks_output["pred_instance_peaks"] = peaks
+        peaks_output["pred_peak_values"] = peaks_vals
 
         return peaks_output
 
@@ -649,9 +649,6 @@ class TopDownPredictor(Predictor):
             self.model_config["skeletons"] = self.centroid_config.data_config.skeletons
             if self.confmap_model:
                 return_crops = True
-            labels = sio.load_slp(
-                self.centroid_config.inference_config.data.labels_path
-            )
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
@@ -660,7 +657,7 @@ class TopDownPredictor(Predictor):
                 integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
                 return_confmaps=self.centroid_config.inference_config.return_confmaps,
                 return_crops=return_crops,
-                max_instances=get_max_instances(labels),
+                max_instances=self.centroid_config.inference_config.data.max_instances,
                 crop_hw=tuple(
                     self.centroid_config.inference_config.data.preprocessing.crop_hw
                 ),
@@ -766,15 +763,9 @@ class TopDownPredictor(Predictor):
             provider = LabelsReader
 
         # load slp file
-        labels = sio.load_slp(self.data_config.labels_path)
-        data_provider = provider(
-            labels,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
-            is_rgb=self.data_config.is_rgb,
-        )
+        data_provider = provider.from_filename(self.data_config.labels_path)
 
-        self.videos = labels.videos
+        self.videos = data_provider.labels.videos
 
         # create pipeline
         if self.centroid_model:
@@ -1067,14 +1058,8 @@ class SingleInstancePredictor(Predictor):
         if provider == "LabelsReader":
             provider = LabelsReader
 
-        labels = sio.load_slp(self.data_config.labels_path)
-        self.videos = labels.videos
-        provider_pipeline = provider(
-            labels,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
-            is_rgb=self.data_config.is_rgb,
-        )
+        provider_pipeline = provider.from_filename(self.data_config.labels_path)
+        self.videos = provider_pipeline.labels.videos
         self.pipeline = self.pipeline.make_training_pipeline(
             data_provider=provider_pipeline
         )

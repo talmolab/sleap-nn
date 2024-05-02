@@ -37,12 +37,12 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "max_width": None,
-                "max_height": None,
-                "is_rgb": False,
                 "pipeline": "TopdownConfmaps",
                 "train": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                    "is_rgb": False,
+                    "max_width": None,
+                    "max_height": None,
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": [160, 160],
@@ -82,6 +82,9 @@ def config(sleap_data_dir):
                 },
                 "val": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                    "is_rgb": False,
+                    "max_width": None,
+                    "max_height": None,
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": [160, 160],
@@ -217,6 +220,7 @@ def config(sleap_data_dir):
                     "max_width": None,
                     "max_height": None,
                     "is_rgb": False,
+                    "max_instances": 10,
                     "provider": "LabelsReader",
                     "data_loader": {
                         "batch_size": 4,

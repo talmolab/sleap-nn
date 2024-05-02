@@ -3,6 +3,7 @@ import torch
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper, make_centered_bboxes
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import SizeMatcher
 from sleap_nn.data.providers import LabelsReader
 
 
@@ -24,8 +25,9 @@ def test_make_centered_bboxes():
 
 def test_instance_cropper(minimal_instance):
     datapipe = LabelsReader.from_filename(minimal_instance)
-    datapipe = InstanceCentroidFinder(datapipe)
+    datapipe = SizeMatcher(datapipe)
     datapipe = Normalizer(datapipe)
+    datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (100, 100))
     sample = next(iter(datapipe))
 
