@@ -126,6 +126,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         assert gt_key == key
     assert sample["instance_image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert False
 
     base_topdown_data_config = OmegaConf.create(
         {

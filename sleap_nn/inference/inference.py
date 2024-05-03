@@ -6,18 +6,18 @@ from typing import Any, Dict, List, Optional, Union, Iterator, Text
 import torch
 import attrs
 import torch.nn as nn
+from queue import Queue
 from pathlib import Path
 from abc import ABC, abstractmethod
 from collections import defaultdict, Counter
 import lightning as L
 from torch.utils.data.dataloader import DataLoader
 from omegaconf.dictconfig import DictConfig
-from sleap_nn.data.providers import LabelsReader, get_max_instances
-from sleap_nn.data.pipelines import (
-    TopdownConfmapsPipeline,
-    SingleInstanceConfmapsPipeline,
-    CentroidConfmapsPipeline,
-)
+from sleap_nn.data.providers import LabelsReader, VideoReader
+from sleap_nn.data.resizing import SizeMatcher
+from sleap_nn.data.normalization import Normalizer, convert_to_grayscale, convert_to_rgb
+from sleap_nn.data.instance_centroids import InstanceCentroidFinder
+from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
@@ -110,8 +110,9 @@ class Predictor(ABC):
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
         """Create a generator that yields batches of inference results.
 
-        This method handles creating a pipeline object depending on the model type
-        for loading the data, as well as looping over the batches and running inference.
+        This method handles creating a pipeline object depending on the model type and
+        provider for loading the data, as well as looping over the batches and
+        running inference.
 
         Returns:
             A generator yielding batches predicted results as dictionaries of numpy
@@ -122,23 +123,60 @@ class Predictor(ABC):
         if self.inference_model is None:
             self._initialize_inference_model()
 
-        def process_batch(ex):
-            # Run inference on current batch.
-            preds = self.inference_model(ex)
-
-            # Add model outputs to the input data example.
-            ex.update(preds)
-
-            # Convert to numpy arrays if not already.
-            for k, v in ex.items():
-                if isinstance(v, torch.Tensor):
-                    ex[k] = ex[k].cpu().numpy()
-
-            return ex
-
         # Loop over data batches.
-        for ex in self.data_pipeline:
-            yield process_batch(ex)
+        if self.provider == "LabelsReader":
+            for ex in self.data_pipeline:
+                outputs_list = self.inference_model(ex)
+                for output in outputs_list:
+                    for k, v in output.items():
+                        if isinstance(v, torch.Tensor):
+                            output[k] = output[k].cpu().numpy()
+                    yield output
+        elif self.provider == "VideoReader":
+            self.reader.start()
+            try:
+                done = False
+                while not done:
+                    imgs = []
+                    fidxs = []
+                    org_szs = []
+                    for i in range(self.batch_size):
+                        frame = self.reader.frame_buffer.get()
+                        if frame[0] is None:
+                            done = True
+                            break
+                        imgs.append(frame[0].unsqueeze(dim=0))
+                        fidxs.append(frame[1])
+                        org_szs.append(frame[2].unsqueeze(dim=0))
+                    if len(imgs):
+                        imgs = torch.concatenate(imgs, dim=0)
+                        fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                        org_szs = torch.concatenate(org_szs, dim=0)
+                        ex = {
+                            "image": imgs,
+                            "frame_idx": fidxs,
+                            "video_idx": torch.tensor(
+                                [0] * self.batch_size, dtype=torch.int32
+                            ),
+                            "orig_size": org_szs,
+                        }
+                        if not torch.is_floating_point(ex["image"]):  # normalization
+                            ex["image"] = ex["image"].to(torch.float32) / 255.0
+                        if self.is_rgb:
+                            ex["image"] = convert_to_rgb(ex["image"])
+                        else:
+                            ex["image"] = convert_to_grayscale(ex["image"])
+                        outputs_list = self.inference_model(ex)
+                        for output in outputs_list:
+                            for k, v in output.items():
+                                if isinstance(v, torch.Tensor):
+                                    output[k] = output[k].cpu().numpy()
+                            yield output
+
+            except Exception as e:
+                raise Exception(f"Error in VideoReader: {e}")
+            finally:
+                self.reader.join()
 
     def predict(
         self,
@@ -313,7 +351,6 @@ class CentroidCrop(L.LightningModule):
         batch, channels, height, width = cms.shape
 
         batch_indxs = torch.bincount(peak_sample_inds.detach())
-
         self.refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
         self.peak_vals_with_nans = torch.zeros((batch, self.max_instances))
 
@@ -564,13 +601,13 @@ class TopDownInferenceModel(L.LightningModule):
         """Predict instances for one batch of images.
 
         Args:
-            batch: This is a dictionary containing the image batch in the `"image"` key. If using a ground
-                truth model for centroid cropping, the full
-                example from a `TopDownConfMapsPipeline` is required for providing the metadata.
+            batch: This is a dictionary containing the image batch in the `image` key.
+                   If centroid model is not provided, the dictionary should have
+                   `instance_image` key.
 
         Returns:
-            The predicted instances as a dictionary of tensors with the entries in example
-            along with the below keys:
+            The predicted instances as a list of dictionaries of tensors with the
+            entries in example along with the below keys:
 
             `"centroids": (batch_size, 1, 2)`: Instance centroids.
             `"centroid_val": (batch_size, 1)`: Instance centroid confidence
@@ -581,11 +618,12 @@ class TopDownInferenceModel(L.LightningModule):
                 values for the instance skeleton points.
         """
         batch_size = batch["image"].shape[0]
+        peaks_output = []
         if self.centroid_crop is None:
             batch["centroid_val"] = torch.ones(batch_size)
             if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
                 if "instances" in batch:
-                    peaks_output = self.instance_peaks(batch)
+                    peaks_output.append(self.instance_peaks(batch))
                 else:
                     raise ValueError(
                         "Ground truth data was not detected... "
@@ -593,23 +631,23 @@ class TopDownInferenceModel(L.LightningModule):
                     )
             else:
                 self.instance_peaks.eval()
-                peaks_output = self.instance_peaks(batch)
+                peaks_output.append(self.instance_peaks(batch))
 
         else:
             self.centroid_crop.eval()
             batch = self.centroid_crop(batch)
-            for i in batch:
-                if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-                    if "instances" in batch:
-                        peaks_output = self.instance_peaks(batch)
-                    else:
-                        raise ValueError(
-                            "Ground truth data was not detected... "
-                            "Please load both models when predicting on non-ground-truth data."
-                        )
+            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+                if "instances" in batch:
+                    peaks_output.append(self.instance_peaks(batch))
                 else:
+                    raise ValueError(
+                        "Ground truth data was not detected... "
+                        "Please load both models when predicting on non-ground-truth data."
+                    )
+            else:
+                for i in batch:
                     self.instance_peaks.eval()
-                    peaks_output = self.instance_peaks(i)
+                    peaks_output.append(self.instance_peaks(i))
         return peaks_output
 
 
@@ -618,13 +656,15 @@ class TopDownPredictor(Predictor):
     """Top-down multi-instance predictor.
 
     This high-level class handles initialization, preprocessing and predicting using a
-    trained TopDown SLEAP-NN model. This should be initialized using the `from_trained_models()`
-    constructor.
+    trained TopDown SLEAP-NN model. This should be initialized using the
+    `from_trained_models()` constructor.
 
     Attributes:
         centroid_config: A Dictionary with the configs used for training the centroid model.
-        confmap_config: A Dictionary with the configs used for training the centered-instance model
-        centroid_model: A LightningModule instance created from the trained weights for centroid model.
+        confmap_config: A Dictionary with the configs used for training the
+                        centered-instance model
+        centroid_model: A LightningModule instance created from the trained weights
+                        for centroid model.
         confmap_model: A LightningModule instance created from the trained weights
                        for centered-instance model.
 
@@ -652,7 +692,7 @@ class TopDownPredictor(Predictor):
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
-                output_stride=self.centroid_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+                output_stride=self.centroid_config.inference_config.data.preprocessing.output_stride,
                 refinement=self.centroid_config.inference_config.integral_refinement,
                 integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
                 return_confmaps=self.centroid_config.inference_config.return_confmaps,
@@ -675,7 +715,7 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=self.confmap_config.inference_config.peak_threshold,
-                output_stride=self.confmap_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+                output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
                 refinement=self.confmap_config.inference_config.integral_refinement,
                 integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
                 return_confmaps=self.confmap_config.inference_config.return_confmaps,
@@ -748,44 +788,77 @@ class TopDownPredictor(Predictor):
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self) -> TopdownConfmapsPipeline:
+    def make_pipeline(self):
         """Make a data loading pipeline.
 
         Returns:
-            DataLoader with the pipeline created with `sleap_nn.pipelines.TopdownConfmapsPipeline`
+            Torch DataLoader where each item is a dictionary with key `image` if provider
+            is LabelsReader. If provider is VideoReader, this method initiates the reader
+            class (doesn't return a pipeline) and the Thread is started in
+            Predictor._predict_generator() method.
 
         Notes:
-            This method also creates the class attribute `data_pipeline` and will be
-            called automatically when predicting on data from a new source.
+            This method creates the class attribute `data_pipeline` and will be
+            called automatically when predicting on data from a new source only when the
+            provider is LabelsReader.
         """
-        provider = self.data_config.provider
-        if provider == "LabelsReader":
+        self.provider = self.data_config.provider
+        if self.provider == "LabelsReader":
             provider = LabelsReader
+            data_provider = provider.from_filename(
+                self.data_config.path,
+            )
+            self.videos = data_provider.labels.videos
+            pipeline = SizeMatcher(
+                data_provider,
+                max_height=self.data_config.max_height,
+                max_width=self.data_config.max_width,
+            )
+            pipeline = Normalizer(pipeline, is_rgb=self.data_config.is_rgb)
+            if not self.centroid_model:
+                pipeline = InstanceCentroidFinder(
+                    pipeline,
+                    anchor_ind=self.data_config.preprocessing.anchor_ind,
+                )
+                pipeline = InstanceCropper(
+                    pipeline, crop_hw=self.data_config.preprocessing.crop_hw
+                )
 
-        # load slp file
-        data_provider = provider.from_filename(self.data_config.labels_path)
+            # Remove duplicates.
+            self.pipeline = pipeline.sharding_filter()
 
-        self.videos = data_provider.labels.videos
+            self.data_pipeline = DataLoader(
+                self.pipeline,
+                **dict(self.data_config.data_loader),
+            )
 
-        # create pipeline
-        if self.centroid_model:
-            self.pipeline = CentroidConfmapsPipeline(data_config=self.data_config)
+            return self.data_pipeline
+
+        elif self.provider == "VideoReader":
+            provider = VideoReader
+
+            frame_queue = Queue(
+                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+            )
+            self.batch_size = self.data_config.video_loader.batch_size
+            self.reader = provider.from_filename(
+                filename=self.data_config.path,
+                frame_buffer=frame_queue,
+                start_idx=self.data_config.video_loader.start_idx,
+                end_idx=self.data_config.video_loader.end_idx,
+            )
+            self.videos = [self.reader.video]
+            self.is_rgb = self.data_config.is_rgb
+            if self.centroid_config is None:
+                raise ValueError(
+                    "Ground truth data was not detected... "
+                    "Please load both models when predicting on non-ground-truth data."
+                )
+
         else:
-            self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
-
-        self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=data_provider
-        )
-
-        # Remove duplicates.
-        self.pipeline = self.pipeline.sharding_filter()
-
-        self.data_pipeline = DataLoader(
-            self.pipeline,
-            **dict(self.data_config.data_loader),
-        )
-
-        return self.data_pipeline
+            raise Exception(
+                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
+            )
 
     def _make_labeled_frames_from_generator(
         self,
@@ -874,7 +947,6 @@ class TopDownPredictor(Predictor):
                         instance_score=instance_score,
                     )
                 )
-
         for key, inst in preds.items():
             # Create list of LabeledFrames.
             video_idx, frame_idx = key
@@ -973,7 +1045,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         if self.return_confmaps:
             outputs["pred_confmaps"] = cms.detach()
         inputs.update(outputs)
-        return inputs
+        return [inputs]
 
 
 @attrs.define
@@ -1001,7 +1073,7 @@ class SingleInstancePredictor(Predictor):
         self.inference_model = SingleInstanceInferenceModel(
             torch_model=self.confmap_model,
             peak_threshold=self.confmap_config.inference_config.peak_threshold,
-            output_stride=self.confmap_config.inference_config.data.preprocessing.conf_map_gen.output_stride,
+            output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
             refinement=self.confmap_config.inference_config.integral_refinement,
             integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
             return_confmaps=self.confmap_config.inference_config.return_confmaps,
@@ -1042,37 +1114,64 @@ class SingleInstancePredictor(Predictor):
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self) -> SingleInstanceConfmapsPipeline:
+    def make_pipeline(self):
         """Make a data loading pipeline.
 
         Returns:
-            DataLoader with the pipeline created with `sleap_nn.pipelines.SingleInstanceConfmapsPipeline`
+            Torch DataLoader where each item is a dictionary with key `image` if provider
+            is LabelsReader. If provider is VideoReader, this method initiates the reader
+            class (doesn't return a pipeline) and the Thread is started in
+            Predictor._predict_generator() method.
 
         Notes:
-            This method also creates the class attribute `data_pipeline` and will be
-            called automatically when predicting on data from a new source.
+            This method creates the class attribute `data_pipeline` and will be
+            called automatically when predicting on data from a new source only when the
+            provider is LabelsReader.
         """
-        self.pipeline = SingleInstanceConfmapsPipeline(data_config=self.data_config)
-
-        provider = self.data_config.provider
-        if provider == "LabelsReader":
+        self.provider = self.data_config.provider
+        if self.provider == "LabelsReader":
             provider = LabelsReader
+            data_provider = provider.from_filename(
+                self.data_config.path,
+            )
+            self.videos = data_provider.labels.videos
+            pipeline = SizeMatcher(
+                data_provider,
+                max_height=self.data_config.max_height,
+                max_width=self.data_config.max_width,
+            )
+            pipeline = Normalizer(pipeline, is_rgb=self.data_config.is_rgb)
 
-        provider_pipeline = provider.from_filename(self.data_config.labels_path)
-        self.videos = provider_pipeline.labels.videos
-        self.pipeline = self.pipeline.make_training_pipeline(
-            data_provider=provider_pipeline
-        )
+            # Remove duplicates.
+            self.pipeline = pipeline.sharding_filter()
 
-        # Remove duplicates.
-        self.pipeline = self.pipeline.sharding_filter()
+            self.data_pipeline = DataLoader(
+                self.pipeline,
+                **dict(self.data_config.data_loader),
+            )
 
-        self.data_pipeline = DataLoader(
-            self.pipeline,
-            **dict(self.data_config.data_loader),
-        )
+            return self.data_pipeline
 
-        return self.data_pipeline
+        elif self.provider == "VideoReader":
+            provider = VideoReader
+
+            frame_queue = Queue(
+                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+            )
+            self.batch_size = self.data_config.video_loader.batch_size
+            self.reader = provider.from_filename(
+                filename=self.data_config.path,
+                frame_buffer=frame_queue,
+                start_idx=self.data_config.video_loader.start_idx,
+                end_idx=self.data_config.video_loader.end_idx,
+            )
+            self.videos = [self.reader.video]
+            self.is_rgb = self.data_config.is_rgb
+
+        else:
+            raise Exception(
+                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
+            )
 
     def _make_labeled_frames_from_generator(
         self,

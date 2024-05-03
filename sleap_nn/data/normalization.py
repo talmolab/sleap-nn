@@ -7,6 +7,36 @@ from torch.utils.data.datapipes.datapipe import IterDataPipe
 import torchvision.transforms.v2.functional as F
 
 
+def convert_to_grayscale(image: torch.Tensor):
+    """Convert given image to Grayscale image (single-channel) if input image is not
+    single-channeled.
+
+    Args:
+        image: Tensor image of shape (..., 3, H, W)
+
+    Returns:
+        Tensor image of shape (..., 1, H, W).
+    """
+    if image.shape[-3] != 1:
+        image = F.rgb_to_grayscale(image, num_output_channels=1)
+    return image
+
+
+def convert_to_rgb(image: torch.Tensor):
+    """Convert given image to RGB image (three-channel image) if input image doesn't have
+    three channels.
+
+    Args:
+        image: Tensor image of shape (..., 3, H, W)
+
+    Returns:
+        Tensor image of shape (..., 1, H, W).
+    """
+    if image.shape[-3] != 3:
+        image = image.repeat(1, 3, 1, 1)
+    return image
+
+
 class Normalizer(IterDataPipe):
     """IterDataPipe for applying normalization.
 
@@ -39,12 +69,12 @@ class Normalizer(IterDataPipe):
                 image = image.to(torch.float32) / 255.0
 
             # convert to rgb
-            if self.is_rgb and image.shape[-3] != 3:
-                image = image.repeat(1, 3, 1, 1)
+            if self.is_rgb:
+                image = convert_to_rgb(image)
 
             # convert to grayscale
-            if not self.is_rgb and image.shape[-3] != 1:
-                image = F.rgb_to_grayscale(image, num_output_channels=1)
+            if not self.is_rgb:
+                image = convert_to_grayscale(image)
 
             ex["image"] = image
 

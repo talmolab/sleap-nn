@@ -192,7 +192,7 @@ trainer_config:
 inference_config:
   device: cpu
   data:
-    labels_path: ./tests/assets/minimal_instance.pkg.slp
+    path: ./tests/assets/minimal_instance.pkg.slp
     max_instances: 10
     max_width: null
     max_height: null
@@ -204,53 +204,18 @@ inference_config:
       num_workers: 2
       pin_memory: true
       drop_last: false
+    video_loader:
+      batch_size: 4
+      queue_maxsize: 16
+      start_idx: 0
+      end_idx: 40
     preprocessing:
       anchor_ind: 0
       crop_hw:
       - 160
       - 160
-      conf_map_gen:
-        sigma: 1.5
-        output_stride: 2
-    augmentation_config:
-      random_crop:
-        random_crop_p: 0
-        random_crop_hw:
-        - 160
-        - 160
-      use_augmentations: false
-      augmentations:
-        intensity:
-          uniform_noise:
-          - 0.0
-          - 0.04
-          uniform_noise_p: 0
-          gaussian_noise_mean: 0.02
-          gaussian_noise_std: 0.004
-          gaussian_noise_p: 0
-          contrast:
-          - 0.5
-          - 2.0
-          contrast_p: 0
-          brightness: 0.0
-          brightness_p: 0
-        geometric:
-          rotation: 180.0
-          scale: 0
-          translate:
-          - 0
-          - 0
-          affine_p: 0.5
-          erase_scale:
-          - 0.0001
-          - 0.01
-          erase_ratio:
-          - 1
-          - 1
-          erase_p: 0
-          mixup_lambda: null
-          mixup_p: 0
-  peak_threshold: 0.0
+      output_stride: 2
+  peak_threshold: 0.1
   integral_refinement: integral
   integral_patch_size: 5
   return_confmaps: false

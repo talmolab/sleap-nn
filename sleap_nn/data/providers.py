@@ -4,6 +4,8 @@ from typing import Dict, Iterator, Optional
 
 import numpy as np
 import sleap_io as sio
+from queue import Queue
+from threading import Thread
 import torch
 import copy
 from torch.utils.data.datapipes.datapipe import IterDataPipe
@@ -110,3 +112,77 @@ class LabelsReader(IterDataPipe):
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                 "num_instances": num_instances,
             }
+
+
+class VideoReader(Thread):
+    """Thread module for reading frames from sleap-io Video object.
+
+    This module will load the frames from video and pushes them as Tensors into a buffer
+    queue as a tuple in the format (image, frame index, (height, width)) which are then
+    batched and consumed during the inference process.
+
+    Attributes:
+        video: sleap_io.Video object that contains LabeledFrames that will be
+                accessed through a torchdata DataPipe.
+        frame_buffer: Maximum height the image should be padded to. If not provided,
+                the original image size will be retained.
+        start_idx: start index of the frames to read. If None, 0 is set as the default.
+        end_idx: end index of the frames to read. If None, length of the video is set as
+                the default.
+    """
+
+    def __init__(
+        self,
+        video: sio.Video,
+        frame_buffer: Queue,
+        start_idx: Optional[int] = None,
+        end_idx: Optional[int] = None,
+    ):
+        """Initialize attribute of the class."""
+        super().__init__()
+        self.video = video
+        self.frame_buffer = frame_buffer
+        self.start_idx = start_idx
+        self.end_idx = end_idx
+        if self.start_idx is None:
+            self.start_idx = 0
+        if self.end_idx is None:
+            self.end_idx = self.video.shape[0]
+
+    def total_len(self):
+        """Returns the total number of frames in the video."""
+        return self.end_idx - self.start_idx
+
+    @classmethod
+    def from_filename(
+        cls,
+        filename: str,
+        frame_buffer: Queue,
+        start_idx: Optional[int] = None,
+        end_idx: Optional[int] = None,
+    ):
+        """Create LabelsReader from a .slp filename."""
+        video = sio.load_video(filename)
+        return cls(video, frame_buffer, start_idx, end_idx)
+
+    def run(self):
+        """Adds frames to the buffer queue."""
+        try:
+            for idx in range(self.start_idx, self.end_idx):
+                img = self.video[idx]
+                img = np.transpose(img, (2, 0, 1))  # convert H,W,C to C,H,W
+                img = np.expand_dims(img, axis=0)  # (1, C, H, W)
+
+                self.frame_buffer.put(
+                    (
+                        torch.from_numpy(img),
+                        torch.tensor(idx, dtype=torch.int32),
+                        torch.Tensor(img.shape[-2:]),
+                    )
+                )
+
+        except Exception as e:
+            print(f"Error when reading video frame. Stopping video reader.\n{e}")
+
+        finally:
+            self.frame_buffer.put((None, None, None))
