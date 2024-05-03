@@ -8,8 +8,10 @@ import torchvision.transforms.v2.functional as F
 
 
 def convert_to_grayscale(image: torch.Tensor):
-    """Convert given image to Grayscale image (single-channel) if input image is not
-    single-channeled.
+    """Convert given image to Grayscale image (single-channel).
+
+    This functions converts the input image to grayscale only if the given image is not
+    a single-channeled image.
 
     Args:
         image: Tensor image of shape (..., 3, H, W)
@@ -23,8 +25,10 @@ def convert_to_grayscale(image: torch.Tensor):
 
 
 def convert_to_rgb(image: torch.Tensor):
-    """Convert given image to RGB image (three-channel image) if input image doesn't have
-    three channels.
+    """Convert given image to RGB image (three-channel image).
+
+    This functions converts the input image to RGB only if the given image is not
+    a RGB image.
 
     Args:
         image: Tensor image of shape (..., 3, H, W)
