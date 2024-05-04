@@ -205,7 +205,7 @@ def test_topdown_inference_model(
 def test_find_instance_peaks_groundtruth(
     config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
 ):
-    """Test FindInstancePeaksGroundTruth class for running inference on centroid model without cenetered instance model."""
+    """Test FindInstancePeaksGroundTruth class for running inference on centroid model without centered instance model."""
     data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,
@@ -440,7 +440,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
 def test_centroid_inference_model(config):
     """Test CentroidCrop class to run inference on centroid models."""
-
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "CentroidConfmapsHead"

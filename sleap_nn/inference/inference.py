@@ -235,7 +235,6 @@ class CentroidCrop(L.LightningModule):
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-        print(self.refined_peaks_batched)
         for centroid, centroid_val, image, fidx, vidx, sz in zip(
             self.refined_peaks_batched,
             self.peak_vals_batched,
@@ -244,7 +243,6 @@ class CentroidCrop(L.LightningModule):
             inputs["video_idx"],
             inputs["orig_size"],
         ):
-            print(f"centorid: {centroid.shape}")
             if torch.any(torch.isnan(centroid)):
                 if torch.all(torch.isnan(centroid)):
                     continue
@@ -322,8 +320,10 @@ class CentroidCrop(L.LightningModule):
 
         for b in range(batch):
             indices = (peak_sample_inds == b).nonzero()
+            # list for predicted centroids and corresponding peak values for current batch.
             current_peaks = refined_peaks[indices].squeeze(dim=-2)
             current_peak_vals = peak_vals[indices].squeeze(dim=-1)
+            # Choose top k centroids if max_instances is provided.
             if self.max_instances is not None:
                 if len(current_peaks) > self.max_instances:
                     current_peak_vals, indices = torch.topk(
@@ -614,7 +614,6 @@ class TopDownInferenceModel(L.LightningModule):
                 max_inst = batch["instances"].shape[-3]
                 self.centroid_crop.max_instances = max_inst
             batch = self.centroid_crop(batch)
-            print(f"batch: {len(batch)} shape")
             for i in batch:
                 if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
                     if "instances" in batch:
@@ -625,7 +624,6 @@ class TopDownInferenceModel(L.LightningModule):
                             "Please load both models when predicting on non-ground-truth data."
                         )
                 else:
-                    print("instance peaks")
                     self.instance_peaks.eval()
                     peaks_output = self.instance_peaks(i)
         return peaks_output
