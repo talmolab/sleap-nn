@@ -96,7 +96,6 @@ class TopdownConfmapsPipeline:
                 "instance_image",
                 "confidence_maps",
                 "num_instances",
-                "centroids",
                 "orig_size",
             ],
         )
@@ -195,6 +194,15 @@ class CentroidConfmapsPipeline:
             An `IterDataPipe` instance configured to produce input examples.
         """
         datapipe = data_provider
+        keep_keys = [
+            "image",
+            "video_idx",
+            "frame_idx",
+            "centroids_confidence_maps",
+            "orig_size",
+            "num_instances",
+        ]
+
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.max_height,
@@ -237,18 +245,7 @@ class CentroidConfmapsPipeline:
             output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
             centroids=True,
         )
-        datapipe = KeyFilter(
-            datapipe,
-            keep_keys=[
-                "image",
-                "instances",
-                "video_idx",
-                "frame_idx",
-                "centroids",
-                "centroids_confidence_maps",
-                "orig_size",
-                "num_instances",
-            ],
-        )
+
+        datapipe = KeyFilter(datapipe, keep_keys=keep_keys)
 
         return datapipe

@@ -39,16 +39,23 @@ class LabelsReader(IterDataPipe):
                 accessed through a torchdata DataPipe.
         user_instances_only: True if filter labels only to user instances else False.
                 Default value True
+        instances_key: True if `instances` key needs to be present in the data pipeline.
+                When this is set to True, the instances are appended with NaNs to have same
+                number of instances to enable batching. This is useful when running
+                inference.inference.FindInstancePeaksGroundTruth where we need the
+                `instances` key. Default: False.
     """
 
     def __init__(
         self,
         labels: sio.Labels,
         user_instances_only: bool = True,
+        instances_key: bool = False,
     ):
         """Initialize labels attribute of the class."""
         self.labels = copy.deepcopy(labels)
         self.max_instances = get_max_instances(labels)
+        self.instances_key = instances_key
 
         # Filter to user instances
         if user_instances_only:
@@ -68,10 +75,11 @@ class LabelsReader(IterDataPipe):
         cls,
         filename: str,
         user_instances_only: bool = True,
+        instances_key: bool = False,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
-        return cls(labels, user_instances_only)
+        return cls(labels, user_instances_only, instances_key)
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.
@@ -98,10 +106,12 @@ class LabelsReader(IterDataPipe):
 
             instances = torch.from_numpy(instances.astype("float32"))
             num_instances, nodes = instances.shape[1:3]
-            nans = torch.full(
-                (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
-            )
-            instances = torch.cat([instances, nans], dim=1)
+
+            if self.instances_key:
+                nans = torch.full(
+                    (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
+                )
+                instances = torch.cat([instances, nans], dim=1)
 
             yield {
                 "image": torch.from_numpy(image),

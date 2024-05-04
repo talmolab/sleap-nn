@@ -35,7 +35,6 @@ def test_key_filter(minimal_instance):
     gt_sample_keys = [
         "image",
         "centroid",
-        "instances",
         "instance",
         "instance_bbox",
         "instance_image",
@@ -43,7 +42,6 @@ def test_key_filter(minimal_instance):
         "video_idx",
         "frame_idx",
         "num_instances",
-        "centroids",
         "orig_size",
     ]
 
@@ -117,7 +115,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "centroids",
     ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -184,7 +181,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "centroids",
     ]
 
     sample = next(iter(datapipe))
@@ -380,10 +376,8 @@ def test_centroidconfmapspipeline(minimal_instance):
 
     gt_sample_keys = [
         "image",
-        "instances",
         "video_idx",
         "frame_idx",
-        "centroids",
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
@@ -443,10 +437,8 @@ def test_centroidconfmapspipeline(minimal_instance):
 
     gt_sample_keys = [
         "image",
-        "instances",
         "video_idx",
         "frame_idx",
-        "centroids",
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",

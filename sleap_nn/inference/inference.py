@@ -244,9 +244,9 @@ class CentroidCrop(L.LightningModule):
     def __init__(
         self,
         torch_model: L.LightningModule,
-        max_instances: int,
         output_stride: int = 1,
         peak_threshold: float = 0.0,
+        max_instances: Optional[int] = None,
         refinement: Optional[str] = None,
         integral_patch_size: int = 5,
         return_confmaps: bool = False,
@@ -269,17 +269,16 @@ class CentroidCrop(L.LightningModule):
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-
-        for cnt, (centroid, centroid_val, image, fidx, vidx, sz) in enumerate(
-            zip(
-                self.refined_peaks_with_nans,
-                self.peak_vals_with_nans,
-                inputs["image"],
-                inputs["frame_idx"],
-                inputs["video_idx"],
-                inputs["orig_size"],
-            )
+        print(self.refined_peaks_batched)
+        for centroid, centroid_val, image, fidx, vidx, sz in zip(
+            self.refined_peaks_batched,
+            self.peak_vals_batched,
+            inputs["image"],
+            inputs["frame_idx"],
+            inputs["video_idx"],
+            inputs["orig_size"],
         ):
+            print(f"centorid: {centroid.shape}")
             if torch.any(torch.isnan(centroid)):
                 if torch.all(torch.isnan(centroid)):
                     continue
@@ -326,15 +325,17 @@ class CentroidCrop(L.LightningModule):
         inference function from full images.
 
         Args:
-            inputs: Dictionary with keys:
-                `"image"`: Cropped images.
-                Other keys will be passed down the pipeline.
+            inputs: Dictionary with key `"image"`. Other keys will be passed down the pipeline.
 
         Returns:
-            A dictionary of outputs grouped by sample with keys:
-
-            `"centroids"`: The predicted centroids of shape `(batch, max_instances, 2)`.
-            `"centroid_vals": The centroid confidence values of shape `(batch, max_instances)`.
+            A list of dictionaries (size = batch size) where each dictionary has cropped
+            images with key `instance_image` and `centroid_val` batched based on the
+            number of centroids predicted for each image in the original batch if
+            return_crops is True.
+            If return_crops is not True, this module returns the dictionary with
+            `centroids` and `centroid_val` keys with shapes (batch, 1, max_instances, 2)
+            and (batch, max_instances) repsectively which could then to passed to
+            FindInstancePeaksGroundTruth class.
         """
         # Network forward pass.
         cms = self.torch_model(inputs["image"])
@@ -348,52 +349,61 @@ class CentroidCrop(L.LightningModule):
 
         # Adjust for stride and scale.
         refined_peaks = refined_peaks * self.output_stride  # (n_centroids, 2)
-        batch, channels, height, width = cms.shape
+        batch = cms.shape[0]
 
-        batch_indxs = torch.bincount(peak_sample_inds.detach())
-        self.refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
-        self.peak_vals_with_nans = torch.zeros((batch, self.max_instances))
+        self.refined_peaks_batched = []
+        self.peak_vals_batched = []
 
-        parsed = 0
         for b in range(batch):
-            parsed_idx = batch_indxs[b]
-            current_peaks = refined_peaks[parsed : parsed + parsed_idx]
-            current_peak_vals = peak_vals[parsed : parsed + parsed_idx]
-            if len(current_peaks) > self.max_instances:
-                # take top k
-                current_peak_vals, indices = torch.topk(
-                    current_peak_vals, self.max_instances
+            indices = (peak_sample_inds == b).nonzero()
+            current_peaks = refined_peaks[indices].squeeze(dim=-2)
+            current_peak_vals = peak_vals[indices].squeeze(dim=-1)
+            if self.max_instances is not None:
+                if len(current_peaks) > self.max_instances:
+                    current_peak_vals, indices = torch.topk(
+                        current_peak_vals, self.max_instances
+                    )
+                    current_peaks = current_peaks[indices]
+                    num_nans = 0
+                else:
+                    num_nans = self.max_instances - len(current_peaks)
+                nans = torch.full((num_nans, 2), torch.nan)
+                current_peaks = torch.cat(
+                    [current_peaks, nans.to(current_peaks.device)], dim=0
                 )
-                current_peaks = current_peaks[indices]
-                num_nans = 0
-            else:
-                num_nans = self.max_instances - len(current_peaks)
-            nans = torch.full((np.abs(num_nans), 2), torch.nan)
-            self.refined_peaks_with_nans[b] = torch.cat(
-                [current_peaks, nans.to(current_peaks.device)], dim=0
-            )
-
-            nans = torch.full((np.abs(num_nans),), torch.nan)
-            self.peak_vals_with_nans[b] = torch.cat(
-                [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
-            )
-
-            parsed += batch_indxs[b]
-
-        # Build outputs.
-        outputs = {
-            "centroids": self.refined_peaks_with_nans.unsqueeze(dim=1),
-            "centroid_vals": self.peak_vals_with_nans,
-        }
-        if self.return_confmaps:
-            outputs["pred_centroid_confmaps"] = cms.detach()
-        inputs.update(outputs)
+                nans = torch.full((num_nans,), torch.nan)
+                current_peak_vals = torch.cat(
+                    [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
+                )
+            self.refined_peaks_batched.append(current_peaks)
+            self.peak_vals_batched.append(current_peak_vals)
 
         # Generate crops if return_crops=True to pass the crops to CenteredInstance model.
         if self.return_crops:
+            inputs.update(
+                {
+                    "centroids": self.refined_peaks_batched,
+                    "centroid_vals": self.peak_vals_batched,
+                }
+            )
             crops_dict = self._generate_crops(inputs)
             return crops_dict
-        return inputs
+
+        else:
+            # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
+            refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
+            peak_vals_with_nans = torch.zeros((batch, self.max_instances))
+            for r, p in zip(self.refined_peaks_batched, self.peak_vals_batched):
+                refined_peaks_with_nans[b] = r
+                peak_vals_with_nans[b] = p
+            inputs.update(
+                {
+                    "centroids": refined_peaks_with_nans.unsqueeze(dim=1),
+                    "centroid_vals": peak_vals_with_nans,
+                }
+            )
+
+            return inputs
 
 
 class FindInstancePeaksGroundTruth(L.LightningModule):
@@ -635,6 +645,9 @@ class TopDownInferenceModel(L.LightningModule):
 
         else:
             self.centroid_crop.eval()
+            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+                max_inst = batch["instances"].shape[-3]
+                self.centroid_crop.max_instances = max_inst
             batch = self.centroid_crop(batch)
             if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
                 if "instances" in batch:
@@ -796,17 +809,29 @@ class TopDownPredictor(Predictor):
             is LabelsReader. If provider is VideoReader, this method initiates the reader
             class (doesn't return a pipeline) and the Thread is started in
             Predictor._predict_generator() method.
+            Torch DataLoader where each item is a dictionary with key `image` if provider
+            is LabelsReader. If provider is VideoReader, this method initiates the reader
+            class (doesn't return a pipeline) and the Thread is started in
+            Predictor._predict_generator() method.
 
         Notes:
+            This method creates the class attribute `data_pipeline` and will be
+            called automatically when predicting on data from a new source only when the
+            provider is LabelsReader.
             This method creates the class attribute `data_pipeline` and will be
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
         self.provider = self.data_config.provider
         if self.provider == "LabelsReader":
+        self.provider = self.data_config.provider
+        if self.provider == "LabelsReader":
             provider = LabelsReader
+            self.instances_key = False
+            if self.centroid_config and not self.confmap_config:
+                self.instances_key = True
             data_provider = provider.from_filename(
-                self.data_config.path,
+                self.data_config.labels_path, instances_key=self.instances_key
             )
             self.videos = data_provider.labels.videos
             pipeline = SizeMatcher(
@@ -822,6 +847,12 @@ class TopDownPredictor(Predictor):
                 )
                 pipeline = InstanceCropper(
                     pipeline, crop_hw=self.data_config.preprocessing.crop_hw
+                )
+
+            elif not self.confmap_config:
+                pipeline = InstanceCentroidFinder(
+                    pipeline,
+                    anchor_ind=self.data_config.preprocessing.anchor_ind,
                 )
 
             # Remove duplicates.

@@ -12,6 +12,14 @@ from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
+from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import SizeMatcher
+from sleap_nn.data.instance_centroids import InstanceCentroidFinder
+from sleap_nn.data.instance_cropping import InstanceCropper
+from sleap_nn.data.pipelines import (
+    TopdownConfmapsPipeline,
+    SingleInstanceConfmapsPipeline,
+)
 from sleap_nn.data.confidence_maps import make_grid_vectors, make_multi_confmaps
 from sleap_nn.model_trainer import (
     TopDownCenteredInstanceModel,
@@ -36,6 +44,21 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt", config=config
+    )
+
+    data_provider = LabelsReader.from_filename(minimal_instance)
+    pipeline = SizeMatcher(
+        data_provider,
+        max_height=config.inference_config.data.max_height,
+        max_width=config.inference_config.data.max_width,
+    )
+    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = InstanceCentroidFinder(
+        pipeline,
+        anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
+    )
+    pipeline = InstanceCropper(
+        pipeline, crop_hw=config.inference_config.data.preprocessing.crop_hw
     )
 
     data_provider = LabelsReader.from_filename(minimal_instance)
@@ -179,7 +202,9 @@ def test_topdown_predictor(
         OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
 
 
-def test_topdown_inference_model(config, minimal_instance, minimal_instance_ckpt):
+def test_topdown_inference_model(
+    config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
+):
     """Test TopDownInferenceModel class for centroid and cenetered model inferences."""
     # for centered instance model
     data_pipeline, _, find_peaks_layer = initialize_model(
@@ -210,20 +235,26 @@ def test_topdown_inference_model(config, minimal_instance, minimal_instance_ckpt
         topdown_inf_layer(example)
 
     # centroid layer and find peaks
-    OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
+    config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
+    torch_model = CentroidModel.load_from_checkpoint(
+        f"{minimal_instance_centroid_ckpt}/best.ckpt", config=config
     )
-    del config.model_config.head_configs.head_config.part_names
 
-    trainer = ModelTrainer(config)
-    trainer._create_data_loaders()
-    loader = next(iter(trainer.val_data_loader))
-    trainer._initialize_model()
-    model = trainer.model
+    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
+    pipeline = SizeMatcher(
+        data_provider,
+        max_height=config.inference_config.data.max_height,
+        max_width=config.inference_config.data.max_width,
+    )
+    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = pipeline.sharding_filter()
+    data_pipeline = DataLoader(
+        pipeline,
+        **dict(config.inference_config.data.data_loader),
+    )
 
     centroid_layer = CentroidCrop(
-        torch_model=model,
+        torch_model=torch_model,
         peak_threshold=0.0,
         refinement="integral",
         integral_patch_size=5,
@@ -244,54 +275,65 @@ def test_topdown_inference_model(config, minimal_instance, minimal_instance_ckpt
 
 
 def test_find_instance_peaks_groundtruth(
-    config, minimal_instance, minimal_instance_ckpt
+    config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
 ):
     """Test FindInstancePeaksGroundTruth class for running inference on centroid model without cenetered instance model."""
-    data_pipeline, _, _ = initialize_model(
-        config, minimal_instance, minimal_instance_ckpt
+    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
+    pipeline = SizeMatcher(
+        data_provider,
+        max_height=config.inference_config.data.max_height,
+        max_width=config.inference_config.data.max_width,
     )
+    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = InstanceCentroidFinder(
+        pipeline,
+        anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
+    )
+
+    pipeline = pipeline.sharding_filter()
+    data_pipeline = DataLoader(
+        pipeline,
+        **dict(config.inference_config.data.data_loader),
+    )
+
     p = iter(data_pipeline)
-    e1 = next(p)
-    e2 = next(p)
-    example = e1.copy()
-    example["instance"] = e1["instance"].unsqueeze(dim=1)
-    example["centroid"] = e1["centroid"].unsqueeze(dim=1)
-    inst = e2["instance"].unsqueeze(dim=1) + 300
-    cent = e2["centroid"].unsqueeze(dim=1) + 300
-    inst[0, 0, 0, 0, 0] = torch.nan
-    example["instances"] = torch.cat(
-        [example["instance"], inst, torch.full(example["instance"].shape, torch.nan)],
-        dim=2,
-    )
-    example["centroids"] = torch.cat(
-        [example["centroid"], cent, torch.full(example["centroid"].shape, torch.nan)],
-        dim=2,
-    )
-    example["pred_centroids"] = example["centroids"]
-    example["num_instances"] = [2, 2, 2, 2]
+    example = next(p)
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
     )
     output = topdown_inf_layer(example)[0]
     assert torch.isclose(
         output["pred_instance_peaks"],
-        example["instances"].squeeze(dim=1),
+        example["instances"].squeeze(),
         atol=1e-6,
         equal_nan=True,
     ).all()
-    assert output["pred_peak_values"].shape == (1, 3, 2)
+    assert output["pred_peak_values"].shape == (2, 2)
 
     # with centroid crop class
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
+    pipeline = SizeMatcher(
+        data_provider,
+        max_height=config.inference_config.data.max_height,
+        max_width=config.inference_config.data.max_width,
+    )
+    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = pipeline.sharding_filter()
+    data_pipeline = DataLoader(
+        pipeline,
+        **dict(config.inference_config.data.data_loader),
+    )
+
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
     )
     del config.model_config.head_configs.head_config.part_names
-    trainer = ModelTrainer(config)
-    trainer._create_data_loaders()
-    loader = next(iter(trainer.val_data_loader))
-    trainer._initialize_model()
-    model = trainer.model
+    config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
+    model = CentroidModel.load_from_checkpoint(
+        f"{minimal_instance_centroid_ckpt}/best.ckpt", config=config
+    )
 
     layer = CentroidCrop(
         torch_model=model,
@@ -309,6 +351,7 @@ def test_find_instance_peaks_groundtruth(
         centroid_crop=layer, instance_peaks=FindInstancePeaksGroundTruth()
     )
     output = topdown_inf_layer(loader)[0]
+    output = topdown_inf_layer(next(iter(data_pipeline)))
 
     assert "pred_instance_peaks" in output.keys()
     assert output["pred_instance_peaks"].shape == (2, 2, 2)
