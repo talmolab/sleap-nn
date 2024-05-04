@@ -40,9 +40,7 @@ def test_instance_cropper(minimal_instance):
         "instance_image",
         "video_idx",
         "frame_idx",
-        "instances",
         "num_instances",
-        "centroids",
         "orig_size",
     ]
 
@@ -56,8 +54,6 @@ def test_instance_cropper(minimal_instance):
     assert sample["instance_image"].shape == (1, 1, 100, 100)
     assert sample["instance_bbox"].shape == (1, 4, 2)
     assert sample["num_instances"] == 2
-    assert sample["instances"].shape == (1, 2, 2, 2)
-    assert sample["centroids"].shape == (1, 2, 2)
 
     # Test samples.
     gt = torch.Tensor(

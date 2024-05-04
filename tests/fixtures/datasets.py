@@ -219,8 +219,8 @@ def config(sleap_data_dir):
                     "labels_path": f"./tests/assets/minimal_instance.pkg.slp",
                     "max_width": None,
                     "max_height": None,
+                    "max_instances": None,
                     "is_rgb": False,
-                    "max_instances": 10,
                     "provider": "LabelsReader",
                     "data_loader": {
                         "batch_size": 4,
