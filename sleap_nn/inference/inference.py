@@ -216,7 +216,8 @@ class CentroidCrop(L.LightningModule):
 
     This layer encapsulates all of the inference operations requires for generating
     predictions from a centroid confidence map model. This includes model forward pass,
-    peak finding, coordinate adjustment and cropping.
+    generating crops for cenetered instance model, peak finding, coordinate adjustment
+    and cropping.
 
     Attributes:
         torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
@@ -235,8 +236,8 @@ class CentroidCrop(L.LightningModule):
             refinement as an integer scalar.
         return_confmaps: If `True`, the confidence maps will be returned together with
             the predicted peaks.
-        return_crops: If `True`, the output dictionary would also contain `instance_image` which is the cropped
-            image of size (batch, 1, channels, crop_height, crop_width)
+        return_crops: If `True`, the output dictionary will also contain `instance_image`
+            which is the cropped image of size (batch, 1, chn, crop_height, crop_width).
         crop_hw: Tuple (height, width) representing the crop size.
 
     """
@@ -269,7 +270,6 @@ class CentroidCrop(L.LightningModule):
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-        print(self.refined_peaks_batched)
         for centroid, centroid_val, image, fidx, vidx, sz in zip(
             self.refined_peaks_batched,
             self.peak_vals_batched,
@@ -278,7 +278,6 @@ class CentroidCrop(L.LightningModule):
             inputs["video_idx"],
             inputs["orig_size"],
         ):
-            print(f"centorid: {centroid.shape}")
             if torch.any(torch.isnan(centroid)):
                 if torch.all(torch.isnan(centroid)):
                     continue
@@ -824,14 +823,12 @@ class TopDownPredictor(Predictor):
         """
         self.provider = self.data_config.provider
         if self.provider == "LabelsReader":
-        self.provider = self.data_config.provider
-        if self.provider == "LabelsReader":
             provider = LabelsReader
             self.instances_key = False
             if self.centroid_config and not self.confmap_config:
                 self.instances_key = True
             data_provider = provider.from_filename(
-                self.data_config.labels_path, instances_key=self.instances_key
+                self.data_config.path, instances_key=self.instances_key
             )
             self.videos = data_provider.labels.videos
             pipeline = SizeMatcher(

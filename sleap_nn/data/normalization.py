@@ -31,10 +31,10 @@ def convert_to_rgb(image: torch.Tensor):
     a RGB image.
 
     Args:
-        image: Tensor image of shape (..., 3, H, W)
+        image: Tensor image of shape (..., 1, H, W)
 
     Returns:
-        Tensor image of shape (..., 1, H, W).
+        Tensor image of shape (..., 3, H, W).
     """
     if image.shape[-3] != 3:
         image = image.repeat(1, 3, 1, 1)

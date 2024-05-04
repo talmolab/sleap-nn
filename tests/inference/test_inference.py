@@ -38,8 +38,7 @@ from sleap_nn.inference.inference import (
 
 
 def initialize_model(config, minimal_instance, minimal_instance_ckpt):
-    """Returns data loader, trained torch model and FindInstancePeaks layer to test
-    InferenceModels."""
+    """Returns data loader, trained torch model and FindInstancePeaks layer to test InferenceModels."""
     # for centered instance model
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
@@ -149,10 +148,7 @@ def test_topdown_predictor(
     pred_labels = predictor.predict(make_labels=False)
     assert predictor.confmap_config is None
     assert len(pred_labels) == 1
-    assert (
-        len(pred_labels[0]["centroids"].squeeze())
-        == config.inference_config.data.max_instances
-    )
+    assert pred_labels[0]["centroids"].shape == (1, 1, 2, 2)
 
     # Provider = VideoReader
     # centroid + centered-instance model inference
@@ -207,15 +203,34 @@ def test_topdown_inference_model(
 ):
     """Test TopDownInferenceModel class for centroid and cenetered model inferences."""
     # for centered instance model
-    data_pipeline, _, find_peaks_layer = initialize_model(
+    loader, _, find_peaks_layer = initialize_model(
         config, minimal_instance, minimal_instance_ckpt
     )
 
+    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
+    pipeline = SizeMatcher(
+        data_provider,
+        max_height=config.inference_config.data.max_height,
+        max_width=config.inference_config.data.max_width,
+    )
+    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = InstanceCentroidFinder(
+        pipeline,
+        anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
+    )
+
+    pipeline = pipeline.sharding_filter()
+    data_pipeline = DataLoader(
+        pipeline,
+        **dict(config.inference_config.data.data_loader),
+    )
+
+    # if centroid layer is none and centered-instance model.
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=None, instance_peaks=find_peaks_layer
     )
     outputs = []
-    for x in data_pipeline:
+    for x in loader:
         outputs.append(topdown_inf_layer(x))
     for i in outputs[0]:
         assert i["centroid_val"] == 1
@@ -268,7 +283,7 @@ def test_topdown_inference_model(
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=centroid_layer, instance_peaks=find_peaks_layer
     )
-    outputs = topdown_inf_layer(loader)
+    outputs = topdown_inf_layer(next(iter(data_pipeline)))
     for i in outputs:
         assert i["instance_image"].shape[1:] == (1, 1, 160, 160)
         assert i["pred_instance_peaks"].shape[1:] == (2, 2)
@@ -350,8 +365,7 @@ def test_find_instance_peaks_groundtruth(
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=layer, instance_peaks=FindInstancePeaksGroundTruth()
     )
-    output = topdown_inf_layer(loader)[0]
-    output = topdown_inf_layer(next(iter(data_pipeline)))
+    output = topdown_inf_layer(next(iter(data_pipeline)))[0]
 
     assert "pred_instance_peaks" in output.keys()
     assert output["pred_instance_peaks"].shape == (2, 2, 2)
@@ -593,7 +607,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
 def test_centroid_inference_model(config):
     """Test CentroidCrop class to run inference on centroid models."""
-
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "CentroidConfmapsHead"

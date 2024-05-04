@@ -9,7 +9,7 @@ import pytest
 
 
 def test_resizer(minimal_instance):
-    """Test SizeMatcher module."""
+    """Test SizeMatcher module for pad images to specified dimensions."""
     l = LabelsReader.from_filename(minimal_instance)
     pipe = SizeMatcher(l, max_height=500, max_width=400)
     sample = next(iter(pipe))
