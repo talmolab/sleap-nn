@@ -292,7 +292,7 @@ def test_topdown_inference_model(
 def test_find_instance_peaks_groundtruth(
     config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
 ):
-    """Test FindInstancePeaksGroundTruth class for running inference on centroid model without cenetered instance model."""
+    """Test FindInstancePeaksGroundTruth class for running inference on centroid model without centered instance model."""
     data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,

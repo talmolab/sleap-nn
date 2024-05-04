@@ -355,8 +355,10 @@ class CentroidCrop(L.LightningModule):
 
         for b in range(batch):
             indices = (peak_sample_inds == b).nonzero()
+            # list for predicted centroids and corresponding peak values for current batch.
             current_peaks = refined_peaks[indices].squeeze(dim=-2)
             current_peak_vals = peak_vals[indices].squeeze(dim=-1)
+            # Choose top k centroids if max_instances is provided.
             if self.max_instances is not None:
                 if len(current_peaks) > self.max_instances:
                     current_peak_vals, indices = torch.topk(
