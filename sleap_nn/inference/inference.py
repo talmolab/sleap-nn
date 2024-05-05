@@ -647,17 +647,17 @@ class TopDownInferenceModel(L.LightningModule):
         else:
             self.centroid_crop.eval()
             if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-                max_inst = batch["instances"].shape[-3]
-                self.centroid_crop.max_instances = max_inst
-            batch = self.centroid_crop(batch)
-            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
                 if "instances" in batch:
-                    peaks_output.append(self.instance_peaks(batch))
+                    max_inst = batch["instances"].shape[-3]
+                    self.centroid_crop.max_instances = max_inst
                 else:
                     raise ValueError(
                         "Ground truth data was not detected... "
                         "Please load both models when predicting on non-ground-truth data."
                     )
+            batch = self.centroid_crop(batch)
+            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+                peaks_output.append(self.instance_peaks(batch))
             else:
                 for i in batch:
                     self.instance_peaks.eval()

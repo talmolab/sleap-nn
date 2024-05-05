@@ -27,7 +27,7 @@ def test_videoreader_provider(centered_instance_video):
     """Test VideoReader class."""
     video = sio.load_video(centered_instance_video)
     queue = Queue(maxsize=4)
-    reader = VideoReader(video=video, frame_buffer=queue, start_idx=0, end_idx=4)
+    reader = VideoReader(video=video, frame_buffer=queue, start_idx=None, end_idx=4)
     reader.start()
     batch_size = 4
     try:
@@ -43,6 +43,7 @@ def test_videoreader_provider(centered_instance_video):
         raise
     finally:
         reader.join()
+    assert reader.total_len() == 4
 
     # check graceful stop (video has 1100 frames)
     queue = Queue(maxsize=4)

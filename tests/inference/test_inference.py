@@ -288,6 +288,16 @@ def test_topdown_inference_model(
         assert i["instance_image"].shape[1:] == (1, 1, 160, 160)
         assert i["pred_instance_peaks"].shape[1:] == (2, 2)
 
+    # centroid layer and "instances" not in example
+    topdown_inf_layer = TopDownInferenceModel(
+        centroid_crop=centroid_layer, instance_peaks=FindInstancePeaksGroundTruth()
+    )
+    with pytest.raises(
+        Exception,
+        match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
+    ):
+        outputs = topdown_inf_layer(example)
+
 
 def test_find_instance_peaks_groundtruth(
     config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
