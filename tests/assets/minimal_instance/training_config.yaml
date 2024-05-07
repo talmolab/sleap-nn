@@ -1,9 +1,11 @@
 data_config:
   provider: LabelsReader
   pipeline: TopdownConfmaps
-  max_instances: 30
   train:
     labels_path: minimal_instance.pkg.slp
+    max_width: null
+    max_height: null
+    is_rgb: false
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -18,7 +20,7 @@ data_config:
         random_crop_hw:
         - 160
         - 160
-      use_augmentations: false
+      use_augmentations: true
       augmentations:
         intensity:
           uniform_noise:
@@ -52,6 +54,9 @@ data_config:
           mixup_p: 0
   val:
     labels_path: minimal_instance.pkg.slp
+    max_width: null
+    max_height: null
+    is_rgb: false
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -108,9 +113,10 @@ data_config:
           name: A
         destination:
           name: B
-      symmetries: []
+      symmetries: null
 model_config:
-  init_weights: default
+  init_weights: xavier
+  pre_trained_weights: null
   backbone_config:
     backbone_type: unet
     backbone_config:
@@ -133,15 +139,15 @@ model_config:
       loss_weight: 1.0
 trainer_config:
   train_data_loader:
-    batch_size: 1
+    batch_size: 4
     shuffle: true
     num_workers: 2
     pin_memory: true
     drop_last: false
   val_data_loader:
-    batch_size: 1
+    batch_size: 4
     shuffle: false
-    num_workers: 0
+    num_workers: 2
     pin_memory: true
     drop_last: false
   model_ckpt:
@@ -150,20 +156,25 @@ trainer_config:
     monitor: val_loss
     mode: min
     auto_insert_metric_name: false
-    save_weights_only: true
+  early_stopping:
+    stop_training_on_plateau: true
+    min_delta: 1.0e-08
+    patience: 20
   device: cpu
   trainer_devices: 1
   trainer_accelerator: cpu
   enable_progress_bar: false
+  steps_per_epoch: null
   max_epochs: 2
   seed: 1000
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: 17_01_ckpt_gen
+  save_ckpt_path: 04_11_pytest_run
   wandb:
-    project: test
-    name: test_run
-    wandb_mode: offline
+    entity: team-ucsd
+    project: exps_final
+    name: fly_unet_00_rerun_1_0003
+    wandb_mode: ''
     api_key: ''
     log_params:
     - trainer_config.optimizer_name
@@ -174,9 +185,9 @@ trainer_config:
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
-    amsgrad: true
+    amsgrad: false
   lr_scheduler:
-    threshold: 1.0e-06
+    threshold: 1.0e-07
     cooldown: 3
     patience: 5
     factor: 0.5
@@ -185,8 +196,11 @@ inference_config:
   device: cpu
   data:
     labels_path: ./tests/assets/minimal_instance.pkg.slp
+    max_instances: 10
+    max_width: null
+    max_height: null
+    is_rgb: false
     provider: LabelsReader
-    max_instances: 30
     data_loader:
       batch_size: 4
       shuffle: false

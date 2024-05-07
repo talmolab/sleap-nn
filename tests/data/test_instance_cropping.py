@@ -3,6 +3,7 @@ import torch
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper, make_centered_bboxes
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import SizeMatcher
 from sleap_nn.data.providers import LabelsReader
 
 
@@ -23,9 +24,11 @@ def test_make_centered_bboxes():
 
 
 def test_instance_cropper(minimal_instance):
-    datapipe = LabelsReader.from_filename(minimal_instance, max_instances=30)
-    datapipe = InstanceCentroidFinder(datapipe)
+    """Test InstanceCropper module."""
+    datapipe = LabelsReader.from_filename(minimal_instance)
+    datapipe = SizeMatcher(datapipe)
     datapipe = Normalizer(datapipe)
+    datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (100, 100))
     sample = next(iter(datapipe))
 
@@ -37,9 +40,8 @@ def test_instance_cropper(minimal_instance):
         "instance_image",
         "video_idx",
         "frame_idx",
-        "instances",
         "num_instances",
-        "centroids",
+        "orig_size",
     ]
 
     # Test shapes.
@@ -52,8 +54,6 @@ def test_instance_cropper(minimal_instance):
     assert sample["instance_image"].shape == (1, 1, 100, 100)
     assert sample["instance_bbox"].shape == (1, 4, 2)
     assert sample["num_instances"] == 2
-    assert sample["instances"].shape == (1, 30, 2, 2)
-    assert sample["centroids"].shape == (1, 30, 2)
 
     # Test samples.
     gt = torch.Tensor(

@@ -21,12 +21,12 @@ class KeyFilter(IterDataPipe):
         - image: the full frame image
         - video_idx: the index of the source video in the list of videos
         - frame_idx: the frame idx of the image in video[`video_idx`]
-        - instances: all keypoints of all instances in the frame image
-        - centroids: all centroids of all instances in the frame image
         - instance: the individual instance's keypoints
         - instance_bbox: the individual instance's bbox
         - instance_image: the individual instance's cropped image
         - confidence_maps: the individual instance's heatmap
+        - orig_size: Original Image size
+        - num_instances: Number of instances in the frame
         """
         for example in self.dp:
             if self.keep_keys is None:

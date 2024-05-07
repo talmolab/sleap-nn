@@ -2,11 +2,11 @@
 
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
-import attr
+import attrs
 import sleap_io as sio
 
 
-@attr.s(auto_attribs=True, slots=True)
+@attrs.define(auto_attribs=True, slots=True)
 class MatchInstance:
     """Class to have a new structure for sio.Instance object."""
 
@@ -409,8 +409,8 @@ def compute_dists(
 class Evaluator:
     """Compute the standard evaluation metrics with the predicted and the ground-truth Labels.
 
-    This class is used to calculate the common metrics for pose estimation models which includes
-    voc metrics (with oks and pck), mOKS, distance metrics, pck metrics and
+    This class is used to calculate the common metrics for pose estimation models which
+    includes voc metrics (with oks and pck), mOKS, distance metrics, pck metrics and
     visibility metrics.
 
     Args:
@@ -560,7 +560,7 @@ class Evaluator:
         return {"mOKS": pair_oks.mean()}
 
     def distance_metrics(self):
-        """Compute the Euclidean distance error at different percentiles using the pair0wise distances.
+        """Compute the Euclidean distance error at different percentiles using the pairwise distances.
 
         Returns:
             A dictionary of distance metrics.

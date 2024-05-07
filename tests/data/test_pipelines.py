@@ -7,15 +7,19 @@ from sleap_nn.data.general import KeyFilter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import SizeMatcher
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
+    CentroidConfmapsPipeline,
 )
 from sleap_nn.data.providers import LabelsReader
 
 
 def test_key_filter(minimal_instance):
-    datapipe = LabelsReader.from_filename(filename=minimal_instance, max_instances=30)
+    """Test KeyFilter module."""
+    datapipe = LabelsReader.from_filename(filename=minimal_instance)
+    datapipe = SizeMatcher(datapipe)
     datapipe = Normalizer(datapipe)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = InstanceCropper(datapipe, (160, 160))
@@ -38,8 +42,7 @@ def test_key_filter(minimal_instance):
         "video_idx",
         "frame_idx",
         "num_instances",
-        "centroids",
-        "instances",
+        "orig_size",
     ]
 
     sample = next(iter(datapipe))
@@ -57,6 +60,9 @@ def test_key_filter(minimal_instance):
 def test_topdownconfmapspipeline(minimal_instance):
     base_topdown_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
@@ -94,9 +100,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(data_config=base_topdown_data_config)
-    data_provider = LabelsReader(
-        labels=sio.load_slp(minimal_instance), max_instances=30
-    )
+    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
@@ -109,6 +113,8 @@ def test_topdownconfmapspipeline(minimal_instance):
         "confidence_maps",
         "frame_idx",
         "video_idx",
+        "orig_size",
+        "num_instances",
     ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -120,6 +126,9 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     base_topdown_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
@@ -170,6 +179,8 @@ def test_topdownconfmapspipeline(minimal_instance):
         "confidence_maps",
         "frame_idx",
         "video_idx",
+        "orig_size",
+        "num_instances",
     ]
 
     sample = next(iter(datapipe))
@@ -190,6 +201,9 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -227,7 +241,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     pipeline = SingleInstanceConfmapsPipeline(
         data_config=base_singleinstance_data_config
     )
-    data_provider = LabelsReader(labels=labels, max_instances=1)
+    data_provider = LabelsReader(labels=labels)
 
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
@@ -239,6 +253,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "frame_idx",
         "instances",
         "confidence_maps",
+        "orig_size",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -248,6 +263,9 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
             "preprocessing": {
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
@@ -286,7 +304,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         data_config=base_singleinstance_data_config
     )
 
-    data_provider = LabelsReader(labels=labels, max_instances=1)
+    data_provider = LabelsReader(labels=labels)
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
 
     sample = next(iter(datapipe))
@@ -297,6 +315,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "frame_idx",
         "instances",
         "confidence_maps",
+        "orig_size",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -304,3 +323,131 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     assert sample["image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
     assert sample["instances"].shape == (1, 1, 2, 2)
+
+
+def test_centroidconfmapspipeline(minimal_instance):
+    """Test CentroidConfmapsPipeline class."""
+    base_centroid_data_config = OmegaConf.create(
+        {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
+            "preprocessing": {
+                "anchor_ind": None,
+                "conf_map_gen": {"sigma": 1.5, "output_stride": 2, "centroids": True},
+            },
+            "augmentation_config": {
+                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
+                "use_augmentations": False,
+                "augmentations": {
+                    "intensity": {
+                        "uniform_noise": (0.0, 0.04),
+                        "uniform_noise_p": 0.5,
+                        "gaussian_noise_mean": 0.02,
+                        "gaussian_noise_std": 0.004,
+                        "gaussian_noise_p": 0.5,
+                        "contrast": (0.5, 2.0),
+                        "contrast_p": 0.5,
+                        "brightness": 0.0,
+                        "brightness_p": 0.5,
+                    },
+                    "geometric": {
+                        "rotation": 15.0,
+                        "scale": 0.05,
+                        "translate": (0.02, 0.02),
+                        "affine_p": 0.5,
+                        "erase_scale": (0.0001, 0.01),
+                        "erase_ratio": (1, 1),
+                        "erase_p": 0.5,
+                        "mixup_lambda": None,
+                        "mixup_p": 0.5,
+                    },
+                },
+            },
+        }
+    )
+
+    pipeline = CentroidConfmapsPipeline(data_config=base_centroid_data_config)
+    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+
+    labels_pipe = next(iter(data_provider))
+
+    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+
+    gt_sample_keys = [
+        "image",
+        "video_idx",
+        "frame_idx",
+        "centroids_confidence_maps",
+        "orig_size",
+        "num_instances",
+    ]
+    sample = next(iter(datapipe))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
+
+    base_centroid_data_config = OmegaConf.create(
+        {
+            "max_height": None,
+            "max_width": None,
+            "is_rgb": False,
+            "preprocessing": {
+                "anchor_ind": None,
+                "conf_map_gen": {"sigma": 1.5, "output_stride": 2, "centroids": True},
+            },
+            "augmentation_config": {
+                "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
+                "use_augmentations": True,
+                "augmentations": {
+                    "intensity": {
+                        "uniform_noise": (0.0, 0.04),
+                        "uniform_noise_p": 0.5,
+                        "gaussian_noise_mean": 0.02,
+                        "gaussian_noise_std": 0.004,
+                        "gaussian_noise_p": 0.5,
+                        "contrast": (0.5, 2.0),
+                        "contrast_p": 0.5,
+                        "brightness": 0.0,
+                        "brightness_p": 0.5,
+                    },
+                    "geometric": {
+                        "rotation": 15.0,
+                        "scale": 0.05,
+                        "translate": (0.02, 0.02),
+                        "affine_p": 0.5,
+                        "erase_scale": (0.0001, 0.01),
+                        "erase_ratio": (1, 1),
+                        "erase_p": 0.5,
+                        "mixup_lambda": None,
+                        "mixup_p": 0.5,
+                    },
+                },
+            },
+        }
+    )
+
+    pipeline = CentroidConfmapsPipeline(data_config=base_centroid_data_config)
+
+    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+
+    gt_sample_keys = [
+        "image",
+        "video_idx",
+        "frame_idx",
+        "centroids_confidence_maps",
+        "orig_size",
+        "num_instances",
+    ]
+
+    sample = next(iter(datapipe))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 1, 160, 160)
+    assert sample["centroids_confidence_maps"].shape == (1, 1, 80, 80)

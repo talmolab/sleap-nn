@@ -1,12 +1,29 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
-from typing import Dict, Iterator
+from typing import Dict, Iterator, Optional
 
 import numpy as np
 import sleap_io as sio
 import torch
 import copy
 from torch.utils.data.datapipes.datapipe import IterDataPipe
+
+
+def get_max_instances(labels: sio.Labels):
+    """Get the maximum number of instances in a single LabeledFrame.
+
+    Args:
+        labels: sleap_io.Labels object that contains LabeledFrames.
+
+    Returns:
+        Maximum number of instances that could occur in a single LabeledFrame.
+    """
+    max_instances = -1
+    for lf in labels:
+        num_inst = len(lf.instances)
+        if num_inst > max_instances:
+            max_instances = num_inst
+    return max_instances
 
 
 class LabelsReader(IterDataPipe):
@@ -17,21 +34,26 @@ class LabelsReader(IterDataPipe):
 
     Attributes:
         labels: sleap_io.Labels object that contains LabeledFrames that will be
-            accessed through a torchdata IterDataPipe
-        user_instances_only: True if filter labels only to user instances else False. Default value True
-        max_instances: Upper limit for number of empty instances to be appended in 'instances'. For singleinstance models, max_instances=1.
-
+                accessed through a torchdata DataPipe.
+        user_instances_only: True if filter labels only to user instances else False.
+                Default value True
+        instances_key: True if `instances` key needs to be present in the data pipeline.
+                When this is set to True, the instances are appended with NaNs to have same
+                number of instances to enable batching. This is useful when running
+                inference.inference.FindInstancePeaksGroundTruth where we need the
+                `instances` key. Default: False.
     """
 
     def __init__(
         self,
         labels: sio.Labels,
         user_instances_only: bool = True,
-        max_instances: int = 30,
+        instances_key: bool = False,
     ):
         """Initialize labels attribute of the class."""
         self.labels = copy.deepcopy(labels)
-        self.max_instances = max_instances
+        self.max_instances = get_max_instances(labels)
+        self.instances_key = instances_key
 
         # Filter to user instances
         if user_instances_only:
@@ -48,11 +70,14 @@ class LabelsReader(IterDataPipe):
 
     @classmethod
     def from_filename(
-        cls, filename: str, user_instances_only: bool = True, max_instances: int = 30
+        cls,
+        filename: str,
+        user_instances_only: bool = True,
+        instances_key: bool = False,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
-        return cls(labels, user_instances_only, max_instances)
+        return cls(labels, user_instances_only, instances_key)
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary containing the following elements.
@@ -67,7 +92,8 @@ class LabelsReader(IterDataPipe):
 
             instances = []
             for inst in lf:
-                instances.append(inst.numpy())
+                if not inst.is_empty:
+                    instances.append(inst.numpy())
             instances = np.stack(instances, axis=0)
 
             # Add singleton time dimension for single frames.
@@ -78,10 +104,12 @@ class LabelsReader(IterDataPipe):
 
             instances = torch.from_numpy(instances.astype("float32"))
             num_instances, nodes = instances.shape[1:3]
-            nans = torch.full(
-                (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
-            )
-            instances = torch.cat([instances, nans], dim=1)
+
+            if self.instances_key:
+                nans = torch.full(
+                    (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
+                )
+                instances = torch.cat([instances, nans], dim=1)
 
             yield {
                 "image": torch.from_numpy(image),

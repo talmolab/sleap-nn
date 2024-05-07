@@ -1,25 +1,40 @@
 """This module is to train a sleap-nn model using Lightning."""
 
+from pathlib import Path
+import time
+from torch import nn
+import os
 import torch
 import sleap_io as sio
 from torch.utils.data import DataLoader
-from typing import Text
-from pathlib import Path
 from omegaconf import OmegaConf
 import lightning as L
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
+    CentroidConfmapsPipeline,
 )
 import wandb
-import time
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
-from torch import nn
-import pandas as pd
 from sleap_nn.architectures.model import Model
-from lightning.pytorch.callbacks import ModelCheckpoint
-import os
+from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from sleap_nn.architectures.common import xavier_init_weights
+from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
+from torchvision.models.swin_transformer import (
+    Swin_T_Weights,
+    Swin_S_Weights,
+    Swin_B_Weights,
+    Swin_V2_T_Weights,
+    Swin_V2_S_Weights,
+    Swin_V2_B_Weights,
+)
+from torchvision.models.convnext import (
+    ConvNeXt_Base_Weights,
+    ConvNeXt_Tiny_Weights,
+    ConvNeXt_Small_Weights,
+    ConvNeXt_Large_Weights,
+)
 
 
 def xavier_init_weights(x):
@@ -49,6 +64,7 @@ class ModelTrainer:
 
         self.m_device = self.config.trainer_config.device
         self.seed = self.config.trainer_config.seed
+        self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
         # set seed
         torch.manual_seed(self.seed)
         self.is_single_instance_model = False
@@ -68,7 +84,6 @@ class ModelTrainer:
             val_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config.val
             )
-            max_instances = 1
 
         elif self.config.data_config.pipeline == "TopdownConfmaps":
             train_pipeline = TopdownConfmapsPipeline(
@@ -77,7 +92,14 @@ class ModelTrainer:
             val_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config.val
             )
-            max_instances = self.config.data_config.max_instances
+
+        elif self.config.data_config.pipeline == "CentroidConfmaps":
+            train_pipeline = CentroidConfmapsPipeline(
+                data_config=self.config.data_config.train
+            )
+            val_pipeline = CentroidConfmapsPipeline(
+                data_config=self.config.data_config.val
+            )
 
         else:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
@@ -86,23 +108,24 @@ class ModelTrainer:
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
         self.skeletons = train_labels.skeletons
 
-        train_labels_reader = self.provider(train_labels, max_instances=max_instances)
+        train_labels_reader = self.provider(train_labels)
+
         train_datapipe = train_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
         )
+        if self.steps_per_epoch is not None:
+            train_datapipe = Cycler(train_datapipe)
 
         # to remove duplicates when multiprocessing is used
         train_datapipe = train_datapipe.sharding_filter()
-        # create torch Data Loaders
         self.train_data_loader = DataLoader(
             train_datapipe,
             **dict(self.config.trainer_config.train_data_loader),
         )
 
         # val
-        val_labels_reader = self.provider(
-            sio.load_slp(self.config.data_config.val.labels_path),
-            max_instances=max_instances,
+        val_labels_reader = self.provider.from_filename(
+            self.config.data_config.val.labels_path,
         )
         val_datapipe = val_pipeline.make_training_pipeline(
             data_provider=val_labels_reader,
@@ -119,8 +142,13 @@ class ModelTrainer:
     def _initialize_model(self):
         if self.is_single_instance_model:
             self.model = SingleInstanceModel(self.config)
+        elif self.config.data_config.pipeline == "CentroidConfmaps":
+            self.model = CentroidModel(self.config)
         else:
             self.model = TopDownCenteredInstanceModel(self.config)
+
+    def _get_param_count(self):
+        return sum(p.numel() for p in self.model.parameters())
 
     def train(self):
         """Initiate the training by calling the fit method of Trainer."""
@@ -153,6 +181,17 @@ class ModelTrainer:
 
         else:
             callbacks = []
+
+        if self.config.trainer_config.early_stopping.stop_training_on_plateau:
+            callbacks.append(
+                EarlyStopping(
+                    monitor="val_loss",
+                    mode="min",
+                    verbose=False,
+                    min_delta=self.config.trainer_config.early_stopping.min_delta,
+                    patience=self.config.trainer_config.early_stopping.patience,
+                )
+            )
 
         if self.config.trainer_config.use_wandb:
             wandb_config = self.config.trainer_config.wandb
@@ -192,12 +231,16 @@ class ModelTrainer:
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
+            limit_train_batches=self.steps_per_epoch,
         )
 
         trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
 
+        total_params = self._get_param_count()
+
         if self.config.trainer_config.use_wandb:
             self.config.trainer_config.wandb.run_id = wandb.run.id
+            self.config.model_config.total_params = total_params
             for m in self.config.trainer_config.wandb.log_params:
                 list_keys = m.split(".")
                 key = list_keys[-1]
@@ -205,12 +248,11 @@ class ModelTrainer:
                 for l in list_keys[1:]:
                     value = value[l]
                 self.wandb_logger.experiment.config.update({key: value})
+            self.wandb_logger.experiment.config.update({"model_params": total_params})
             wandb.finish()
 
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
-
-
 
 
 class TrainingModel(L.LightningModule):
@@ -235,17 +277,40 @@ class TrainingModel(L.LightningModule):
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
         self.m_device = self.trainer_config.device
+        self.input_expand_channels = (
+            self.model_config.backbone_config.backbone_config.in_channels
+        )
+        if self.model_config.pre_trained_weights:
+            ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
+                progress=True, check_hash=True
+            )
+            input_channels = ckpt["features.0.0.weight"].shape[-3]
+            if (
+                self.model_config.backbone_config.backbone_config.in_channels
+                != input_channels
+            ):
+                self.input_expand_channels = input_channels
+                OmegaConf.update(
+                    self.model_config,
+                    "backbone_config.backbone_config.in_channels",
+                    input_channels,
+                )
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
             head_configs=[self.model_config.head_configs],
+            input_expand_channels=self.input_expand_channels,
         ).to(self.m_device)
-
-        # Initializing the model weights
-        if self.model_config.init_weights == "xavier":
-            self.model.apply(xavier_init_weights)
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
+
+        # Initialization for encoder and decoder stacks.
+        if self.model_config.init_weights == "xavier":
+            self.model.apply(xavier_init_weights)
+
+        # Pre-trained weights for the encoder stack.
+        if self.model_config.pre_trained_weights:
+            self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
     @property
     def device(self):
@@ -396,8 +461,8 @@ class SingleInstanceModel(TrainingModel):
 class TopDownCenteredInstanceModel(TrainingModel):
     """Lightning Module for TopDownCenteredInstance Model.
 
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
-    forward pass specific to TopDown Centered instance model.
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    and forward pass specific to TopDown Centered instance model.
 
     Args:
         config: OmegaConf dictionary which has the following:
@@ -439,6 +504,73 @@ class TopDownCenteredInstanceModel(TrainingModel):
         ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+        y = y.to(self.m_device)
+        val_loss = nn.MSELoss()(y_preds, y)
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+        self.log(
+            "val_loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+
+
+class CentroidModel(TrainingModel):
+    """Lightning Module for Centroid Model.
+
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    and forward pass specific to centroid model.
+
+    Args:
+        config: OmegaConf dictionary which has the following:
+                (i) data_config: data loading pre-processing configs to be passed to
+                `CentroidConfmapsPipeline` class.
+                (ii) model_config: backbone and head configs to be passed to `Model` class.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+
+    """
+
+    def __init__(self, config: OmegaConf):
+        """Initialise the configs and the model."""
+        super().__init__(config)
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1)
+        img = img.to(self.m_device)
+        return self.model(img)["CentroidConfmapsHead"]
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+            batch["centroids_confidence_maps"], dim=1
+        ).to(self.m_device)
+
+        y_preds = self.model(X)["CentroidConfmapsHead"]
+        y = y.to(self.m_device)
+        loss = nn.MSELoss()(y_preds, y)
+        self.log(
+            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+            batch["centroids_confidence_maps"], dim=1
+        ).to(self.m_device)
+
+        y_preds = self.model(X)["CentroidConfmapsHead"]
         y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
         lr = self.optimizers().optimizer.param_groups[0]["lr"]

@@ -402,6 +402,7 @@ class Decoder(nn.Module):
         filters_rate: Factor to adjust the number of filters per block. Default is 2.
         convs_per_block: Number of convolutional layers per block. Default is 2.
         kernel_size: Size of the convolutional kernels. Default is 3.
+        is_stem: Boolean to indicate whether the encoder has a stem layer.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -417,6 +418,7 @@ class Decoder(nn.Module):
         filters_rate: int = 2,
         convs_per_block: int = 2,
         kernel_size: int = 3,
+        is_stem: bool = False,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -429,6 +431,7 @@ class Decoder(nn.Module):
         self.filters_rate = filters_rate
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
+        self.is_stem = is_stem
 
         self.current_strides = []
 
@@ -462,6 +465,29 @@ class Decoder(nn.Module):
 
             self.current_strides.append(current_stride)
             current_stride = next_stride
+        if self.is_stem:
+            while current_stride >= 1:
+                next_stride = current_stride // 2
+                block_filters_in = int(
+                    filters * (filters_rate ** (down_blocks + 0 - 1 - block))
+                )
+
+                block_filters_out = block_filters_in
+                self.decoder_stack.append(
+                    SimpleUpsamplingBlock(
+                        x_in_shape=(block_filters_in),
+                        current_stride=current_stride,
+                        upsampling_stride=2,
+                        interp_method="bilinear",
+                        refine_convs=0,
+                        refine_convs_filters=block_filters_out,
+                        refine_convs_kernel_size=self.kernel_size,
+                        refine_convs_batch_norm=False,
+                    )
+                )
+                self.current_strides.append(current_stride)
+                current_stride = next_stride
+                block += 1
 
     def forward(
         self, x: torch.Tensor, features: List[torch.Tensor]
@@ -480,7 +506,10 @@ class Decoder(nn.Module):
             "outputs": [],
         }
         for i in range(len(self.decoder_stack)):
-            x = self.decoder_stack[i](x, features[i])
+            if i < len(features):
+                x = self.decoder_stack[i](x, features[i])
+            else:
+                x = self.decoder_stack[i](x, None)
             outputs["outputs"].append(x)
         outputs["strides"] = self.current_strides
 

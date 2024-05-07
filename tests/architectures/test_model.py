@@ -7,16 +7,19 @@ from sleap_nn.architectures.heads import Head
 
 
 def test_get_backbone():
+    # unet
     base_unet_model_config = OmegaConf.create(
         {
             "backbone_type": "unet",
+            "init_weights": "default",
+            "pre_trained_weights": None,
             "backbone_config": {
                 "in_channels": 1,
                 "kernel_size": 3,
-                "filters": 64,
+                "filters": 16,
                 "filters_rate": 2,
                 "down_blocks": 4,
-                "up_blocks": 4,
+                "up_blocks": 3,
                 "convs_per_block": 2,
             },
         }
@@ -24,6 +27,67 @@ def test_get_backbone():
 
     backbone = get_backbone(
         base_unet_model_config.backbone_type, base_unet_model_config.backbone_config
+    )
+    assert isinstance(backbone, torch.nn.Module)
+
+    # convnext
+    base_convnext_model_config = OmegaConf.create(
+        {
+            "backbone_type": "convnext",
+            "init_weights": "default",
+            "pretrained_weights": "",
+            "backbone_config": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters_rate": 2,
+                "up_blocks": 2,
+                "convs_per_block": 2,
+                "arch": {
+                    "depths": [3, 3, 9, 3],
+                    "channels": [96, 192, 384, 768],
+                },
+                "stem_patch_kernel": 4,
+                "stem_patch_stride": 2,
+            },
+        }
+    )
+
+    backbone = get_backbone(
+        base_convnext_model_config.backbone_type,
+        base_convnext_model_config.backbone_config,
+    )
+    assert isinstance(backbone, torch.nn.Module)
+
+    with pytest.raises(KeyError):
+        _ = get_backbone("invalid_input", base_unet_model_config.backbone_config)
+
+    # swint
+    base_convnext_model_config = OmegaConf.create(
+        {
+            "backbone_type": "swint",
+            "init_weights": "default",
+            "pretrained_weights": "",
+            "backbone_config": {
+                "patch_size": [4, 4],
+                "embed_dim": 96,
+                "depths": [2, 2, 6, 2],
+                "num_heads": [3, 6, 12, 24],
+                "window_size": [7, 7],
+                "stem_stride": 4,
+                "stochastic_depth_prob": 0.2,
+                "norm_layer": "",
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters_rate": 2,
+                "up_blocks": 2,
+                "convs_per_block": 2,
+            },
+        }
+    )
+
+    backbone = get_backbone(
+        base_convnext_model_config.backbone_type,
+        base_convnext_model_config.backbone_config,
     )
     assert isinstance(backbone, torch.nn.Module)
 
@@ -82,7 +146,9 @@ def test_unet_model():
     )
 
     model = Model(
-        backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
@@ -100,7 +166,9 @@ def test_unet_model():
     assert z[base_unet_head_config.head_type].dtype == torch.float32
 
     model = Model.from_config(
-        backbone_config=base_unet_model_config, head_configs=[base_unet_head_config]
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)

@@ -73,6 +73,8 @@ class InstanceCropper(IterDataPipe):
             image = ex["image"]  # (B=1, C, H, W)
             instances = ex["instances"]  # (B=1, num_instances, num_nodes, 2)
             centroids = ex["centroids"]  # (B=1, num_instances, 2)
+            del ex["instances"]
+            del ex["centroids"]
             for cnt, (instance, centroid) in enumerate(zip(instances[0], centroids[0])):
                 if cnt == ex["num_instances"]:
                     break
