@@ -22,6 +22,7 @@ def test_providers(minimal_instance):
     image = image.squeeze().squeeze().unsqueeze(dim=-1)
     assert np.all(org_image == image.numpy())
 
+
 def test_videoreader_provider(centered_instance_video):
     """Test VideoReader class."""
     video = sio.load_video(centered_instance_video)

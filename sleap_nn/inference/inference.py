@@ -422,8 +422,8 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
         """Return the ground truth instance peaks given a set of crops."""
-        # num_inst = batch["num_instances"]
-        b, _, max_inst, nodes, _ = batch["centroids"].shape
+
+        b, _, max_inst, nodes, _ = batch["instances"].shape
         inst = (
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)

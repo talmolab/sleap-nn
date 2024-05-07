@@ -197,6 +197,7 @@ def test_topdown_predictor(
     finally:
         OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
 
+
 def test_topdown_inference_model(
     config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
 ):
@@ -612,6 +613,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     finally:
         # save the original config back
         OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+
 
 def test_centroid_inference_model(config):
     """Test CentroidCrop class to run inference on centroid models."""
