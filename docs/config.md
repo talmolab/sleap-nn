@@ -10,104 +10,170 @@ The config file has four main sections:
 ***Note***: The structure for `train` in data_config is used for validation set as well with the key: `val`. Similarly, the structure for `train_data_loader` in trainer_config section is used for `val_data_loader`.
 
 - `data_config`: 
-    - `provider`: provider class to read the input sleap files. (only LabelsReader supported)
-    - `pipeline`: Pipeline for Data. One of "TopdownConfmaps", "SingleInstanceConfmaps"
+    - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for training pipeline.
+    - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps" or "CentroidConfmapsPipeline"
     - `train`:
-        - `labels_path`: path to `.slp` files
-        - `general`:
-            - `keep_keys`: the keys to be retained in the input dictionary throughout the pipeline. Available keys include image, video_idx, frame_idx, instances, centroids, instance, instance_bbox, instance_image, confidence_maps
+        - `labels_path`: (str) Path to `.slp` files
+        - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If input has three channels if this
+        is set to False, then we convert the image to grayscale (single-channel)
+        image.
+        - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
+        original image size will be retained. Default: None.
+        - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
+        original image size will be retained. Default: None.
         - `preprocessing`:
-            - `anchor_ind`:   index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
-            - `crop_hw`: crop height and width of each instance (h, w)
-            - `conf_map_gen`: dictionary in the format {"sigma": 1.5, "output_stride": 2}. *sigma* defines the spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.  *output_stride* defines the stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+            - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
+            - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
+            - `conf_map_gen`: (Dict[float]) Dictionary in the format {"sigma": 1.5, "output_stride": 2}. *sigma* defines the spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.  *output_stride* defines the stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
             - `augmentation_config`:
-                - `random crop`: {"random_crop_p": None, "random_crop_hw": None}, where *random_crop_p* is the probability of applying random crop and *random_crop_hw* is the desired output size (out_h, out_w) of the crop. Must be Tuple[int, int], then out_h = size[0], out_w = size[1].
-                - `use_augmentations`: True if the data augmentation should be applied to the data, else False.
+                - `random crop`: (Dict[float]) {"random_crop_p": None, "random_crop_hw": None}, where *random_crop_p* is the probability of applying random crop and *random_crop_hw* is the desired output size (out_h, out_w) of the crop. Must be Tuple[int, int], then out_h = size[0], out_w = size[1].
+                - `use_augmentations`: (bool) True if the data augmentation should be applied to the data, else False.
                 - `augmentation`: 
                     - `intensity`: 
-                        - `uniform_noise`: tuple of uniform noise (min_noise, max_noise). Must satisfy 0. <= min_noise <= max_noise <= 1.
-                        - `uniform_noise_p`: Probability of applying random uniform noise. *Default*=0.0
-                        - `gaussian_noise_mean`: The mean of the gaussian distribution.
-                        - `gaussian_noise_std`: The standard deviation of the gaussian distribution.
-                        - `gaussian_noise_p`: Probability of applying random gaussian noise. *Default*=0.0
-                        - `contrast`: The contrast factor to apply. *Default*: (1.0, 1.0).
-                        - `contrast_p`: Probability of applying random contrast. *Default*=0.0
-                        - `brightness`: The brightness factor to apply. *Default*: (1.0, 1.0).
-                        - `brightness_p`: Probability of applying random brightness. *Default*=0.0
+                        - `uniform_noise`: (Tuple[float]) Tuple of uniform noise (min_noise, max_noise). Must satisfy 0. <= min_noise <= max_noise <= 1.
+                        - `uniform_noise_p`: (float) Probability of applying random uniform noise. *Default*=0.0
+                        - `gaussian_noise_mean`: (float) The mean of the gaussian noise distribution.
+                        - `gaussian_noise_std`: (float) The standard deviation of the gaussian noise distribution.
+                        - `gaussian_noise_p`: (float) Probability of applying random gaussian noise. *Default*=0.0
+                        - `contrast`: (List[float]) The contrast factor to apply. *Default*: (1.0, 1.0).
+                        - `contrast_p`: (float) Probability of applying random contrast. *Default*=0.0
+                        - `brightness`: (float) The brightness factor to apply. *Default*: (1.0, 1.0).
+                        - `brightness_p`: (float) Probability of applying random brightness. *Default*=0.0
                     - `geometric`:
-                        - `rotation`: Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
-                        - `scale`: A scaling factor as a scalar float specifying the amount of scaling. A
+                        - `rotation`: (List[float]) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
+                        - `scale`: (float) A scaling factor as a scalar float specifying the amount of scaling. A
                         random factor between (1 - scale, 1 + scale) will be sampled and applied to both images and keypoints. If `None`, no scaling augmentation will be applied.
-                        - `translate`: tuple of maximum absolute fraction for horizontal and vertical translations. For example translate=(a, b), then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is randomly sampled in the range img_height * b < dy < img_height * b. Will not translate by default.
-                        - `affine_p`: Probability of applying random affine transformations. *Default*=0.0
-                        - `erase_scale`: Range of proportion of erased area against input image. *Default*: (0.0001, 0.01).
-                        - `erase_ratio`: Range of aspect ratio of erased area. *Default*: (1, 1).
-                        - `erase_p`: Probability of applying random erase. *Default*=0.0
-                        - `mixup_lambda`: min-max value of mixup strength. Default is 0-1. *Default*: `None`.
-                        - `mixup_p`: Probability of applying random mixup v2. *Default*=0.0
-                        - `input_key`: Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
+                        - `translate`: (List[float]) tuple of maximum absolute fraction for horizontal and vertical translations. For example translate=(a, b), then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is randomly sampled in the range img_height * b < dy < img_height * b. Will not translate by default.
+                        - `affine_p`: (float) Probability of applying random affine transformations. *Default*=0.0
+                        - `erase_scale`: (List[float]) Range of proportion of erased area against input image. *Default*: (0.0001, 0.01).
+                        - `erase_ratio`: (List[float]) Range of aspect ratio of erased area. *Default*: (1, 1).
+                        - `erase_p`: (float) Probability of applying random erase. *Default*=0.0
+                        - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `None`.
+                        - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
+                        - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
+    - `val`: (Similar to `train` structure)
 
 - `model_config`: 
-    - `init_weight`: model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
+    - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
+    - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
     - `backbone_config`:
-        - `in_channels`:      Number of input channels. Default is 1.
-        - `kernel_size`:      Size of the convolutional kernels. Default is 3.
-        - `filters`:          Base number of filters in the network. Default is 32
-        - `filters_rate`:     Factor to adjust the number of filters per block. Default is 1.5.
-        - `down_block`s:      Number of downsampling blocks. Default is 4.
-        - `up_blocks`:        Number of upsampling blocks in the decoder. Default is 3.
-        - `convs_per_block`:  Number of convolutional layers per block. Default is 2.
+        - `backbone_type`: (str) Backbone architecture for the model to be trained. One of "unet", "convnext" or "swint".
+        - `backbone_config`: (for UNet)
+            - `in_channels`: (int) Number of input channels. Default is 1.
+            - `kernel_size`: (int) Size of the convolutional kernels. Default is 3.
+            - `filters`: (int) Base number of filters in the network. Default is 32
+            - `filters_rate`: (float) Factor to adjust the number of filters per block. Default is 1.5.
+            - `down_blocks`: (int) Number of downsampling blocks. Default is 4.
+            - `up_blocks`: (int) Number of upsampling blocks in the decoder. Default is 3.
+            - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
+        - `backbone_config`: (for ConvNext)
+            - `arch`: (Default is `Tiny` architecture config.)
+                - `depths`: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
+                - `channels`: (List(int)) Number of channels in each block. Default: [96, 192, 384, 768].
+            - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. Default is 4.
+            - `stem_patch_stride`: (int) Convolutional stride in the stem layer. Default is 2.
+            - `in_channels`: (int) Number of input channels. Default is 1.
+            - `kernel_size`: (int) Size of the convolutional kernels. Default is 3.
+            - `filters`: (int) Base number of filters in the network. Default is 32
+            - `filters_rate`: (float) Factor to adjust the number of filters per block. Default is 1.5.
+            - `up_blocks`: (int) Number of upsampling blocks in the decoder. Default is 3.
+            - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
+        - `backbone_config`: (for SwinT. Default is `Tiny` architecture.)
+            - `patch_size`: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
+            - `stem_stride`: (int) Stride for the patch. Default is 2.
+            - `embed_dim`: (int) Patch embedding dimension. Default: 96.
+            - `depths`: (List[int]) Depth of each Swin Transformer layer. Default: [2,2,6,2].
+            - `num_heads`: (List[int]) Number of attention heads in different layers. Default: [3,6,12,24].
+            - `window_size`: (List[int]) Window size. Default: [7,7].
+            - `in_channels`: (int) Number of input channels. Default is 1.
+            - `kernel_size`: (int) Size of the convolutional kernels. Default is 3.
+            - `filters_rate`: (float) Factor to adjust the number of filters per block. Default is 1.5.
+            - `up_blocks`: (int) Number of upsampling blocks in the decoder. Default is 3.
+            - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
     - `head_configs`
-        - `head_type`:        Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
+        - `head_type`: (str) Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
         - `head_config`:
-            - `part_names`:   Text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used.
-            - `anchor_part`:  index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
-            - `sigma`: Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
-            - `output_stride`: The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
-            - `loss_weight`:  Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
+            - `part_names`: (List[str]) Text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used.
+            - `anchor_part`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
+            - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
+            - `output_stride`: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+            - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
+
 - `trainer_config`: 
     - `train_data_loader`:
-        - `batch_size`: number of samples per batch or batch size for training data. *Default* = 1.
-        - `shuffle`: set to True to have the data reshuffled at every epoch. *Default*: False.
-        - `num_workers`: number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: 0.
-        - `pin_memory`: Boolean  If True, the data loader will copy Tensors into device/CUDA pinned memory before returning them.
-        - `drop_last`: set to True to drop the last incomplete batch, if the dataset size is not divisible by the batch size. If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller. *Default*: False.
-        - `prefetch_factor`: Number of batches loaded in advance by each worker. 2 means there will be a total of 2 * num_workers batches prefetched across all workers. (default value depends on the set value for num_workers. If value of num_workers=0 default is None. Otherwise, if value of num_workers > 0 default is 2).
+        - `batch_size`: (int) Number of samples per batch or batch size for training data. *Default* = 1.
+        - `shuffle`: (bool) True to have the data reshuffled at every epoch. *Default*: False.
+        - `num_workers`: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: 0.
+        - `pin_memory`: (bool) If True, the data loader will copy Tensors into device/CUDA pinned memory before returning them.
+        - `drop_last`: (bool) True to drop the last incomplete batch, if the dataset size is not divisible by the batch size. If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller. *Default*: False.
+        - `prefetch_factor`: (int) Number of batches loaded in advance by each worker. 2 means there will be a total of 2 * num_workers batches prefetched across all workers. (default value depends on the set value for num_workers. If value of num_workers=0 default is None. Otherwise, if value of num_workers > 0 default is 2).
+    - `val_data_loader`: (Similar to `train_data_loader`)
     - `model_ckpt`:
-        - `save_top_k`: if save_top_k == k, the best k models according to the quantity monitored will be saved. if save_top_k == 0, no models are saved. if save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
-        - `save_last`: When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: None.
-        - `auto_insert_metric_name`– When True, the checkpoints filenames will contain the metric name. For example, `filename='checkpoint_{epoch:02d}-{acc:02.0f}` with epoch 1 and acc 1.12 will resolve to `checkpoint_epoch=01-acc=01.ckpt`.
-        - `monitor`: Quantity to monitor. When None, this saves a checkpoint only for the last epoch. *Default*: None
-        - `mode`: One of {min, max}. If save_top_k != 0, the decision to overwrite the current save file is made based on either the maximization or the minimization of the monitored quantity. For 'val_acc', this should be 'max', for 'val_loss' this should be 'min', etc. 
-    - `device`: device on which torch.Tensor will be allocated. One of the (cpu, cuda, mkldnn, opengl, opencl, ideep, hip, msnpu).
-    - `trainer_devices`: Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
-    - `trainer_accelerator`: One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to.
-    - `enable_progress_bar`: Boolean to enable printing the logs during training.
-    - `max_epochs`: maxinum number of epochs to run.
-    - `seed`: seed value for the current experiment.
-    - `use_wandb`: Boolean to enable wandb logging.
-    - `wandb_mode`: "offline" if only local logging is required.
-    - `save_ckpt`: Boolean to enable checkpointing. 
-    - `save_ckpt_path`: dir path to save the .ckpt file. *Default*: "./"
+        - `save_top_k`: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
+        - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: None.
+        - `auto_insert_metric_name`– (str) When not None, the checkpoints filenames will contain the metric name. For example, `filename='checkpoint_{epoch:02d}-{acc:02.0f}` with epoch 1 and acc 1.12 will resolve to `checkpoint_epoch=01-acc=01.ckpt`.
+        - `monitor`: (str) Quantity to monitor for e.g., "val_loss". When None, this saves a checkpoint only for the last epoch. *Default*: None
+        - `mode`: (str) One of {"min", "max"}. If save_top_k != 0, the decision to overwrite the current save file is made based on either the maximization or the minimization of the monitored quantity. For 'val_acc', this should be 'max', for 'val_loss' this should be 'min', etc.
+    - `early_stopping`: TODO
+        - `stop_training_on_plateau`: (bool)
+        - `min_delta`: (float)
+        - `patience`: (int)
+    - `device`: (str) Device on which torch.Tensor will be allocated. One of the ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+    - `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
+    - `trainer_accelerator`: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to.
+    - `enable_progress_bar`: (bool) When True, enables printing the logs during training.
+    - `max_epochs`: (int) Maxinum number of epochs to run.
+    - `seed`: (int) Seed value for the current experiment.
+    - `use_wandb`: (bool) True to enable wandb logging.
+    - `save_ckpt`: (bool) True to enable checkpointing. 
+    - `save_ckpt_path`: (str) Directory path to save the training config and checkpoint files. *Default*: "./"
     - `wandb`:
-        - `project`: title for the wandb project
-        - `name`: name of the current run
-        - `api_key`: API key
-        - `wandb_mode`: `"offline"` if only offline logging is required.
+        - `entity`: (str) Entity of wandb project.
+        - `project`: (str) Project name for the wandb project.
+        - `name`: (str) Name of the current run.
+        - `api_key`: (str) API key. The API key is masked when saved to config files.
+        - `wandb_mode`: (str) "offline" if only local logging is required. Default: "None".
+        - `log_params`: (List[str]) List of config parameters to save it in wandb logs. For example, to save learning rate from trainer config section, use "trainer_config.optimizer.lr" (provide the full path to the specific config parameter).
+    - `optimizer_name`: (str) Optimizer to be used. One of ["Adam", "AdamW"].
     - `optimizer`
-        - `lr`: learning rate of type float. *Default*: 1e-3
-        - `amsgrad`: Boolean to enable AMSGrad. *Default*: False
+        - `lr`: (float) Learning rate of type float. *Default*: 1e-3
+        - `amsgrad`: (bool) Enable AMSGrad with the optimizer. *Default*: False
     - `lr_scheduler`
-        - `mode`: One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. *Default*: "min".
-        - `threshold`: Threshold for measuring the new optimum, to only focus on significant changes. *Default*: 1e-4.
-        - `threshold_mode`: One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: "rel".
-        - `cooldown`: Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: 0
-        - `patience`: Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. *Default*: 10.
-        - `factor`: Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: 0.1.
-        - `min_lr`: A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: 0.
+        - `mode`: (str) One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. *Default*: "min".
+        - `threshold`: (float) Threshold for measuring the new optimum, to only focus on significant changes. *Default*: 1e-4.
+        - `threshold_mode`: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: "rel".
+        - `cooldown`: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: 0
+        - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. *Default*: 10.
+        - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: 0.1.
+        - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: 0.
+
 - `inference_config`:
-    - `device`: Device on which torch.Tensor will be allocated. One of the (cpu, cuda, mkldnn, opengl, opencl, ideep, hip, msnpu).
-    - `data`: Same as `data_config.train` with additional sub-key `data_loader` similar to `trainer_config.train_data_loader`.
+    - `device`: (str) Device on which torch.Tensor will be allocated. One of the ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu"). 
+    - `data`:
+        - `path`: (str) Path to `.slp` file or `.mp4` to run inference on.
+        - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
+        original image size will be retained. Default: None
+        - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
+        original image size will be retained. Default: None
+        - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If input has three channels if this
+        is set to False, then we convert the image to grayscale (single-channel)
+        image. 
+        - `provider`: (str) Provider class to read the input sleap files. Either "LabelsReader" or "VideoReader".
+        - `data_loader`: (Similar to trainer_config.train_data_loader) This section is used only if provider is `LabelsReader`.
+        - `video_loader`: (only if provider is `VideoReader`).
+            - `batch_size`: (int) Number of samples per batch.
+            - `queue_maxsize`: (int) Maximum size of the frame buffer queue.
+            - `start_idx`: (int) Start index of the frames to read. If None, 0 is set as the default.
+            - `end_idx`: (int) End index of the frames to read. If None, length of the video is set as
+            the default.
+        - `preprocessing`: 
+            - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
+            - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
+            - `output_stride`: (int) Stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
     - `peak_threshold`: `float` between 0 and 1. Minimum confidence threshold. Peaks with values below this will ignored.
     - `integral_refinement`: If `None`, returns the grid-aligned peaks with no refinement. If `"integral"`, peaks will be refined with integral regression.
     - `integral_patch_size`: Size of patches to crop around each rough peak as an integer scalar.

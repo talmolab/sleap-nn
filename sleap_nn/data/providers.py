@@ -41,16 +41,14 @@ class LabelsReader(IterDataPipe):
                 Default value True
         instances_key: True if `instances` key needs to be present in the data pipeline.
                 When this is set to True, the instances are appended with NaNs to have same
-                number of instances to enable batching. This is useful when running
-                inference.inference.FindInstancePeaksGroundTruth where we need the
-                `instances` key. Default: False.
+                number of instances to enable batching. Default: False.
     """
 
     def __init__(
         self,
         labels: sio.Labels,
         user_instances_only: bool = True,
-        instances_key: bool = False,
+        instances_key: bool = True,
     ):
         """Initialize labels attribute of the class."""
         self.labels = copy.deepcopy(labels)
@@ -75,7 +73,7 @@ class LabelsReader(IterDataPipe):
         cls,
         filename: str,
         user_instances_only: bool = True,
-        instances_key: bool = False,
+        instances_key: bool = True,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
@@ -107,21 +105,22 @@ class LabelsReader(IterDataPipe):
             instances = torch.from_numpy(instances.astype("float32"))
             num_instances, nodes = instances.shape[1:3]
 
-            if self.instances_key:
-                nans = torch.full(
-                    (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
-                )
-                instances = torch.cat([instances, nans], dim=1)
-
-            yield {
+            ex = {
                 "image": torch.from_numpy(image),
-                "instances": instances,
                 "video_idx": torch.tensor(
                     self.labels.videos.index(lf.video), dtype=torch.int32
                 ),
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                 "num_instances": num_instances,
             }
+
+            if self.instances_key:
+                nans = torch.full(
+                    (1, np.abs(self.max_instances - num_instances), nodes, 2), torch.nan
+                )
+                ex["instances"] = torch.cat([instances, nans], dim=1)
+
+            yield ex
 
 
 class VideoReader(Thread):
@@ -134,8 +133,7 @@ class VideoReader(Thread):
     Attributes:
         video: sleap_io.Video object that contains LabeledFrames that will be
                 accessed through a torchdata DataPipe.
-        frame_buffer: Maximum height the image should be padded to. If not provided,
-                the original image size will be retained.
+        frame_buffer: Maximum size of the frame buffer queue.
         start_idx: start index of the frames to read. If None, 0 is set as the default.
         end_idx: end index of the frames to read. If None, length of the video is set as
                 the default.

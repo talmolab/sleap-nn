@@ -394,9 +394,11 @@ class CentroidCrop(L.LightningModule):
             # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
             refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
             peak_vals_with_nans = torch.zeros((batch, self.max_instances))
-            for r, p in zip(self.refined_peaks_batched, self.peak_vals_batched):
-                refined_peaks_with_nans[b] = r
-                peak_vals_with_nans[b] = p
+            for ind, (r, p) in enumerate(
+                zip(self.refined_peaks_batched, self.peak_vals_batched)
+            ):
+                refined_peaks_with_nans[ind] = r
+                peak_vals_with_nans[ind] = p
             inputs.update(
                 {
                     "centroids": refined_peaks_with_nans.unsqueeze(dim=1),
@@ -423,7 +425,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
         """Return the ground truth instance peaks given a set of crops."""
         # num_inst = batch["num_instances"]
-        b, _, max_inst, nodes = batch["centroids"].shape
+        b, _, max_inst, nodes, _ = batch["instances"].shape
         inst = (
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
@@ -468,10 +470,10 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                             batch_peaks,
                             torch.full((abs(max_inst - num_inst), nodes, 2), torch.nan),
                         ]
-                    ).unsqueeze(dim=0)
+                    )
                     vals = torch.cat(
                         [vals, torch.full((max_inst - num_inst, nodes), torch.nan)]
-                    ).unsqueeze(dim=0)
+                    )
                 parsed += c
 
             if i != 0:
@@ -826,9 +828,9 @@ class TopDownPredictor(Predictor):
         self.provider = self.data_config.provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            self.instances_key = False
-            if self.centroid_config and not self.confmap_config:
-                self.instances_key = True
+            self.instances_key = True
+            if self.centroid_config and self.confmap_config:
+                self.instances_key = False
             data_provider = provider.from_filename(
                 self.data_config.path, instances_key=self.instances_key
             )
