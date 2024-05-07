@@ -218,7 +218,6 @@ class CentroidCrop(L.LightningModule):
     predictions from a centroid confidence map model. This includes model forward pass,
     generating crops for cenetered instance model, peak finding, coordinate adjustment
     and cropping.
-
     Attributes:
         torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
             rank-4 confidence maps as output. This should be a model that is trained on
@@ -389,7 +388,6 @@ class CentroidCrop(L.LightningModule):
             )
             crops_dict = self._generate_crops(inputs)
             return crops_dict
-
         else:
             # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
             refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
@@ -425,7 +423,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
         """Return the ground truth instance peaks given a set of crops."""
         # num_inst = batch["num_instances"]
-        b, _, max_inst, nodes, _ = batch["instances"].shape
+        b, _, max_inst, nodes, _ = batch["centroids"].shape
         inst = (
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
@@ -812,15 +810,7 @@ class TopDownPredictor(Predictor):
             is LabelsReader. If provider is VideoReader, this method initiates the reader
             class (doesn't return a pipeline) and the Thread is started in
             Predictor._predict_generator() method.
-            Torch DataLoader where each item is a dictionary with key `image` if provider
-            is LabelsReader. If provider is VideoReader, this method initiates the reader
-            class (doesn't return a pipeline) and the Thread is started in
-            Predictor._predict_generator() method.
-
         Notes:
-            This method creates the class attribute `data_pipeline` and will be
-            called automatically when predicting on data from a new source only when the
-            provider is LabelsReader.
             This method creates the class attribute `data_pipeline` and will be
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.

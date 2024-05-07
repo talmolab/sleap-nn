@@ -104,7 +104,6 @@ class LabelsReader(IterDataPipe):
 
             instances = torch.from_numpy(instances.astype("float32"))
             num_instances, nodes = instances.shape[1:3]
-
             ex = {
                 "image": torch.from_numpy(image),
                 "video_idx": torch.tensor(
