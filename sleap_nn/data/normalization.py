@@ -51,7 +51,7 @@ class Normalizer(IterDataPipe):
         source_dp: The input `IterDataPipe` with examples that contain `"images"` key.
         is_rgb: True if the image has 3 channels (RGB image). If input has only one
                 channel when this is set to `True`, then the images from single-channel
-                is replicated along the channel axis. If input has three channels if this
+                is replicated along the channel axis. If input has three channels and this
                 is set to False, then we convert the image to grayscale (single-channel)
                 image.
     """

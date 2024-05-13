@@ -93,6 +93,7 @@ def test_key_filter(minimal_instance):
 
 
 def test_topdownconfmapspipeline(minimal_instance):
+    """Test the TopdownConfmapsPipeline."""
     base_topdown_data_config = OmegaConf.create(
         {
             "max_height": None,
@@ -308,6 +309,7 @@ def test_topdownconfmapspipeline(minimal_instance):
 
 
 def test_singleinstanceconfmapspipeline(minimal_instance):
+    """Test the SingleInstanceConfmapsPipeline."""
     labels = sio.load_slp(minimal_instance)
 
     # Making our minimal 2-instance example into a single instance example.

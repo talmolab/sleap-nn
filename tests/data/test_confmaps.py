@@ -16,6 +16,7 @@ import numpy as np
 
 
 def test_confmaps(minimal_instance):
+    """Test ConfidenceMapGenerator module."""
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe = Normalizer(datapipe)
@@ -67,7 +68,7 @@ def test_confmaps(minimal_instance):
 
 
 def test_multi_confmaps(minimal_instance):
-
+    """Test MultiConfidenceMapGenerator module."""
     # centroids = True
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = Normalizer(datapipe)

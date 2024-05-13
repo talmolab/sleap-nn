@@ -38,7 +38,7 @@ def centered_instance_video(sleap_data_dir):
 
 @pytest.fixture
 def config(sleap_data_dir):
-
+    """Configuration for Sleap-NN data processing and model training."""
     init_config = OmegaConf.create(
         {
             "data_config": {

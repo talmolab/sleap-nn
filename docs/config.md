@@ -1,22 +1,26 @@
-### Config file 
+### Config file
 
 This document contains the docstrings for the config file required to pass to the `sleap_nn.ModelTrainer` class to train and run inference on a sleap-nn model.
 The config file has four main sections:
+
 - 1. `data_config`: Creating a data pipeline.
+
 - 2. `model_config`: Initialise the sleap-nn backbone and head models.
+
 - 3. `trainer_config`: Hyperparameters required to train the model with Lightning.
+
 - 4. `inference_config`: Inference related configs.
 
-***Note***: The structure for `train` in data_config is used for validation set as well with the key: `val`. Similarly, the structure for `train_data_loader` in trainer_config section is used for `val_data_loader`.
+***Note***: The structure for `train` in data_config is used for validation set as well, with the key: `val`. Similarly, the structure for `train_data_loader` in trainer_config section is used for `val_data_loader`.
 
 - `data_config`: 
-    - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for training pipeline.
-    - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps" or "CentroidConfmapsPipeline"
+    - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
+    - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps" or "CentroidConfmapsPipeline".
     - `train`:
         - `labels_path`: (str) Path to `.slp` files
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
         channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If input has three channels if this
+        is replicated along the channel axis. If input has three channels and this
         is set to False, then we convert the image to grayscale (single-channel)
         image.
         - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
@@ -26,7 +30,7 @@ The config file has four main sections:
         - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
         - `preprocessing`:
             - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
-            - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
+            - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model. 
             - `conf_map_gen`: (Dict[float]) Dictionary in the format {"sigma": 1.5, "output_stride": 2}. *sigma* defines the spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.  *output_stride* defines the stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
             - `augmentation_config`:
                 - `random crop`: (Dict[float]) {"random_crop_p": None, "random_crop_hw": None}, where *random_crop_p* is the probability of applying random crop and *random_crop_hw* is the desired output size (out_h, out_w) of the crop. Must be Tuple[int, int], then out_h = size[0], out_w = size[1].
@@ -46,7 +50,7 @@ The config file has four main sections:
                         - `rotation`: (List[float]) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
                         - `scale`: (float) A scaling factor as a scalar float specifying the amount of scaling. A
                         random factor between (1 - scale, 1 + scale) will be sampled and applied to both images and keypoints. If `None`, no scaling augmentation will be applied.
-                        - `translate`: (List[float]) tuple of maximum absolute fraction for horizontal and vertical translations. For example translate=(a, b), then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is randomly sampled in the range img_height * b < dy < img_height * b. Will not translate by default.
+                        - `translate`: (List[float]) tuple of maximum absolute fraction for horizontal and vertical translations. For example, translate=(a, b), then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is randomly sampled in the range img_height * b < dy < img_height * b. Will not translate by default.
                         - `affine_p`: (float) Probability of applying random affine transformations. *Default*=0.0
                         - `erase_scale`: (List[float]) Range of proportion of erased area against input image. *Default*: (0.0001, 0.01).
                         - `erase_ratio`: (List[float]) Range of aspect ratio of erased area. *Default*: (1, 1).
@@ -116,7 +120,7 @@ The config file has four main sections:
     - `model_ckpt`:
         - `save_top_k`: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
         - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: None.
-        - `auto_insert_metric_name`– (str) When not None, the checkpoints filenames will contain the metric name. For example, `filename='checkpoint_{epoch:02d}-{acc:02.0f}` with epoch 1 and acc 1.12 will resolve to `checkpoint_epoch=01-acc=01.ckpt`.
+        - `auto_insert_metric_name`– (str) When not None, the checkpoints filenames will contain the metric name. For example, `filename='checkpoint_{epoch:02d}-{acc:02.0f}'` with epoch 1 and acc 1.12 will resolve to `checkpoint_epoch=01-acc=01.ckpt`.
         - `monitor`: (str) Quantity to monitor for e.g., "val_loss". When None, this saves a checkpoint only for the last epoch. *Default*: None
         - `mode`: (str) One of {"min", "max"}. If save_top_k != 0, the decision to overwrite the current save file is made based on either the maximization or the minimization of the monitored quantity. For 'val_acc', this should be 'max', for 'val_loss' this should be 'min', etc.
     - `early_stopping`: TODO
@@ -163,7 +167,7 @@ The config file has four main sections:
         - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
         channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If input has three channels if this
+        is replicated along the channel axis. If input has three channels and this
         is set to False, then we convert the image to grayscale (single-channel)
         image. 
         - `provider`: (str) Provider class to read the input sleap files. Either "LabelsReader" or "VideoReader".
@@ -178,7 +182,7 @@ The config file has four main sections:
             - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
             - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
             - `output_stride`: (int) Stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
-    - `peak_threshold`: `float` between 0 and 1. Minimum confidence threshold. Peaks with values below this will ignored.
+    - `peak_threshold`: `float` between 0 and 1. Minimum confidence threshold. Peaks with values below this will be ignored.
     - `integral_refinement`: If `None`, returns the grid-aligned peaks with no refinement. If `"integral"`, peaks will be refined with integral regression.
     - `integral_patch_size`: Size of patches to crop around each rough peak as an integer scalar.
     - `return_confmaps`: If `True`, predicted confidence maps will be returned along with the predicted peak values and points. 

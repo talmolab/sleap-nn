@@ -813,6 +813,7 @@ class TopDownPredictor(Predictor):
 
             One of the two models can be left as `None` to perform inference with ground
             truth data. This will only work with `LabelsReader` as the provider.
+
         """
         if centroid_ckpt_path is not None:
             # Load centroid model.

@@ -320,6 +320,7 @@ def test_centroid_model(config, tmp_path: str):
 
 
 def test_single_instance_model(config, tmp_path: str):
+    """Test the SingleInstanceModel training."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"

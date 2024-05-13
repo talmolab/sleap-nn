@@ -1,13 +1,11 @@
 import torch
 from torch import nn
 
-from sleap_nn.architectures.encoder_decoder import Encoder
 from sleap_nn.architectures.swint import SwinTransformerEncoder, SwinTWrapper
-from sleap_nn.architectures.utils import get_children_layers
 
 
 def test_swint_reference():
-
+    """Test SwinTWrapper and SwinTransformerEncoder module."""
     depths = [2, 2, 6, 2]
     up_blocks = 3
     embed_dim = 96

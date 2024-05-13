@@ -24,6 +24,10 @@ class TopdownConfmapsPipeline:
     Attributes:
         data_config: Data-related configuration.
         down_blocks: Number of down blocks in the backbone model.
+
+    Note: If scale is provided for centered-instance model, the images are cropped out
+    of original image according to given crop height and width and then the cropped
+    images are scaled.
     """
 
     def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
