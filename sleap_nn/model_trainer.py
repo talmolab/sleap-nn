@@ -79,26 +79,32 @@ class ModelTrainer:
         # create pipelines
         if self.is_single_instance_model:
             train_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.train
+                data_config=self.config.data_config.train,
+                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
             )
             val_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.val
+                data_config=self.config.data_config.val,
+                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
             )
 
         elif self.config.data_config.pipeline == "TopdownConfmaps":
             train_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.train
+                data_config=self.config.data_config.train,
+                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
             )
             val_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.val
+                data_config=self.config.data_config.val,
+                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
             )
 
         elif self.config.data_config.pipeline == "CentroidConfmaps":
             train_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.train
+                data_config=self.config.data_config.train,
+                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
             )
             val_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.val
+                data_config=self.config.data_config.val,
+                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
             )
 
         else:

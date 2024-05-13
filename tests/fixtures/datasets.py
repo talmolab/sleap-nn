@@ -49,6 +49,7 @@ def config(sleap_data_dir):
                     "is_rgb": False,
                     "max_width": None,
                     "max_height": None,
+                    "scale": 1.0,
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": [160, 160],
@@ -91,6 +92,7 @@ def config(sleap_data_dir):
                     "is_rgb": False,
                     "max_width": None,
                     "max_height": None,
+                    "scale": 1.0,
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": [160, 160],
@@ -225,6 +227,7 @@ def config(sleap_data_dir):
                     "path": f"./tests/assets/minimal_instance.pkg.slp",
                     "max_width": None,
                     "max_height": None,
+                    "scale": 1.0,
                     "max_instances": None,
                     "is_rgb": False,
                     "provider": "LabelsReader",

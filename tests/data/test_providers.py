@@ -21,6 +21,7 @@ def test_providers(minimal_instance):
     org_image = labels[0].image
     image = image.squeeze().squeeze().unsqueeze(dim=-1)
     assert np.all(org_image == image.numpy())
+    assert l.max_height_and_width == (384, 384)
 
 
 def test_videoreader_provider(centered_instance_video):
@@ -28,6 +29,7 @@ def test_videoreader_provider(centered_instance_video):
     video = sio.load_video(centered_instance_video)
     queue = Queue(maxsize=4)
     reader = VideoReader(video=video, frame_buffer=queue, start_idx=None, end_idx=4)
+    assert reader.max_height_and_width == (384, 384)
     reader.start()
     batch_size = 4
     try:

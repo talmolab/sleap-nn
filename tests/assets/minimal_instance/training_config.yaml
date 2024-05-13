@@ -5,6 +5,7 @@ data_config:
     labels_path: minimal_instance.pkg.slp
     max_width: null
     max_height: null
+    scale: 1.0
     is_rgb: false
     preprocessing:
       anchor_ind: 0
@@ -56,6 +57,7 @@ data_config:
     labels_path: minimal_instance.pkg.slp
     max_width: null
     max_height: null
+    scale: 1.0
     is_rgb: false
     preprocessing:
       anchor_ind: 0
@@ -199,6 +201,7 @@ inference_config:
     max_instances: 10
     max_width: null
     max_height: null
+    scale: 1.0
     is_rgb: false
     provider: LabelsReader
     data_loader:

@@ -23,6 +23,7 @@ The config file has four main sections:
         original image size will be retained. Default: None.
         - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
         original image size will be retained. Default: None.
+        - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
         - `preprocessing`:
             - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
             - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
@@ -79,6 +80,7 @@ The config file has four main sections:
             - `filters`: (int) Base number of filters in the network. Default is 32
             - `filters_rate`: (float) Factor to adjust the number of filters per block. Default is 1.5.
             - `up_blocks`: (int) Number of upsampling blocks in the decoder. Default is 3.
+            - `down_blocks`: (int) Number of layers in `arch.depths`. Default is 4.
             - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
         - `backbone_config`: (for SwinT. Default is `Tiny` architecture.)
             - `patch_size`: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
@@ -91,6 +93,7 @@ The config file has four main sections:
             - `kernel_size`: (int) Size of the convolutional kernels. Default is 3.
             - `filters_rate`: (float) Factor to adjust the number of filters per block. Default is 1.5.
             - `up_blocks`: (int) Number of upsampling blocks in the decoder. Default is 3.
+            - `down_blocks`: (int) Number of layers in `depths`. Default is 4.
             - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
     - `head_configs`
         - `head_type`: (str) Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
@@ -157,6 +160,7 @@ The config file has four main sections:
         original image size will be retained. Default: None
         - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
         original image size will be retained. Default: None
+        - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
         channel when this is set to `True`, then the images from single-channel
         is replicated along the channel axis. If input has three channels if this

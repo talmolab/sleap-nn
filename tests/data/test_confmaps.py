@@ -9,6 +9,7 @@ from sleap_nn.data.confidence_maps import (
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import Resizer
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.utils import make_grid_vectors
 import numpy as np
@@ -105,6 +106,7 @@ def test_multi_confmaps(minimal_instance):
     # centroids = False (for instances)
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = Normalizer(datapipe)
+    datapipe = Resizer(datapipe, scale=2)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe1 = MultiConfidenceMapGenerator(
         datapipe,
@@ -116,5 +118,5 @@ def test_multi_confmaps(minimal_instance):
     )
     sample = next(iter(datapipe1))
 
-    assert sample["confidence_maps"].shape == (1, 1, 384, 384)
+    assert sample["confidence_maps"].shape == (1, 1, 768, 768)
     assert torch.sum(sample["confidence_maps"] > 0.93) == 4

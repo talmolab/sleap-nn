@@ -43,8 +43,8 @@ def crop_bboxes(
     See also: `make_centered_bboxes`
     """
     # Compute bounding box size to use for crops.
-    height = bboxes[0, 3, 1] - bboxes[0, 0, 1]
-    width = bboxes[0, 1, 0] - bboxes[0, 0, 0]
+    height = abs(bboxes[0, 3, 1] - bboxes[0, 0, 1])
+    width = abs(bboxes[0, 1, 0] - bboxes[0, 0, 0])
     box_size = tuple(torch.round(torch.Tensor((height + 1, width + 1))).to(torch.int32))
 
     # Crop.

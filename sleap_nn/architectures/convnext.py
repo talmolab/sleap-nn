@@ -144,6 +144,7 @@ class ConvNextWrapper(nn.Module):
         stem_patch_stride: Convolutional stride in the stem layer. Default is 2.
         filters_rate: Factor to adjust the number of filters per block. Default is 2.
         up_blocks: Number of upsampling blocks in the decoder. Default is 3.
+        down_blocks: Number of steps in `depth`. Default is 4 for most of the architectures.
         convs_per_block: Number of convolutional layers per block. Default is 2.
 
     Attributes:
@@ -159,6 +160,7 @@ class ConvNextWrapper(nn.Module):
         stem_patch_stride: int = 2,
         filters_rate: int = 2,
         up_blocks: int = 3,
+        down_blocks: int = 4,
         convs_per_block: int = 2,
         **kwargs,
     ) -> None:
@@ -173,7 +175,7 @@ class ConvNextWrapper(nn.Module):
         self.stem_patch_kernel = stem_patch_kernel
         self.stem_patch_stride = stem_patch_stride
         self.arch = arch
-        self.down_blocks = len(self.arch["depths"]) - 1
+        self.down_blocks = down_blocks - 1
         self.enc = ConvNeXtEncoder(
             blocks=arch,
             in_channels=in_channels,

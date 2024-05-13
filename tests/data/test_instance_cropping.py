@@ -3,7 +3,7 @@ import torch
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper, make_centered_bboxes
 from sleap_nn.data.normalization import Normalizer
-from sleap_nn.data.resizing import SizeMatcher
+from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.data.providers import LabelsReader
 
 
@@ -25,11 +25,12 @@ def test_make_centered_bboxes():
 
 def test_instance_cropper(minimal_instance):
     """Test InstanceCropper module."""
-    datapipe = LabelsReader.from_filename(minimal_instance)
-    datapipe = SizeMatcher(datapipe)
-    datapipe = Normalizer(datapipe)
+    provider = LabelsReader.from_filename(minimal_instance)
+    datapipe = Normalizer(provider)
+    datapipe = SizeMatcher(datapipe, provider)
+    datapipe = Resizer(datapipe, scale=1.0)
     datapipe = InstanceCentroidFinder(datapipe)
-    datapipe = InstanceCropper(datapipe, (100, 100))
+    datapipe = InstanceCropper(datapipe, (100, 100), input_scale=1.0, max_stride=1)
     sample = next(iter(datapipe))
 
     gt_sample_keys = [
@@ -42,6 +43,7 @@ def test_instance_cropper(minimal_instance):
         "frame_idx",
         "num_instances",
         "orig_size",
+        "scale",
     ]
 
     # Test shapes.
@@ -49,6 +51,7 @@ def test_instance_cropper(minimal_instance):
     assert len(sample.keys()) == len(gt_sample_keys)
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
+    orig_instance = sample["instance"]
     assert sample["instance"].shape == (1, 2, 2)
     assert sample["centroid"].shape == (1, 2)
     assert sample["instance_image"].shape == (1, 1, 100, 100)
@@ -64,3 +67,20 @@ def test_instance_cropper(minimal_instance):
     )
     centered_instance = sample["instance"]
     assert torch.equal(centered_instance, gt.unsqueeze(0))
+
+    # Test with resizing and padding
+    provider = LabelsReader.from_filename(minimal_instance)
+    datapipe = Normalizer(provider)
+    datapipe = SizeMatcher(datapipe, provider)
+    datapipe = Resizer(datapipe, scale=2.0)
+    datapipe = InstanceCentroidFinder(datapipe)
+    datapipe = InstanceCropper(datapipe, (100, 100), input_scale=2.0, max_stride=16)
+    sample = next(iter(datapipe))
+
+    # Test shapes.
+    assert len(list(iter(datapipe))) == 2
+    assert sample["instance"].shape == (1, 2, 2)
+    assert sample["centroid"].shape == (1, 2)
+    assert sample["instance_image"].shape == (1, 1, 208, 208)
+    assert sample["instance_bbox"].shape == (1, 4, 2)
+    assert sample["num_instances"] == 2

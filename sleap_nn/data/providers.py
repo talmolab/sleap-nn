@@ -1,6 +1,6 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
-from typing import Dict, Iterator, Optional
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -68,6 +68,13 @@ class LabelsReader(IterDataPipe):
                 labeled_frames=filtered_lfs,
             )
 
+    @property
+    def max_height_and_width(self) -> Tuple[int, int]:
+        """Return `(height, width)` that is the maximum of all videos."""
+        return max(video.shape[1] for video in self.labels.videos), max(
+            video.shape[2] for video in self.labels.videos
+        )
+
     @classmethod
     def from_filename(
         cls,
@@ -98,6 +105,7 @@ class LabelsReader(IterDataPipe):
 
             # Add singleton time dimension for single frames.
             image = np.expand_dims(image, axis=0)  # (1, C, H, W)
+            img_height, img_width = image.shape[-2:]
             instances = np.expand_dims(
                 instances, axis=0
             )  # (1, num_instances, num_nodes, 2)
@@ -112,6 +120,7 @@ class LabelsReader(IterDataPipe):
                 "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                 "num_instances": num_instances,
             }
+            ex["orig_size"] = torch.Tensor([img_height, img_width])
 
             if self.instances_key:
                 nans = torch.full(
@@ -159,6 +168,11 @@ class VideoReader(Thread):
     def total_len(self):
         """Returns the total number of frames in the video."""
         return self.end_idx - self.start_idx
+
+    @property
+    def max_height_and_width(self) -> Tuple[int, int]:
+        """Return `(height, width)` of frames in the video."""
+        return self.video.shape[1], self.video.shape[2]
 
     @classmethod
     def from_filename(

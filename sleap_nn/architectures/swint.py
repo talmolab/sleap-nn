@@ -174,6 +174,7 @@ class SwinTWrapper(nn.Module):
         kernel_size: Size of the convolutional kernels. Default is 3.
         filters_rate: Factor to adjust the number of filters per block. Default is 2.
         up_blocks: Number of upsampling blocks in the decoder. Default is 3.
+        down_blocks: Number of steps in `depth`. Default is 4 for most of the architectures.
         convs_per_block: Number of convolutional layers per block. Default is 2.
 
     Attributes:
@@ -194,6 +195,7 @@ class SwinTWrapper(nn.Module):
         kernel_size: int = 3,
         filters_rate: int = 2,
         up_blocks: int = 3,
+        down_blocks: int = 4,
         convs_per_block: int = 2,
     ) -> None:
         """Initialize the class."""
@@ -207,7 +209,7 @@ class SwinTWrapper(nn.Module):
         self.convs_per_block = convs_per_block
         self.embed_dim = embed_dim
         self.stem_stride = stem_stride
-        self.down_blocks = len(depths) - 1
+        self.down_blocks = down_blocks - 1
         self.enc = SwinTransformerEncoder(
             in_channels=in_channels,
             patch_size=patch_size,

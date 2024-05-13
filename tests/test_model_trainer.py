@@ -263,6 +263,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "kernel_size": 3,
             "filters_rate": 2,
             "up_blocks": 3,
+            "down_blocks": 4,
             "convs_per_block": 2,
             "arch": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
             "stem_patch_kernel": 4,
@@ -315,7 +316,7 @@ def test_centroid_model(config, tmp_path: str):
 
     # check the loss value
     loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+    assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
 
 def test_single_instance_model(config, tmp_path: str):
@@ -353,4 +354,4 @@ def test_single_instance_model(config, tmp_path: str):
     # check the loss value
     input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
     loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_["confidence_maps"])) < 1e-3
+    assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
