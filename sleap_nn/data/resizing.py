@@ -95,6 +95,9 @@ class Resizer(IterDataPipe):
         scale: Factor to resize the image dimensions by, specified as a float
             scalar.
         keep_original: True if original image should be retained.
+        image_key: Key for the image to be scaled. One of ["image", "instance_image"]
+        instances_key: Key for the instances to be corrected to input scale. One of
+            ["instances", "instance"]
     """
 
     def __init__(
@@ -102,11 +105,15 @@ class Resizer(IterDataPipe):
         source_datapipe: IterDataPipe,
         scale: int = 1.0,
         keep_original: bool = False,
+        image_key: str = "image",
+        instances_key: str = "instances",
     ):
         """Initialize labels attribute of the class."""
         self.source_datapipe = source_datapipe
         self.scale = scale
         self.keep_original = keep_original
+        self.image_key = image_key
+        self.instances_key = instances_key
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the resized image and `orig_size` key to represent the original shape of the source image."""
@@ -115,8 +122,8 @@ class Resizer(IterDataPipe):
             if self.keep_original:
                 ex["original_image"] = ex["image"]
             if self.scale != 1.0:
-                ex["image"] = resize_image(ex["image"], self.scale)
-                ex["instances"] = ex["instances"] * self.scale
+                ex[self.image_key] = resize_image(ex[self.image_key], self.scale)
+                ex[self.instances_key] = ex[self.instances_key] * self.scale
             ex["scale"] = self.scale
             yield ex
 
@@ -133,22 +140,25 @@ class PadToStride(IterDataPipe):
             If > 1, this will pad the bottom and right of the images to ensure they meet
             this divisibility criteria. Padding is applied after the scaling specified
             in the `scale` attribute.
+        image_key: Key for the image to be scaled. One of ["image", "instance_image"]
     """
 
     def __init__(
         self,
         source_datapipe: IterDataPipe,
         max_stride: int = 1,
+        image_key: str = "image",
     ):
         """Initialize labels attribute of the class."""
         self.source_datapipe = source_datapipe
         self.max_stride = max_stride
+        self.image_key = image_key
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the resized image and `orig_size` key to represent the original shape of the source image."""
         for ex in self.source_datapipe:
             if self.max_stride > 1:
-                ex["image"] = pad_to_stride(ex["image"], self.max_stride)
+                ex[self.image_key] = pad_to_stride(ex[self.image_key], self.max_stride)
             yield ex
 
 

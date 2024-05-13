@@ -53,7 +53,6 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
         max_height=config.inference_config.data.max_height,
         max_width=config.inference_config.data.max_width,
     )
-    pipeline = Resizer(pipeline, scale=1.0)
     pipeline = InstanceCentroidFinder(
         pipeline,
         anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
@@ -61,9 +60,11 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     pipeline = InstanceCropper(
         pipeline,
         crop_hw=config.inference_config.data.preprocessing.crop_hw,
-        input_scale=1.0,
-        max_stride=16,
     )
+    pipeline = Resizer(
+        pipeline, scale=1.0, image_key="instance_image", instances_key="instance"
+    )
+    pipeline = PadToStride(pipeline, max_stride=16, image_key="instance_image")
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
@@ -184,7 +185,7 @@ def test_topdown_predictor(
         )
 
     # Unrecognized provider
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     _config = config.copy()
     try:
         OmegaConf.update(config, "inference_config.data.provider", "Reader")
@@ -193,7 +194,7 @@ def test_topdown_predictor(
             "inference_config.data.path",
             f"./tests/assets/centered_pair_small.mp4",
         )
-        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(config, f"{minimal_instance_centroid_ckpt}/training_config.yaml")
         predictor = Predictor.from_model_paths(
             model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
         )
@@ -204,7 +205,9 @@ def test_topdown_predictor(
             pred_labels = predictor.predict(make_labels=True)
 
     finally:
-        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(
+            _config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
 
 
 def test_topdown_inference_model(

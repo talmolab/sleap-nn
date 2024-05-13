@@ -49,7 +49,6 @@ class TopdownConfmapsPipeline:
             max_width=self.data_config.max_width,
             provider=provider,
         )
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -62,12 +61,20 @@ class TopdownConfmapsPipeline:
         datapipe = InstanceCentroidFinder(
             datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
         )
-        max_stride = 2 ** (self.down_blocks)
+
         datapipe = InstanceCropper(
             datapipe,
             self.data_config.preprocessing.crop_hw,
-            input_scale=self.data_config.scale,
-            max_stride=max_stride,
+        )
+        max_stride = 2 ** (self.down_blocks)
+        datapipe = Resizer(
+            datapipe,
+            scale=self.data_config.scale,
+            image_key="instance_image",
+            instances_key="instance",
+        )
+        datapipe = PadToStride(
+            datapipe, max_stride=max_stride, image_key="instance_image"
         )
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:

@@ -61,31 +61,17 @@ class InstanceCropper(IterDataPipe):
     Attributes:
         source_dp: The previous `IterDataPipe` with samples that contain an `instances` key.
         crop_hw: Minimum height and width of the crop in pixels.
-        input_scale: Factor used to resize the image dimensions, specified as a float
-            scalar.
-        max_stride: Maximum stride in a model that the images must be divisible by.
-            If > 1, this will pad the bottom and right of the images to ensure they meet
-            this divisibility criteria. Padding is applied after the scaling specified
-            in the `scale` attribute.
 
-    Note:
-        The crop_hw are also scaled according to `scale` factor. This module also checks
-        if the resulting crop height and width are divisible by the max stride. If not,
-        then the crop size is increased to be divisible by the max stride.
     """
 
     def __init__(
         self,
         source_dp: IterDataPipe,
         crop_hw: Tuple[int, int],
-        input_scale: float = 1.0,
-        max_stride: int = 1,
     ) -> None:
         """Initialize InstanceCropper with the source `IterDataPipe`."""
         self.source_dp = source_dp
         self.crop_hw = crop_hw
-        self.scale = input_scale
-        self.max_stride = max_stride
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Generate instance cropped examples."""
@@ -99,14 +85,7 @@ class InstanceCropper(IterDataPipe):
                 if cnt == ex["num_instances"]:
                     break
 
-                box_size = (self.crop_hw[0] * self.scale, self.crop_hw[1] * self.scale)
-
-                # check if crop box size is divisible by max stride
-                if self.max_stride != 1:
-                    pad_height, pad_width = find_padding_for_stride(
-                        box_size[0], box_size[1], self.max_stride
-                    )
-                    box_size = (box_size[0] + pad_height, box_size[1] + pad_width)
+                box_size = (self.crop_hw[0], self.crop_hw[1])
 
                 # Generate bounding boxes from centroid.
                 instance_bbox = torch.unsqueeze(

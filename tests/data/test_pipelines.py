@@ -234,6 +234,78 @@ def test_topdownconfmapspipeline(minimal_instance):
     assert sample["instance_image"].shape == (1, 1, 104, 104)
     assert sample["confidence_maps"].shape == (1, 2, 52, 52)
 
+    # Test with resizing and padding
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "max_height": None,
+            "max_width": None,
+            "scale": 2.0,
+            "is_rgb": False,
+            "preprocessing": {
+                "anchor_ind": None,
+                "crop_hw": (100, 100),
+                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+            },
+            "augmentation_config": {
+                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
+                "use_augmentations": True,
+                "augmentations": {
+                    "intensity": {
+                        "uniform_noise": (0.0, 0.04),
+                        "uniform_noise_p": 0.5,
+                        "gaussian_noise_mean": 0.02,
+                        "gaussian_noise_std": 0.004,
+                        "gaussian_noise_p": 0.5,
+                        "contrast": (0.5, 2.0),
+                        "contrast_p": 0.5,
+                        "brightness": 0.0,
+                        "brightness_p": 0.5,
+                    },
+                    "geometric": {
+                        "rotation": 15.0,
+                        "scale": 0.05,
+                        "translate": (0.02, 0.02),
+                        "affine_p": 0.5,
+                        "erase_scale": (0.0001, 0.01),
+                        "erase_ratio": (1, 1),
+                        "erase_p": 0.5,
+                        "mixup_lambda": None,
+                        "mixup_p": 0.5,
+                    },
+                },
+            },
+        }
+    )
+
+    pipeline = TopdownConfmapsPipeline(
+        data_config=base_topdown_data_config, down_blocks=4
+    )
+
+    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+
+    gt_sample_keys = [
+        "image",
+        "centroid",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+        "frame_idx",
+        "video_idx",
+        "orig_size",
+        "num_instances",
+        "scale",
+    ]
+
+    sample = next(iter(datapipe))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 208, 208)
+    assert sample["confidence_maps"].shape == (1, 2, 104, 104)
+
 
 def test_singleinstanceconfmapspipeline(minimal_instance):
     labels = sio.load_slp(minimal_instance)
