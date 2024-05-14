@@ -8,6 +8,7 @@ from sleap_nn.data.providers import LabelsReader
 
 
 def test_uniform_noise(minimal_instance):
+    """Test RandomUniformNoise module."""
     p = LabelsReader.from_filename(minimal_instance)
     p = Normalizer(p)
 
@@ -35,6 +36,7 @@ def test_uniform_noise(minimal_instance):
 
 
 def test_kornia_augmentation(minimal_instance):
+    """Test KorniaAugmenter module."""
     p = LabelsReader.from_filename(minimal_instance)
 
     p = Normalizer(p)

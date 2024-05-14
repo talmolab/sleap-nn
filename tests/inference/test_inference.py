@@ -12,6 +12,10 @@ from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
+from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
+from sleap_nn.data.instance_centroids import InstanceCentroidFinder
+from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
@@ -33,7 +37,8 @@ from sleap_nn.inference.inference import (
 )
 
 
-def initialize_model(minimal_instance, minimal_instance_ckpt):
+def initialize_model(config, minimal_instance, minimal_instance_ckpt):
+    """Returns data loader, trained torch model and FindInstancePeaks layer to test InferenceModels."""
     # for centered instance model
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
@@ -41,19 +46,25 @@ def initialize_model(minimal_instance, minimal_instance_ckpt):
     )
 
     data_provider = LabelsReader.from_filename(minimal_instance)
+    pipeline = Normalizer(data_provider, is_rgb=config.inference_config.data.is_rgb)
     pipeline = SizeMatcher(
-        data_provider,
+        pipeline,
+        provider=data_provider,
         max_height=config.inference_config.data.max_height,
         max_width=config.inference_config.data.max_width,
     )
-    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
     pipeline = InstanceCentroidFinder(
         pipeline,
         anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
     )
     pipeline = InstanceCropper(
-        pipeline, crop_hw=config.inference_config.data.preprocessing.crop_hw
+        pipeline,
+        crop_hw=config.inference_config.data.preprocessing.crop_hw,
     )
+    pipeline = Resizer(
+        pipeline, scale=1.0, image_key="instance_image", instances_key="instance"
+    )
+    pipeline = PadToStride(pipeline, max_stride=16, image_key="instance_image")
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
@@ -75,9 +86,6 @@ def test_topdown_predictor(
     """Test TopDownPredictor class for running inference on centroid and centered instance models."""
     # for centered instance model
     # check if labels are created from ckpt
-    data_pipeline, _, find_peaks_layer = initialize_model(
-        minimal_instance, minimal_instance_ckpt
-    )
 
     predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
     pred_labels = predictor.predict(make_labels=True)
@@ -133,23 +141,110 @@ def test_topdown_predictor(
     assert len(pred_labels) == 1
     assert pred_labels[0]["centroids"].shape == (1, 1, 2, 2)
 
+    # Provider = VideoReader
+    # centroid + centered-instance model inference
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    centroid_config = OmegaConf.load(
+        f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+    )
+    _centroid_config = centroid_config.copy()
+    _config = config.copy()
+    try:
+        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
+        OmegaConf.update(
+            centroid_config, "inference_config.data.provider", "VideoReader"
+        )
+        OmegaConf.update(
+            config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.update(
+            centroid_config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(
+            centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
+        predictor = Predictor.from_model_paths(
+            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
+        )
+        print("Predictor created!!")
+        pred_labels = predictor.predict(make_labels=True)
+        assert predictor.centroid_config is not None
+        assert predictor.confmap_config is not None
+        assert isinstance(pred_labels, sio.Labels)
+        assert len(pred_labels) == 40
+        assert len(pred_labels[0].instances) == 2
+    finally:
+        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(
+            _centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
+
+    # Unrecognized provider
+    config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
+    _config = config.copy()
+    try:
+        OmegaConf.update(config, "inference_config.data.provider", "Reader")
+        OmegaConf.update(
+            config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.save(config, f"{minimal_instance_centroid_ckpt}/training_config.yaml")
+        predictor = Predictor.from_model_paths(
+            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
+        )
+        with pytest.raises(
+            Exception,
+            match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
+        ):
+            pred_labels = predictor.predict(make_labels=True)
+
+    finally:
+        OmegaConf.save(
+            _config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
+
 
 def test_topdown_inference_model(
     config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
 ):
     """Test TopDownInferenceModel class for centroid and cenetered model inferences."""
     # for centered instance model
-    data_pipeline, _, find_peaks_layer = initialize_model(
-        minimal_instance, minimal_instance_ckpt
+    loader, _, find_peaks_layer = initialize_model(
+        config, minimal_instance, minimal_instance_ckpt
     )
 
+    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
+    pipeline = SizeMatcher(
+        data_provider,
+        max_height=config.inference_config.data.max_height,
+        max_width=config.inference_config.data.max_width,
+    )
+    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = InstanceCentroidFinder(
+        pipeline,
+        anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
+    )
+
+    pipeline = pipeline.sharding_filter()
+    data_pipeline = DataLoader(
+        pipeline,
+        **dict(config.inference_config.data.data_loader),
+    )
+
+    # if centroid layer is none and centered-instance model.
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=None, instance_peaks=find_peaks_layer
     )
     outputs = []
-    for x in data_pipeline:
+    for x in loader:
         outputs.append(topdown_inf_layer(x))
-    for i in outputs:
+    for i in outputs[0]:
         assert i["centroid_val"] == 1
         assert "pred_instance_peaks" in i and "pred_peak_values" in i
 
@@ -158,6 +253,7 @@ def test_topdown_inference_model(
         centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
     )
     example = next(iter(data_pipeline))
+    del example["instances"]
 
     with pytest.raises(
         Exception,
@@ -199,7 +295,20 @@ def test_topdown_inference_model(
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=centroid_layer, instance_peaks=find_peaks_layer
     )
-    output = topdown_inf_layer(next(iter(data_pipeline)))
+    outputs = topdown_inf_layer(next(iter(data_pipeline)))
+    for i in outputs:
+        assert i["instance_image"].shape[1:] == (1, 1, 160, 160)
+        assert i["pred_instance_peaks"].shape[1:] == (2, 2)
+
+    # centroid layer and "instances" not in example
+    topdown_inf_layer = TopDownInferenceModel(
+        centroid_crop=centroid_layer, instance_peaks=FindInstancePeaksGroundTruth()
+    )
+    with pytest.raises(
+        Exception,
+        match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
+    ):
+        outputs = topdown_inf_layer(example)
 
 
 def test_find_instance_peaks_groundtruth(
@@ -229,7 +338,7 @@ def test_find_instance_peaks_groundtruth(
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
     )
-    output = topdown_inf_layer(example)
+    output = topdown_inf_layer(example)[0]
     assert torch.isclose(
         output["pred_instance_peaks"],
         example["instances"].squeeze(),
@@ -278,17 +387,17 @@ def test_find_instance_peaks_groundtruth(
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=layer, instance_peaks=FindInstancePeaksGroundTruth()
     )
-    output = topdown_inf_layer(next(iter(data_pipeline)))
+    output = topdown_inf_layer(next(iter(data_pipeline)))[0]
 
     assert "pred_instance_peaks" in output.keys()
     assert output["pred_instance_peaks"].shape == (2, 2, 2)
     assert output["pred_peak_values"].shape == (2, 2)
 
 
-def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt):
+def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
     """Test FindInstancePeaks class to run inference on the Centered instance model."""
     data_pipeline, torch_model, find_peaks_layer = initialize_model(
-        minimal_instance, minimal_instance_ckpt
+        config, minimal_instance, minimal_instance_ckpt
     )
     outputs = []
     for x in data_pipeline:
@@ -304,15 +413,17 @@ def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt):
     find_peaks_layer = FindInstancePeaks(
         torch_model=torch_model,
         output_stride=2,
-        peak_threshold=1.0,
+        peak_threshold=2.0,
         return_confmaps=False,
     )
     outputs = []
     for x in data_pipeline:
         outputs.append(find_peaks_layer(x))
-
+    print(f"outputs len: {len(outputs)}")
     for i in outputs:
         instance = i["pred_instance_peaks"].numpy()
+        print(f"imgs: {i['instance_image'].shape}")
+        print(f"pred vals: {i['pred_peak_values']}")
         assert np.all(np.isnan(instance))
 
     # check return confmaps
@@ -329,6 +440,7 @@ def test_find_instance_peaks(minimal_instance, minimal_instance_ckpt):
 def test_single_instance_inference_model(
     config, minimal_instance, minimal_instance_ckpt
 ):
+    """Test SingleInstanceInferenceModel."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
     OmegaConf.update(
         config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
@@ -338,7 +450,6 @@ def test_single_instance_inference_model(
     torch_model = SingleInstanceModel.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt", config=config
     )
-    data_pipeline = SingleInstanceConfmapsPipeline(config.inference_config.data)
 
     labels = sio.load_slp(minimal_instance)
     # Making our minimal 2-instance example into a single instance example.
@@ -346,7 +457,13 @@ def test_single_instance_inference_model(
         lf.instances = lf.instances[:1]
 
     provider_pipeline = LabelsReader(labels)
-    pipeline = data_pipeline.make_training_pipeline(data_provider=provider_pipeline)
+    pipeline = Normalizer(provider_pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = SizeMatcher(
+        pipeline,
+        max_height=config.inference_config.data.max_height,
+        max_width=config.inference_config.data.max_width,
+        provider=provider_pipeline,
+    )
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
@@ -363,11 +480,11 @@ def test_single_instance_inference_model(
     outputs = []
     for x in data_pipeline:
         outputs.append(find_peaks_layer(x))
-    keys = outputs[0].keys()
+    keys = outputs[0][0].keys()
     assert "pred_instance_peaks" in keys and "pred_peak_values" in keys
     assert "pred_confmaps" not in keys
     for i in outputs:
-        instance = i["pred_instance_peaks"].numpy()
+        instance = i[0]["pred_instance_peaks"].numpy()
         assert not np.all(np.isnan(instance))
 
     # high peak threshold
@@ -382,7 +499,7 @@ def test_single_instance_inference_model(
         outputs.append(find_peaks_layer(x))
 
     for i in outputs:
-        instance = i["pred_instance_peaks"].numpy()
+        instance = i[0]["pred_instance_peaks"].numpy()
         assert np.all(np.isnan(instance))
 
     # check return confmaps
@@ -392,13 +509,13 @@ def test_single_instance_inference_model(
     outputs = []
     for x in data_pipeline:
         outputs.append(find_peaks_layer(x))
-    assert "pred_confmaps" in outputs[0].keys()
-    assert outputs[0]["pred_confmaps"].shape[-2:] == (192, 192)
+    assert "pred_confmaps" in outputs[0][0].keys()
+    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (192, 192)
 
 
 def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     """Test SingleInstancePredictor."""
-    # store the original config
+    # provider as LabelsReader
     _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
 
     config = _config.copy()
@@ -432,6 +549,83 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         assert len(preds) == 1
         assert isinstance(preds[0], dict)
         assert "pred_confmaps" not in preds[0].keys()
+        print("end of labels reader")
+
+    finally:
+        # save the original config back
+        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+
+    # provider as VideoReader
+    _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+
+    config = _config.copy()
+
+    try:
+        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
+        OmegaConf.update(
+            config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
+        OmegaConf.update(
+            config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
+        )
+        del config.model_config.head_configs.head_config.anchor_part
+        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+
+        # check if labels are created from ckpt
+        predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
+        pred_labels = predictor.predict(make_labels=True)
+        assert isinstance(pred_labels, sio.Labels)
+        assert len(pred_labels) == 40
+        assert len(pred_labels[0].instances) == 1
+        lf = pred_labels[0]
+
+        # check if the predicted labels have same skeleton as the GT labels
+        gt_labels = sio.load_slp(minimal_instance)
+        assert pred_labels.skeletons == gt_labels.skeletons
+        assert lf.frame_idx == 0
+
+        # check if dictionaries are created when make labels is set to False
+        preds = predictor.predict(make_labels=False)
+        assert isinstance(preds, list)
+        assert len(preds) == 10
+        assert preds[0]["pred_instance_peaks"].shape[0] == 4
+        assert isinstance(preds[0], dict)
+        assert "pred_confmaps" not in preds[0].keys()
+        print("end of video reader")
+
+    finally:
+        # save the original config back
+        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+
+    # unrecognized provider
+    _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+
+    config = _config.copy()
+
+    try:
+        OmegaConf.update(config, "inference_config.data.provider", "Reader")
+        OmegaConf.update(
+            config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
+        OmegaConf.update(
+            config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
+        )
+        del config.model_config.head_configs.head_config.anchor_part
+        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+
+        # check if labels are created from ckpt
+        predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
+        with pytest.raises(
+            Exception,
+            match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
+        ):
+            pred_labels = predictor.predict(make_labels=True)
 
     finally:
         # save the original config back
@@ -489,3 +683,7 @@ def test_centroid_inference_model(config):
     assert tuple(out["centroid_val"].shape) == (2,)
     assert tuple(out["instance_image"].shape) == (2, 1, 1, 160, 160)
     assert tuple(out["instance_bbox"].shape) == (2, 1, 4, 2)
+
+
+if __name__ == "__main__":
+    pytest.main([f"{__file__}::test_topdown_predictor"])

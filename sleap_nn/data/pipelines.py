@@ -9,7 +9,7 @@ from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
-from sleap_nn.data.resizing import SizeMatcher
+from sleap_nn.data.resizing import Resizer, PadToStride, SizeMatcher
 from sleap_nn.data.confidence_maps import (
     ConfidenceMapGenerator,
     MultiConfidenceMapGenerator,
@@ -23,11 +23,17 @@ class TopdownConfmapsPipeline:
 
     Attributes:
         data_config: Data-related configuration.
+        down_blocks: Number of down blocks in the backbone model.
+
+    Note: If scale is provided for centered-instance model, the images are cropped out
+    of original image according to given crop height and width and then the cropped
+    images are scaled.
     """
 
-    def __init__(self, data_config: DictConfig) -> None:
+    def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
         """Initialize the data config."""
         self.data_config = data_config
+        self.down_blocks = down_blocks
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -39,13 +45,14 @@ class TopdownConfmapsPipeline:
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
-        datapipe = data_provider
+        provider = data_provider
+        datapipe = Normalizer(provider, self.data_config.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.max_height,
             max_width=self.data_config.max_width,
+            provider=provider,
         )
-        datapipe = Normalizer(datapipe, self.data_config.is_rgb)
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -58,7 +65,21 @@ class TopdownConfmapsPipeline:
         datapipe = InstanceCentroidFinder(
             datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
         )
-        datapipe = InstanceCropper(datapipe, self.data_config.preprocessing.crop_hw)
+
+        datapipe = InstanceCropper(
+            datapipe,
+            self.data_config.preprocessing.crop_hw,
+        )
+        max_stride = 2 ** (self.down_blocks)
+        datapipe = Resizer(
+            datapipe,
+            scale=self.data_config.scale,
+            image_key="instance_image",
+            instances_key="instance",
+        )
+        datapipe = PadToStride(
+            datapipe, max_stride=max_stride, image_key="instance_image"
+        )
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:
             datapipe = KorniaAugmenter(
@@ -97,6 +118,7 @@ class TopdownConfmapsPipeline:
                 "confidence_maps",
                 "num_instances",
                 "orig_size",
+                "scale",
             ],
         )
 
@@ -108,11 +130,13 @@ class SingleInstanceConfmapsPipeline:
 
     Attributes:
         data_config: Data-related configuration.
+        down_blocks: Number of down blocks in backbone.
     """
 
-    def __init__(self, data_config: DictConfig) -> None:
+    def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
         """Initialize the data config."""
         self.data_config = data_config
+        self.down_blocks = down_blocks
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -124,13 +148,16 @@ class SingleInstanceConfmapsPipeline:
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
-        datapipe = data_provider
+        provider = data_provider
+        datapipe = Normalizer(provider, self.data_config.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.max_height,
             max_width=self.data_config.max_width,
+            provider=provider,
         )
-        datapipe = Normalizer(datapipe, self.data_config.is_rgb)
+        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -166,6 +193,7 @@ class SingleInstanceConfmapsPipeline:
                 "instances",
                 "confidence_maps",
                 "orig_size",
+                "scale",
             ],
         )
 
@@ -177,11 +205,13 @@ class CentroidConfmapsPipeline:
 
     Attributes:
         data_config: Data-related configuration.
+        down_blocks: Number of down blocks in backbone model.
     """
 
-    def __init__(self, data_config: DictConfig) -> None:
+    def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
         """Initialize the data config."""
         self.data_config = data_config
+        self.down_blocks = down_blocks
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -193,7 +223,7 @@ class CentroidConfmapsPipeline:
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
-        datapipe = data_provider
+        provider = data_provider
         keep_keys = [
             "image",
             "video_idx",
@@ -201,14 +231,18 @@ class CentroidConfmapsPipeline:
             "centroids_confidence_maps",
             "orig_size",
             "num_instances",
+            "scale",
         ]
-
+        datapipe = Normalizer(provider, self.data_config.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.max_height,
             max_width=self.data_config.max_width,
+            provider=provider,
         )
-        datapipe = Normalizer(datapipe, self.data_config.is_rgb)
+
+        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(

@@ -156,7 +156,7 @@ class Model(nn.Module):
             input_list = []
             for i in range(self.input_expand_channels):
                 input_list.append(x)
-            x = torch.concatenate(input_list, axis=-3)
+            x = torch.concatenate(input_list, dim=-3)
         backbone_outputs = self.backbone(x)
 
         outputs = {}

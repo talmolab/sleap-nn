@@ -7,6 +7,7 @@ from sleap_nn.architectures.heads import Head
 
 
 def test_get_backbone():
+    """Test `get_backbone` function."""
     # unet
     base_unet_model_config = OmegaConf.create(
         {
