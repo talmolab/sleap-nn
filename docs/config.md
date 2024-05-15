@@ -15,7 +15,7 @@ The config file has four main sections:
 
 - `data_config`: 
     - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
-    - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps" or "CentroidConfmapsPipeline".
+    - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps", "CentroidConfmaps" or "BottomUp".
     - `train`:
         - `labels_path`: (str) Path to `.slp` files
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
@@ -99,7 +99,7 @@ The config file has four main sections:
             - `up_blocks`: (int) Number of upsampling blocks in the decoder. Default is 3.
             - `down_blocks`: (int) Number of layers in `depths`. Default is 4.
             - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
-    - `head_configs`
+    - `head_configs`: [
         - `head_type`: (str) Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
         - `head_config`:
             - `part_names`: (List[str]) Text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used.
@@ -107,6 +107,7 @@ The config file has four main sections:
             - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
             - `output_stride`: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
             - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
+    ]
 
 - `trainer_config`: 
     - `train_data_loader`:
