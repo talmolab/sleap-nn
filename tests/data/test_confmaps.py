@@ -99,10 +99,11 @@ def test_multi_confmaps(minimal_instance):
     assert torch.sum(sample["centroids_confidence_maps"] > 0.98) == 2
 
     xv, yv = make_grid_vectors(2, 2, 1)
-    points = torch.Tensor([[[torch.nan, torch.nan], [torch.nan, torch.nan]]])
+    points = torch.Tensor([[[[torch.nan, torch.nan]], [[torch.nan, torch.nan]]]])
     cms = make_multi_confmaps(points, xv, yv, 1)
-    gt = torch.Tensor([[0.0000, 0.0000], [0.0000, 0.0000]])
-    torch.testing.assert_close(gt, cms[0, 0], atol=0.001, rtol=0.0)
+
+    gt = torch.Tensor([[[0.0000, 0.0000], [0.0000, 0.0000]]])
+    torch.testing.assert_close(gt, cms[0], atol=0.001, rtol=0.0)
 
     # centroids = False (for instances)
     datapipe = LabelsReader.from_filename(minimal_instance)
@@ -119,5 +120,5 @@ def test_multi_confmaps(minimal_instance):
     )
     sample = next(iter(datapipe1))
 
-    assert sample["confidence_maps"].shape == (1, 1, 768, 768)
+    assert sample["confidence_maps"].shape == (1, 2, 768, 768)
     assert torch.sum(sample["confidence_maps"] > 0.93) == 4

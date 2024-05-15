@@ -4,12 +4,14 @@ This allows for convenient ways to configure individual variants of common pipel
 well as to define training vs inference versions based on the same configurations.
 """
 
+import torch
 from omegaconf.omegaconf import DictConfig
 from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import Resizer, PadToStride, SizeMatcher
+from sleap_nn.data.edge_maps import PartAffinityFieldsGenerator
 from sleap_nn.data.confidence_maps import (
     ConfidenceMapGenerator,
     MultiConfidenceMapGenerator,
@@ -71,15 +73,6 @@ class TopdownConfmapsPipeline:
             self.data_config.preprocessing.crop_hw,
         )
         max_stride = 2 ** (self.down_blocks)
-        datapipe = Resizer(
-            datapipe,
-            scale=self.data_config.scale,
-            image_key="instance_image",
-            instances_key="instance",
-        )
-        datapipe = PadToStride(
-            datapipe, max_stride=max_stride, image_key="instance_image"
-        )
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:
             datapipe = KorniaAugmenter(
@@ -98,6 +91,15 @@ class TopdownConfmapsPipeline:
                 instance_key="instance",
             )
 
+        datapipe = Resizer(
+            datapipe,
+            scale=self.data_config.scale,
+            image_key="instance_image",
+            instances_key="instance",
+        )
+        datapipe = PadToStride(
+            datapipe, max_stride=max_stride, image_key="instance_image"
+        )
         datapipe = ConfidenceMapGenerator(
             datapipe,
             sigma=self.data_config.preprocessing.conf_map_gen.sigma,
@@ -156,8 +158,6 @@ class SingleInstanceConfmapsPipeline:
             max_width=self.data_config.max_width,
             provider=provider,
         )
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
-        datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -176,6 +176,9 @@ class SingleInstanceConfmapsPipeline:
                 image_key="image",
                 instance_key="instances",
             )
+
+        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
@@ -241,8 +244,93 @@ class CentroidConfmapsPipeline:
             provider=provider,
         )
 
+        if self.data_config.augmentation_config.use_augmentations:
+            datapipe = KorniaAugmenter(
+                datapipe,
+                **dict(self.data_config.augmentation_config.augmentations.intensity),
+                image_key="image",
+                instance_key="instances",
+            )
+
+        if self.data_config.augmentation_config.random_crop.random_crop_p:
+            datapipe = KorniaAugmenter(
+                datapipe,
+                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
+                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                image_key="image",
+                instance_key="instances",
+            )
+
+        if self.data_config.augmentation_config.use_augmentations:
+            datapipe = KorniaAugmenter(
+                datapipe,
+                **dict(self.data_config.augmentation_config.augmentations.geometric),
+                image_key="image",
+                instance_key="instances",
+            )
+
         datapipe = Resizer(datapipe, scale=self.data_config.scale)
         datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
+        datapipe = InstanceCentroidFinder(
+            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
+        )
+
+        datapipe = MultiConfidenceMapGenerator(
+            datapipe,
+            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
+            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            centroids=True,
+        )
+
+        datapipe = KeyFilter(datapipe, keep_keys=keep_keys)
+
+        return datapipe
+
+
+class BottomUpPipeline:
+    """Pipeline builder for (Bottom-up) confidence maps + part affinity fields models.
+
+    Attributes:
+        data_config: Data-related configuration.
+        optimization_config: Optimization-related configuration.
+        confmaps_head: Instantiated head describing the output confidence maps tensor.
+        pafs_head: Instantiated head describing the output PAFs tensor.
+        offsets_head: Optional head describing the offset refinement maps.
+    """
+
+    def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
+        """Initialize the data config."""
+        self.data_config = data_config
+        self.down_blocks = down_blocks
+
+    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+        """Create training pipeline with input data only.
+
+        Args:
+            data_provider: A `Provider` that generates data examples, typically a
+                `LabelsReader` instance.
+
+        Returns:
+            An `IterDataPipe` instance configured to produce input examples.
+        """
+        provider = data_provider
+        keep_keys = [
+            "image",
+            "video_idx",
+            "frame_idx",
+            "confidence_maps",
+            "orig_size",
+            "num_instances",
+            "scale",
+            "part_affinity_fields",
+        ]
+        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = SizeMatcher(
+            datapipe,
+            max_height=self.data_config.max_height,
+            max_width=self.data_config.max_width,
+            provider=provider,
+        )
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -252,17 +340,13 @@ class CentroidConfmapsPipeline:
                 instance_key="instances",
             )
 
-        datapipe = InstanceCentroidFinder(
-            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
-        )
-
         if self.data_config.augmentation_config.random_crop.random_crop_p:
             datapipe = KorniaAugmenter(
                 datapipe,
                 random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
                 image_key="image",
-                instance_key="centroids",
+                instance_key="instances",
             )
 
         if self.data_config.augmentation_config.use_augmentations:
@@ -270,14 +354,25 @@ class CentroidConfmapsPipeline:
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.geometric),
                 image_key="image",
-                instance_key="centroids",
+                instance_key="instances",
             )
+
+        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
 
         datapipe = MultiConfidenceMapGenerator(
             datapipe,
             sigma=self.data_config.preprocessing.conf_map_gen.sigma,
             output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
-            centroids=True,
+            centroids=False,
+        )
+
+        datapipe = PartAffinityFieldsGenerator(
+            datapipe,
+            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
+            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            edge_inds=torch.Tensor(provider.edge_idxs),
+            flatten_channels=True,
         )
 
         datapipe = KeyFilter(datapipe, keep_keys=keep_keys)

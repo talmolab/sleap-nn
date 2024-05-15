@@ -14,6 +14,7 @@ from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
     CentroidConfmapsPipeline,
+    BottomUpPipeline,
 )
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
@@ -78,37 +79,28 @@ class ModelTrainer:
             self.provider = LabelsReader
         # create pipelines
         if self.is_single_instance_model:
-            train_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
-            val_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.val,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
+            pipeline = SingleInstanceConfmapsPipeline
 
         elif self.config.data_config.pipeline == "TopdownConfmaps":
-            train_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
-            val_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.val,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
+            pipeline = TopdownConfmapsPipeline
 
         elif self.config.data_config.pipeline == "CentroidConfmaps":
-            train_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
-            val_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.val,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
+            pipeline = CentroidConfmapsPipeline
+
+        elif self.config.data_config.pipeline == "BottomUp":
+            pipeline = BottomUpPipeline
 
         else:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
+
+        train_pipeline = pipeline(
+            data_config=self.config.data_config.train,
+            down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
+        )
+        val_pipeline = pipeline(
+            data_config=self.config.data_config.val,
+            down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
+        )
 
         # train
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
@@ -150,6 +142,8 @@ class ModelTrainer:
             self.model = SingleInstanceModel(self.config)
         elif self.config.data_config.pipeline == "CentroidConfmaps":
             self.model = CentroidModel(self.config)
+        elif self.config.data_config.pipeline == "BottomUp":
+            self.model = BottomUpModel(self.config)
         else:
             self.model = TopDownCenteredInstanceModel(self.config)
 
@@ -303,9 +297,12 @@ class TrainingModel(L.LightningModule):
                 )
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
-            head_configs=[self.model_config.head_configs],
+            head_configs=self.model_config.head_configs,
             input_expand_channels=self.input_expand_channels,
         ).to(self.m_device)
+        self.loss_weights = [
+            x.head_config.loss_weight for x in self.model_config.head_configs
+        ]
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
@@ -579,6 +576,82 @@ class CentroidModel(TrainingModel):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+        self.log(
+            "val_loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+
+
+class BottomUpModel(TrainingModel):
+    """Lightning Module for BottomUp Model.
+
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    and forward pass specific to BottomUp model.
+
+    Args:
+        config: OmegaConf dictionary which has the following:
+                (i) data_config: data loading pre-processing configs to be passed to
+                `BottomUpPipeline` class.
+                (ii) model_config: backbone and head configs to be passed to `Model` class.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+
+    """
+
+    def __init__(self, config: OmegaConf):
+        """Initialise the configs and the model."""
+        super().__init__(config)
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1)
+        img = img.to(self.m_device)
+        output = self.model(img)
+        return {
+            "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
+            "PartAffinityFieldsHead": output["PartAffinityFieldsHead"],
+        }
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        print(batch["confidence_maps"].shape, batch["part_affinity_fields"].shape)
+        X = torch.squeeze(batch["image"], dim=1).to(self.m_device)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
+        y_paf = batch["part_affinity_fields"].to(self.m_device)
+        preds = self.model(X)
+        pafs = preds["PartAffinityFieldsHead"]
+        confmaps = preds["MultiInstanceConfmapsHead"]
+        print(confmaps.shape, pafs.shape)
+        losses = [nn.MSELoss()(confmaps, y_confmap), nn.MSELoss()(pafs, y_paf)]
+        loss = sum([s * t for s, t in zip(self.loss_weights, losses)])
+        self.log(
+            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        X = torch.squeeze(batch["image"], dim=1).to(self.m_device)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
+        y_paf = batch["part_affinity_fields"].to(self.m_device)
+
+        preds = self.model(X)
+        pafs = preds["PartAffinityFieldsHead"]
+        confmaps = preds["MultiInstanceConfmapsHead"]
+        losses = [nn.MSELoss()(confmaps, y_confmap), nn.MSELoss()(pafs, y_paf)]
+        val_loss = sum([s * t for s, t in zip(self.loss_weights, losses)])
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(
             "learning_rate",

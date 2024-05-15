@@ -146,19 +146,21 @@ def config(sleap_data_dir):
                         "convs_per_block": 2,
                     },
                 },
-                "head_configs": {
-                    "head_type": "CenteredInstanceConfmapsHead",
-                    "head_config": {
-                        "part_names": [
-                            "0",
-                            "1",
-                        ],
-                        "anchor_part": 1,
-                        "sigma": 1.5,
-                        "output_stride": 2,
-                        "loss_weight": 1.0,
+                "head_configs": [
+                    {
+                        "head_type": "CenteredInstanceConfmapsHead",
+                        "head_config": {
+                            "part_names": [
+                                "0",
+                                "1",
+                            ],
+                            "anchor_part": 1,
+                            "sigma": 1.5,
+                            "output_stride": 2,
+                            "loss_weight": 1.0,
+                        },
                     },
-                },
+                ],
             },
             "trainer_config": {
                 "train_data_loader": {

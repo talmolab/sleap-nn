@@ -358,11 +358,11 @@ class PartAffinityFieldsGenerator(IterDataPipe):
                 sigma=self.sigma,
             )
             assert pafs.shape == (grid_height, grid_width, n_edges, 2)
+            print(f"n edged: {n_edges}")
 
             if self.flatten_channels:
                 pafs = pafs.reshape(grid_height, grid_width, n_edges * 2)
                 assert pafs.shape == (grid_height, grid_width, n_edges * 2)
-
+                pafs = pafs.permute(2, 0, 1)
             ex["part_affinity_fields"] = pafs
-
             yield ex

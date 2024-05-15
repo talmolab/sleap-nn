@@ -14,7 +14,7 @@ def make_confmaps(
     """Make confidence maps from a batch of points for multiple instances.
 
     Args:
-        points_batch: A tensor of points of shape `(batch_size, n_nodes, 2)` and dtype `torch.float32` where
+        points_batch: A tensor of points of shape `(samples, n_nodes, 2)` and dtype `torch.float32` where
             the last axis corresponds to (x, y) pixel coordinates on the image for each instance.
             These can contain NaNs to indicate missing points.
         xv: Sampling grid vector for x-coordinates of shape `(grid_width,)` and dtype
@@ -27,13 +27,13 @@ def make_confmaps(
             confidence maps.
 
     Returns:
-        Confidence maps as a tensor of shape `(batch_size, n_nodes, grid_height, grid_width)` of
+        Confidence maps as a tensor of shape `(samples, n_nodes, grid_height, grid_width)` of
         dtype `torch.float32`.
     """
-    batch_size, n_nodes, _ = points_batch.shape
+    samples, n_nodes, _ = points_batch.shape
 
-    x = torch.reshape(points_batch[:, :, 0], (batch_size, n_nodes, 1, 1))
-    y = torch.reshape(points_batch[:, :, 1], (batch_size, n_nodes, 1, 1))
+    x = torch.reshape(points_batch[:, :, 0], (samples, n_nodes, 1, 1))
+    y = torch.reshape(points_batch[:, :, 1], (samples, n_nodes, 1, 1))
 
     xv_reshaped = torch.reshape(xv, (1, 1, 1, -1))
     yv_reshaped = torch.reshape(yv, (1, 1, -1, 1))
@@ -52,7 +52,7 @@ def make_multi_confmaps(
     """Make confidence maps for multiple instances through reduction.
 
     Args:
-        points_batch: A tensor of shape `(batch_size, points, 2)` and dtype `tf.float32`
+        points_batch: A tensor of shape `(samples, points, 2)` and dtype `tf.float32`
             containing instance points where the last axis corresponds to (x, y) pixel
             coordinates on the image. This must be rank-3 even if a single instance is
             present.
@@ -66,17 +66,17 @@ def make_multi_confmaps(
             confidence maps.
 
     Returns:
-        Confidence maps as a tensor of shape `(batch_size, 1, grid_height, grid_width)` of
+        Confidence maps as a tensor of shape `(samples, 1, grid_height, grid_width)` of
         dtype `torch.float32`.
 
         Each channel will contain the elementwise maximum of the confidence maps
         generated from all individual points for the associated node.
 
     """
-    batch_size, n_nodes, _ = points_batch.shape
+    samples, n_insts, n_nodes, _ = points_batch.shape
     w, h = xv.shape[0], yv.shape[0]
-    cms = torch.zeros((batch_size, 1, h, w), dtype=torch.float32)
-    points = points_batch.reshape(batch_size * n_nodes, 1, 2)
+    cms = torch.zeros((samples, n_nodes, h, w), dtype=torch.float32)
+    points = points_batch.reshape(samples * n_insts, n_nodes, 2)
     for p in points:
         cm_instance = make_confmaps(p.unsqueeze(dim=0), xv, yv, sigma)
         cms = torch.maximum(cms, cm_instance)
@@ -126,11 +126,12 @@ class MultiConfidenceMapGenerator(IterDataPipe):
             if self.centroids:
                 points = example["centroids"][
                     :, : example["num_instances"], :
-                ]  # .unsqueeze(dim=0)
+                ].unsqueeze(dim=-2)
             else:
                 points = example[self.instance_key]
-                if not self.centroids and self.instance_key == "instances":
-                    points = points.view(points.shape[0], -1, 2)
+                print(points.shape)
+                # if not self.centroids and self.instance_key == "instances":
+                #     points = points.view(points.shape[0], -1, 2)
 
             width = example[self.image_key].shape[-1]
             height = example[self.image_key].shape[-2]

@@ -14,6 +14,7 @@ from sleap_nn.model_trainer import (
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
     CentroidModel,
+    BottomUpModel,
 )
 from torch.nn.functional import mse_loss
 import os
@@ -187,12 +188,10 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(
         single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
     )
-    OmegaConf.update(
-        single_instance_config,
-        "model_config.head_configs.head_type",
-        "SingleInstanceConfmapsHead",
+    single_instance_config.model_config.head_configs[0].head_type = (
+        "SingleInstanceConfmapsHead"
     )
-    del single_instance_config.model_config.head_configs.head_config.anchor_part
+    del single_instance_config.model_config.head_configs[0].head_config.anchor_part
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
@@ -201,13 +200,9 @@ def test_trainer(config, tmp_path: str):
     # Centroid model
     centroid_config = config.copy()
     OmegaConf.update(centroid_config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        centroid_config,
-        "model_config.head_configs.head_type",
-        "CentroidConfmapsHead",
-    )
+    centroid_config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
 
-    del centroid_config.model_config.head_configs.head_config.part_names
+    del centroid_config.model_config.head_configs[0].head_config.part_names
 
     if Path(config.trainer_config.save_ckpt_path).exists():
         shutil.rmtree(config.trainer_config.save_ckpt_path)
@@ -225,6 +220,42 @@ def test_trainer(config, tmp_path: str):
 
     checkpoint = torch.load(
         Path(centroid_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 0
+    assert checkpoint["global_step"] == 10
+
+    # bottom up model
+    bottomup_config = config.copy()
+    OmegaConf.update(bottomup_config, "data_config.pipeline", "BottomUp")
+    bottomup_config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
+    paf = {
+        "head_type": "PartAffinityFieldsHead",
+        "head_config": {
+            "edges": [("part1", "part2")],
+            "sigma": 1.5,
+            "output_stride": 2,
+            "loss_weight": 1.0,
+        },
+    }
+    del bottomup_config.model_config.head_configs[0].head_config.anchor_part
+    bottomup_config.model_config.head_configs.append(paf)
+
+    if Path(bottomup_config.trainer_config.save_ckpt_path).exists():
+        shutil.rmtree(bottomup_config.trainer_config.save_ckpt_path)
+
+    OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 1)
+    OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
+
+    trainer = ModelTrainer(bottomup_config)
+    trainer._initialize_model()
+    assert isinstance(trainer.model, BottomUpModel)
+
+    trainer.train()
+
+    checkpoint = torch.load(
+        Path(bottomup_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
     )
     assert checkpoint["epoch"] == 0
     assert checkpoint["global_step"] == 10
@@ -295,10 +326,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.part_names
+    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs[0].head_config.part_names
 
     model = CentroidModel(config)
 
@@ -322,10 +351,8 @@ def test_centroid_model(config, tmp_path: str):
 def test_single_instance_model(config, tmp_path: str):
     """Test the SingleInstanceModel training."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.anchor_part
+    config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
+    del config.model_config.head_configs[0].head_config.anchor_part
 
     model = SingleInstanceModel(config)
     OmegaConf.update(
@@ -356,3 +383,34 @@ def test_single_instance_model(config, tmp_path: str):
     input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
+
+
+def test_bottomup_model(config, tmp_path: str):
+    """Test CentroidModel training."""
+    OmegaConf.update(config, "data_config.pipeline", "BottomUp")
+    config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
+    paf = {
+        "head_type": "PartAffinityFieldsHead",
+        "head_config": {
+            "edges": [("part1", "part2")],
+            "sigma": 1.5,
+            "output_stride": 2,
+            "loss_weight": 1.0,
+        },
+    }
+    del config.model_config.head_configs[0].head_config.anchor_part
+    config.model_config.head_configs.append(paf)
+
+    model = BottomUpModel(config)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
+    model_trainer = ModelTrainer(config)
+    model_trainer._create_data_loaders()
+    input_ = next(iter(model_trainer.train_data_loader))
+    preds = model(input_["image"])
+
+    # check the output shape
+    loss = model.training_step(input_, 0)
+    assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
+    assert preds["PartAffinityFieldsHead"].shape == (1, 2, 192, 192)

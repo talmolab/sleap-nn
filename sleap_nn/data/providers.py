@@ -75,6 +75,11 @@ class LabelsReader(IterDataPipe):
             video.shape[2] for video in self.labels.videos
         )
 
+    @property
+    def edge_idxs(self) -> list:
+        """Returns list of edge indices."""
+        return self.labels.skeletons[0].edge_inds
+
     @classmethod
     def from_filename(
         cls,
