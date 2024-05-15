@@ -5,6 +5,7 @@ from typing import Dict, Iterator
 import torch
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 import torchvision.transforms.v2.functional as F
+<<<<<<< Updated upstream
 
 
 def convert_to_grayscale(image: torch.Tensor):
@@ -39,6 +40,8 @@ def convert_to_rgb(image: torch.Tensor):
     if image.shape[-3] != 3:
         image = image.repeat(1, 3, 1, 1)
     return image
+=======
+>>>>>>> Stashed changes
 
 
 class Normalizer(IterDataPipe):
@@ -73,12 +76,21 @@ class Normalizer(IterDataPipe):
                 image = image.to(torch.float32) / 255.0
 
             # convert to rgb
+<<<<<<< Updated upstream
             if self.is_rgb:
                 image = convert_to_rgb(image)
 
             # convert to grayscale
             if not self.is_rgb:
                 image = convert_to_grayscale(image)
+=======
+            if self.is_rgb and image.shape[-3] != 3:
+                image = image.repeat(1, 3, 1, 1)
+
+            # convert to grayscale
+            if not self.is_rgb and image.shape[-3] != 1:
+                image = F.rgb_to_grayscale(image, num_output_channels=1)
+>>>>>>> Stashed changes
 
             ex["image"] = image
 

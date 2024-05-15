@@ -6,8 +6,10 @@ from typing import Any, Dict, List, Optional, Union, Iterator, Text
 import torch
 import attrs
 from queue import Queue
+from queue import Queue
 from pathlib import Path
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from collections import defaultdict
 import lightning as L
 from torch.utils.data.dataloader import DataLoader
@@ -119,6 +121,9 @@ class Predictor(ABC):
         This method handles creating a pipeline object depending on the model type and
         provider for loading the data, as well as looping over the batches and
         running inference.
+        This method handles creating a pipeline object depending on the model type and
+        provider for loading the data, as well as looping over the batches and
+        running inference.
 
         Returns:
             A generator yielding batches predicted results as dictionaries of numpy
@@ -130,6 +135,62 @@ class Predictor(ABC):
             self._initialize_inference_model()
 
         # Loop over data batches.
+        if self.provider == "LabelsReader":
+            for ex in self.data_pipeline:
+                outputs_list = self.inference_model(ex)
+                for output in outputs_list:
+                    for k, v in output.items():
+                        if isinstance(v, torch.Tensor):
+                            output[k] = output[k].cpu().numpy()
+                    yield output
+        elif self.provider == "VideoReader":
+            self.reader.start()
+            try:
+                done = False
+                while not done:
+                    imgs = []
+                    fidxs = []
+                    org_szs = []
+                    for i in range(self.batch_size):
+                        frame = self.reader.frame_buffer.get()
+                        if frame[0] is None:
+                            done = True
+                            break
+                        imgs.append(frame[0].unsqueeze(dim=0))
+                        fidxs.append(frame[1])
+                        org_szs.append(frame[2].unsqueeze(dim=0))
+                    if len(imgs):
+                        imgs = torch.concatenate(imgs, dim=0)
+                        fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                        org_szs = torch.concatenate(org_szs, dim=0)
+                        ex = {
+                            "image": imgs,
+                            "frame_idx": fidxs,
+                            "video_idx": torch.tensor(
+                                [0] * self.batch_size, dtype=torch.int32
+                            ),
+                            "orig_size": org_szs,
+                        }
+                        if not torch.is_floating_point(ex["image"]):  # normalization
+                            ex["image"] = ex["image"].to(torch.float32) / 255.0
+                        if self.is_rgb:
+                            ex["image"] = convert_to_rgb(ex["image"])
+                        else:
+                            ex["image"] = convert_to_grayscale(ex["image"])
+                        if self.input_scale != 1.0:
+                            ex["image"] = resize_image(ex["image"], self.input_scale)
+                        ex["image"] = pad_to_stride(ex["image"], self.max_stride)
+                        outputs_list = self.inference_model(ex)
+                        for output in outputs_list:
+                            for k, v in output.items():
+                                if isinstance(v, torch.Tensor):
+                                    output[k] = output[k].cpu().numpy()
+                            yield output
+
+            except Exception as e:
+                raise Exception(f"Error in VideoReader: {e}")
+            finally:
+                self.reader.join()
         if self.provider == "LabelsReader":
             for ex in self.data_pipeline:
                 outputs_list = self.inference_model(ex)
@@ -227,6 +288,8 @@ class CentroidCrop(L.LightningModule):
     predictions from a centroid confidence map model. This includes model forward pass,
     generating crops for cenetered instance model, peak finding, coordinate adjustment
     and cropping.
+    generating crops for cenetered instance model, peak finding, coordinate adjustment
+    and cropping.
 
     Attributes:
         torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
@@ -247,7 +310,15 @@ class CentroidCrop(L.LightningModule):
             the predicted peaks.
         return_crops: If `True`, the output dictionary will also contain `instance_image`
             which is the cropped image of size (batch, 1, chn, crop_height, crop_width).
+        return_crops: If `True`, the output dictionary will also contain `instance_image`
+            which is the cropped image of size (batch, 1, chn, crop_height, crop_width).
         crop_hw: Tuple (height, width) representing the crop size.
+        input_scale: Float indicating if the images should be resized before being
+            passed to the model.
+        max_stride: Maximum stride in a model that the images must be divisible by.
+            If > 1, this will pad the bottom and right of the images to ensure they meet
+            this divisibility criteria. Padding is applied after the scaling specified
+            in the `scale` attribute.
         input_scale: Float indicating if the images should be resized before being
             passed to the model.
         max_stride: Maximum stride in a model that the images must be divisible by.
@@ -270,6 +341,8 @@ class CentroidCrop(L.LightningModule):
         crop_hw: tuple = (160, 160),
         input_scale: float = 1.0,
         max_stride: int = 1,
+        input_scale: float = 1.0,
+        max_stride: int = 1,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -283,6 +356,8 @@ class CentroidCrop(L.LightningModule):
         self.max_instances = max_instances
         self.return_crops = return_crops
         self.crop_hw = crop_hw
+        self.input_scale = input_scale
+        self.max_stride = max_stride
         self.input_scale = input_scale
         self.max_stride = max_stride
 
@@ -311,7 +386,12 @@ class CentroidCrop(L.LightningModule):
                 self.crop_hw[0],
                 self.crop_hw[1],
             )
+            box_size = (
+                self.crop_hw[0],
+                self.crop_hw[1],
+            )
             instance_bbox = torch.unsqueeze(
+                make_centered_bboxes(centroid, box_size[0], box_size[1]), 0
                 make_centered_bboxes(centroid, box_size[0], box_size[1]), 0
             )  # (1, n, 4, 2)
 
@@ -366,6 +446,12 @@ class CentroidCrop(L.LightningModule):
             scaled_image = pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
+        orig_image = inputs["image"]
+        scaled_image = resize_image(orig_image, self.input_scale)
+        if self.max_stride != 1:
+            scaled_image = pad_to_stride(scaled_image, self.max_stride)
+
+        cms = self.torch_model(scaled_image)
 
         refined_peaks, peak_vals, peak_sample_inds, _ = find_local_peaks(
             cms.detach(),
@@ -376,6 +462,12 @@ class CentroidCrop(L.LightningModule):
         # Adjust for stride and scale.
         refined_peaks = refined_peaks * self.output_stride  # (n_centroids, 2)
         refined_peaks = refined_peaks / self.input_scale
+
+<<<<<<< Updated upstream
+        refined_peaks = refined_peaks / self.input_scale
+=======
+        batch_indxs = torch.bincount(peak_sample_inds.detach())
+>>>>>>> Stashed changes
 
         batch = cms.shape[0]
 
@@ -408,6 +500,25 @@ class CentroidCrop(L.LightningModule):
             self.refined_peaks_batched.append(current_peaks)
             self.peak_vals_batched.append(current_peak_vals)
 
+<<<<<<< Updated upstream
+=======
+            nans = torch.full((np.abs(num_nans),), torch.nan)
+            self.peak_vals_with_nans[b] = torch.cat(
+                [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
+            )
+
+            parsed += batch_indxs[b]
+
+        # Build outputs.
+        outputs = {
+            "centroids": self.refined_peaks_with_nans.unsqueeze(dim=1),
+            "centroid_vals": self.peak_vals_with_nans,
+        }
+        if self.return_confmaps:
+            outputs["pred_centroid_confmaps"] = cms.detach()
+        inputs.update(outputs)
+
+>>>>>>> Stashed changes
         # Generate crops if return_crops=True to pass the crops to CenteredInstance model.
         if self.return_crops:
             inputs.update(
@@ -422,6 +533,11 @@ class CentroidCrop(L.LightningModule):
             # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
             refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
             peak_vals_with_nans = torch.zeros((batch, self.max_instances))
+            for ind, (r, p) in enumerate(
+                zip(self.refined_peaks_batched, self.peak_vals_batched)
+            ):
+                refined_peaks_with_nans[ind] = r
+                peak_vals_with_nans[ind] = p
             for ind, (r, p) in enumerate(
                 zip(self.refined_peaks_batched, self.peak_vals_batched)
             ):
@@ -452,7 +568,13 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
         """Return the ground truth instance peaks given a set of crops."""
+<<<<<<< Updated upstream
         b, _, max_inst, nodes, _ = batch["instances"].shape
+        b, _, max_inst, nodes, _ = batch["instances"].shape
+=======
+        # num_inst = batch["num_instances"]
+        b, _, max_inst, nodes = batch["centroids"].shape
+>>>>>>> Stashed changes
         inst = (
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
@@ -498,8 +620,10 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                             torch.full((abs(max_inst - num_inst), nodes, 2), torch.nan),
                         ]
                     )
+                    )
                     vals = torch.cat(
                         [vals, torch.full((max_inst - num_inst, nodes), torch.nan)]
+                    )
                     )
                 parsed += c
 
@@ -510,7 +634,12 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 peaks = batch_peaks
                 peaks_vals = vals
 
+<<<<<<< Updated upstream
         peaks_output = batch
+        peaks_output = batch
+=======
+        peaks_output = batch.copy()
+>>>>>>> Stashed changes
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
 
@@ -547,6 +676,13 @@ class FindInstancePeaks(L.LightningModule):
             this divisibility criteria. Padding is applied after the scaling specified
             in the `scale` attribute.
 
+        input_scale: Float indicating if the images should be resized before being
+            passed to the model.
+        max_stride: Maximum stride in a model that the images must be divisible by.
+            If > 1, this will pad the bottom and right of the images to ensure they meet
+            this divisibility criteria. Padding is applied after the scaling specified
+            in the `scale` attribute.
+
     """
 
     def __init__(
@@ -559,6 +695,8 @@ class FindInstancePeaks(L.LightningModule):
         return_confmaps: Optional[bool] = False,
         input_scale: float = 1.0,
         max_stride: int = 1,
+        input_scale: float = 1.0,
+        max_stride: int = 1,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -569,6 +707,8 @@ class FindInstancePeaks(L.LightningModule):
         self.integral_patch_size = integral_patch_size
         self.output_stride = output_stride
         self.return_confmaps = return_confmaps
+        self.input_scale = input_scale
+        self.max_stride = max_stride
         self.input_scale = input_scale
         self.max_stride = max_stride
 
@@ -605,6 +745,13 @@ class FindInstancePeaks(L.LightningModule):
             scaled_image = pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
+        # resize and pad the input image
+        orig_image = inputs["instance_image"]
+        scaled_image = resize_image(orig_image, self.input_scale)
+        if self.max_stride != 1:
+            scaled_image = pad_to_stride(scaled_image, self.max_stride)
+
+        cms = self.torch_model(scaled_image)
 
         peak_points, peak_vals = find_global_peaks(
             cms.detach(),
@@ -615,6 +762,8 @@ class FindInstancePeaks(L.LightningModule):
 
         # Adjust for stride and scale.
         peak_points = peak_points * self.output_stride
+        if self.input_scale != 1.0:
+            peak_points = peak_points / self.input_scale
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
 
@@ -663,8 +812,13 @@ class TopDownInferenceModel(L.LightningModule):
             batch: This is a dictionary containing the image batch in the `image` key.
                    If centroid model is not provided, the dictionary should have
                    `instance_image` key.
+            batch: This is a dictionary containing the image batch in the `image` key.
+                   If centroid model is not provided, the dictionary should have
+                   `instance_image` key.
 
         Returns:
+            The predicted instances as a list of dictionaries of tensors with the
+            entries in example along with the below keys:
             The predicted instances as a list of dictionaries of tensors with the
             entries in example along with the below keys:
 
@@ -678,10 +832,13 @@ class TopDownInferenceModel(L.LightningModule):
         """
         batch_size = batch["video_idx"].shape[0]
         peaks_output = []
+        batch_size = batch["video_idx"].shape[0]
+        peaks_output = []
         if self.centroid_crop is None:
             batch["centroid_val"] = torch.ones(batch_size)
             if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
                 if "instances" in batch:
+                    peaks_output.append(self.instance_peaks(batch))
                     peaks_output.append(self.instance_peaks(batch))
                 else:
                     raise ValueError(
@@ -690,6 +847,7 @@ class TopDownInferenceModel(L.LightningModule):
                     )
             else:
                 self.instance_peaks.eval()
+                peaks_output.append(self.instance_peaks(batch))
                 peaks_output.append(self.instance_peaks(batch))
 
         else:
@@ -708,7 +866,21 @@ class TopDownInferenceModel(L.LightningModule):
                 peaks_output.append(self.instance_peaks(batch))
             else:
                 for i in batch:
+                if "instances" in batch:
+                    max_inst = batch["instances"].shape[-3]
+                    self.centroid_crop.max_instances = max_inst
+                else:
+                    raise ValueError(
+                        "Ground truth data was not detected... "
+                        "Please load both models when predicting on non-ground-truth data."
+                    )
+            batch = self.centroid_crop(batch)
+            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+                peaks_output.append(self.instance_peaks(batch))
+            else:
+                for i in batch:
                     self.instance_peaks.eval()
+                    peaks_output.append(self.instance_peaks(i))
                     peaks_output.append(self.instance_peaks(i))
         return peaks_output
 
@@ -720,9 +892,15 @@ class TopDownPredictor(Predictor):
     This high-level class handles initialization, preprocessing and predicting using a
     trained TopDown SLEAP-NN model. This should be initialized using the
     `from_trained_models()` constructor.
+    trained TopDown SLEAP-NN model. This should be initialized using the
+    `from_trained_models()` constructor.
 
     Attributes:
         centroid_config: A Dictionary with the configs used for training the centroid model.
+        confmap_config: A Dictionary with the configs used for training the
+                        centered-instance model
+        centroid_model: A LightningModule instance created from the trained weights
+                        for centroid model.
         confmap_config: A Dictionary with the configs used for training the
                         centered-instance model
         centroid_model: A LightningModule instance created from the trained weights
@@ -747,11 +925,15 @@ class TopDownPredictor(Predictor):
             self.centroid_config.inference_config.data["skeletons"] = (
                 self.centroid_config.data_config.skeletons
             )
+            self.centroid_config.inference_config.data["skeletons"] = (
+                self.centroid_config.data_config.skeletons
+            )
             if self.confmap_model:
                 return_crops = True
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
+                output_stride=self.centroid_config.inference_config.data.preprocessing.output_stride,
                 output_stride=self.centroid_config.inference_config.data.preprocessing.output_stride,
                 refinement=self.centroid_config.inference_config.integral_refinement,
                 integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
@@ -761,6 +943,7 @@ class TopDownPredictor(Predictor):
                 crop_hw=tuple(
                     self.centroid_config.inference_config.data.preprocessing.crop_hw
                 ),
+                input_scale=self.centroid_config.inference_config.data.scale,
                 input_scale=self.centroid_config.inference_config.data.scale,
             )
 
@@ -774,13 +957,22 @@ class TopDownPredictor(Predictor):
             max_stride = 2 ** (
                 self.confmap_config.model_config.backbone_config.backbone_config.down_blocks
             )
+            self.confmap_config.inference_config.data["skeletons"] = (
+                self.confmap_config.data_config.skeletons
+            )
+            max_stride = 2 ** (
+                self.confmap_config.model_config.backbone_config.backbone_config.down_blocks
+            )
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=self.confmap_config.inference_config.peak_threshold,
                 output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
+                output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
                 refinement=self.confmap_config.inference_config.integral_refinement,
                 integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
                 return_confmaps=self.confmap_config.inference_config.return_confmaps,
+                input_scale=self.confmap_config.inference_config.data.scale,
+                max_stride=max_stride,
                 input_scale=self.confmap_config.inference_config.data.scale,
                 max_stride=max_stride,
             )
@@ -793,6 +985,9 @@ class TopDownPredictor(Predictor):
     @property
     def data_config(self) -> DictConfig:
         """Returns data config section from the overall config."""
+        if self.centroid_config:
+            return self.centroid_config.inference_config.data
+        return self.confmap_config.inference_config.data
         if self.centroid_config:
             return self.centroid_config.inference_config.data
         return self.confmap_config.inference_config.data
@@ -814,6 +1009,7 @@ class TopDownPredictor(Predictor):
 
             One of the two models can be left as `None` to perform inference with ground
             truth data. This will only work with `LabelsReader` as the provider.
+
 
         """
         if centroid_ckpt_path is not None:
@@ -856,6 +1052,7 @@ class TopDownPredictor(Predictor):
         return obj
 
     def make_pipeline(self):
+    def make_pipeline(self):
         """Make a data loading pipeline.
 
         Returns:
@@ -872,6 +1069,13 @@ class TopDownPredictor(Predictor):
         self.provider = self.data_config.provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
+<<<<<<< Updated upstream
+            self.instances_key = True
+            if self.centroid_config and self.confmap_config:
+                self.instances_key = False
+                self.max_stride = 2 ** (
+                    self.centroid_config.model_config.backbone_config.backbone_config.down_blocks
+                )
             self.instances_key = True
             if self.centroid_config and self.confmap_config:
                 self.instances_key = False
@@ -880,15 +1084,20 @@ class TopDownPredictor(Predictor):
                 )
             data_provider = provider.from_filename(
                 self.data_config.path, instances_key=self.instances_key
+                self.data_config.path, instances_key=self.instances_key
             )
             self.videos = data_provider.labels.videos
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
+            pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
             pipeline = SizeMatcher(
+                pipeline,
                 pipeline,
                 max_height=self.data_config.max_height,
                 max_width=self.data_config.max_width,
                 provider=data_provider,
+                provider=data_provider,
             )
+
 
             if not self.centroid_model:
                 pipeline = InstanceCentroidFinder(
@@ -898,7 +1107,25 @@ class TopDownPredictor(Predictor):
                 pipeline = InstanceCropper(
                     pipeline,
                     crop_hw=self.data_config.preprocessing.crop_hw,
+                    crop_hw=self.data_config.preprocessing.crop_hw,
                 )
+=======
+
+        # load slp file
+        data_provider = provider.from_filename(self.data_config.labels_path)
+
+        self.videos = data_provider.labels.videos
+
+        # create pipeline
+        if self.centroid_model:
+            self.pipeline = CentroidConfmapsPipeline(data_config=self.data_config)
+        else:
+            self.pipeline = TopdownConfmapsPipeline(data_config=self.data_config)
+
+        self.pipeline = self.pipeline.make_training_pipeline(
+            data_provider=data_provider
+        )
+>>>>>>> Stashed changes
 
             # Remove duplicates.
             self.pipeline = pipeline.sharding_filter()
@@ -909,6 +1136,36 @@ class TopDownPredictor(Predictor):
             )
 
             return self.data_pipeline
+            return self.data_pipeline
+
+        elif self.provider == "VideoReader":
+            provider = VideoReader
+            self.max_stride = 2 ** (
+                self.centroid_config.model_config.backbone_config.backbone_config.down_blocks
+            )
+            frame_queue = Queue(
+                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+            )
+            self.batch_size = self.data_config.video_loader.batch_size
+            self.input_scale = self.data_config.scale
+            self.reader = provider.from_filename(
+                filename=self.data_config.path,
+                frame_buffer=frame_queue,
+                start_idx=self.data_config.video_loader.start_idx,
+                end_idx=self.data_config.video_loader.end_idx,
+            )
+            self.videos = [self.reader.video]
+            self.is_rgb = self.data_config.is_rgb
+            if self.centroid_config is None:
+                raise ValueError(
+                    "Ground truth data was not detected... "
+                    "Please load both models when predicting on non-ground-truth data."
+                )
+
+        else:
+            raise Exception(
+                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
+            )
 
         elif self.provider == "VideoReader":
             provider = VideoReader
@@ -1015,6 +1272,7 @@ class TopDownPredictor(Predictor):
             ):
                 pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
                 if self.data_config.max_height is not None:  # adjust for padding
+                if self.data_config.max_height is not None:  # adjust for padding
                     pad_height = (self.data_config.max_height - org_size[0]) // 2
                     pad_width = (self.data_config.max_width - org_size[1]) // 2
                     pred_instances = pred_instances - [pad_height, pad_width]
@@ -1071,6 +1329,8 @@ class SingleInstanceInferenceModel(L.LightningModule):
             the predicted peaks.
         input_scale: Float indicating if the images should be resized before being
             passed to the model.
+        input_scale: Float indicating if the images should be resized before being
+            passed to the model.
     """
 
     def __init__(
@@ -1082,8 +1342,10 @@ class SingleInstanceInferenceModel(L.LightningModule):
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         input_scale: float = 1.0,
+        input_scale: float = 1.0,
     ):
         """Initialise the model attributes."""
+        super().__init__()
         super().__init__()
         self.torch_model = torch_model
         self.peak_threshold = peak_threshold
@@ -1091,6 +1353,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         self.integral_patch_size = integral_patch_size
         self.output_stride = output_stride
         self.return_confmaps = return_confmaps
+        self.input_scale = input_scale
         self.input_scale = input_scale
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
@@ -1123,12 +1386,15 @@ class SingleInstanceInferenceModel(L.LightningModule):
         peak_points = peak_points * self.output_stride
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
+        if self.input_scale != 1.0:
+            peak_points = peak_points / self.input_scale
 
         # Build outputs.
         outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}
         if self.return_confmaps:
             outputs["pred_confmaps"] = cms.detach()
         inputs.update(outputs)
+        return [inputs]
         return [inputs]
 
 
@@ -1158,9 +1424,11 @@ class SingleInstancePredictor(Predictor):
             torch_model=self.confmap_model,
             peak_threshold=self.confmap_config.inference_config.peak_threshold,
             output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
+            output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
             refinement=self.confmap_config.inference_config.integral_refinement,
             integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
             return_confmaps=self.confmap_config.inference_config.return_confmaps,
+            input_scale=self.confmap_config.inference_config.data.scale,
             input_scale=self.confmap_config.inference_config.data.scale,
         )
 
@@ -1200,9 +1468,14 @@ class SingleInstancePredictor(Predictor):
         return obj
 
     def make_pipeline(self):
+    def make_pipeline(self):
         """Make a data loading pipeline.
 
         Returns:
+            Torch DataLoader where each item is a dictionary with key `image` if provider
+            is LabelsReader. If provider is VideoReader, this method initiates the reader
+            class (doesn't return a pipeline) and the Thread is started in
+            Predictor._predict_generator() method.
             Torch DataLoader where each item is a dictionary with key `image` if provider
             is LabelsReader. If provider is VideoReader, this method initiates the reader
             class (doesn't return a pipeline) and the Thread is started in
@@ -1215,7 +1488,28 @@ class SingleInstancePredictor(Predictor):
         """
         self.provider = self.data_config.provider
         if self.provider == "LabelsReader":
+            This method creates the class attribute `data_pipeline` and will be
+            called automatically when predicting on data from a new source only when the
+            provider is LabelsReader.
+        """
+        self.provider = self.data_config.provider
+        if self.provider == "LabelsReader":
             provider = LabelsReader
+<<<<<<< Updated upstream
+            data_provider = provider.from_filename(self.data_config.path)
+            self.videos = data_provider.labels.videos
+            pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
+            pipeline = SizeMatcher(
+                pipeline,
+                max_height=self.data_config.max_height,
+                max_width=self.data_config.max_width,
+                provider=data_provider,
+            )
+            pipeline = Resizer(pipeline, scale=self.data_config.scale)
+            max_stride = 2 ** (
+                self.confmap_config.model_config.backbone_config.backbone_config.down_blocks
+            )
+            pipeline = PadToStride(pipeline, max_stride=max_stride)
             data_provider = provider.from_filename(self.data_config.path)
             self.videos = data_provider.labels.videos
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
@@ -1233,13 +1527,68 @@ class SingleInstancePredictor(Predictor):
 
             # Remove duplicates.
             self.pipeline = pipeline.sharding_filter()
+=======
 
+        provider_pipeline = provider.from_filename(self.data_config.labels_path)
+        self.videos = provider_pipeline.labels.videos
+        self.pipeline = self.pipeline.make_training_pipeline(
+            data_provider=provider_pipeline
+        )
+
+>>>>>>> Stashed changes
+            # Remove duplicates.
+            self.pipeline = pipeline.sharding_filter()
+
+            self.data_pipeline = DataLoader(
+                self.pipeline,
+                **dict(self.data_config.data_loader),
+            )
             self.data_pipeline = DataLoader(
                 self.pipeline,
                 **dict(self.data_config.data_loader),
             )
 
             return self.data_pipeline
+            return self.data_pipeline
+
+        elif self.provider == "VideoReader":
+            provider = VideoReader
+            self.max_stride = 2 ** (
+                self.confmap_config.model_config.backbone_config.backbone_config.down_blocks
+            )
+            frame_queue = Queue(
+                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+            )
+            self.batch_size = self.data_config.video_loader.batch_size
+            self.reader = provider.from_filename(
+                filename=self.data_config.path,
+                frame_buffer=frame_queue,
+                start_idx=self.data_config.video_loader.start_idx,
+                end_idx=self.data_config.video_loader.end_idx,
+            )
+            self.videos = [self.reader.video]
+            self.is_rgb = self.data_config.is_rgb
+
+            provider = VideoReader
+
+            frame_queue = Queue(
+                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+            )
+            self.batch_size = self.data_config.video_loader.batch_size
+            self.reader = provider.from_filename(
+                filename=self.data_config.path,
+                frame_buffer=frame_queue,
+                start_idx=self.data_config.video_loader.start_idx,
+                end_idx=self.data_config.video_loader.end_idx,
+            )
+            self.videos = [self.reader.video]
+            self.input_scale = self.data_config.scale
+            self.is_rgb = self.data_config.is_rgb
+
+        else:
+            raise Exception(
+                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
+            )
 
         elif self.provider == "VideoReader":
             provider = VideoReader

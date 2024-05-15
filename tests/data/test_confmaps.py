@@ -10,12 +10,14 @@ from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import Resizer
+from sleap_nn.data.resizing import Resizer
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.utils import make_grid_vectors
 import numpy as np
 
 
 def test_confmaps(minimal_instance):
+    """Test ConfidenceMapGenerator module."""
     """Test ConfidenceMapGenerator module."""
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
@@ -69,6 +71,7 @@ def test_confmaps(minimal_instance):
 
 def test_multi_confmaps(minimal_instance):
     """Test MultiConfidenceMapGenerator module."""
+    """Test MultiConfidenceMapGenerator module."""
     # centroids = True
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = Normalizer(datapipe)
@@ -108,6 +111,7 @@ def test_multi_confmaps(minimal_instance):
     # centroids = False (for instances)
     datapipe = LabelsReader.from_filename(minimal_instance)
     datapipe = Normalizer(datapipe)
+    datapipe = Resizer(datapipe, scale=2)
     datapipe = Resizer(datapipe, scale=2)
     datapipe = InstanceCentroidFinder(datapipe)
     datapipe1 = MultiConfidenceMapGenerator(

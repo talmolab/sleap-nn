@@ -1,4 +1,5 @@
 ### Config file
+### Config file
 
 This document contains the docstrings for the config file required to pass to the `sleap_nn.ModelTrainer` class to train and run inference on a sleap-nn model.
 The config file has four main sections:

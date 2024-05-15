@@ -295,6 +295,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "filters_rate": 2,
             "up_blocks": 3,
             "down_blocks": 4,
+            "down_blocks": 4,
             "convs_per_block": 2,
             "arch": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
             "stem_patch_kernel": 4,
@@ -346,9 +347,11 @@ def test_centroid_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
+    assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
 
 def test_single_instance_model(config, tmp_path: str):
+    """Test the SingleInstanceModel training."""
     """Test the SingleInstanceModel training."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
     config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"

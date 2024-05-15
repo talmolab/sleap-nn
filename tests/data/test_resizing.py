@@ -1,12 +1,18 @@
 import torch
 
 from sleap_nn.data.providers import LabelsReader
+<<<<<<< Updated upstream
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
+=======
+from sleap_nn.data.resizing import SizeMatcher
+import sleap_io as sio
+>>>>>>> Stashed changes
 import numpy as np
 import sleap_io as sio
 import pytest
 
 
+<<<<<<< Updated upstream
 def test_sizematcher(minimal_instance):
     """Test SizeMatcher module for pad images to specified dimensions."""
     l = LabelsReader.from_filename(minimal_instance)
@@ -19,12 +25,22 @@ def test_sizematcher(minimal_instance):
 
     # custom max height and width
     pipe = SizeMatcher(l, provider=l, max_height=500, max_width=400)
+=======
+def test_resizer(minimal_instance):
+    """Test SizeMatcher module."""
+    l = LabelsReader.from_filename(minimal_instance)
+    pipe = SizeMatcher(l, max_height=500, max_width=400)
+>>>>>>> Stashed changes
     sample = next(iter(pipe))
     instances, image = sample["instances"], sample["image"]
     assert image.shape == torch.Size([1, 1, 500, 400])
     assert instances.shape == torch.Size([1, 2, 2, 2])
     assert torch.isnan(instances[:, 2:, :, :]).all()
 
+<<<<<<< Updated upstream
+=======
+    l = LabelsReader.from_filename(minimal_instance)
+>>>>>>> Stashed changes
     pipe = SizeMatcher(l, max_height=100, max_width=500)
     with pytest.raises(
         Exception,
@@ -32,12 +48,17 @@ def test_sizematcher(minimal_instance):
     ):
         sample = next(iter(pipe))
 
+<<<<<<< Updated upstream
+=======
+    l = LabelsReader.from_filename(minimal_instance)
+>>>>>>> Stashed changes
     pipe = SizeMatcher(l, max_height=500, max_width=100)
     with pytest.raises(
         Exception,
         match=f"Max width {100} should be greater than the current image width: {384}",
     ):
         sample = next(iter(pipe))
+<<<<<<< Updated upstream
 
 
 def test_resizer(minimal_instance):
@@ -79,3 +100,5 @@ def test_padtostride(minimal_instance):
     sample = next(iter(pipe))
     image = sample["image"]
     assert image.shape == torch.Size([1, 1, 500, 500])
+=======
+>>>>>>> Stashed changes

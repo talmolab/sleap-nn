@@ -49,7 +49,10 @@ def config(sleap_data_dir):
                     "is_rgb": False,
                     "max_width": None,
                     "max_height": None,
+<<<<<<< Updated upstream
                     "scale": 1.0,
+=======
+>>>>>>> Stashed changes
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": [160, 160],
@@ -92,7 +95,10 @@ def config(sleap_data_dir):
                     "is_rgb": False,
                     "max_width": None,
                     "max_height": None,
+<<<<<<< Updated upstream
                     "scale": 1.0,
+=======
+>>>>>>> Stashed changes
                     "preprocessing": {
                         "anchor_ind": 0,
                         "crop_hw": [160, 160],
@@ -232,6 +238,7 @@ def config(sleap_data_dir):
                     "scale": 1.0,
                     "max_instances": None,
                     "is_rgb": False,
+                    "max_instances": 10,
                     "provider": "LabelsReader",
                     "data_loader": {
                         "batch_size": 4,

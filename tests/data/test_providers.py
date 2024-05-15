@@ -21,6 +21,7 @@ def test_providers(minimal_instance):
     org_image = labels[0].image
     image = image.squeeze().squeeze().unsqueeze(dim=-1)
     assert np.all(org_image == image.numpy())
+<<<<<<< Updated upstream
     assert l.max_height_and_width == (384, 384)
 
 
@@ -70,3 +71,5 @@ def test_videoreader_provider(centered_instance_video):
         raise
     finally:
         reader.join()
+=======
+>>>>>>> Stashed changes

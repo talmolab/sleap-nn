@@ -1,5 +1,6 @@
 """This module implements image resizing and padding."""
 
+<<<<<<< Updated upstream
 from typing import Dict, Iterator, Optional, Tuple, List, Union
 
 import torch
@@ -171,6 +172,23 @@ class SizeMatcher(IterDataPipe):
     Attributes:
         source_dp: The input `IterDataPipe` with examples that contain `"images"` key.
         provider: Data Provider.
+=======
+from typing import Dict, Iterator
+
+import torch
+import torch.nn.functional as F
+from torch.utils.data.datapipes.datapipe import IterDataPipe
+
+
+class SizeMatcher(IterDataPipe):
+    """IterDataPipe for resizing and padding images.
+
+    This IterDataPipe will produce examples containing the resized image and original
+    shape of the image before padding/ resizing is applied.
+
+    Attributes:
+        source_dp: The input `IterDataPipe` with examples that contain `"images"` key.
+>>>>>>> Stashed changes
         max_height: Maximum height the image should be padded to. If not provided, the
                     original image size will be retained.
         max_width: Maximum width the image should be padded to. If not provided, the
@@ -180,6 +198,7 @@ class SizeMatcher(IterDataPipe):
     def __init__(
         self,
         source_datapipe: IterDataPipe,
+<<<<<<< Updated upstream
         provider: Optional[Union[LabelsReader, VideoReader]] = None,
         max_height: Optional[int] = None,
         max_width: Optional[int] = None,
@@ -189,6 +208,13 @@ class SizeMatcher(IterDataPipe):
         if max_height is None and max_width is None:
             if provider is not None:
                 max_height, max_width = provider.max_height_and_width
+=======
+        max_height: int = None,
+        max_width: int = None,
+    ):
+        """Initialize labels attribute of the class."""
+        self.source_datapipe = source_datapipe
+>>>>>>> Stashed changes
         self.max_width = max_width
         self.max_height = max_height
 
@@ -197,6 +223,7 @@ class SizeMatcher(IterDataPipe):
         for ex in self.source_datapipe:
             img_height, img_width = ex["image"].shape[-2:]
             # pad images to max_height and max_width
+<<<<<<< Updated upstream
             if self.max_height is None:
                 self.max_height = img_height
             if self.max_width is None:
@@ -216,5 +243,25 @@ class SizeMatcher(IterDataPipe):
                 (0, pad_width, 0, pad_height),
                 mode="constant",
             ).to(torch.float32)
+=======
+            if self.max_height is not None:  # only if user provides
+                pad_height = self.max_height - img_height
+                pad_width = self.max_width - img_width
+                if pad_height < 0:
+                    raise Exception(
+                        f"Max height {self.max_height} should be greater than the current image height: {img_height}"
+                    )
+                if pad_width < 0:
+                    raise Exception(
+                        f"Max width {self.max_width} should be greater than the current image width: {img_width}"
+                    )
+                ex["image"] = F.pad(
+                    ex["image"],
+                    (0, pad_width, 0, pad_height),
+                    mode="constant",
+                ).to(torch.float32)
+
+            ex["orig_size"] = torch.Tensor([img_height, img_width])
+>>>>>>> Stashed changes
 
             yield ex
