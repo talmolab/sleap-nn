@@ -14,7 +14,7 @@ from sleap_nn.model_trainer import (
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
     CentroidModel,
-    BottomUpModel
+    BottomUpModel,
 )
 from torch.nn.functional import mse_loss
 import os
@@ -188,7 +188,9 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(
         single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
     )
-    single_instance_config.model_config.head_configs[0].head_type="SingleInstanceConfmapsHead",
+    single_instance_config.model_config.head_configs[0].head_type = (
+        "SingleInstanceConfmapsHead"
+    )
     del single_instance_config.model_config.head_configs[0].head_config.anchor_part
 
     trainer = ModelTrainer(single_instance_config)
@@ -198,7 +200,7 @@ def test_trainer(config, tmp_path: str):
     # Centroid model
     centroid_config = config.copy()
     OmegaConf.update(centroid_config, "data_config.pipeline", "CentroidConfmaps")
-    centroid_config.model_config.head_configs[0].head_type="CentroidConfmapsHead"
+    centroid_config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
 
     del centroid_config.model_config.head_configs[0].head_config.part_names
 
@@ -224,14 +226,22 @@ def test_trainer(config, tmp_path: str):
 
     # bottom up model
     bottomup_config = config.copy()
+    bottomup_config.data_config.train.preprocessing["pafs_gen"] = {
+        "sigma": 4,
+        "output_stride": 4,
+    }
+    bottomup_config.data_config.val.preprocessing["pafs_gen"] = {
+        "sigma": 4,
+        "output_stride": 4,
+    }
     OmegaConf.update(bottomup_config, "data_config.pipeline", "BottomUp")
     bottomup_config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
     paf = {
         "head_type": "PartAffinityFieldsHead",
         "head_config": {
             "edges": [("part1", "part2")],
-            "sigma": 1.5,
-            "output_stride": 2,
+            "sigma": 4,
+            "output_stride": 4,
             "loss_weight": 1.0,
         },
     }
@@ -324,7 +334,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    config.model_config.head_configs[0].head_type= "CentroidConfmapsHead"
+    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
     del config.model_config.head_configs[0].head_config.part_names
 
     model = CentroidModel(config)
@@ -349,7 +359,7 @@ def test_centroid_model(config, tmp_path: str):
 def test_single_instance_model(config, tmp_path: str):
     """Test the SingleInstanceModel training."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    config.model_config.head_configs[0].head_type="SingleInstanceConfmapsHead"
+    config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
     del config.model_config.head_configs[0].head_config.anchor_part
 
     model = SingleInstanceModel(config)
@@ -382,16 +392,22 @@ def test_single_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
+
 def test_bottomup_model(config, tmp_path: str):
     """Test CentroidModel training."""
     OmegaConf.update(config, "data_config.pipeline", "BottomUp")
+    config.data_config.train.preprocessing["pafs_gen"] = {
+        "sigma": 4,
+        "output_stride": 4,
+    }
+    config.data_config.val.preprocessing["pafs_gen"] = {"sigma": 4, "output_stride": 4}
     config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
     paf = {
         "head_type": "PartAffinityFieldsHead",
         "head_config": {
             "edges": [("part1", "part2")],
-            "sigma": 1.5,
-            "output_stride": 2,
+            "sigma": 4,
+            "output_stride": 4,
             "loss_weight": 1.0,
         },
     }
@@ -410,4 +426,4 @@ def test_bottomup_model(config, tmp_path: str):
     # check the output shape
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
-    assert preds["PartAffinityFieldsHead"].shape == (1, 2, 192, 192)
+    assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)

@@ -30,7 +30,7 @@ def test_convnext_reference():
 
     down_blocks = len(arch["depths"]) - 1
     in_channels = int(
-        arch["channels"][0] * (filters_rate ** (down_blocks - 1 - up_blocks + 1))
+        arch["channels"][0] * (filters_rate ** (down_blocks - 1 - up_blocks))
     )
 
     # Test final output shape.
@@ -42,10 +42,10 @@ def test_convnext_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 96, 192, 192)
+    assert y["outputs"][-1].shape == (1, 48, 192, 192)
     assert type(y["strides"]) is list
     assert len(y["strides"]) == 4
-    assert convnext.output_channels == 96
+    assert convnext.output_channels == in_channels
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -101,3 +101,26 @@ def test_convnext_reference():
     assert features[0].shape == (1, 384, 12, 12)
     assert features[1].shape == (1, 192, 24, 24)
     assert features[2].shape == (1, 96, 48, 48)
+
+    convnext = ConvNextWrapper(
+        arch=arch,
+        in_channels=1,
+        kernel_size=kernel_size,
+        stem_patch_kernel=stem_patch_kernel,
+        stem_patch_stride=4,
+        filters_rate=filters_rate,
+        up_blocks=up_blocks,
+        convs_per_block=convs_per_block,
+    )
+
+    convnext.eval()
+
+    x = torch.rand(1, 1, 192, 192)
+    with torch.no_grad():
+        y = convnext(x)
+    out = y["outputs"]
+    assert out[0].shape == (1, 384, 12, 12)
+    assert out[1].shape == (1, 192, 24, 24)
+    assert out[2].shape == (1, 96, 48, 48)
+    assert out[3].shape == (1, 48, 96, 96)
+    assert out[4].shape == (1, 24, 192, 192)

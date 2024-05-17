@@ -14,7 +14,7 @@ from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
     CentroidConfmapsPipeline,
-    BottomUpPipeline
+    BottomUpPipeline,
 )
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
@@ -594,6 +594,7 @@ class CentroidModel(TrainingModel):
             logger=True,
         )
 
+
 class BottomUpModel(TrainingModel):
     """Lightning Module for BottomUp Model.
 
@@ -625,16 +626,17 @@ class BottomUpModel(TrainingModel):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        print(batch["confidence_maps"].shape, batch["part_affinity_fields"].shape)
         X = torch.squeeze(batch["image"], dim=1).to(self.m_device)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
         y_paf = batch["part_affinity_fields"].to(self.m_device)
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
-        print(confmaps.shape, pafs.shape)
-        losses = [nn.MSELoss()(confmaps, y_confmap), nn.MSELoss()(pafs, y_paf)]
-        loss = sum([s * t for s, t in zip(self.loss_weights, losses)])
+        losses = {
+            "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
+            "PartAffinityFieldsHead": nn.MSELoss()(pafs, y_paf),
+        }
+        loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
             "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
         )
@@ -649,8 +651,11 @@ class BottomUpModel(TrainingModel):
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
-        losses = [nn.MSELoss()(confmaps, y_confmap), nn.MSELoss()(pafs, y_paf)]
-        val_loss = sum([s * t for s, t in zip(self.loss_weights, losses)])
+        losses = {
+            "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
+            "PartAffinityFieldsHead": nn.MSELoss()(pafs, y_paf),
+        }
+        val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(
             "learning_rate",

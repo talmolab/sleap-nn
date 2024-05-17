@@ -259,7 +259,7 @@ class CentroidConfmapsPipeline:
                 random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
                 image_key="image",
-                instance_key="centroids",
+                instance_key="instances",
             )
 
         if self.data_config.augmentation_config.use_augmentations:
@@ -267,7 +267,7 @@ class CentroidConfmapsPipeline:
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.geometric),
                 image_key="image",
-                instance_key="centroids",
+                instance_key="instances",
             )
 
         datapipe = Resizer(datapipe, scale=self.data_config.scale)
@@ -275,7 +275,6 @@ class CentroidConfmapsPipeline:
         datapipe = InstanceCentroidFinder(
             datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
         )
-
 
         datapipe = MultiConfidenceMapGenerator(
             datapipe,
@@ -287,7 +286,8 @@ class CentroidConfmapsPipeline:
         datapipe = KeyFilter(datapipe, keep_keys=keep_keys)
 
         return datapipe
-    
+
+
 class BottomUpPipeline:
     """Pipeline builder for (Bottom-up) confidence maps + part affinity fields models.
 
@@ -370,8 +370,8 @@ class BottomUpPipeline:
 
         datapipe = PartAffinityFieldsGenerator(
             datapipe,
-            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
-            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            sigma=self.data_config.preprocessing.pafs_gen.sigma,
+            output_stride=self.data_config.preprocessing.pafs_gen.output_stride,
             edge_inds=torch.Tensor(provider.edge_idxs),
             flatten_channels=True,
         )

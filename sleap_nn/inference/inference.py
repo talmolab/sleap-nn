@@ -32,7 +32,7 @@ from sleap_nn.model_trainer import (
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
     CentroidModel,
-    BottomUpModel
+    BottomUpModel,
 )
 from omegaconf import OmegaConf
 
@@ -58,7 +58,7 @@ class Predictor(ABC):
             OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
         ]
         model_names = [
-            (c.model_config.head_configs.head_type) for c in model_config_paths
+            (c.model_config.head_configs[0].head_type) for c in model_config_paths
         ]
 
         if "SingleInstanceConfmapsHead" in model_names:
@@ -87,6 +87,9 @@ class Predictor(ABC):
                 centroid_ckpt_path=centroid_ckpt_path,
                 confmap_ckpt_path=confmap_ckpt_path,
             )
+        elif "MultiInstanceConfmapsHead" in model_names:
+            ckpt_path = model_paths[model_names.index("MultiInstanceConfmapsHead")]
+            predictor = BottomUpPredictor.from_trained_models(ckpt_path)
         else:
             raise ValueError(
                 f"Could not create predictor from model paths:\n{model_paths}"
@@ -1372,6 +1375,7 @@ class SingleInstancePredictor(Predictor):
         )
         return pred_labels
 
+
 class BottomUpInferenceModel(L.LightningModule):
     """BottomUp Inference model.
 
@@ -1404,7 +1408,8 @@ class BottomUpInferenceModel(L.LightningModule):
         self,
         torch_model: L.LightningModule,
         paf_scorer: PAFScorer,
-        output_stride: Optional[int] = None,
+        cms_output_stride: Optional[int] = None,
+        pafs_output_stride: Optional[int] = None,
         peak_threshold: float = 0.0,
         refinement: Optional[str] = "integral",
         integral_patch_size: int = 5,
@@ -1420,61 +1425,35 @@ class BottomUpInferenceModel(L.LightningModule):
         self.peak_threshold = peak_threshold
         self.refinement = refinement
         self.integral_patch_size = integral_patch_size
-        self.output_stride = output_stride
+        self.cms_output_stride = cms_output_stride
+        self.pafs_output_stride = pafs_output_stride
         self.return_confmaps = return_confmaps
         self.return_pafs = return_pafs
         self.return_paf_graph = return_paf_graph
         self.input_scale = input_scale
 
-    def _get_confmap_peaks(self, cms):
-        refined_peaks, peak_vals, _, peak_channel_inds = find_local_peaks(
+    def _generate_cms_peaks(self, cms):
+        peaks, peak_vals, sample_inds, peak_channel_inds = find_local_peaks(
             cms.detach(),
             threshold=self.peak_threshold,
             refinement=self.refinement,
             integral_patch_size=self.integral_patch_size,
         )
         # Adjust for stride and scale.
-        refined_peaks = refined_peaks * self.output_stride  # (n_centroids, 2)
+        peaks = peaks * self.cms_output_stride  # (n_centroids, 2)
 
-        batch = cms.shape[0]
-        refined_peaks_batched = []
-        peak_vals_batched = []
+        cms_peaks, cms_peak_vals, cms_peak_channel_inds = [], [], []
 
-        for b in range(batch):
-            indices = (peak_sample_inds == b).nonzero()
-            # list for predicted centroids and corresponding peak values for current batch.
-            current_peaks = refined_peaks[indices].squeeze(dim=-2)
-            current_peak_vals = peak_vals[indices].squeeze(dim=-1)
-            # Choose top k centroids if max_instances is provided.
-            if self.max_instances is not None:
-                if len(current_peaks) > self.max_instances:
-                    current_peak_vals, indices = torch.topk(
-                        current_peak_vals, self.max_instances
-                    )
-                    current_peaks = current_peaks[indices]
-                    num_nans = 0
-                else:
-                    num_nans = self.max_instances - len(current_peaks)
-                nans = torch.full((num_nans, 2), torch.nan)
-                current_peaks = torch.cat(
-                    [current_peaks, nans.to(current_peaks.device)], dim=0
-                )
-                nans = torch.full((num_nans,), torch.nan)
-                current_peak_vals = torch.cat(
-                    [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
-                )
-            refined_peaks_batched.append(current_peaks)
-            peak_vals_batched.append(current_peak_vals)
+        for b in range(self.batch_size):
+            cms_peaks.append(peaks[sample_inds == b])
+            cms_peak_vals.append(peak_vals[sample_inds == b].to(torch.float32))
+            cms_peak_channel_inds.append(peak_channel_inds[sample_inds == b])
 
-        # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
-        refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
-        peak_vals_with_nans = torch.zeros((batch, self.max_instances))
-        for ind, (r, p) in enumerate(
-            zip(self.refined_peaks_batched, self.peak_vals_batched)
-        ):
-            refined_peaks_with_nans[ind] = r
-            peak_vals_with_nans[ind] = p
-        return refined_peaks, peak_vals, peak_channel_inds
+        return (
+            torch.nested.nested_tensor(cms_peaks),
+            torch.nested.nested_tensor(cms_peak_vals),
+            torch.nested.nested_tensor(cms_peak_channel_inds),
+        )
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
@@ -1493,10 +1472,12 @@ class BottomUpInferenceModel(L.LightningModule):
 
         """
         # Network forward pass.
+        self.batch_size = inputs["image"].shape[0]
         output = self.torch_model(inputs["image"])
         cms = output["MultiInstanceConfmapsHead"]
         pafs = output["PartAffinityFieldsHead"]
-        cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._get_confmap_peaks(cms)
+        cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)
+        ## working till here!
 
         (
             predicted_instances,
@@ -1506,7 +1487,10 @@ class BottomUpInferenceModel(L.LightningModule):
             edge_peak_inds,
             line_scores,
         ) = self.paf_scorer.predict(
-            pafs, cms_peaks, cms_peak_vals, cms_peak_channel_inds
+            pafs=pafs.permute(0, 2, 3, 1),
+            peaks=cms_peaks,
+            peak_vals=cms_peak_vals,
+            peak_channel_inds=cms_peak_channel_inds,
         )
 
         predicted_instances = predicted_instances / self.input_scale
@@ -1551,14 +1535,65 @@ class BottomUpPredictor(Predictor):
 
     bottomup_config: Optional[DictConfig] = attrs.field(default=None)
     bottomup_model: Optional[L.LightningModule] = attrs.field(default=None)
+    max_edge_length_ratio: float = 0.25
+    dist_penalty_weight: float = 1.0
+    n_points: int = 10
+    min_instance_peaks: Union[int, float] = 0
+    min_line_scores: float = 0.25
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
+        self.paf_idx = [
+            x.head_type == "PartAffinityFieldsHead"
+            for x in self.bottomup_config.model_config.head_configs
+        ].index(True)
+        self.confmaps_idx = [
+            x.head_type == "MultiInstanceConfmapsHead"
+            for x in self.bottomup_config.model_config.head_configs
+        ].index(True)
+        paf_scorer = PAFScorer.from_config(
+            config=OmegaConf.create(
+                {
+                    "confmaps": self.bottomup_config.model_config.head_configs[
+                        self.confmaps_idx
+                    ].head_config,
+                    "pafs": self.bottomup_config.model_config.head_configs[
+                        self.paf_idx
+                    ].head_config,
+                }
+            ),
+            max_edge_length_ratio=(
+                self.bottomup_config.inference_config.max_edge_length_ratio
+                if "max_edge_length_ratio" in self.bottomup_config.keys
+                else self.max_edge_length_ratio
+            ),
+            dist_penalty_weight=(
+                self.bottomup_config.inference_config.dist_penalty_weight
+                if "dist_penalty_weight" in self.bottomup_config.keys
+                else self.dist_penalty_weight
+            ),
+            n_points=(
+                self.bottomup_config.inference_config.n_points
+                if "n_points" in self.bottomup_config.keys
+                else self.n_points
+            ),
+            min_instance_peaks=(
+                self.bottomup_config.inference_config.min_instance_peaks
+                if "min_instance_peaks" in self.bottomup_config.keys
+                else self.min_instance_peaks
+            ),
+            min_line_scores=(
+                self.bottomup_config.inference_config.min_line_scores
+                if "min_line_scores" in self.bottomup_config.keys
+                else self.min_line_scores
+            ),
+        )
         self.inference_model = BottomUpInferenceModel(
             torch_model=self.bottomup_model,
-            paf_scorer=PAFScorer,
+            paf_scorer=paf_scorer,
             peak_threshold=self.bottomup_config.inference_config.peak_threshold,
-            output_stride=self.bottomup_config.inference_config.data.preprocessing.output_stride,
+            cms_output_stride=self.bottomup_config.inference_config.data.preprocessing.output_stride,
+            pafs_output_stride=self.bottomup_config.inference_config.data.preprocessing.pafs_output_stride,
             refinement=self.bottomup_config.inference_config.integral_refinement,
             integral_patch_size=self.bottomup_config.inference_config.integral_patch_size,
             return_confmaps=self.bottomup_config.inference_config.return_confmaps,
@@ -1597,6 +1632,9 @@ class BottomUpPredictor(Predictor):
         obj = cls(
             bottomup_config=bottomup_config,
             bottomup_model=bottomup_model,
+        )
+        bottomup_config.inference_config.data["skeletons"] = (
+            bottomup_config.data_config.train.skeletons
         )
 
         obj._initialize_inference_model()
@@ -1693,20 +1731,23 @@ class BottomUpPredictor(Predictor):
 
         Args:
             generator: A generator that returns dictionaries with inference results.
-                This should return dictionaries with keys `"image"`, `"video_idx"`,
-                `"frame_idx"`, `"pred_instance_peaks"`, `"pred_peak_values"`.
-                This can be created using the `_predict_generator()` method.
+                This should return dictionaries with keys `"instance_image"`, `"video_idx"`,
+                `"frame_idx"`, `"pred_instance_peaks"`, `"pred_peak_values"`, and
+                `"centroid_val"`. This can be created using the `_predict_generator()`
+                method.
 
         Returns:
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        preds = defaultdict(list)
         predicted_frames = []
+
         skeletons = []
-        for name in self.bottomup_config.data_config.skeletons.keys():
+        for name in self.data_config.skeletons.keys():
             nodes = [
                 sio.model.skeleton.Node(n["name"])
-                for n in self.bottomup_config.data_config.skeletons[name].nodes
+                for n in self.data_config.skeletons[name].nodes
             ]
             edges = [
                 sio.model.skeleton.Edge(
@@ -1741,31 +1782,38 @@ class BottomUpPredictor(Predictor):
                 frame_idx,
                 pred_instances,
                 pred_values,
+                instance_score,
                 org_size,
             ) in zip(
                 ex["video_idx"],
                 ex["frame_idx"],
                 ex["pred_instance_peaks"],
                 ex["pred_peak_values"],
+                ex["instance_scores"],
                 ex["orig_size"],
             ):
                 if self.data_config.max_height is not None:  # adjust for padding
                     pad_height = (self.data_config.max_height - org_size[0]) // 2
                     pad_width = (self.data_config.max_width - org_size[1]) // 2
                     pred_instances = pred_instances - [pad_height, pad_width]
-                inst = sio.PredictedInstance.from_numpy(
-                    points=pred_instances,
-                    skeleton=skeletons[skeleton_idx],
-                    instance_score=np.nansum(pred_values),
-                    point_scores=pred_values,
-                )
-                predicted_frames.append(
-                    sio.LabeledFrame(
-                        video=self.videos[video_idx],
-                        frame_idx=frame_idx,
-                        instances=[inst],
+                preds[(int(video_idx), int(frame_idx))].append(
+                    sio.PredictedInstance.from_numpy(
+                        points=pred_instances,
+                        skeleton=skeletons[skeleton_idx],
+                        point_scores=pred_values,
+                        instance_score=instance_score,
                     )
                 )
+        for key, inst in preds.items():
+            # Create list of LabeledFrames.
+            video_idx, frame_idx = key
+            predicted_frames.append(
+                sio.LabeledFrame(
+                    video=self.videos[video_idx],
+                    frame_idx=frame_idx,
+                    instances=inst,
+                )
+            )
 
         pred_labels = sio.Labels(
             videos=self.videos,

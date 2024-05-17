@@ -221,13 +221,13 @@ class SwinTWrapper(nn.Module):
             stochastic_depth_prob=stochastic_depth_prob,
             norm_layer=norm_layer,
         )
-        current_stride = self.stem_stride * (2 ** (self.down_blocks - 1))
+        self.current_stride = self.stem_stride * (2 ** (self.down_blocks - 1))
 
         x_in_shape = embed_dim * (2 ** (self.down_blocks))
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,
-            current_stride=current_stride,
+            current_stride=self.current_stride,
             filters=embed_dim,
             up_blocks=self.up_blocks,
             down_blocks=self.down_blocks,
@@ -241,7 +241,7 @@ class SwinTWrapper(nn.Module):
         """Returns the output channels of the SwinT."""
         return int(
             self.embed_dim
-            * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
+            * (self.filters_rate ** (self.down_blocks - len(self.dec.decoder_stack)))
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:

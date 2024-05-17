@@ -428,7 +428,9 @@ def score_paf_lines_batch(
               for each connection based on the PAFs.
     """
     max_edge_length = (
-        max_edge_length_ratio * max(pafs.shape[2], pafs.shape[3]) * pafs_stride
+        max_edge_length_ratio
+        * max(pafs.shape[-1], pafs.shape[-2], pafs.shape[-3])
+        * pafs_stride
     )
 
     n_samples = pafs.shape[0]

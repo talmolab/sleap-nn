@@ -126,7 +126,7 @@ class MultiConfidenceMapGenerator(IterDataPipe):
             if self.centroids:
                 points = example["centroids"][
                     :, : example["num_instances"], :
-                ] .unsqueeze(dim=-2)
+                ].unsqueeze(dim=-2)
             else:
                 points = example[self.instance_key]
 

@@ -130,12 +130,13 @@ model_config:
       up_blocks: 3
       convs_per_block: 2
   head_configs:
-    head_type: CentroidConfmapsHead
-    head_config:
-      anchor_part: 0
-      sigma: 1.5
-      output_stride: 2
-      loss_weight: 1.0
+    - 
+      head_type: CentroidConfmapsHead
+      head_config:
+        anchor_part: 0
+        sigma: 1.5
+        output_stride: 2
+        loss_weight: 1.0
 trainer_config:
   train_data_loader:
     batch_size: 4

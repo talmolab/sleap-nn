@@ -16,17 +16,14 @@ from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
-from sleap_nn.data.pipelines import (
-    TopdownConfmapsPipeline,
-    SingleInstanceConfmapsPipeline,
-)
-from sleap_nn.data.confidence_maps import make_grid_vectors, make_multi_confmaps
 from sleap_nn.model_trainer import (
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
     CentroidModel,
     ModelTrainer,
+    BottomUpModel,
 )
+from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.inference.inference import (
     Predictor,
     FindInstancePeaks,
@@ -34,6 +31,8 @@ from sleap_nn.inference.inference import (
     TopDownInferenceModel,
     SingleInstanceInferenceModel,
     CentroidCrop,
+    BottomUpPredictor,
+    BottomUpInferenceModel,
 )
 
 
@@ -683,6 +682,56 @@ def test_centroid_inference_model(config):
     assert tuple(out["centroid_val"].shape) == (2,)
     assert tuple(out["instance_image"].shape) == (2, 1, 1, 160, 160)
     assert tuple(out["instance_bbox"].shape) == (2, 1, 4, 2)
+
+
+def test_bottomup_inference_model(config):
+    """Test BottomUpInference class to run inference on centroid models."""
+    bottomup_config = config.copy()
+    bottomup_config = config.copy()
+    OmegaConf.update(bottomup_config, "data_config.pipeline", "BottomUp")
+    bottomup_config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
+    paf = {
+        "head_type": "PartAffinityFieldsHead",
+        "head_config": {
+            "edges": [("0", "1")],
+            "sigma": 1.5,
+            "output_stride": 2,
+            "loss_weight": 1.0,
+        },
+    }
+    del bottomup_config.model_config.head_configs[0].head_config.anchor_part
+    bottomup_config.model_config.head_configs.append(paf)
+
+    trainer = ModelTrainer(bottomup_config)
+    trainer._create_data_loaders()
+    loader = next(iter(trainer.val_data_loader))
+    trainer._initialize_model()
+    model = trainer.model
+
+    layer = BottomUpInferenceModel(
+        torch_model=model,
+        paf_scorer=PAFScorer.from_config(
+            config=OmegaConf.create(
+                {
+                    "confmaps": bottomup_config.model_config.head_configs[
+                        0
+                    ].head_config,
+                    "pafs": bottomup_config.model_config.head_configs[1].head_config,
+                }
+            )
+        ),
+        peak_threshold=0.0,
+        refinement="integral",
+        integral_patch_size=5,
+        output_stride=2,
+        return_confmaps=False,
+    )
+
+    out = layer(loader)[0]
+    print(out["pred_instance_peaks"])
+    assert tuple(out["pred_instance_peaks"].shape) == (1, 1, 2, 2)
+    assert tuple(out["pred_peak_values"].shape) == (1, 2)
+    assert tuple(out["instance_scores"].shape) == (1, 1)
 
 
 if __name__ == "__main__":

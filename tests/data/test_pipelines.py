@@ -12,7 +12,7 @@ from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
     CentroidConfmapsPipeline,
-    BottomUpPipeline
+    BottomUpPipeline,
 )
 from sleap_nn.data.providers import LabelsReader
 
@@ -580,6 +580,7 @@ def test_centroidconfmapspipeline(minimal_instance):
     assert sample["image"].shape == (1, 1, 160, 160)
     assert sample["centroids_confidence_maps"].shape == (1, 1, 80, 80)
 
+
 def test_bottomuppipeline(minimal_instance):
     """Test BottomUpPipeline class."""
     base_centroid_data_config = OmegaConf.create(
@@ -591,6 +592,7 @@ def test_bottomuppipeline(minimal_instance):
             "preprocessing": {
                 "anchor_ind": None,
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
@@ -645,7 +647,7 @@ def test_bottomuppipeline(minimal_instance):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 384, 384)
     assert sample["confidence_maps"].shape == (1, 2, 192, 192)
-    assert sample["part_affinity_fields"].shape == (2, 192, 192)
+    assert sample["part_affinity_fields"].shape == (2, 96, 96)
 
     # with scaling
     base_centroid_data_config = OmegaConf.create(
@@ -657,6 +659,7 @@ def test_bottomuppipeline(minimal_instance):
             "preprocessing": {
                 "anchor_ind": None,
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
@@ -711,7 +714,7 @@ def test_bottomuppipeline(minimal_instance):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 192, 192)
     assert sample["confidence_maps"].shape == (1, 2, 96, 96)
-    assert sample["part_affinity_fields"].shape == (2, 96, 96)
+    assert sample["part_affinity_fields"].shape == (2, 48, 48)
 
     # with padding
     base_centroid_data_config = OmegaConf.create(
@@ -723,6 +726,7 @@ def test_bottomuppipeline(minimal_instance):
             "preprocessing": {
                 "anchor_ind": None,
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (100, 100)},
@@ -777,7 +781,7 @@ def test_bottomuppipeline(minimal_instance):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 128, 128)
     assert sample["confidence_maps"].shape == (1, 2, 64, 64)
-    assert sample["part_affinity_fields"].shape == (2, 64, 64)
+    assert sample["part_affinity_fields"].shape == (2, 32, 32)
 
     # with random crop
     base_centroid_data_config = OmegaConf.create(
@@ -789,6 +793,7 @@ def test_bottomuppipeline(minimal_instance):
             "preprocessing": {
                 "anchor_ind": None,
                 "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
+                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},

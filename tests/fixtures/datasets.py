@@ -252,7 +252,7 @@ def config(sleap_data_dir):
                         "output_stride": 2,
                     },
                 },
-                "peak_threshold": 0.0,
+                "peak_threshold": 0.2,
                 "integral_refinement": "integral",
                 "integral_patch_size": 5,
                 "return_confmaps": False,
