@@ -349,8 +349,8 @@ class SimpleUpsamplingBlock(nn.Module):
             filters = refine_convs_filters
             self.blocks.append(
                 nn.Conv2d(
-                    in_channels=x_in_shape if i == 0 else filters,
-                    out_channels=filters,
+                    in_channels=int(x_in_shape) if i == 0 else int(filters),
+                    out_channels=int(filters),
                     kernel_size=refine_convs_kernel_size,
                     stride=1,
                     padding="same",

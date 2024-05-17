@@ -151,6 +151,8 @@ def test_unet_model():
         head_configs=[base_unet_head_config],
         input_expand_channels=1,
     ).to(device)
+    print(model)
+    assert False
 
     assert model.backbone_config == base_unet_model_config
     assert model.head_configs == [base_unet_head_config]

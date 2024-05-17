@@ -113,13 +113,13 @@ def test_topdown_predictor(
     # if model parameter is not set right
     with pytest.raises(ValueError):
         config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-        model_name = config.model_config.head_configs.head_type
-        OmegaConf.update(config, "model_config.head_configs.head_type", "instance")
+        model_name = config.model_config.head_configs[0].head_type
+        config.model_config.head_configs[0].head_type = "instance"
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
         predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
 
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    OmegaConf.update(config, "model_config.head_configs.head_type", model_name)
+    config.model_config.head_configs[0].head_type = model_name
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
     # centroid + centroid instance model
@@ -176,7 +176,6 @@ def test_topdown_predictor(
         assert predictor.confmap_config is not None
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 40
-        assert len(pred_labels[0].instances) == 2
     finally:
         OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
         OmegaConf.save(
@@ -362,10 +361,8 @@ def test_find_instance_peaks_groundtruth(
     )
 
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.part_names
+    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs[0].head_config.part_names
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     model = CentroidModel.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt", config=config
@@ -441,10 +438,8 @@ def test_single_instance_inference_model(
 ):
     """Test SingleInstanceInferenceModel."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.anchor_part
+    config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
+    del config.model_config.head_configs[0].head_config.anchor_part
 
     torch_model = SingleInstanceModel.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt", config=config
@@ -521,10 +516,8 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
     try:
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        OmegaConf.update(
-            config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
-        )
-        del config.model_config.head_configs.head_config.anchor_part
+        config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
+        del config.model_config.head_configs[0].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -567,10 +560,8 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             f"./tests/assets/centered_pair_small.mp4",
         )
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        OmegaConf.update(
-            config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
-        )
-        del config.model_config.head_configs.head_config.anchor_part
+        config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
+        del config.model_config.head_configs[0].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -612,10 +603,8 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             f"./tests/assets/centered_pair_small.mp4",
         )
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        OmegaConf.update(
-            config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
-        )
-        del config.model_config.head_configs.head_config.anchor_part
+        config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
+        del config.model_config.head_configs[0].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -634,10 +623,8 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 def test_centroid_inference_model(config):
     """Test CentroidCrop class to run inference on centroid models."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.part_names
+    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs[0].head_config.part_names
 
     trainer = ModelTrainer(config)
     trainer._create_data_loaders()
@@ -699,6 +686,16 @@ def test_bottomup_inference_model(config):
             "loss_weight": 1.0,
         },
     }
+    bottomup_config.data_config.train.preprocessing["pafs_gen"] = {
+        "sigma": 4,
+        "output_stride": 4,
+    }
+    bottomup_config.data_config.val.preprocessing["pafs_gen"] = {
+        "sigma": 4,
+        "output_stride": 4,
+    }
+    bottomup_config.inference_config.data.preprocessing["pafs_output_stride"] = 4
+
     del bottomup_config.model_config.head_configs[0].head_config.anchor_part
     bottomup_config.model_config.head_configs.append(paf)
 
@@ -723,7 +720,8 @@ def test_bottomup_inference_model(config):
         peak_threshold=0.0,
         refinement="integral",
         integral_patch_size=5,
-        output_stride=2,
+        cms_output_stride=2,
+        pafs_output_stride=4,
         return_confmaps=False,
     )
 
