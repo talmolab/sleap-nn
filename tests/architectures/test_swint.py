@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-
+import math
 from sleap_nn.architectures.swint import SwinTransformerEncoder, SwinTWrapper
 
 
@@ -27,8 +27,7 @@ def test_swint_reference():
         convs_per_block=2,
     )
 
-    down_blocks = len(depths) - 1
-    in_channels = int(embed_dim * (filters_rate ** (down_blocks - 1 - up_blocks + 1)))
+    in_channels = 48
     model = nn.Sequential(
         *[
             swint,
@@ -47,10 +46,10 @@ def test_swint_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 96, 192, 192)
+    assert y["outputs"][-1].shape == (1, 48, 192, 192)
     assert type(y["strides"]) is list
     assert len(y["strides"]) == 4
-    assert swint.output_channels == 96
+    assert swint.output_channels == 48
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -132,6 +131,7 @@ def test_swint_reference():
         filters_rate=filters_rate,
         up_blocks=up_blocks,
         convs_per_block=2,
+        down_blocks=4,
     )
 
     swint.eval()
@@ -143,5 +143,5 @@ def test_swint_reference():
     assert out[0].shape == (1, 384, 12, 12)
     assert out[1].shape == (1, 192, 24, 24)
     assert out[2].shape == (1, 96, 48, 48)
-    assert out[3].shape == (1, 96, 96, 96)
-    assert out[4].shape == (1, 96, 192, 192)
+    assert out[3].shape == (1, 48, 96, 96)
+    assert out[4].shape == (1, 24, 192, 192)

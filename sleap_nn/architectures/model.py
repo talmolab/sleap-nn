@@ -10,6 +10,7 @@ from typing import List
 import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
+import math
 
 from sleap_nn.architectures.heads import (
     Head,
@@ -134,6 +135,13 @@ class Model(nn.Module):
 
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
+            in_channels = (
+                int(
+                    self.backbone.dec.x_in_shape
+                    / self.backbone_config.backbone_config.filters_rate
+                    ** len(self.backbone.dec.decoder_stack)
+                )
+            ) * head.output_stride
             self.head_layers.append(head.make_head(x_in=in_channels))
 
     @classmethod

@@ -141,24 +141,29 @@ def config(sleap_data_dir):
                         "kernel_size": 3,
                         "filters": 16,
                         "filters_rate": 2,
-                        "down_blocks": 4,
-                        "up_blocks": 3,
+                        "max_stride": 16,
                         "convs_per_block": 2,
+                        "stacks": 1,
+                        "stem_stride": None,
+                        "middle_block": True,
+                        "up_interpolate": True,
                     },
                 },
-                "head_configs": {
-                    "head_type": "CenteredInstanceConfmapsHead",
-                    "head_config": {
-                        "part_names": [
-                            "0",
-                            "1",
-                        ],
-                        "anchor_part": 1,
-                        "sigma": 1.5,
-                        "output_stride": 2,
-                        "loss_weight": 1.0,
-                    },
-                },
+                "head_configs": [
+                    {
+                        "head_type": "CenteredInstanceConfmapsHead",
+                        "head_config": {
+                            "part_names": [
+                                "0",
+                                "1",
+                            ],
+                            "anchor_part": 1,
+                            "sigma": 1.5,
+                            "output_stride": 2,
+                            "loss_weight": 1.0,
+                        },
+                    }
+                ],
             },
             "trainer_config": {
                 "train_data_loader": {
@@ -250,7 +255,7 @@ def config(sleap_data_dir):
                         "output_stride": 2,
                     },
                 },
-                "peak_threshold": 0.0,
+                "peak_threshold": 0.2,
                 "integral_refinement": "integral",
                 "integral_patch_size": 5,
                 "return_confmaps": False,

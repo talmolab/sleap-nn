@@ -151,6 +151,145 @@ def test_unet_model():
         head_configs=[base_unet_head_config],
         input_expand_channels=1,
     ).to(device)
+    print(model)
+    assert False
+
+    assert model.backbone_config == base_unet_model_config
+    assert model.head_configs == [base_unet_head_config]
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    model.eval()
+
+    with torch.no_grad():
+        z = model(x)
+
+    assert type(z) is dict
+    assert len(z.keys()) == 1
+    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
+    assert z[base_unet_head_config.head_type].dtype == torch.float32
+
+    model = Model.from_config(
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
+    ).to(device)
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    model.eval()
+
+    with torch.no_grad():
+        z = model(x)
+
+    assert type(z) is dict
+    assert len(z.keys()) == 1
+    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
+    assert z[base_unet_head_config.head_type].dtype == torch.float32
+
+
+def test_convnext_model():
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    base_unet_model_config = OmegaConf.create(
+        {
+            "backbone_type": "convnext",
+            "backbone_config": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters_rate": 2,
+                "up_blocks": 3,
+                "down_blocks": 4,
+                "convs_per_block": 2,
+                "arch": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
+                "stem_patch_kernel": 4,
+                "stem_patch_stride": 2,
+            },
+        }
+    )
+
+    base_unet_head_config = OmegaConf.create(
+        {
+            "head_type": "SingleInstanceConfmapsHead",
+            "head_config": {
+                "part_names": [f"{i}" for i in range(13)],
+                "sigma": 5.0,
+                "output_stride": 1,
+                "loss_weight": 1.0,
+            },
+        }
+    )
+
+    model = Model(
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
+    ).to(device)
+
+    assert model.backbone_config == base_unet_model_config
+    assert model.head_configs == [base_unet_head_config]
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    model.eval()
+
+    with torch.no_grad():
+        z = model(x)
+
+    assert type(z) is dict
+    assert len(z.keys()) == 1
+    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
+    assert z[base_unet_head_config.head_type].dtype == torch.float32
+
+    model = Model.from_config(
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
+    ).to(device)
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    model.eval()
+
+    with torch.no_grad():
+        z = model(x)
+
+    assert type(z) is dict
+    assert len(z.keys()) == 1
+    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
+    assert z[base_unet_head_config.head_type].dtype == torch.float32
+
+    # stride = 4
+    base_unet_model_config = OmegaConf.create(
+        {
+            "backbone_type": "convnext",
+            "backbone_config": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters_rate": 2,
+                "up_blocks": 3,
+                "down_blocks": 4,
+                "convs_per_block": 2,
+                "arch": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
+                "stem_patch_kernel": 4,
+                "stem_patch_stride": 4,
+            },
+        }
+    )
+
+    base_unet_head_config = OmegaConf.create(
+        {
+            "head_type": "SingleInstanceConfmapsHead",
+            "head_config": {
+                "part_names": [f"{i}" for i in range(13)],
+                "sigma": 5.0,
+                "output_stride": 1,
+                "loss_weight": 1.0,
+            },
+        }
+    )
+
+    model = Model(
+        backbone_config=base_unet_model_config,
+        head_configs=[base_unet_head_config],
+        input_expand_channels=1,
+    ).to(device)
 
     assert model.backbone_config == base_unet_model_config
     assert model.head_configs == [base_unet_head_config]

@@ -5,6 +5,7 @@ well as to define training vs inference versions based on the same configuration
 """
 
 from omegaconf.omegaconf import DictConfig
+import torch
 from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
@@ -23,17 +24,18 @@ class TopdownConfmapsPipeline:
 
     Attributes:
         data_config: Data-related configuration.
-        down_blocks: Number of down blocks in the backbone model.
+        max_stride: Scalar integer specifying the maximum stride that the image must be
+            divisible by.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     of original image according to given crop height and width and then the cropped
     images are scaled.
     """
 
-    def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
+    def __init__(self, data_config: DictConfig, max_stride: int) -> None:
         """Initialize the data config."""
         self.data_config = data_config
-        self.down_blocks = down_blocks
+        self.max_stride = max_stride
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -70,16 +72,6 @@ class TopdownConfmapsPipeline:
             datapipe,
             self.data_config.preprocessing.crop_hw,
         )
-        max_stride = 2 ** (self.down_blocks)
-        datapipe = Resizer(
-            datapipe,
-            scale=self.data_config.scale,
-            image_key="instance_image",
-            instances_key="instance",
-        )
-        datapipe = PadToStride(
-            datapipe, max_stride=max_stride, image_key="instance_image"
-        )
 
         if self.data_config.augmentation_config.random_crop.random_crop_p:
             datapipe = KorniaAugmenter(
@@ -97,6 +89,16 @@ class TopdownConfmapsPipeline:
                 image_key="instance_image",
                 instance_key="instance",
             )
+
+        datapipe = Resizer(
+            datapipe,
+            scale=self.data_config.scale,
+            image_key="instance_image",
+            instances_key="instance",
+        )
+        datapipe = PadToStride(
+            datapipe, max_stride=self.max_stride, image_key="instance_image"
+        )
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
@@ -130,13 +132,14 @@ class SingleInstanceConfmapsPipeline:
 
     Attributes:
         data_config: Data-related configuration.
-        down_blocks: Number of down blocks in backbone.
+        max_stride: Scalar integer specifying the maximum stride that the image must be
+            divisible by.
     """
 
-    def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
+    def __init__(self, data_config: DictConfig, max_stride: int) -> None:
         """Initialize the data config."""
         self.data_config = data_config
-        self.down_blocks = down_blocks
+        self.max_stride = max_stride
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -156,8 +159,6 @@ class SingleInstanceConfmapsPipeline:
             max_width=self.data_config.max_width,
             provider=provider,
         )
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
-        datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
 
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
@@ -176,6 +177,9 @@ class SingleInstanceConfmapsPipeline:
                 image_key="image",
                 instance_key="instances",
             )
+
+        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
@@ -205,13 +209,14 @@ class CentroidConfmapsPipeline:
 
     Attributes:
         data_config: Data-related configuration.
-        down_blocks: Number of down blocks in backbone model.
+        max_stride: Scalar integer specifying the maximum stride that the image must be
+            divisible by.
     """
 
-    def __init__(self, data_config: DictConfig, down_blocks: int) -> None:
+    def __init__(self, data_config: DictConfig, max_stride: int) -> None:
         """Initialize the data config."""
         self.data_config = data_config
-        self.down_blocks = down_blocks
+        self.max_stride = max_stride
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -241,9 +246,6 @@ class CentroidConfmapsPipeline:
             provider=provider,
         )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
-        datapipe = PadToStride(datapipe, max_stride=2 ** (self.down_blocks))
-
         if self.data_config.augmentation_config.use_augmentations:
             datapipe = KorniaAugmenter(
                 datapipe,
@@ -252,17 +254,13 @@ class CentroidConfmapsPipeline:
                 instance_key="instances",
             )
 
-        datapipe = InstanceCentroidFinder(
-            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
-        )
-
         if self.data_config.augmentation_config.random_crop.random_crop_p:
             datapipe = KorniaAugmenter(
                 datapipe,
                 random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
                 random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
                 image_key="image",
-                instance_key="centroids",
+                instance_key="instances",
             )
 
         if self.data_config.augmentation_config.use_augmentations:
@@ -270,8 +268,14 @@ class CentroidConfmapsPipeline:
                 datapipe,
                 **dict(self.data_config.augmentation_config.augmentations.geometric),
                 image_key="image",
-                instance_key="centroids",
+                instance_key="instances",
             )
+
+        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = PadToStride(datapipe, max_stride=self.max_stride)
+        datapipe = InstanceCentroidFinder(
+            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
+        )
 
         datapipe = MultiConfidenceMapGenerator(
             datapipe,

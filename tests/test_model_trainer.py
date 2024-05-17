@@ -187,12 +187,10 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(
         single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
     )
-    OmegaConf.update(
-        single_instance_config,
-        "model_config.head_configs.head_type",
-        "SingleInstanceConfmapsHead",
+    single_instance_config.model_config.head_configs[0].head_type = (
+        "SingleInstanceConfmapsHead"
     )
-    del single_instance_config.model_config.head_configs.head_config.anchor_part
+    del single_instance_config.model_config.head_configs[0].head_config.anchor_part
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
@@ -201,13 +199,9 @@ def test_trainer(config, tmp_path: str):
     # Centroid model
     centroid_config = config.copy()
     OmegaConf.update(centroid_config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        centroid_config,
-        "model_config.head_configs.head_type",
-        "CentroidConfmapsHead",
-    )
+    centroid_config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
 
-    del centroid_config.model_config.head_configs.head_config.part_names
+    del centroid_config.model_config.head_configs[0].head_config.part_names
 
     if Path(config.trainer_config.save_ckpt_path).exists():
         shutil.rmtree(config.trainer_config.save_ckpt_path)
@@ -295,10 +289,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.part_names
+    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs[0].head_config.part_names
 
     model = CentroidModel(config)
 
@@ -322,10 +314,8 @@ def test_centroid_model(config, tmp_path: str):
 def test_single_instance_model(config, tmp_path: str):
     """Test the SingleInstanceModel training."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.anchor_part
+    config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
+    del config.model_config.head_configs[0].head_config.anchor_part
 
     model = SingleInstanceModel(config)
     OmegaConf.update(

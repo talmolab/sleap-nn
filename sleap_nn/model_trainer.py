@@ -78,37 +78,25 @@ class ModelTrainer:
             self.provider = LabelsReader
         # create pipelines
         if self.is_single_instance_model:
-            train_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
-            val_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.val,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
+            pipeline = SingleInstanceConfmapsPipeline
 
         elif self.config.data_config.pipeline == "TopdownConfmaps":
-            train_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
-            val_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.val,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
+            pipeline = TopdownConfmapsPipeline
 
         elif self.config.data_config.pipeline == "CentroidConfmaps":
-            train_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
-            val_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.val,
-                down_blocks=self.config.model_config.backbone_config.backbone_config.down_blocks,
-            )
+            pipeline = CentroidConfmapsPipeline
 
         else:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
+
+        train_pipeline = pipeline(
+            data_config=self.config.data_config.train,
+            max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+        )
+        val_pipeline = pipeline(
+            data_config=self.config.data_config.val,
+            max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+        )
 
         # train
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
@@ -303,9 +291,12 @@ class TrainingModel(L.LightningModule):
                 )
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
-            head_configs=[self.model_config.head_configs],
+            head_configs=self.model_config.head_configs,
             input_expand_channels=self.input_expand_channels,
         ).to(self.m_device)
+        self.loss_weights = [
+            x.head_config.loss_weight for x in self.model_config.head_configs
+        ]
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}

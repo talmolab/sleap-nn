@@ -184,12 +184,12 @@ class ConvNextWrapper(nn.Module):
             kwargs=kwargs,
         )
 
-        current_stride = self.stem_patch_stride * (2 ** (self.down_blocks - 1))
+        self.current_stride = self.stem_patch_stride * (2 ** (self.down_blocks - 1))
         x_in_shape = self.arch["channels"][-1]
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,
-            current_stride=current_stride,
+            current_stride=self.current_stride,
             filters=self.arch["channels"][0],
             up_blocks=self.up_blocks,
             down_blocks=self.down_blocks,
@@ -200,10 +200,10 @@ class ConvNextWrapper(nn.Module):
 
     @property
     def output_channels(self):
-        """Returns the output channels of the ConvNext model."""
+        """Returns the output channels of the ConvNext."""
         return int(
             self.arch["channels"][0]
-            * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
+            * (self.filters_rate ** (self.down_blocks - len(self.dec.decoder_stack)))
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:

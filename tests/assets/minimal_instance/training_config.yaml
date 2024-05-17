@@ -57,8 +57,8 @@ data_config:
     labels_path: minimal_instance.pkg.slp
     max_width: null
     max_height: null
-    scale: 1.0
     is_rgb: false
+    scale: 1.0
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -130,7 +130,7 @@ model_config:
       up_blocks: 3
       convs_per_block: 2
   head_configs:
-    head_type: CenteredInstanceConfmapsHead
+  - head_type: CenteredInstanceConfmapsHead
     head_config:
       part_names:
       - '0'
@@ -167,15 +167,15 @@ trainer_config:
   trainer_accelerator: cpu
   enable_progress_bar: false
   steps_per_epoch: null
-  max_epochs: 2
+  max_epochs: 10
   seed: 1000
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: 04_11_pytest_run
+  save_ckpt_path: min_inst_centered
   wandb:
     entity: team-ucsd
-    project: exps_final
-    name: fly_unet_00_rerun_1_0003
+    project: test_centroid_centered
+    name: fly_unet_centered
     wandb_mode: ''
     api_key: ''
     log_params:
@@ -198,11 +198,11 @@ inference_config:
   device: cpu
   data:
     path: ./tests/assets/minimal_instance.pkg.slp
-    max_instances: 10
+    max_instances: 6
     max_width: null
     max_height: null
-    scale: 1.0
     is_rgb: false
+    scale: 1.0
     provider: LabelsReader
     data_loader:
       batch_size: 4
@@ -212,11 +212,11 @@ inference_config:
       drop_last: false
     video_loader:
       batch_size: 4
-      queue_maxsize: 16
+      queue_maxsize: 8
       start_idx: 0
-      end_idx: 40
+      end_idx: 100
     preprocessing:
-      anchor_ind: 0
+      anchor_ind: 1
       crop_hw:
       - 160
       - 160

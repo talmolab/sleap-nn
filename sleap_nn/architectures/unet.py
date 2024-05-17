@@ -62,7 +62,7 @@ class UNet(nn.Module):
             kernel_size=kernel_size,
         )
 
-        current_stride = int(
+        self.current_stride = int(
             np.prod(
                 [
                     block.pooling_stride
@@ -73,11 +73,11 @@ class UNet(nn.Module):
             )
         )
 
-        x_in_shape = int(filters * (filters_rate ** (down_blocks + 0)))
+        x_in_shape = int(filters * (filters_rate ** (down_blocks)))
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,
-            current_stride=current_stride,
+            current_stride=self.current_stride,
             filters=filters,
             up_blocks=up_blocks,
             down_blocks=down_blocks,
