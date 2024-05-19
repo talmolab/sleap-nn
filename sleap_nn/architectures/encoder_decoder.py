@@ -207,13 +207,17 @@ class Encoder(nn.Module):
             )
 
         for block in range(down_blocks):
-            prev_block_filters = -1 if block == 0 else block_filters
+            prev_block_filters = -1 if block + self.stem_blocks == 0 else block_filters
             block_filters = int(filters * (filters_rate ** (block + self.stem_blocks)))
 
             self.encoder_stack.append(
                 SimpleConvBlock(
-                    in_channels=in_channels if block == 0 else prev_block_filters,
-                    pool=(block > 0),
+                    in_channels=(
+                        in_channels
+                        if block + self.stem_blocks == 0
+                        else prev_block_filters
+                    ),
+                    pool=(block + self.stem_blocks > 0),
                     pool_before_convs=True,
                     pooling_stride=2,
                     num_convs=convs_per_block - 1,
@@ -587,7 +591,7 @@ class Decoder(nn.Module):
         while current_stride >= output_stride:
             next_stride = current_stride // 2
             block_filters_in = int(
-                filters * (filters_rate ** (down_blocks + stem_blocks - 1 - block))
+                filters * (filters_rate ** (down_blocks + self.stem_blocks - 1 - block))
             )
 
             block_filters_out = block_filters_in // filters_rate

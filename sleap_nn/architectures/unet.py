@@ -104,7 +104,7 @@ class UNet(nn.Module):
             )
         )
 
-        x_in_shape = int(filters * (filters_rate ** (down_blocks)))
+        x_in_shape = int(filters * (filters_rate ** (down_blocks + stem_blocks)))
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,

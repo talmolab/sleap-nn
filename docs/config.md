@@ -90,7 +90,7 @@ The config file has four main sections:
             - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
                 - `depths`: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
                 - `channels`: (List(int)) Number of channels in each block. Default: [96, 192, 384, 768].
-            - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large]. Default: "tiny". 
+            - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. Default: "tiny". 
             - `output_strides`: (List[int]) List of output strides for each head layer.
             - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. Default is 4.
             - `stem_patch_stride`: (int) Convolutional stride in the stem layer. Default is 2.

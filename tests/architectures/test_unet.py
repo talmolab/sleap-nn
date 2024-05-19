@@ -115,3 +115,58 @@ def test_unet_reference():
     assert features[1].shape == (1, 64, 48, 48)
     assert features[2].shape == (1, 32, 96, 96)
     assert features[3].shape == (1, 16, 192, 192)
+
+    # with stem stride
+    config = OmegaConf.create(
+        {
+            "in_channels": 1,
+            "kernel_size": 3,
+            "filters": 16,
+            "filters_rate": 2,
+            "max_stride": 16,
+            "convs_per_block": 2,
+            "stacks": 1,
+            "stem_stride": 2,
+            "middle_block": True,
+            "up_interpolate": True,
+            "output_strides": [1],
+            "block_contraction": False,
+        }
+    )
+
+    unet = UNet.from_config(config=config)
+
+    in_channels = int(
+        unet.max_channels / config.filters_rate ** len(unet.dec.decoder_stack)
+    )
+    model = nn.Sequential(
+        *[
+            unet,
+            nn.Conv2d(
+                in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
+            ),
+        ]
+    )
+
+    # Test final output shape.
+    unet = unet.to(device)
+    unet.eval()
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    with torch.no_grad():
+        y = unet(x)
+    assert type(y) is dict
+    assert "outputs" in y
+    assert "strides" in y
+    assert y["outputs"][-1].shape == (1, 16, 192, 192)
+    assert type(y["strides"]) is list
+    assert len(y["strides"]) == 4
+
+    conv2d = nn.Conv2d(
+        in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
+    ).to(device)
+
+    conv2d.eval()
+    with torch.no_grad():
+        z = conv2d(y["outputs"][-1])
+    assert z.shape == (1, 13, 192, 192)

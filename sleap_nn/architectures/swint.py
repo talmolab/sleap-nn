@@ -266,7 +266,7 @@ class SwinTWrapper(nn.Module):
         output_stride = min(config.output_strides)
         return cls(
             in_channels=config.in_channels,
-            model_type="tiny",
+            model_type=config.model_type,
             arch=config.arch,
             patch_size=config.patch_size,
             window_size=config.window_size,

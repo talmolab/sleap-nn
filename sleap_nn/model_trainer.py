@@ -19,7 +19,6 @@ import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-from sleap_nn.architectures.common import xavier_init_weights
 from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
@@ -67,27 +66,22 @@ class ModelTrainer:
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
         # set seed
         torch.manual_seed(self.seed)
-        self.is_single_instance_model = False
-        if self.config.data_config.pipeline == "SingleInstanceConfmaps":
-            self.is_single_instance_model = True
 
     def _create_data_loaders(self):
         """Create a DataLoader for train, validation and test sets using the data_config."""
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
-        # create pipelines
-        if self.is_single_instance_model:
-            pipeline = SingleInstanceConfmapsPipeline
+        pipelines = {
+            "SingleInstanceConfmaps": SingleInstanceConfmapsPipeline,
+            "TopdownConfmaps": TopdownConfmapsPipeline,
+            "CentroidConfmaps": CentroidConfmapsPipeline,
+        }
 
-        elif self.config.data_config.pipeline == "TopdownConfmaps":
-            pipeline = TopdownConfmapsPipeline
-
-        elif self.config.data_config.pipeline == "CentroidConfmaps":
-            pipeline = CentroidConfmapsPipeline
-
-        else:
+        if self.config.data_config.pipeline not in pipelines.keys():
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
+
+        pipeline = pipelines[self.config.data_config.pipeline]
 
         train_pipeline = pipeline(
             data_config=self.config.data_config.train,
@@ -134,12 +128,12 @@ class ModelTrainer:
         wandb.login(key=self.config.trainer_config.wandb.api_key)
 
     def _initialize_model(self):
-        if self.is_single_instance_model:
-            self.model = SingleInstanceModel(self.config)
-        elif self.config.data_config.pipeline == "CentroidConfmaps":
-            self.model = CentroidModel(self.config)
-        else:
-            self.model = TopDownCenteredInstanceModel(self.config)
+        models = {
+            "SingleInstanceConfmaps": SingleInstanceModel,
+            "TopdownConfmaps": TopDownCenteredInstanceModel,
+            "CentroidConfmaps": CentroidModel,
+        }
+        self.model = models[self.config.data_config.pipeline](self.config)
 
     def _get_param_count(self):
         return sum(p.numel() for p in self.model.parameters())
