@@ -576,7 +576,6 @@ class Decoder(nn.Module):
                     transpose_convs_filters=(
                         x_in_shape if block == 0 else prev_block_filters_in
                     ),
-                    transpose_convs_kernel_size=self.kernel_size,
                     transpose_convs_batch_norm=False,
                 )
             )
@@ -604,7 +603,6 @@ class Decoder(nn.Module):
                     refine_convs_batch_norm=False,
                     up_interpolate=up_interpolate,
                     transpose_convs_filters=block_filters_in,
-                    transpose_convs_kernel_size=self.kernel_size,
                     transpose_convs_batch_norm=False,
                 )
             )

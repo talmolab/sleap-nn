@@ -138,7 +138,7 @@ class ConvNextWrapper(nn.Module):
 
     Args:
         model_type: One of the ConvNext architecture types: ["tiny", "small", "base", "large"].
-        output_stride: Minimum of the strides of the output heads. The input confidence map
+        output_stride: Minimum of the strides of the output heads. The input confidence map.
         tensor is expected to be at the same stride.
         in_channels: Number of input channels. Default is 1.
         arch: Dictionary of depths and channels. Default is "Tiny architecture"

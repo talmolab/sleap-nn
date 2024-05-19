@@ -115,9 +115,15 @@ model_config:
       kernel_size: 3
       filters: 16
       filters_rate: 2
-      down_blocks: 4
-      up_blocks: 3
+      max_stride: 16
       convs_per_block: 2
+      stacks: 1
+      stem_stride: null
+      middle_block: true
+      up_interpolate: true
+      output_strides:
+      - 2
+      block_contraction: false
   head_configs:
   - head_type: CentroidConfmapsHead
     head_config:

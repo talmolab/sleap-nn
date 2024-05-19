@@ -171,7 +171,7 @@ def test_topdown_predictor(
         assert predictor.centroid_config is not None
         assert predictor.confmap_config is not None
         assert isinstance(pred_labels, sio.Labels)
-        assert len(pred_labels) == 40
+        assert len(pred_labels) == 100
     finally:
         OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
         OmegaConf.save(
@@ -564,7 +564,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
         pred_labels = predictor.predict(make_labels=True)
         assert isinstance(pred_labels, sio.Labels)
-        assert len(pred_labels) == 40
+        assert len(pred_labels) == 100
         assert len(pred_labels[0].instances) == 1
         lf = pred_labels[0]
 
@@ -576,7 +576,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         # check if dictionaries are created when make labels is set to False
         preds = predictor.predict(make_labels=False)
         assert isinstance(preds, list)
-        assert len(preds) == 10
+        assert len(preds) == 25
         assert preds[0]["pred_instance_peaks"].shape[0] == 4
         assert isinstance(preds[0], dict)
         assert "pred_confmaps" not in preds[0].keys()
