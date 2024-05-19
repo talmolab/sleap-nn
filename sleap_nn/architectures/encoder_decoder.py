@@ -170,6 +170,10 @@ class Encoder(nn.Module):
         current_stride: int = 2,
         convs_per_block: int = 2,
         kernel_size: Union[int, Tuple[int, int]] = 3,
+        stem_blocks: int = 0,
+        stem_kernel_size: int = 7,
+        middle_block: bool = True,
+        block_contraction: bool = False,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -181,12 +185,12 @@ class Encoder(nn.Module):
         self.current_stride = current_stride
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
+        self.stem_blocks = stem_blocks
 
         self.encoder_stack = nn.ModuleList([])
-        for block in range(down_blocks):
+        for block in range(stem_blocks):
             prev_block_filters = -1 if block == 0 else block_filters
-            block_filters = int(filters * (filters_rate ** (block + 0)))
-
+            block_filters = int(self.filters * (self.filters_rate**block))
             self.encoder_stack.append(
                 SimpleConvBlock(
                     in_channels=in_channels if block == 0 else prev_block_filters,
@@ -194,6 +198,25 @@ class Encoder(nn.Module):
                     pool_before_convs=True,
                     pooling_stride=2,
                     num_convs=convs_per_block,
+                    filters=block_filters,
+                    kernel_size=stem_kernel_size,
+                    use_bias=True,
+                    batch_norm=False,
+                    activation="relu",
+                )
+            )
+
+        for block in range(down_blocks):
+            prev_block_filters = -1 if block == 0 else block_filters
+            block_filters = int(filters * (filters_rate ** (block + self.stem_blocks)))
+
+            self.encoder_stack.append(
+                SimpleConvBlock(
+                    in_channels=in_channels if block == 0 else prev_block_filters,
+                    pool=(block > 0),
+                    pool_before_convs=True,
+                    pooling_stride=2,
+                    num_convs=convs_per_block - 1,
                     filters=block_filters,
                     kernel_size=kernel_size,
                     use_bias=True,
@@ -207,16 +230,47 @@ class Encoder(nn.Module):
             MaxPool2dWithSamePadding(kernel_size=2, stride=2, padding="same")
         )
 
-        if convs_per_block > 1:
-            # First convs are one exponent higher than the last encoder block.
-            block_filters = int(filters * (filters_rate ** (down_blocks + 0)))
+        if middle_block:
+            if convs_per_block > 1:
+                # First convs are one exponent higher than the last encoder block.
+                block_filters = int(
+                    filters * (filters_rate ** (down_blocks + self.stem_blocks))
+                )
+                self.encoder_stack.append(
+                    SimpleConvBlock(
+                        in_channels=after_block_filters,
+                        pool=False,
+                        pool_before_convs=False,
+                        pooling_stride=2,
+                        num_convs=convs_per_block - 1,
+                        filters=block_filters,
+                        kernel_size=kernel_size,
+                        use_bias=True,
+                        batch_norm=False,
+                        activation="relu",
+                    )
+                )
+
+            if block_contraction:
+                # Contract the channels with an exponent lower than the last encoder block.
+                block_filters = int(
+                    self.filters
+                    * (self.filters_rate ** (self.down_blocks + self.stem_blocks - 1))
+                )
+            else:
+                # Keep the block output filters the same.
+                block_filters = int(
+                    self.filters
+                    * (self.filters_rate ** (self.down_blocks + self.stem_blocks))
+                )
+
             self.encoder_stack.append(
                 SimpleConvBlock(
-                    in_channels=after_block_filters,
+                    in_channels=block_filters,
                     pool=False,
                     pool_before_convs=False,
                     pooling_stride=2,
-                    num_convs=convs_per_block - 1,
+                    num_convs=1,
                     filters=block_filters,
                     kernel_size=kernel_size,
                     use_bias=True,
@@ -224,24 +278,6 @@ class Encoder(nn.Module):
                     activation="relu",
                 )
             )
-
-        # Keep the block output filters the same.
-        block_filters = int(filters * (filters_rate ** (down_blocks + 0)))
-
-        self.encoder_stack.append(
-            SimpleConvBlock(
-                in_channels=block_filters,
-                pool=False,
-                pool_before_convs=False,
-                pooling_stride=2,
-                num_convs=1,
-                filters=block_filters,
-                kernel_size=kernel_size,
-                use_bias=True,
-                batch_norm=False,
-                activation="relu",
-            )
-        )
 
         self.intermediate_features = {}
         for i, block in enumerate(self.encoder_stack):
@@ -295,6 +331,11 @@ class SimpleUpsamplingBlock(nn.Module):
         refine_convs_batch_norm: Whether to apply batch normalization. Default is True.
         refine_convs_batch_norm_before_activation: Whether to apply batch normalization before activation.
         refine_convs_activation: Activation function name. Default is "relu".
+        transpose_convs_filters: Number of filters for Transpose convolutional layers. Default is 64.
+        transpose_convs_use_bias: Whether to use bias in Transpose convolutional layers. Default is True.
+        transpose_convs_batch_norm: Whether to apply batch normalization for Transpose Conv layers. Default is True.
+        transpose_convs_batch_norm_before_activation: Whether to apply batch normalization before activation.
+        transpose_convs_activation: Activation function name for Transpose Conv layers. Default is "relu".
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -305,6 +346,7 @@ class SimpleUpsamplingBlock(nn.Module):
         x_in_shape: int,
         current_stride: int,
         upsampling_stride: int = 2,
+        up_interpolate: bool = True,
         interp_method: Text = "bilinear",
         refine_convs: int = 2,
         refine_convs_filters: int = 64,
@@ -313,6 +355,11 @@ class SimpleUpsamplingBlock(nn.Module):
         refine_convs_batch_norm: bool = True,
         refine_convs_batch_norm_before_activation: bool = True,
         refine_convs_activation: Text = "relu",
+        transpose_convs_filters: int = 64,
+        transpose_convs_use_bias: bool = True,
+        transpose_convs_batch_norm: bool = True,
+        transpose_convs_batch_norm_before_activation: bool = True,
+        transpose_convs_activation: Text = "relu",
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -330,6 +377,7 @@ class SimpleUpsamplingBlock(nn.Module):
             refine_convs_batch_norm_before_activation
         )
         self.refine_convs_activation = refine_convs_activation
+        self.up_interpolate = up_interpolate
 
         self.blocks = nn.ModuleList([])
         if current_stride is not None:
@@ -337,12 +385,43 @@ class SimpleUpsamplingBlock(nn.Module):
             new_stride = current_stride // upsampling_stride
 
         # Upsample via interpolation.
-        self.blocks.append(
-            nn.Upsample(
-                scale_factor=upsampling_stride,
-                mode=interp_method,
+        if self.up_interpolate:
+            self.blocks.append(
+                nn.Upsample(
+                    scale_factor=upsampling_stride,
+                    mode=interp_method,
+                )
             )
-        )
+        else:
+            # Upsample via strided transposed convolution.
+            filters = transpose_convs_filters
+            self.blocks.append(
+                nn.ConvTranspose2d(
+                    in_channels=transpose_convs_filters,
+                    out_channels=transpose_convs_filters,
+                    kernel_size=2,
+                    stride=upsampling_stride,
+                    padding=0,
+                    bias=transpose_convs_use_bias,
+                )
+            )
+            self.norm_act_layers = 1
+            if (
+                transpose_convs_batch_norm
+                and transpose_convs_batch_norm_before_activation
+            ):
+                self.blocks.append(nn.BatchNorm2d(num_features=filters))
+                self.norm_act_layers += 1
+
+            self.blocks.append(get_act_fn(transpose_convs_activation))
+            self.norm_act_layers += 1
+
+            if (
+                transpose_convs_batch_norm
+                and not transpose_convs_batch_norm_before_activation
+            ):
+                self.blocks.append(nn.BatchNorm2d(num_features=filters))
+                self.norm_act_layers += 1
 
         # Add further convolutions to refine after upsampling and/or skip.
         for i in range(refine_convs):
@@ -381,11 +460,16 @@ class SimpleUpsamplingBlock(nn.Module):
         """
         for idx, b in enumerate(self.blocks):
             if (
-                idx == 1 and feature is not None
+                not self.up_interpolate
+                and idx == self.norm_act_layers
+                and feature is not None
+            ):
+                x = torch.concat((x, feature), dim=1)
+            elif (
+                self.up_interpolate and idx == 1 and feature is not None
             ):  # Right after upsampling or convtranspose2d.
                 x = torch.concat((x, feature), dim=1)
             x = b(x)
-
         return x
 
 
@@ -397,14 +481,25 @@ class Decoder(nn.Module):
 
     Args:
         x_in_shape: Number of input channels for the decoder's input.
+        output_stride: Minimum of the strides of the output heads. The input confidence map
+        tensor is expected to be at the same stride.
         current_stride: Current stride value to adjust during upsampling.
         filters: Number of filters for the initial block. Default is 64.
         up_blocks: Number of upsampling blocks. Default is 4.
         down_blocks: Number of downsampling blocks. Default is 3.
+        stem_blocks: If >0, will create additional "down" blocks for initial
+            downsampling. These will be configured identically to the down blocks below.
         filters_rate: Factor to adjust the number of filters per block. Default is 2.
         convs_per_block: Number of convolutional layers per block. Default is 2.
         kernel_size: Size of the convolutional kernels. Default is 3.
-        is_stem: Boolean to indicate whether the encoder has a stem layer.
+        block_contraction: If True, reduces the number of filters at the end of middle
+            and decoder blocks. This has the effect of introducing an additional
+            bottleneck before each upsampling step. The original implementation does not
+            do this, but the CARE implementation does.
+        up_interpolate: If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -413,14 +508,17 @@ class Decoder(nn.Module):
     def __init__(
         self,
         x_in_shape: int,
+        output_stride: int,
         current_stride: int,
         filters: int = 64,
         up_blocks: int = 4,
         down_blocks: int = 3,
+        stem_blocks: int = 0,
         filters_rate: int = 2,
         convs_per_block: int = 2,
         kernel_size: int = 3,
-        is_stem: bool = False,
+        block_contraction: bool = False,
+        up_interpolate: bool = True,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -430,10 +528,11 @@ class Decoder(nn.Module):
         self.filters = filters
         self.up_blocks = up_blocks
         self.down_blocks = down_blocks
+        self.stem_blocks = stem_blocks
         self.filters_rate = filters_rate
         self.convs_per_block = convs_per_block
         self.kernel_size = kernel_size
-        self.is_stem = is_stem
+        self.block_contraction = block_contraction
 
         self.current_strides = []
         self.residuals = 0
@@ -442,20 +541,29 @@ class Decoder(nn.Module):
         for block in range(up_blocks):
             prev_block_filters_in = -1 if block == 0 else block_filters_in
             block_filters_in = int(
-                filters * (filters_rate ** (down_blocks + 0 - 1 - block))
+                filters * (filters_rate ** (down_blocks + self.stem_blocks - 1 - block))
             )
-
-            block_filters_out = block_filters_in
+            if self.block_contraction:
+                block_filters_out = int(
+                    self.filters
+                    * (
+                        self.filters_rate
+                        ** (self.down_blocks + self.stem_blocks - 2 - block)
+                    )
+                )
+            else:
+                block_filters_out = block_filters_in
 
             next_stride = current_stride // 2
+            up_sample_in_filter = (
+                (x_in_shape + block_filters_in)
+                if block == 0
+                else (prev_block_filters_in + block_filters_in)
+            )
 
             self.decoder_stack.append(
                 SimpleUpsamplingBlock(
-                    x_in_shape=(
-                        (x_in_shape + block_filters_in)
-                        if block == 0
-                        else (prev_block_filters_in + block_filters_in)
-                    ),
+                    x_in_shape=up_sample_in_filter,
                     current_stride=current_stride,
                     upsampling_stride=2,
                     interp_method="bilinear",
@@ -463,6 +571,12 @@ class Decoder(nn.Module):
                     refine_convs_filters=block_filters_out,
                     refine_convs_kernel_size=self.kernel_size,
                     refine_convs_batch_norm=False,
+                    up_interpolate=up_interpolate,
+                    transpose_convs_filters=(
+                        x_in_shape if block == 0 else prev_block_filters_in
+                    ),
+                    transpose_convs_kernel_size=self.kernel_size,
+                    transpose_convs_batch_norm=False,
                 )
             )
 
@@ -470,10 +584,10 @@ class Decoder(nn.Module):
             current_stride = next_stride
             self.residuals += 1
 
-        while current_stride >= 1:
+        while current_stride >= output_stride:
             next_stride = current_stride // 2
             block_filters_in = int(
-                filters * (filters_rate ** (down_blocks + 0 - 1 - block))
+                filters * (filters_rate ** (down_blocks + stem_blocks - 1 - block))
             )
 
             block_filters_out = block_filters_in // filters_rate
@@ -487,6 +601,10 @@ class Decoder(nn.Module):
                     refine_convs_filters=block_filters_out,
                     refine_convs_kernel_size=self.kernel_size,
                     refine_convs_batch_norm=False,
+                    up_interpolate=up_interpolate,
+                    transpose_convs_filters=block_filters_in,
+                    transpose_convs_kernel_size=self.kernel_size,
+                    transpose_convs_batch_norm=False,
                 )
             )
             self.current_strides.append(current_stride)

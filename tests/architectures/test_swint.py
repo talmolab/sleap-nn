@@ -2,32 +2,35 @@ import torch
 from torch import nn
 import math
 from sleap_nn.architectures.swint import SwinTransformerEncoder, SwinTWrapper
+from omegaconf import OmegaConf
 
 
 def test_swint_reference():
     """Test SwinTWrapper and SwinTransformerEncoder module."""
     depths = [2, 2, 6, 2]
-    up_blocks = 3
     embed_dim = 96
-    filters_rate = 2
 
-    swint = SwinTWrapper(
-        in_channels=1,
-        patch_size=[4, 4],
-        embed_dim=embed_dim,
-        depths=depths,
-        num_heads=[3, 6, 12, 24],
-        window_size=[7, 7],
-        stem_stride=2,
-        stochastic_depth_prob=0.1,
-        norm_layer="",
-        kernel_size=3,
-        filters_rate=filters_rate,
-        up_blocks=up_blocks,
-        convs_per_block=2,
+    config = OmegaConf.create(
+        {
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "patch_size": [4, 4],
+            "window_size": [7, 7],
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "output_strides": [1],
+            "stem_patch_stride": 2,
+        }
     )
 
-    in_channels = 48
+    swint = SwinTWrapper.from_config(config)
+
+    in_channels = int(
+        swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)
+    )
     model = nn.Sequential(
         *[
             swint,
@@ -49,7 +52,6 @@ def test_swint_reference():
     assert y["outputs"][-1].shape == (1, 48, 192, 192)
     assert type(y["strides"]) is list
     assert len(y["strides"]) == 4
-    assert swint.output_channels == 48
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -117,22 +119,23 @@ def test_swint_reference():
     assert features[1].shape == (1, 192, 24, 24)
     assert features[2].shape == (1, 96, 48, 48)
 
-    swint = SwinTWrapper(
-        in_channels=1,
-        patch_size=[4, 4],
-        embed_dim=embed_dim,
-        depths=depths,
-        num_heads=[3, 6, 12, 24],
-        window_size=[7, 7],
-        stem_stride=4,
-        stochastic_depth_prob=0.1,
-        norm_layer="",
-        kernel_size=3,
-        filters_rate=filters_rate,
-        up_blocks=up_blocks,
-        convs_per_block=2,
-        down_blocks=4,
+    config = OmegaConf.create(
+        {
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "patch_size": [4, 4],
+            "window_size": [7, 7],
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "output_strides": [1],
+            "stem_patch_stride": 4,
+        }
     )
+
+    swint = SwinTWrapper.from_config(config)
 
     swint.eval()
 

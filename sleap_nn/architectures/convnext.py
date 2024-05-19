@@ -12,6 +12,7 @@ from torchvision.ops.misc import Conv2dNormActivation
 from torchvision.utils import _log_api_usage_once
 from sleap_nn.architectures.encoder_decoder import Decoder
 from torchvision.models.convnext import LayerNorm2d, CNBlock, CNBlockConfig
+from omegaconf import OmegaConf
 
 
 class ConvNeXtEncoder(nn.Module):
@@ -136,6 +137,9 @@ class ConvNextWrapper(nn.Module):
     while the decoder generates confidence maps based on the features.
 
     Args:
+        model_type: One of the ConvNext architecture types: ["tiny", "small", "base", "large"].
+        output_stride: Minimum of the strides of the output heads. The input confidence map
+        tensor is expected to be at the same stride.
         in_channels: Number of input channels. Default is 1.
         arch: Dictionary of depths and channels. Default is "Tiny architecture"
         {'depths': [3,3,9,3], 'channels':[96, 192, 384, 768]}
@@ -143,9 +147,11 @@ class ConvNextWrapper(nn.Module):
         stem_patch_kernel: Size of the convolutional kernels in the stem layer. Default is 4.
         stem_patch_stride: Convolutional stride in the stem layer. Default is 2.
         filters_rate: Factor to adjust the number of filters per block. Default is 2.
-        up_blocks: Number of upsampling blocks in the decoder. Default is 3.
-        down_blocks: Number of steps in `depth`. Default is 4 for most of the architectures.
         convs_per_block: Number of convolutional layers per block. Default is 2.
+        up_interpolate: If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -153,16 +159,16 @@ class ConvNextWrapper(nn.Module):
 
     def __init__(
         self,
+        model_type: str,
+        output_stride: int,
         arch: dict = {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
         in_channels: int = 1,
         kernel_size: int = 3,
         stem_patch_kernel: int = 4,
         stem_patch_stride: int = 2,
         filters_rate: int = 2,
-        up_blocks: int = 3,
-        down_blocks: int = 4,
         convs_per_block: int = 2,
-        **kwargs,
+        up_interpolate: bool = True,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -170,18 +176,32 @@ class ConvNextWrapper(nn.Module):
         self.in_channels = in_channels
         self.kernel_size = kernel_size
         self.filters_rate = filters_rate
-        self.up_blocks = up_blocks
+        arch_types = {
+            "tiny": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
+            "small": {"depths": [3, 3, 27, 3], "channels": [96, 192, 384, 768]},
+            "base": {"depths": [3, 3, 27, 3], "channels": [128, 256, 512, 1024]},
+            "large": {"depths": [3, 3, 27, 3], "channels": [192, 384, 768, 1536]},
+        }
+        if model_type in arch_types:
+            self.arch = arch_types[model_type]
+        elif arch is not None:
+            self.arch = arch
+        else:
+            self.arch = arch_types["tiny"]
+
+        self.up_blocks = len(self.arch["channels"]) - 1
         self.convs_per_block = convs_per_block
         self.stem_patch_kernel = stem_patch_kernel
         self.stem_patch_stride = stem_patch_stride
-        self.arch = arch
-        self.down_blocks = down_blocks - 1
+        self.output_stride = output_stride
+        self.up_interpolate = up_interpolate
+        self.down_blocks = len(self.arch["channels"]) - 1
+
         self.enc = ConvNeXtEncoder(
-            blocks=arch,
+            blocks=self.arch,
             in_channels=in_channels,
             stem_stride=stem_patch_stride,
             stem_kernel=stem_patch_kernel,
-            kwargs=kwargs,
         )
 
         self.current_stride = self.stem_patch_stride * (2 ** (self.down_blocks - 1))
@@ -192,18 +212,34 @@ class ConvNextWrapper(nn.Module):
             current_stride=self.current_stride,
             filters=self.arch["channels"][0],
             up_blocks=self.up_blocks,
-            down_blocks=self.down_blocks,
+            down_blocks=len(self.arch["channels"]) - 1,
             filters_rate=filters_rate,
             kernel_size=self.kernel_size,
-            is_stem=True,
+            stem_blocks=0,
+            block_contraction=False,
+            output_stride=self.output_stride,
+            up_interpolate=up_interpolate,
         )
 
     @property
-    def output_channels(self):
-        """Returns the output channels of the ConvNext."""
-        return int(
-            self.arch["channels"][0]
-            * (self.filters_rate ** (self.down_blocks - len(self.dec.decoder_stack)))
+    def max_channels(self):
+        """Returns the maximum channels of the ConvNext (last layer of the encoder)."""
+        return self.dec.x_in_shape
+
+    @classmethod
+    def from_config(cls, config: OmegaConf):
+        output_stride = min(config.output_strides)
+        return cls(
+            in_channels=config.in_channels,
+            model_type="tiny",
+            arch=config.arch,
+            kernel_size=config.kernel_size,
+            filters_rate=config.filters_rate,
+            convs_per_block=config.convs_per_block,
+            up_interpolate=config.up_interpolate,
+            output_stride=output_stride,
+            stem_patch_kernel=config.stem_patch_kernel,
+            stem_patch_stride=config.stem_patch_stride,
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:

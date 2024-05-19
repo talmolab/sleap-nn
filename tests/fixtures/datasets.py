@@ -147,6 +147,8 @@ def config(sleap_data_dir):
                         "stem_stride": None,
                         "middle_block": True,
                         "up_interpolate": True,
+                        "output_strides": [2],
+                        "block_contraction": False,
                     },
                 },
                 "head_configs": [
