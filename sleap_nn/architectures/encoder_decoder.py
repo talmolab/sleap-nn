@@ -356,6 +356,7 @@ class SimpleUpsamplingBlock(nn.Module):
         refine_convs_batch_norm_before_activation: bool = True,
         refine_convs_activation: Text = "relu",
         transpose_convs_filters: int = 64,
+        transpose_convs_kernel_size: int = 2,
         transpose_convs_use_bias: bool = True,
         transpose_convs_batch_norm: bool = True,
         transpose_convs_batch_norm_before_activation: bool = True,
@@ -399,7 +400,7 @@ class SimpleUpsamplingBlock(nn.Module):
                 nn.ConvTranspose2d(
                     in_channels=transpose_convs_filters,
                     out_channels=transpose_convs_filters,
-                    kernel_size=2,
+                    kernel_size=transpose_convs_kernel_size,
                     stride=upsampling_stride,
                     padding=0,
                     bias=transpose_convs_use_bias,

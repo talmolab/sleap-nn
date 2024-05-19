@@ -122,6 +122,7 @@ class UNet(nn.Module):
 
     @classmethod
     def from_config(cls, config: OmegaConf):
+        """Create UNet from a config."""
         stem_blocks = 0
         if config.stem_stride is not None:
             stem_blocks = np.log2(config.stem_stride).astype(int)
