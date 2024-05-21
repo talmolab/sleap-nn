@@ -69,6 +69,11 @@ class LabelsReader(IterDataPipe):
             )
 
     @property
+    def edge_idxs(self) -> list:
+        """Returns list of edge indices."""
+        return self.labels.skeletons[0].edge_inds
+
+    @property
     def max_height_and_width(self) -> Tuple[int, int]:
         """Return `(height, width)` that is the maximum of all videos."""
         return max(video.shape[1] for video in self.labels.videos), max(

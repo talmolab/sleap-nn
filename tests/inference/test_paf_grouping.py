@@ -4,7 +4,7 @@ from torch.testing import assert_close
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 from omegaconf import OmegaConf
 
-from sleap_nn.paf_grouping import (
+from sleap_nn.inference.paf_grouping import (
     get_connection_candidates,
     make_line_subs,
     get_paf_lines,

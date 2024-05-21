@@ -14,6 +14,7 @@ from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
     CentroidConfmapsPipeline,
+    BottomUpPipeline,
 )
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
@@ -76,6 +77,7 @@ class ModelTrainer:
             "SingleInstanceConfmaps": SingleInstanceConfmapsPipeline,
             "TopdownConfmaps": TopdownConfmapsPipeline,
             "CentroidConfmaps": CentroidConfmapsPipeline,
+            "BottomUp": BottomUpPipeline,
         }
 
         if self.config.data_config.pipeline not in pipelines.keys():
@@ -132,6 +134,7 @@ class ModelTrainer:
             "SingleInstanceConfmaps": SingleInstanceModel,
             "TopdownConfmaps": TopDownCenteredInstanceModel,
             "CentroidConfmaps": CentroidModel,
+            "BottomUp": BottomUpModel,
         }
         self.model = models[self.config.data_config.pipeline](self.config)
 
@@ -564,6 +567,86 @@ class CentroidModel(TrainingModel):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+        self.log(
+            "val_loss",
+            val_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+        )
+
+
+class BottomUpModel(TrainingModel):
+    """Lightning Module for BottomUp Model.
+
+    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    and forward pass specific to BottomUp model.
+
+    Args:
+        config: OmegaConf dictionary which has the following:
+                (i) data_config: data loading pre-processing configs to be passed to
+                `BottomUpPipeline` class.
+                (ii) model_config: backbone and head configs to be passed to `Model` class.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+
+    """
+
+    def __init__(self, config: OmegaConf):
+        """Initialise the configs and the model."""
+        super().__init__(config)
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1)
+        img = img.to(self.m_device)
+        output = self.model(img)
+        return {
+            "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
+            "PartAffinityFieldsHead": output["PartAffinityFieldsHead"],
+        }
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        X = torch.squeeze(batch["image"], dim=1).to(self.m_device)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
+        y_paf = batch["part_affinity_fields"].to(self.m_device)
+        preds = self.model(X)
+        pafs = preds["PartAffinityFieldsHead"]
+        confmaps = preds["MultiInstanceConfmapsHead"]
+        losses = {
+            "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
+            "PartAffinityFieldsHead": nn.MSELoss()(pafs, y_paf),
+        }
+        loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        self.log(
+            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        X = torch.squeeze(batch["image"], dim=1).to(self.m_device)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
+        y_paf = batch["part_affinity_fields"].to(self.m_device)
+
+        preds = self.model(X)
+        pafs = preds["PartAffinityFieldsHead"]
+        confmaps = preds["MultiInstanceConfmapsHead"]
+        losses = {
+            "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
+            "PartAffinityFieldsHead": nn.MSELoss()(pafs, y_paf),
+        }
+        val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(
             "learning_rate",
