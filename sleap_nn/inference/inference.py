@@ -182,9 +182,10 @@ class Predictor(ABC):
                             ex["image"] = convert_to_rgb(ex["image"])
                         else:
                             ex["image"] = convert_to_grayscale(ex["image"])
-                        if self.input_scale != 1.0:
-                            ex["image"] = resize_image(ex["image"], self.input_scale)
-                        ex["image"] = pad_to_stride(ex["image"], self.max_stride)
+                        if self.preprocess:
+                            if self.input_scale != 1.0:
+                                ex["image"] = resize_image(ex["image"], self.input_scale)
+                            ex["image"] = pad_to_stride(ex["image"], self.max_stride)
                         outputs_list = self.inference_model(ex)
                         for output in outputs_list:
                             for k, v in output.items():
@@ -922,6 +923,7 @@ class TopDownPredictor(Predictor):
 
         elif self.provider == "VideoReader":
             provider = VideoReader
+            self.preprocess = False
             self.max_stride = (
                 self.centroid_config.model_config.backbone_config.backbone_config.max_stride
             )
@@ -1253,6 +1255,7 @@ class SingleInstancePredictor(Predictor):
 
         elif self.provider == "VideoReader":
             provider = VideoReader
+            self.preprocess = True
             self.max_stride = (
                 self.confmap_config.model_config.backbone_config.backbone_config.max_stride
             )
@@ -1485,7 +1488,7 @@ class BottomUpInferenceModel(L.LightningModule):
         self.batch_size = inputs["image"].shape[0]
         output = self.torch_model(inputs["image"])
         cms = output["MultiInstanceConfmapsHead"]
-        pafs = output["PartAffinityFieldsHead"]
+        pafs = output["PartAffinityFieldsHead"].permute(0, 2, 3, 1)
         cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)
         ## working till here!
 
@@ -1497,7 +1500,7 @@ class BottomUpInferenceModel(L.LightningModule):
             edge_peak_inds,
             line_scores,
         ) = self.paf_scorer.predict(
-            pafs=pafs.permute(0, 2, 3, 1),
+            pafs=pafs,
             peaks=cms_peaks,
             peak_vals=cms_peak_vals,
             peak_channel_inds=cms_peak_channel_inds,
@@ -1694,6 +1697,7 @@ class BottomUpPredictor(Predictor):
 
         elif self.provider == "VideoReader":
             provider = VideoReader
+            self.preprocess = True
             self.max_stride = 2 ** (
                 self.bottomup_config.model_config.backbone_config.backbone_config.down_blocks
             )

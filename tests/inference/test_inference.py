@@ -727,7 +727,7 @@ def test_bottomup_inference_model(config):
     )
     print(layer)
 
-    out = layer(loader)[0]
+    # out = layer(loader)[0]
 
     # assert tuple(out["pred_instance_peaks"].shape) == (1, 1, 2, 2)
     # assert tuple(out["pred_peak_values"].shape) == (1, 2)

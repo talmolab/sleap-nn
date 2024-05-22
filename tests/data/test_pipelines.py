@@ -647,7 +647,7 @@ def test_bottomuppipeline(minimal_instance):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 384, 384)
     assert sample["confidence_maps"].shape == (1, 2, 192, 192)
-    assert sample["part_affinity_fields"].shape == (2, 96, 96)
+    assert sample["part_affinity_fields"].shape == (96, 96, 2)
 
     # with scaling
     base_centroid_data_config = OmegaConf.create(
@@ -714,7 +714,7 @@ def test_bottomuppipeline(minimal_instance):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 192, 192)
     assert sample["confidence_maps"].shape == (1, 2, 96, 96)
-    assert sample["part_affinity_fields"].shape == (2, 48, 48)
+    assert sample["part_affinity_fields"].shape == (48, 48, 2)
 
     # with padding
     base_centroid_data_config = OmegaConf.create(
@@ -781,7 +781,7 @@ def test_bottomuppipeline(minimal_instance):
         assert gt_key == key
     assert sample["image"].shape == (1, 1, 128, 128)
     assert sample["confidence_maps"].shape == (1, 2, 64, 64)
-    assert sample["part_affinity_fields"].shape == (2, 32, 32)
+    assert sample["part_affinity_fields"].shape == (32, 32, 2)
 
     # with random crop
     base_centroid_data_config = OmegaConf.create(
