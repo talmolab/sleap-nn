@@ -82,7 +82,8 @@ class InstanceCropper(IterDataPipe):
             del ex["instances"]
             del ex["centroids"]
             for instance, centroid in zip(instances[0], centroids[0]):
-
+                if cnt == ex["num_instances"]:
+                    break
                 box_size = (self.crop_hw[0], self.crop_hw[1])
 
                 # Generate bounding boxes from centroid.
