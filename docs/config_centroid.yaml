@@ -5,7 +5,7 @@ data_config:
     labels_path: "minimal_instance.pkg.slp"
     max_width: 
     max_height: 
-    scale: 1.0
+    scale: 0.5
     is_rgb: False
     preprocessing:
       anchor_ind: 0
@@ -58,7 +58,7 @@ data_config:
     max_width: 
     max_height: 
     is_rgb: False
-    scale: 1.0
+    scale: 0.5
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -226,7 +226,7 @@ inference_config:
     max_width: 
     max_height: 
     is_rgb: False
-    scale: 1.0
+    scale: 0.5
     provider: LabelsReader
     data_loader:
       batch_size: 4
@@ -245,7 +245,7 @@ inference_config:
       - 160
       - 160
       output_stride: 2
-  peak_threshold: 0.0
+  peak_threshold: 0.5
   integral_refinement: integral
   integral_patch_size: 5
   return_confmaps: false

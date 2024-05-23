@@ -24,6 +24,7 @@ from sleap_nn.data.resizing import (
 from sleap_nn.data.normalization import Normalizer, convert_to_grayscale, convert_to_rgb
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
+from sleap_nn.data.general import KeyFilter
 from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
@@ -93,9 +94,9 @@ class Predictor(ABC):
             or "PartAffinityFieldsHead" in model_names
         ):
             bottomup_ckpt_path = model_paths[
-                model_names.index("CenteredInstanceConfmapsHead")
+                model_names.index("MultiInstanceConfmapsHead")
             ]
-            predictor = BottomUpPredictor.from_trained_model(bottomup_ckpt_path)
+            predictor = BottomUpPredictor.from_trained_models(bottomup_ckpt_path)
         else:
             raise ValueError(
                 f"Could not create predictor from model paths:\n{model_paths}"
@@ -146,7 +147,13 @@ class Predictor(ABC):
                 for output in outputs_list:
                     for k, v in output.items():
                         if isinstance(v, torch.Tensor):
-                            output[k] = output[k].cpu().numpy()
+                            if v.is_nested:
+                                values = []
+                                for i in v:
+                                    values.append(i.cpu().numpy())
+                                output[k] = torch.nested.nested_tensor(values)
+                            else:
+                                output[k] = output[k].cpu().numpy()
                     yield output
         elif self.provider == "VideoReader":
             self.reader.start()
@@ -184,13 +191,21 @@ class Predictor(ABC):
                             ex["image"] = convert_to_grayscale(ex["image"])
                         if self.preprocess:
                             if self.input_scale != 1.0:
-                                ex["image"] = resize_image(ex["image"], self.input_scale)
+                                ex["image"] = resize_image(
+                                    ex["image"], self.input_scale
+                                )
                             ex["image"] = pad_to_stride(ex["image"], self.max_stride)
                         outputs_list = self.inference_model(ex)
                         for output in outputs_list:
                             for k, v in output.items():
                                 if isinstance(v, torch.Tensor):
-                                    output[k] = output[k].cpu().numpy()
+                                    if v.is_nested:
+                                        values = []
+                                        for i in v:
+                                            values.append(i.cpu().numpy())
+                                        output[k] = torch.nested.nested_tensor(values)
+                                    else:
+                                        output[k] = output[k].cpu().numpy()
                             yield output
 
             except Exception as e:
@@ -911,6 +926,23 @@ class TopDownPredictor(Predictor):
                     crop_hw=self.data_config.preprocessing.crop_hw,
                 )
 
+                pipeline = KeyFilter(
+                    pipeline,
+                    keep_keys=[
+                        "image",
+                        "video_idx",
+                        "frame_idx",
+                        "centroid",
+                        "instance",
+                        "instance_bbox",
+                        "instance_image",
+                        "confidence_maps",
+                        "num_instances",
+                        "orig_size",
+                        "scale",
+                    ],
+                )
+
             # Remove duplicates.
             self.pipeline = pipeline.sharding_filter()
 
@@ -1396,12 +1428,14 @@ class BottomUpInferenceModel(L.LightningModule):
         torch_model: A `nn.Module` that accepts rank-5 images as input and predicts
             rank-4 confidence maps as output. This should be a model that is trained on
             MultiInstanceConfMaps.
-            TODO:
-        paf_scorer:
+        paf_scorer: A `sleap_nn.inference.paf_grouping.PAFScorer` instance configured to group
+            instances based on peaks and PAFs produced by the model.
         cms_output_stride: Output stride of the model, denoting the scale of the output
             confidence maps relative to the images (after input scaling). This is used
             for adjusting the peak coordinates to the image grid.
-        pafs_output_stride:
+        pafs_output_stride: Output stride of the model, denoting the scale of the output
+            pafs relative to the images (after input scaling). This is used
+            for adjusting the peak coordinates to the image grid.
         peak_threshold: Minimum confidence map value to consider a global peak as valid.
         refinement: If `None`, returns the grid-aligned peaks with no refinement. If
             `"integral"`, peaks will be refined with integral regression. If `"local"`,
@@ -1410,9 +1444,17 @@ class BottomUpInferenceModel(L.LightningModule):
         integral_patch_size: Size of patches to crop around each rough peak for integral
             refinement as an integer scalar.
         return_confmaps: If `True`, the confidence maps will be returned together with
-            the predicted peaks.
-        return_pafs:
-        return_paf_graph:
+            the predicted peaks. This will result in slower inference times since
+            the data must be copied off of the GPU, but is useful for visualizing the
+            raw output of the model.
+        return_pafs: If `True`, the part affinity fields will be returned together with
+            the predicted instances. This will result in slower inference times since
+            the data must be copied off of the GPU, but is useful for visualizing the
+            raw output of the model.
+        return_paf_graph: If `True`, the part affinity field graph will be returned
+            together with the predicted instances. The graph is obtained by parsing the
+            part affinity fields with the `paf_scorer` instance and is an intermediate
+            representation used during instance grouping.
         input_scale: Float indicating if the images should be resized before being
             passed to the model.
     """
@@ -1539,10 +1581,27 @@ class BottomUpPredictor(Predictor):
     This should be initialized using the `from_trained_models()` constructor.
 
     Attributes:
-        confmap_config: A Dictionary with the configs used for training the
+        bottomup_config: A OmegaConfig dictionary with the configs used for training the
                         bottom-up model.
-        confmap_model: A LightningModule instance created from the trained weights for
+        bottomup_model: A LightningModule instance created from the trained weights for
                        bottom-up model.
+        max_edge_length_ratio: The maximum expected length of a connected pair of points
+            as a fraction of the image size. Candidate connections longer than this
+            length will be penalized during matching.
+        dist_penalty_weight: A coefficient to scale weight of the distance penalty as
+            a scalar float. Set to values greater than 1.0 to enforce the distance
+            penalty more strictly.
+        n_points: Number of points to sample along the line integral.
+        min_instance_peaks: Minimum number of peaks the instance should have to be
+                considered a real instance. Instances with fewer peaks than this will be
+                discarded (useful for filtering spurious detections).
+        min_line_scores: Minimum line score (between -1 and 1) required to form a match
+            between candidate point pairs. Useful for rejecting spurious detections when
+            there are no better ones.
+        max_instances: If not `None`, discard instances beyond this count when
+            predicting, regardless of whether filtering is done at the tracking stage.
+            This is useful for preventing extraneous instances from being created when
+            tracking is not being applied.
 
     """
 
@@ -1553,6 +1612,7 @@ class BottomUpPredictor(Predictor):
     n_points: int = 10
     min_instance_peaks: Union[int, float] = 0
     min_line_scores: float = 0.25
+    max_instances: Optional[int] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -1577,27 +1637,28 @@ class BottomUpPredictor(Predictor):
             ),
             max_edge_length_ratio=(
                 self.bottomup_config.inference_config.max_edge_length_ratio
-                if "max_edge_length_ratio" in self.bottomup_config.keys
+                if "max_edge_length_ratio"
+                in self.bottomup_config.inference_config.keys()
                 else self.max_edge_length_ratio
             ),
             dist_penalty_weight=(
                 self.bottomup_config.inference_config.dist_penalty_weight
-                if "dist_penalty_weight" in self.bottomup_config.keys
+                if "dist_penalty_weight" in self.bottomup_config.inference_config.keys()
                 else self.dist_penalty_weight
             ),
             n_points=(
                 self.bottomup_config.inference_config.n_points
-                if "n_points" in self.bottomup_config.keys
+                if "n_points" in self.bottomup_config.inference_config.keys()
                 else self.n_points
             ),
             min_instance_peaks=(
                 self.bottomup_config.inference_config.min_instance_peaks
-                if "min_instance_peaks" in self.bottomup_config.keys
+                if "min_instance_peaks" in self.bottomup_config.inference_config.keys()
                 else self.min_instance_peaks
             ),
             min_line_scores=(
                 self.bottomup_config.inference_config.min_line_scores
-                if "min_line_scores" in self.bottomup_config.keys
+                if "min_line_scores" in self.bottomup_config.inference_config.keys()
                 else self.min_line_scores
             ),
         )
@@ -1647,7 +1708,12 @@ class BottomUpPredictor(Predictor):
             bottomup_model=bottomup_model,
         )
         bottomup_config.inference_config.data["skeletons"] = (
-            bottomup_config.data_config.train.skeletons
+            bottomup_config.data_config.skeletons
+        )
+        obj.max_instances = (
+            bottomup_config.inference_config.data.max_instances
+            if bottomup_config.inference_config.data.max_instances is not None
+            else None
         )
 
         obj._initialize_inference_model()
@@ -1680,8 +1746,8 @@ class BottomUpPredictor(Predictor):
                 provider=data_provider,
             )
             pipeline = Resizer(pipeline, scale=self.data_config.scale)
-            max_stride = 2 ** (
-                self.bottomup_config.model_config.backbone_config.backbone_config.down_blocks
+            max_stride = (
+                self.bottomup_config.model_config.backbone_config.backbone_config.max_stride
             )
             pipeline = PadToStride(pipeline, max_stride=max_stride)
 
@@ -1698,8 +1764,8 @@ class BottomUpPredictor(Predictor):
         elif self.provider == "VideoReader":
             provider = VideoReader
             self.preprocess = True
-            self.max_stride = 2 ** (
-                self.bottomup_config.model_config.backbone_config.backbone_config.down_blocks
+            self.max_stride = (
+                self.bottomup_config.model_config.backbone_config.backbone_config.max_stride
             )
             frame_queue = Queue(
                 maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
@@ -1754,7 +1820,6 @@ class BottomUpPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
-        preds = defaultdict(list)
         predicted_frames = []
 
         skeletons = []
@@ -1810,24 +1875,40 @@ class BottomUpPredictor(Predictor):
                     pad_height = (self.data_config.max_height - org_size[0]) // 2
                     pad_width = (self.data_config.max_width - org_size[1]) // 2
                     pred_instances = pred_instances - [pad_height, pad_width]
-                preds[(int(video_idx), int(frame_idx))].append(
-                    sio.PredictedInstance.from_numpy(
-                        points=pred_instances,
-                        skeleton=skeletons[skeleton_idx],
-                        point_scores=pred_values,
-                        instance_score=instance_score,
+
+                # Loop over instances.
+                predicted_instances = []
+                for pts, confs, score in zip(
+                    pred_instances, pred_values, instance_score
+                ):
+                    if np.isnan(pts).all():
+                        continue
+
+                    predicted_instances.append(
+                        sio.PredictedInstance.from_numpy(
+                            points=pts,
+                            point_scores=confs,
+                            instance_score=score,
+                            skeleton=skeletons[skeleton_idx],
+                        )
+                    )
+
+                if self.max_instances is not None:
+                    # Filter by score.
+                    predicted_instances = sorted(
+                        predicted_instances, key=lambda x: x.score, reverse=True
+                    )
+                    predicted_instances = predicted_instances[
+                        : min(self.max_instances, len(predicted_instances))
+                    ]
+
+                predicted_frames.append(
+                    sio.LabeledFrame(
+                        video=self.videos[video_idx],
+                        frame_idx=frame_idx,
+                        instances=predicted_instances,
                     )
                 )
-        for key, inst in preds.items():
-            # Create list of LabeledFrames.
-            video_idx, frame_idx = key
-            predicted_frames.append(
-                sio.LabeledFrame(
-                    video=self.videos[video_idx],
-                    frame_idx=frame_idx,
-                    instances=inst,
-                )
-            )
 
         pred_labels = sio.Labels(
             videos=self.videos,
