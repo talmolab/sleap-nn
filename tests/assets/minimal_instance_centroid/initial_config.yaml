@@ -1,12 +1,12 @@
 data_config:
   provider: LabelsReader
-  max_instances: 6
-  max_width: null
-  max_height: null
-  is_rgb: false
   pipeline: CentroidConfmaps
   train:
     labels_path: minimal_instance.pkg.slp
+    max_width: null
+    max_height: null
+    scale: 1.0
+    is_rgb: false
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -55,6 +55,10 @@ data_config:
           mixup_p: 0
   val:
     labels_path: minimal_instance.pkg.slp
+    max_width: null
+    max_height: null
+    is_rgb: false
+    scale: 1.0
     preprocessing:
       anchor_ind: 0
       crop_hw:
@@ -111,11 +115,17 @@ model_config:
       kernel_size: 3
       filters: 16
       filters_rate: 2
-      down_blocks: 4
-      up_blocks: 3
+      max_stride: 16
       convs_per_block: 2
+      stacks: 1
+      stem_stride: null
+      middle_block: true
+      up_interpolate: true
+      output_strides:
+      - 2
+      block_contraction: false
   head_configs:
-    head_type: CentroidConfmapsHead
+  - head_type: CentroidConfmapsHead
     head_config:
       anchor_part: 0
       sigma: 1.5
@@ -148,16 +158,16 @@ trainer_config:
   trainer_devices: 1
   trainer_accelerator: cpu
   enable_progress_bar: false
-  steps_per_epoch: 20
-  max_epochs: 2
+  steps_per_epoch: null
+  max_epochs: 10
   seed: 1000
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: 04_23_pytest_run_centroid
+  save_ckpt_path: min_inst_centroid
   wandb:
     entity: team-ucsd
-    project: exps_final
-    name: fly_unet_00_rerun_1_0003
+    project: test_centroid_centered
+    name: fly_unet_centered
     wandb_mode: ''
     api_key: ''
     log_params:
@@ -179,11 +189,12 @@ trainer_config:
 inference_config:
   device: cpu
   data:
-    labels_path: ./tests/assets/minimal_instance.pkg.slp
+    path: ./tests/assets/minimal_instance.pkg.slp
     max_instances: 6
     max_width: null
     max_height: null
     is_rgb: false
+    scale: 1.0
     provider: LabelsReader
     data_loader:
       batch_size: 4
@@ -191,52 +202,17 @@ inference_config:
       num_workers: 2
       pin_memory: true
       drop_last: false
+    video_loader:
+      batch_size: 4
+      queue_maxsize: 8
+      start_idx: 0
+      end_idx: 100
     preprocessing:
-      anchor_ind: 0
+      anchor_ind: 1
       crop_hw:
       - 160
       - 160
-      conf_map_gen:
-        sigma: 1.5
-        output_stride: 2
-    augmentation_config:
-      random_crop:
-        random_crop_p: 0
-        random_crop_hw:
-        - 160
-        - 160
-      use_augmentations: false
-      augmentations:
-        intensity:
-          uniform_noise:
-          - 0.0
-          - 0.04
-          uniform_noise_p: 0
-          gaussian_noise_mean: 0.02
-          gaussian_noise_std: 0.004
-          gaussian_noise_p: 0
-          contrast:
-          - 0.5
-          - 2.0
-          contrast_p: 0
-          brightness: 0.0
-          brightness_p: 0
-        geometric:
-          rotation: 180.0
-          scale: 0
-          translate:
-          - 0
-          - 0
-          affine_p: 0.5
-          erase_scale:
-          - 0.0001
-          - 0.01
-          erase_ratio:
-          - 1
-          - 1
-          erase_p: 0
-          mixup_lambda: null
-          mixup_p: 0
+      output_stride: 2
   peak_threshold: 0.0
   integral_refinement: integral
   integral_patch_size: 5

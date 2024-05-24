@@ -10,6 +10,7 @@ from typing import List
 import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
+import math
 
 from sleap_nn.architectures.heads import (
     Head,
@@ -50,7 +51,7 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
             f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
         )
 
-    backbone = backbones[backbone](**backbone_config)
+    backbone = backbones[backbone].from_config(backbone_config)
 
     return backbone
 
@@ -125,7 +126,6 @@ class Model(nn.Module):
         self.backbone = get_backbone(
             backbone_config.backbone_type, backbone_config.backbone_config
         )
-        in_channels = self.backbone.output_channels
 
         self.heads = []
         for head_config in head_configs:
@@ -134,7 +134,14 @@ class Model(nn.Module):
 
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
-            self.head_layers.append(head.make_head(x_in=in_channels))
+            in_channels = int(
+                self.backbone.max_channels
+                / (
+                    self.backbone_config.backbone_config.filters_rate
+                    ** len(self.backbone.dec.decoder_stack)
+                )
+            )
+            self.head_layers.append(head.make_head(x_in=int(in_channels)))
 
     @classmethod
     def from_config(

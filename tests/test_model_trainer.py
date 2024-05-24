@@ -95,7 +95,6 @@ def test_trainer(config, tmp_path: str):
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
-    OmegaConf.update(config, "model_config.init_weights", "xavier")
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -187,12 +186,10 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(
         single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
     )
-    OmegaConf.update(
-        single_instance_config,
-        "model_config.head_configs.head_type",
-        "SingleInstanceConfmapsHead",
+    single_instance_config.model_config.head_configs[0].head_type = (
+        "SingleInstanceConfmapsHead"
     )
-    del single_instance_config.model_config.head_configs.head_config.anchor_part
+    del single_instance_config.model_config.head_configs[0].head_config.anchor_part
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
@@ -201,13 +198,9 @@ def test_trainer(config, tmp_path: str):
     # Centroid model
     centroid_config = config.copy()
     OmegaConf.update(centroid_config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        centroid_config,
-        "model_config.head_configs.head_type",
-        "CentroidConfmapsHead",
-    )
+    centroid_config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
 
-    del centroid_config.model_config.head_configs.head_config.part_names
+    del centroid_config.model_config.head_configs[0].head_config.part_names
 
     if Path(config.trainer_config.save_ckpt_path).exists():
         shutil.rmtree(config.trainer_config.save_ckpt_path)
@@ -260,12 +253,13 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         "model_config.backbone_config.backbone_config",
         {
             "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
             "kernel_size": 3,
             "filters_rate": 2,
-            "up_blocks": 3,
-            "down_blocks": 4,
             "convs_per_block": 2,
-            "arch": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
+            "up_interpolate": True,
+            "output_strides": [2],
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
         },
@@ -295,10 +289,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "CentroidConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.part_names
+    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs[0].head_config.part_names
 
     model = CentroidModel(config)
 
@@ -322,10 +314,9 @@ def test_centroid_model(config, tmp_path: str):
 def test_single_instance_model(config, tmp_path: str):
     """Test the SingleInstanceModel training."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    OmegaConf.update(
-        config, "model_config.head_configs.head_type", "SingleInstanceConfmapsHead"
-    )
-    del config.model_config.head_configs.head_config.anchor_part
+    OmegaConf.update(config, "model_config.init_weights", "xavier")
+    config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
+    del config.model_config.head_configs[0].head_config.anchor_part
 
     model = SingleInstanceModel(config)
     OmegaConf.update(

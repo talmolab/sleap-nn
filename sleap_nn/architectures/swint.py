@@ -9,7 +9,7 @@ from typing import Any, Callable, List, Optional, Dict, Tuple
 import torch
 from torch import nn
 from sleap_nn.architectures.encoder_decoder import Decoder
-
+from omegaconf import OmegaConf
 from torchvision.ops.misc import Permute
 from torchvision.utils import _log_api_usage_once
 from torchvision.models.swin_transformer import (
@@ -162,20 +162,22 @@ class SwinTWrapper(nn.Module):
 
     Args:
         in_channels: Number of input channels. Default is 1.
-        patch_size (List[int]): Patch size. Default: [4,4]
-        embed_dim (int): Patch embedding dimension. Default: 96
-        depths (List(int)): Depth of each Swin Transformer layer. Default: [2,2,6,2].
-        num_heads (List(int)): Number of attention heads in different layers.
-                            Default: [3,6,12,24].
-        window_size (List[int]): Window size. Default: [7,7].
-        stem_stride (int): Stride for the patch. Default is 2.
-        stochastic_depth_prob (float): Stochastic depth rate. Default: 0.1.
-        norm_layer: Normalization layer. Default: None.
+        model_type: One of the ConvNext architecture types: ["tiny", "small", "base"].
+        output_stride: Minimum of the strides of the output heads. The input confidence map.
+        patch_size: Patch size. Default: [4,4]
+        arch: Dictionary of embed dimension, depths and number of heads in each layer.
+        Default is "Tiny architecture".
+        {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}
+        window_size: Window size. Default: [7,7].
+        stem_patch_stride: Stride for the patch. Default is 2.
         kernel_size: Size of the convolutional kernels. Default is 3.
         filters_rate: Factor to adjust the number of filters per block. Default is 2.
-        up_blocks: Number of upsampling blocks in the decoder. Default is 3.
-        down_blocks: Number of steps in `depth`. Default is 4 for most of the architectures.
         convs_per_block: Number of convolutional layers per block. Default is 2.
+        up_interpolate: If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales.
+
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -183,20 +185,17 @@ class SwinTWrapper(nn.Module):
 
     def __init__(
         self,
+        model_type: str,
+        output_stride: int,
         in_channels: int = 1,
         patch_size: List[int] = [4, 4],
-        embed_dim: int = 96,
-        depths: List[int] = [2, 2, 6, 2],
-        num_heads: List[int] = [3, 6, 12, 24],
+        arch: dict = {"embed": 96, "depths": [2, 2, 6, 2], "num_heads": [3, 6, 12, 24]},
         window_size: List[int] = [7, 7],
-        stem_stride: int = 2,
-        stochastic_depth_prob: float = 0.1,
-        norm_layer: Optional[Callable[..., nn.Module]] = "",
+        stem_patch_stride: int = 2,
         kernel_size: int = 3,
         filters_rate: int = 2,
-        up_blocks: int = 3,
-        down_blocks: int = 4,
         convs_per_block: int = 2,
+        up_interpolate: bool = True,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -205,43 +204,78 @@ class SwinTWrapper(nn.Module):
         self.patch_size = patch_size
         self.kernel_size = kernel_size
         self.filters_rate = filters_rate
-        self.up_blocks = up_blocks
+        arch_types = {
+            "tiny": {"embed": 96, "depths": [2, 2, 6, 2], "num_heads": [3, 6, 12, 24]},
+            "small": {
+                "embed": 96,
+                "depths": [2, 2, 18, 2],
+                "num_heads": [3, 6, 12, 24],
+            },
+            "base": {
+                "embed": 128,
+                "depths": [2, 2, 18, 2],
+                "num_heads": [4, 8, 16, 32],
+            },
+        }
+        if model_type in arch_types:
+            self.arch = arch_types[model_type]
+        elif arch is not None:
+            self.arch = arch
+        else:
+            self.arch = arch_types["tiny"]
+
+        self.up_blocks = len(self.arch["depths"]) - 1
         self.convs_per_block = convs_per_block
-        self.embed_dim = embed_dim
-        self.stem_stride = stem_stride
-        self.down_blocks = down_blocks - 1
+        self.stem_patch_stride = stem_patch_stride
+        self.down_blocks = len(self.arch["depths"]) - 1
         self.enc = SwinTransformerEncoder(
             in_channels=in_channels,
             patch_size=patch_size,
-            embed_dim=embed_dim,
-            depths=depths,
-            num_heads=num_heads,
+            embed_dim=self.arch["embed"],
+            depths=self.arch["depths"],
+            num_heads=self.arch["num_heads"],
             window_size=window_size,
-            stem_stride=stem_stride,
-            stochastic_depth_prob=stochastic_depth_prob,
-            norm_layer=norm_layer,
+            stem_stride=stem_patch_stride,
         )
-        current_stride = self.stem_stride * (2 ** (self.down_blocks - 1))
+        self.current_stride = self.stem_patch_stride * (2 ** (self.down_blocks - 1))
 
-        x_in_shape = embed_dim * (2 ** (self.down_blocks))
+        x_in_shape = self.arch["embed"] * (2 ** (self.down_blocks))
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,
-            current_stride=current_stride,
-            filters=embed_dim,
+            current_stride=self.current_stride,
+            filters=self.arch["embed"],
             up_blocks=self.up_blocks,
             down_blocks=self.down_blocks,
             filters_rate=filters_rate,
             kernel_size=self.kernel_size,
-            is_stem=True,
+            stem_blocks=0,
+            block_contraction=False,
+            output_stride=output_stride,
+            up_interpolate=up_interpolate,
         )
 
     @property
-    def output_channels(self):
-        """Returns the output channels of the SwinT."""
-        return int(
-            self.embed_dim
-            * (self.filters_rate ** (self.down_blocks - 1 - self.up_blocks + 1))
+    def max_channels(self):
+        """Returns the maximum channels of the SwinT (last layer of the encoder)."""
+        return self.dec.x_in_shape
+
+    @classmethod
+    def from_config(cls, config: OmegaConf):
+        """Create SwinTWrapper from a config."""
+        output_stride = min(config.output_strides)
+        return cls(
+            in_channels=config.in_channels,
+            model_type=config.model_type,
+            arch=config.arch,
+            patch_size=config.patch_size,
+            window_size=config.window_size,
+            kernel_size=config.kernel_size,
+            filters_rate=config.filters_rate,
+            convs_per_block=config.convs_per_block,
+            up_interpolate=config.up_interpolate,
+            output_stride=output_stride,
+            stem_patch_stride=config.stem_patch_stride,
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:

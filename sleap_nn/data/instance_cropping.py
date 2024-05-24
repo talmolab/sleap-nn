@@ -81,9 +81,7 @@ class InstanceCropper(IterDataPipe):
             centroids = ex["centroids"]  # (B=1, num_instances, 2)
             del ex["instances"]
             del ex["centroids"]
-            for cnt, (instance, centroid) in enumerate(zip(instances[0], centroids[0])):
-                if cnt == ex["num_instances"]:
-                    break
+            for instance, centroid in zip(instances[0], centroids[0]):
 
                 box_size = (self.crop_hw[0], self.crop_hw[1])
 

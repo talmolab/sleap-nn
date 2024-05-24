@@ -56,7 +56,7 @@ class Predictor(ABC):
             OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
         ]
         model_names = [
-            (c.model_config.head_configs.head_type) for c in model_config_paths
+            (c.model_config.head_configs[0].head_type) for c in model_config_paths
         ]
 
         if "SingleInstanceConfmapsHead" in model_names:
@@ -770,8 +770,8 @@ class TopDownPredictor(Predictor):
             self.confmap_config.inference_config.data["skeletons"] = (
                 self.confmap_config.data_config.skeletons
             )
-            max_stride = 2 ** (
-                self.confmap_config.model_config.backbone_config.backbone_config.down_blocks
+            max_stride = (
+                self.confmap_config.model_config.backbone_config.backbone_config.max_stride
             )
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
@@ -874,8 +874,8 @@ class TopDownPredictor(Predictor):
             self.instances_key = True
             if self.centroid_config and self.confmap_config:
                 self.instances_key = False
-                self.max_stride = 2 ** (
-                    self.centroid_config.model_config.backbone_config.backbone_config.down_blocks
+                self.max_stride = (
+                    self.centroid_config.model_config.backbone_config.backbone_config.max_stride
                 )
             data_provider = provider.from_filename(
                 self.data_config.path, instances_key=self.instances_key
@@ -911,8 +911,8 @@ class TopDownPredictor(Predictor):
 
         elif self.provider == "VideoReader":
             provider = VideoReader
-            self.max_stride = 2 ** (
-                self.centroid_config.model_config.backbone_config.backbone_config.down_blocks
+            self.max_stride = (
+                self.centroid_config.model_config.backbone_config.backbone_config.max_stride
             )
             frame_queue = Queue(
                 maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
@@ -1225,10 +1225,10 @@ class SingleInstancePredictor(Predictor):
                 provider=data_provider,
             )
             pipeline = Resizer(pipeline, scale=self.data_config.scale)
-            max_stride = 2 ** (
-                self.confmap_config.model_config.backbone_config.backbone_config.down_blocks
+            pipeline = PadToStride(
+                pipeline,
+                max_stride=self.confmap_config.model_config.backbone_config.backbone_config.max_stride,
             )
-            pipeline = PadToStride(pipeline, max_stride=max_stride)
 
             # Remove duplicates.
             self.pipeline = pipeline.sharding_filter()
@@ -1242,8 +1242,8 @@ class SingleInstancePredictor(Predictor):
 
         elif self.provider == "VideoReader":
             provider = VideoReader
-            self.max_stride = 2 ** (
-                self.confmap_config.model_config.backbone_config.backbone_config.down_blocks
+            self.max_stride = (
+                self.confmap_config.model_config.backbone_config.backbone_config.max_stride
             )
             frame_queue = Queue(
                 maxsize=self.data_config.video_loader.queue_maxsize if not None else 16

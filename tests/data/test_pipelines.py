@@ -137,7 +137,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, down_blocks=4
+        data_config=base_topdown_data_config, max_stride=16
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
@@ -207,7 +207,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, down_blocks=3
+        data_config=base_topdown_data_config, max_stride=8
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
@@ -279,7 +279,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, down_blocks=4
+        data_config=base_topdown_data_config, max_stride=16
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
@@ -357,7 +357,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     )
 
     pipeline = SingleInstanceConfmapsPipeline(
-        data_config=base_singleinstance_data_config, down_blocks=3
+        data_config=base_singleinstance_data_config, max_stride=8
     )
     data_provider = LabelsReader(labels=labels)
 
@@ -421,7 +421,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     )
 
     pipeline = SingleInstanceConfmapsPipeline(
-        data_config=base_singleinstance_data_config, down_blocks=3
+        data_config=base_singleinstance_data_config, max_stride=8
     )
 
     data_provider = LabelsReader(labels=labels)
@@ -490,7 +490,7 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
 
     pipeline = CentroidConfmapsPipeline(
-        data_config=base_centroid_data_config, down_blocks=5
+        data_config=base_centroid_data_config, max_stride=32
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
@@ -555,7 +555,7 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
 
     pipeline = CentroidConfmapsPipeline(
-        data_config=base_centroid_data_config, down_blocks=5
+        data_config=base_centroid_data_config, max_stride=32
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
