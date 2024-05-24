@@ -2,6 +2,7 @@ import sleap_io as sio
 from omegaconf import OmegaConf
 import numpy as np
 from torch.utils.data.dataloader import DataLoader
+from sleap_nn.data.resizing import resize_image
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher
@@ -67,9 +68,11 @@ def test_single_instance_inference_model(
         output_stride=2,
         peak_threshold=1.0,
         return_confmaps=False,
+        input_scale=0.5,
     )
     outputs = []
     for x in data_pipeline:
+        x["image"] = resize_image(x["image"], 0.5)
         outputs.append(find_peaks_layer(x))
 
     for i in outputs:

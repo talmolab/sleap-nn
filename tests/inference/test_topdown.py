@@ -4,6 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data.dataloader import DataLoader
 from sleap_nn.data.providers import LabelsReader
+from sleap_nn.data.resizing import resize_image
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
@@ -231,13 +232,18 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
 
     # check return confmaps
     find_peaks_layer = FindInstancePeaks(
-        torch_model=torch_model, output_stride=2, peak_threshold=0, return_confmaps=True
+        torch_model=torch_model,
+        output_stride=2,
+        peak_threshold=0,
+        return_confmaps=True,
+        input_scale=0.5,
     )
     outputs = []
     for x in data_pipeline:
+        x["image"] = resize_image(x["image"], 0.5)
         outputs.append(find_peaks_layer(x))
     assert "pred_confmaps" in outputs[0].keys()
-    assert outputs[0]["pred_confmaps"].shape[-2:] == (80, 80)
+    assert outputs[0]["pred_confmaps"].shape[-2:] == (40, 40)
 
 
 def test_topdown_inference_model(
