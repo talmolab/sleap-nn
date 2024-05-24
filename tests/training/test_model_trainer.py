@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 import lightning as L
 from pathlib import Path
 import pandas as pd
-from sleap_nn.model_trainer import (
+from sleap_nn.training.model_trainer import (
     ModelTrainer,
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
