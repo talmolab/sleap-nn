@@ -6,7 +6,7 @@ from sleap_nn.inference.predictors import Predictor
 
 
 def test_topdown_predictor(
-    minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
+    minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt, capfd
 ):
     """Test TopDownPredictor class for running inference on centroid and centered instance models."""
     # for centered instance model
@@ -96,7 +96,6 @@ def test_topdown_predictor(
         predictor = Predictor.from_model_paths(
             model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
         )
-        print("Predictor created!!")
         pred_labels = predictor.predict(make_labels=True)
         assert predictor.centroid_config is not None
         assert predictor.confmap_config is not None
@@ -131,6 +130,64 @@ def test_topdown_predictor(
     finally:
         OmegaConf.save(
             _config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
+
+    # Provider = VideoReader
+    # error in Videoreader but graceful execution
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    centroid_config = OmegaConf.load(
+        f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+    )
+    _centroid_config = centroid_config.copy()
+    _config = config.copy()
+    try:
+        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
+        OmegaConf.update(
+            centroid_config, "inference_config.data.provider", "VideoReader"
+        )
+        OmegaConf.update(
+            config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.update(
+            centroid_config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.update(
+            config,
+            "inference_config.data.video_reader.start_idx",
+            1100,
+        )
+        OmegaConf.update(
+            centroid_config,
+            "inference_config.data.video_reader.start_idx",
+            1100,
+        )
+
+        OmegaConf.update(
+            centroid_config,
+            "inference_config.data.video_reader.end_idx",
+            1103,
+        )
+        OmegaConf.update(
+            config,
+            "inference_config.data.video_reader.end_idx",
+            1103,
+        )
+        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(
+            centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
+        predictor = Predictor.from_model_paths(
+            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
+        )
+        pred_labels = predictor.predict(make_labels=True)
+    finally:
+        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(
+            _centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
         )
 
 

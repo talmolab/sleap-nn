@@ -173,9 +173,11 @@ def make_line_subs(
     """
     src_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 0])
     dst_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 1])
-    n_candidates = torch.tensor(src_peaks.shape[0])
+    n_candidates = torch.tensor(src_peaks.shape[0]).to(device=peaks_sample.device)
 
-    linspace_values = torch.linspace(0, 1, n_line_points, dtype=torch.float32)
+    linspace_values = torch.linspace(0, 1, n_line_points, dtype=torch.float32).to(
+        device=peaks_sample.device
+    )
     linspace_values = linspace_values.repeat(n_candidates, 1).view(
         n_candidates, n_line_points, 1
     )
@@ -189,14 +191,26 @@ def make_line_subs(
     )  # (n_candidates, 2, n_line_points)  # dim 1 is [x, y]
     XY = XY[:, [1, 0], :]  # dim 1 is [row, col]
 
-    edge_inds_expanded = edge_inds.view(-1, 1, 1).expand(-1, 1, n_line_points)
+    edge_inds_expanded = (
+        edge_inds.view(-1, 1, 1)
+        .expand(-1, 1, n_line_points)
+        .to(device=peaks_sample.device)
+    )
     line_subs = torch.cat((XY, edge_inds_expanded), dim=1)
     line_subs = line_subs.permute(
         0, 2, 1
     )  # (n_candidates, n_line_points, 3) -- last dim is [row, col, edge_ind]
 
-    multiplier = torch.tensor([1, 1, 2], dtype=torch.int32).view(1, 1, 3)
-    adder = torch.tensor([0, 0, 1], dtype=torch.int32).view(1, 1, 3)
+    multiplier = (
+        torch.tensor([1, 1, 2], dtype=torch.int32)
+        .view(1, 1, 3)
+        .to(device=line_subs.device)
+    )
+    adder = (
+        torch.tensor([0, 0, 1], dtype=torch.int32)
+        .view(1, 1, 3)
+        .to(device=line_subs.device)
+    )
 
     line_subs_first = line_subs * multiplier
     line_subs_second = line_subs * multiplier + adder
@@ -957,6 +971,14 @@ def group_instances_sample(
     """
     # Convert PyTorch tensors to NumPy arrays for non-tensor computations
     if isinstance(peaks_sample, torch.Tensor):
+        if peaks_sample.is_cuda:
+            peaks_sample = peaks_sample.cpu()
+            peak_scores_sample = peak_scores_sample.cpu()
+            peak_channel_inds_sample = peak_channel_inds_sample.cpu()
+            match_edge_inds_sample = match_edge_inds_sample.cpu()
+            match_src_peak_inds_sample = match_src_peak_inds_sample.cpu()
+            match_dst_peak_inds_sample = match_dst_peak_inds_sample.cpu()
+            match_line_scores_sample = match_line_scores_sample.cpu()
         peaks_sample = peaks_sample.numpy()
         peak_scores_sample = peak_scores_sample.numpy()
         peak_channel_inds_sample = peak_channel_inds_sample.numpy()

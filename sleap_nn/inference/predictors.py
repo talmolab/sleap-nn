@@ -161,8 +161,8 @@ class Predictor(ABC):
                                 output[k] = output[k].cpu().numpy()
                     yield output
         elif self.provider == "VideoReader":
-            self.reader.start()
             try:
+                self.reader.start()
                 done = False
                 while not done:
                     imgs = []
