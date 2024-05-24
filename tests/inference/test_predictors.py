@@ -143,6 +143,8 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
     try:
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
+        OmegaConf.update(config, "inference_config.data.max_height", 500)
+        OmegaConf.update(config, "inference_config.data.max_width", 500)
         config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
         del config.model_config.head_configs[0].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
