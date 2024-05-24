@@ -94,17 +94,6 @@ class ModelTrainer:
             max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
         )
 
-        pipeline = pipelines[self.config.data_config.pipeline]
-
-        train_pipeline = pipeline(
-            data_config=self.config.data_config.train,
-            max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-        )
-        val_pipeline = pipeline(
-            data_config=self.config.data_config.val,
-            max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-        )
-
         # train
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
         self.skeletons = train_labels.skeletons
@@ -300,12 +289,8 @@ class TrainingModel(L.LightningModule):
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
             head_configs=self.model_config.head_configs,
-            head_configs=self.model_config.head_configs,
             input_expand_channels=self.input_expand_channels,
         ).to(self.m_device)
-        self.loss_weights = [
-            x.head_config.loss_weight for x in self.model_config.head_configs
-        ]
         self.loss_weights = [
             x.head_config.loss_weight for x in self.model_config.head_configs
         ]

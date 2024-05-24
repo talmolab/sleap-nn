@@ -86,29 +86,11 @@ The config file has four main sections:
             bottleneck before each upsampling step. The original implementation does not
             do this, but the CARE implementation does. Default: False
             - `stacks`: (int) Number of upsampling blocks in the decoder. Default is 3.
-            - `max_stride`: (int) Scalar integer specifying the maximum stride that the image must be
-            divisible by.
-            - `stem_stride`: (int) If not None, will create additional "down" blocks for initial
-            downsampling based on the stride. These will be configured identically to the down blocks below.
-            - `middle_block`: (bool) If True, add an additional block at the end of the encoder. default: True
-            - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-            - `output_strides`: (List[int]) List of output strides for each head layer.
-            - `block_contraction`: (bool) If True, reduces the number of filters at the end of middle
-            and decoder blocks. This has the effect of introducing an additional
-            bottleneck before each upsampling step. The original implementation does not
-            do this, but the CARE implementation does. Default: False
-            - `stacks`: (int) Number of upsampling blocks in the decoder. Default is 3.
             - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
         - `backbone_config`: (for ConvNext)
             - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
-            - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
                 - `depths`: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
                 - `channels`: (List(int)) Number of channels in each block. Default: [96, 192, 384, 768].
-            - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. Default: "tiny". 
-            - `output_strides`: (List[int]) List of output strides for each head layer.
             - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. Default: "tiny". 
             - `output_strides`: (List[int]) List of output strides for each head layer.
             - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. Default is 4.
@@ -121,21 +103,12 @@ The config file has four main sections:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-            - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
         - `backbone_config`: (for SwinT. Default is `Tiny` architecture.)
             - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base"]. Default: "tiny". 
             - `arch`: Dictionary of embed dimension, depths and number of heads in each layer.
             Default is "Tiny architecture".
             {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}
-            - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base"]. Default: "tiny". 
-            - `arch`: Dictionary of embed dimension, depths and number of heads in each layer.
-            Default is "Tiny architecture".
-            {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}
             - `patch_size`: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
-            - `stem_patch_stride`: (int) Stride for the patch. Default is 2.
             - `stem_patch_stride`: (int) Stride for the patch. Default is 2.
             - `window_size`: (List[int]) Window size. Default: [7,7].
             - `in_channels`: (int) Number of input channels. Default is 1.
@@ -148,7 +121,6 @@ The config file has four main sections:
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
     - `head_configs`: (List[dict]) List of heads in the model. For eg, BottomUp model has both 'MultiInstanceConfmapsHead' and 'PartAffinityFieldsHead' heads.
-        [
             - `head_type`: (str) Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
             - `head_config`:
                 - `part_names`: (List[str]) Text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
@@ -157,7 +129,6 @@ The config file has four main sections:
                 - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
                 - `output_stride`: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
                 - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
-        ]
 
 - `trainer_config`: 
     - `train_data_loader`:
