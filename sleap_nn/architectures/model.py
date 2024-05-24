@@ -11,6 +11,7 @@ import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
 import math
+import math
 
 from sleap_nn.architectures.heads import (
     Head,
@@ -51,6 +52,7 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
             f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
         )
 
+    backbone = backbones[backbone].from_config(backbone_config)
     backbone = backbones[backbone].from_config(backbone_config)
 
     return backbone

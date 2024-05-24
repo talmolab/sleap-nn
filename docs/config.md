@@ -86,11 +86,29 @@ The config file has four main sections:
             bottleneck before each upsampling step. The original implementation does not
             do this, but the CARE implementation does. Default: False
             - `stacks`: (int) Number of upsampling blocks in the decoder. Default is 3.
+            - `max_stride`: (int) Scalar integer specifying the maximum stride that the image must be
+            divisible by.
+            - `stem_stride`: (int) If not None, will create additional "down" blocks for initial
+            downsampling based on the stride. These will be configured identically to the down blocks below.
+            - `middle_block`: (bool) If True, add an additional block at the end of the encoder. default: True
+            - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+            - `output_strides`: (List[int]) List of output strides for each head layer.
+            - `block_contraction`: (bool) If True, reduces the number of filters at the end of middle
+            and decoder blocks. This has the effect of introducing an additional
+            bottleneck before each upsampling step. The original implementation does not
+            do this, but the CARE implementation does. Default: False
+            - `stacks`: (int) Number of upsampling blocks in the decoder. Default is 3.
             - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
         - `backbone_config`: (for ConvNext)
             - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
+            - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
                 - `depths`: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
                 - `channels`: (List(int)) Number of channels in each block. Default: [96, 192, 384, 768].
+            - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. Default: "tiny". 
+            - `output_strides`: (List[int]) List of output strides for each head layer.
             - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. Default: "tiny". 
             - `output_strides`: (List[int]) List of output strides for each head layer.
             - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. Default is 4.
@@ -103,12 +121,21 @@ The config file has four main sections:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
+            - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
         - `backbone_config`: (for SwinT. Default is `Tiny` architecture.)
             - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base"]. Default: "tiny". 
             - `arch`: Dictionary of embed dimension, depths and number of heads in each layer.
             Default is "Tiny architecture".
             {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}
+            - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base"]. Default: "tiny". 
+            - `arch`: Dictionary of embed dimension, depths and number of heads in each layer.
+            Default is "Tiny architecture".
+            {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}
             - `patch_size`: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
+            - `stem_patch_stride`: (int) Stride for the patch. Default is 2.
             - `stem_patch_stride`: (int) Stride for the patch. Default is 2.
             - `window_size`: (List[int]) Window size. Default: [7,7].
             - `in_channels`: (int) Number of input channels. Default is 1.
