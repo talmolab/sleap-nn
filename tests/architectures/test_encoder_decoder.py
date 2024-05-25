@@ -120,7 +120,7 @@ def test_simple_upsampling_block():
         up_interpolate=False,
         transpose_convs_filters=5,
         transpose_convs_batch_norm=True,
-        transpose_convs_batch_norm_before_activation=True,
+        transpose_convs_batch_norm_before_activation=False,
     )
     print(block)
 

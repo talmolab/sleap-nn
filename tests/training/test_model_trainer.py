@@ -395,7 +395,7 @@ def test_single_instance_model(config, tmp_path: str):
 
 
 def test_bottomup_model(config, tmp_path: str):
-    """Test CentroidModel training."""
+    """Test BottomUp model training."""
     OmegaConf.update(config, "data_config.pipeline", "BottomUp")
     config.data_config.train.preprocessing["pafs_gen"] = {
         "sigma": 4,

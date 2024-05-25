@@ -6,7 +6,9 @@ from sleap_nn.inference.predictors import Predictor
 
 
 def test_topdown_predictor(
-    minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt, capfd
+    minimal_instance,
+    minimal_instance_ckpt,
+    minimal_instance_centroid_ckpt,
 ):
     """Test TopDownPredictor class for running inference on centroid and centered instance models."""
     # for centered instance model
@@ -192,7 +194,7 @@ def test_topdown_predictor(
 
 
 def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
-    """Test SingleInstancePredictor."""
+    """Test SingleInstancePredictor module."""
     # provider as LabelsReader
     _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
 
@@ -202,6 +204,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
         OmegaConf.update(config, "inference_config.data.max_height", 500)
         OmegaConf.update(config, "inference_config.data.max_width", 500)
+        OmegaConf.update(config, "inference_config.data.scale", 0.9)
         config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
         del config.model_config.head_configs[0].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
@@ -306,7 +309,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
 
 def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
-    """Test BottomUpPredictor."""
+    """Test BottomUpPredictor module."""
     # provider as LabelsReader
 
     # check if labels are created from ckpt

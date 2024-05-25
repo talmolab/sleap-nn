@@ -173,7 +173,7 @@ def make_line_subs(
     """
     src_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 0])
     dst_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 1])
-    n_candidates = torch.tensor(src_peaks.shape[0]).to(device=peaks_sample.device)
+    n_candidates = torch.tensor(src_peaks.shape[0], device=peaks_sample.device)
 
     linspace_values = torch.linspace(0, 1, n_line_points, dtype=torch.float32).to(
         device=peaks_sample.device
@@ -201,15 +201,11 @@ def make_line_subs(
         0, 2, 1
     )  # (n_candidates, n_line_points, 3) -- last dim is [row, col, edge_ind]
 
-    multiplier = (
-        torch.tensor([1, 1, 2], dtype=torch.int32)
-        .view(1, 1, 3)
-        .to(device=line_subs.device)
-    )
-    adder = (
-        torch.tensor([0, 0, 1], dtype=torch.int32)
-        .view(1, 1, 3)
-        .to(device=line_subs.device)
+    multiplier = torch.tensor(
+        [1, 1, 2], dtype=torch.int32, device=line_subs.device
+    ).view(1, 1, 3)
+    adder = torch.tensor([0, 0, 1], dtype=torch.int32, device=line_subs.device).view(
+        1, 1, 3
     )
 
     line_subs_first = line_subs * multiplier

@@ -193,3 +193,48 @@ def test_swint_reference():
     with torch.no_grad():
         z = conv2d(y["outputs"][-1])
     assert z.shape == (1, 13, 192, 192)
+
+    # custom architecture
+    config = OmegaConf.create(
+        {
+            "in_channels": 1,
+            "model_type": None,
+            "arch": {"embed": 96, "depths": [2, 2, 6, 2], "num_heads": [3, 6, 12, 24]},
+            "patch_size": [4, 4],
+            "window_size": [7, 7],
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "output_strides": [1],
+            "stem_patch_stride": 2,
+        }
+    )
+
+    swint = SwinTWrapper.from_config(config)
+
+    in_channels = int(
+        swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)
+    )
+
+    # Test final output shape.
+    swint.eval()
+
+    x = torch.rand(1, 1, 192, 192)
+    with torch.no_grad():
+        y = swint(x)
+    assert type(y) is dict
+    assert "outputs" in y
+    assert "strides" in y
+    assert y["outputs"][-1].shape == (1, 48, 192, 192)
+    assert type(y["strides"]) is list
+    assert len(y["strides"]) == 4
+
+    conv2d = nn.Conv2d(
+        in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
+    )
+
+    conv2d.eval()
+    with torch.no_grad():
+        z = conv2d(y["outputs"][-1])
+    assert z.shape == (1, 13, 192, 192)

@@ -142,8 +142,6 @@ class Predictor(ABC):
         """
         # Initialize data pipeline and inference model if needed.
         self.make_pipeline()
-        if self.inference_model is None:
-            self._initialize_inference_model()
 
         # Loop over data batches.
         if self.provider == "LabelsReader":
@@ -570,10 +568,6 @@ class TopDownPredictor(Predictor):
                 ex["orig_size"],
             ):
                 pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
-                if self.data_config.max_height is not None:  # adjust for padding
-                    pad_height = (self.data_config.max_height - org_size[0]) // 2
-                    pad_width = (self.data_config.max_width - org_size[1]) // 2
-                    pred_instances = pred_instances - [pad_height, pad_width]
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
                         points=pred_instances,
@@ -816,10 +810,7 @@ class SingleInstancePredictor(Predictor):
                 ex["pred_peak_values"],
                 ex["orig_size"],
             ):
-                if self.data_config.max_height is not None:  # adjust for padding
-                    pad_height = (self.data_config.max_height - org_size[0]) // 2
-                    pad_width = (self.data_config.max_width - org_size[1]) // 2
-                    pred_instances = pred_instances - [pad_height, pad_width]
+
                 inst = sio.PredictedInstance.from_numpy(
                     points=pred_instances,
                     skeleton=skeletons[skeleton_idx],
@@ -1142,10 +1133,6 @@ class BottomUpPredictor(Predictor):
                 ex["instance_scores"],
                 ex["orig_size"],
             ):
-                if self.data_config.max_height is not None:  # adjust for padding
-                    pad_height = (self.data_config.max_height - org_size[0]) // 2
-                    pad_width = (self.data_config.max_width - org_size[1]) // 2
-                    pred_instances = pred_instances - [pad_height, pad_width]
 
                 # Loop over instances.
                 predicted_instances = []

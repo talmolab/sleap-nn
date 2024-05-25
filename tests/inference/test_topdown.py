@@ -86,14 +86,14 @@ def test_centroid_inference_model(config):
         integral_patch_size=5,
         output_stride=2,
         return_confmaps=False,
-        max_instances=2,
+        max_instances=6,
         return_crops=False,
         crop_hw=(160, 160),
     )
 
     out = layer(loader)
-    assert tuple(out["centroids"].shape) == (1, 1, 2, 2)
-    assert tuple(out["centroid_vals"].shape) == (1, 2)
+    assert tuple(out["centroids"].shape) == (1, 1, 6, 2)
+    assert tuple(out["centroid_vals"].shape) == (1, 6)
     assert "instance_image" not in out.keys()
 
     # return crops = False
