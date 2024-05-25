@@ -237,9 +237,22 @@ class Encoder(nn.Module):
         if middle_block:
             if convs_per_block > 1:
                 # First convs are one exponent higher than the last encoder block.
-                block_filters = int(
-                    filters * (filters_rate ** (down_blocks + self.stem_blocks))
-                )
+
+                if block_contraction:
+                    # Contract the channels with an exponent lower than the last encoder block.
+                    block_filters = int(
+                        self.filters
+                        * (
+                            self.filters_rate
+                            ** (self.down_blocks + self.stem_blocks - 1)
+                        )
+                    )
+                else:
+                    # Keep the block output filters the same.
+                    block_filters = int(
+                        self.filters
+                        * (self.filters_rate ** (self.down_blocks + self.stem_blocks))
+                    )
                 self.encoder_stack.append(
                     SimpleConvBlock(
                         in_channels=after_block_filters,

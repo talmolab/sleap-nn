@@ -170,3 +170,30 @@ def test_unet_reference():
     with torch.no_grad():
         z = conv2d(y["outputs"][-1])
     assert z.shape == (1, 13, 192, 192)
+
+    # Test number of intermediate features outputted from encoder.
+    enc = Encoder(
+        in_channels=1,
+        filters=filters,
+        down_blocks=down_blocks,
+        filters_rate=filters_rate,
+        current_stride=2,
+        convs_per_block=convs_per_block,
+        kernel_size=kernel_size,
+        block_contraction=True,
+    )
+    print(enc)
+
+    enc = enc.to(device)
+    enc.eval()
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    with torch.no_grad():
+        y, features = enc(x)
+
+    assert y.shape == (1, 128, 12, 12)
+    assert len(features) == 4
+    assert features[0].shape == (1, 128, 24, 24)
+    assert features[1].shape == (1, 64, 48, 48)
+    assert features[2].shape == (1, 32, 96, 96)
+    assert features[3].shape == (1, 16, 192, 192)
