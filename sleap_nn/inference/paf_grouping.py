@@ -967,21 +967,13 @@ def group_instances_sample(
     """
     # Convert PyTorch tensors to NumPy arrays for non-tensor computations
     if isinstance(peaks_sample, torch.Tensor):
-        if peaks_sample.is_cuda:
-            peaks_sample = peaks_sample.cpu()
-            peak_scores_sample = peak_scores_sample.cpu()
-            peak_channel_inds_sample = peak_channel_inds_sample.cpu()
-            match_edge_inds_sample = match_edge_inds_sample.cpu()
-            match_src_peak_inds_sample = match_src_peak_inds_sample.cpu()
-            match_dst_peak_inds_sample = match_dst_peak_inds_sample.cpu()
-            match_line_scores_sample = match_line_scores_sample.cpu()
-        peaks_sample = peaks_sample.numpy()
-        peak_scores_sample = peak_scores_sample.numpy()
-        peak_channel_inds_sample = peak_channel_inds_sample.numpy()
-        match_edge_inds_sample = match_edge_inds_sample.numpy()
-        match_src_peak_inds_sample = match_src_peak_inds_sample.numpy()
-        match_dst_peak_inds_sample = match_dst_peak_inds_sample.numpy()
-        match_line_scores_sample = match_line_scores_sample.numpy()
+        peaks_sample = peaks_sample.cpu().numpy()
+        peak_scores_sample = peak_scores_sample.cpu().numpy()
+        peak_channel_inds_sample = peak_channel_inds_sample.cpu().numpy()
+        match_edge_inds_sample = match_edge_inds_sample.cpu().numpy()
+        match_src_peak_inds_sample = match_src_peak_inds_sample.cpu().numpy()
+        match_dst_peak_inds_sample = match_dst_peak_inds_sample.cpu().numpy()
+        match_line_scores_sample = match_line_scores_sample.cpu().numpy()
 
     # Filter out low scoring matches.
     is_valid_match = match_line_scores_sample >= min_line_scores
