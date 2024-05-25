@@ -280,6 +280,9 @@ class TopDownPredictor(Predictor):
         if self.centroid_config is None:
             centroid_crop_layer = None
         else:
+            max_stride = (
+                self.centroid_config.model_config.backbone_config.backbone_config.max_stride
+            )
             self.centroid_config.inference_config.data["skeletons"] = (
                 self.centroid_config.data_config.skeletons
             )
@@ -298,6 +301,7 @@ class TopDownPredictor(Predictor):
                     self.centroid_config.inference_config.data.preprocessing.crop_hw
                 ),
                 input_scale=self.centroid_config.inference_config.data.scale,
+                max_stride=max_stride,
             )
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
@@ -466,9 +470,6 @@ class TopDownPredictor(Predictor):
         elif self.provider == "VideoReader":
             provider = VideoReader
             self.preprocess = False
-            self.max_stride = (
-                self.centroid_config.model_config.backbone_config.backbone_config.max_stride
-            )
             frame_queue = Queue(
                 maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
             )
@@ -487,6 +488,9 @@ class TopDownPredictor(Predictor):
                     "Ground truth data was not detected... "
                     "Please load both models when predicting on non-ground-truth data."
                 )
+            self.max_stride = (
+                self.centroid_config.model_config.backbone_config.backbone_config.max_stride
+            )
 
         else:
             raise Exception(

@@ -192,6 +192,47 @@ def test_topdown_predictor(
             _centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
         )
 
+    # Provider = VideoReader
+    # centroid model not provided
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    centroid_config = OmegaConf.load(
+        f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+    )
+    _centroid_config = centroid_config.copy()
+    _config = config.copy()
+    try:
+        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
+        OmegaConf.update(
+            centroid_config, "inference_config.data.provider", "VideoReader"
+        )
+        OmegaConf.update(
+            config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.update(
+            centroid_config,
+            "inference_config.data.path",
+            f"./tests/assets/centered_pair_small.mp4",
+        )
+        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(
+            centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
+
+        with pytest.raises(
+            ValueError,
+            match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
+        ):
+            predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
+            pred_labels = predictor.predict(make_labels=True)
+
+    finally:
+        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+        OmegaConf.save(
+            _centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+        )
+
 
 def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     """Test SingleInstancePredictor module."""
@@ -248,6 +289,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             f"./tests/assets/centered_pair_small.mp4",
         )
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
+        OmegaConf.update(config, "inference_config.data.scale", 0.9)
         config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
         del config.model_config.head_configs[0].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
