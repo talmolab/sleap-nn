@@ -241,11 +241,16 @@ class Predictor(ABC):
                             yield output
 
             except Exception as e:
-                raise Exception(f"Error in VideoReader: {e}")
+                raise Exception(f"Error in VideoReader during data processing: {e}")
 
             finally:
                 self.pipeline.join()
 
+    def predict(
+        self,
+        make_labels: bool = True,
+        save_path: str = None,
+    ) -> Union[List[Dict[str, np.ndarray]], sio.Labels]:
         """Run inference on a data source.
 
         Args:
@@ -259,6 +264,20 @@ class Predictor(ABC):
             otherwise a list of dictionaries containing batches of numpy arrays with the
             raw results.
         """
+        # Initialize inference loop generator.
+        generator = self._predict_generator()
+
+        if make_labels:
+            # Create SLEAP data structures from the predictions.
+            pred_labels = self._make_labeled_frames_from_generator(generator)
+            if save_path:
+                sio.io.slp.write_labels(save_path, pred_labels)
+            return pred_labels
+
+        else:
+            # Just return the raw results.
+            return list(generator)
+
     @abstractmethod
     def _make_labeled_frames_from_generator(self, generator) -> sio.Labels:
         """Create `sio.Labels` object from the predictions."""
@@ -304,8 +323,12 @@ class TopDownPredictor(Predictor):
             self.centroid_config.inference_config.data["skeletons"] = (
                 self.centroid_config.data_config.skeletons
             )
+
+            # if both centroid and centered-instance model are provided, set return crops to True
             if self.confmap_model:
                 return_crops = True
+
+            # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
@@ -345,7 +368,7 @@ class TopDownPredictor(Predictor):
                 max_stride=max_stride,
             )
 
-        # Initialize the inference model with centroid and conf map layers
+        # Initialize the inference model with centroid and instance peak layers
         self.inference_model = TopDownInferenceModel(
             centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
         )
@@ -430,9 +453,13 @@ class TopDownPredictor(Predictor):
             provider is LabelsReader.
         """
         self.provider = self.data_config.provider
+
+        # LabelsReader provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
             instances_key = True
+
+            # no need of `instances` key for Centered-instance model
             if self.centroid_config and self.confmap_config:
                 instances_key = False
 
@@ -441,6 +468,7 @@ class TopDownPredictor(Predictor):
             )
 
             self.videos = data_provider.labels.videos
+
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
             pipeline = SizeMatcher(
                 pipeline,
@@ -486,6 +514,7 @@ class TopDownPredictor(Predictor):
 
             return self.pipeline
 
+        # VideoReader provider
         elif self.provider == "VideoReader":
             if self.centroid_config is None:
                 raise ValueError(
@@ -894,14 +923,19 @@ class BottomUpPredictor(Predictor):
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
+        # get the index of pafs head configs
         paf_idx = [
             x.head_type == "PartAffinityFieldsHead"
             for x in self.bottomup_config.model_config.head_configs
         ].index(True)
+
+        # get the index of confmap head configs
         confmaps_idx = [
             x.head_type == "MultiInstanceConfmapsHead"
             for x in self.bottomup_config.model_config.head_configs
         ].index(True)
+
+        # initialize the paf scorer
         paf_scorer = PAFScorer.from_config(
             config=OmegaConf.create(
                 {
@@ -940,6 +974,8 @@ class BottomUpPredictor(Predictor):
                 else self.min_line_scores
             ),
         )
+
+        # initialize the BottomUpInferenceModel
         self.inference_model = BottomUpInferenceModel(
             torch_model=self.bottomup_model,
             paf_scorer=paf_scorer,
