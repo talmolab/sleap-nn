@@ -246,38 +246,19 @@ class Predictor(ABC):
             finally:
                 self.pipeline.join()
 
-    def predict(
-        self,
-        make_labels: bool = True,
-        save_path: str = None,
-    ) -> Union[List[Dict[str, np.ndarray]], sio.Labels]:
         """Run inference on a data source.
 
         Args:
             make_labels: If `True` (the default), returns a `sio.Labels` instance with
                 `sio.PredictedInstance`s. If `False`, just return a list of
                 dictionaries containing the raw arrays returned by the inference model.
-            save_path: Path to save the labels file if `save_labels` is True.
+            save_path: Path to save the labels file if `make_labels` is True.
 
         Returns:
             A `sio.Labels` with `sio.PredictedInstance`s if `make_labels` is `True`,
             otherwise a list of dictionaries containing batches of numpy arrays with the
             raw results.
         """
-        # Initialize inference loop generator.
-        generator = self._predict_generator()
-
-        if make_labels:
-            # Create SLEAP data structures from the predictions.
-            pred_labels = self._make_labeled_frames_from_generator(generator)
-            if save_path:
-                sio.io.slp.write_labels(save_path, pred_labels)
-            return pred_labels
-
-        else:
-            # Just return the raw results.
-            return list(generator)
-
     @abstractmethod
     def _make_labeled_frames_from_generator(self, generator) -> sio.Labels:
         """Create `sio.Labels` object from the predictions."""
