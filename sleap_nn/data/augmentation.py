@@ -291,12 +291,12 @@ class KorniaAugmenter(IterDataPipe):
         """Return an example dictionary with the augmented image and instances."""
         for ex in self.source_dp:
             inst_shape = ex[self.instance_key].shape
-            # Before (self.input_key="image"): (B=1, C, H, W), (B=1, num_instances, num_nodes, 2)
+            # Before (self.input_key="image"): (n_samples, C, H, W), (n_samples, n_instances, n_nodes, 2)
             # or
-            # Before (self.input_key="instance"): (B=1, C, crop_H, crop_W), (B=1, num_nodes, 2)
+            # Before (self.input_key="instance"): (B=1, C, crop_H, crop_W), (n_samples, n_nodes, 2)
             image, instances = ex[self.image_key], ex[self.instance_key].reshape(
                 inst_shape[0], -1, 2
-            )  # (B=1, C, H, W), (B=1, num_instances * num_nodes, 2) OR (B=1, num_nodes, 2)
+            )  # (n_samples, C, H, W), (n_samples, n_instances * n_nodes, 2) OR (n_samples, n_nodes, 2)
 
             aug_image, aug_instances = self.augmenter(image, instances)
             ex.update(
@@ -305,7 +305,7 @@ class KorniaAugmenter(IterDataPipe):
                     self.instance_key: aug_instances.reshape(*inst_shape),
                 }
             )
-            # After (self.input_key="image"): (B=1, C, H, W), (B=1, num_instances, num_nodes, 2)
+            # After (self.input_key="image"): (n_samples, C, H, W), (n_samples, n_instances, n_nodes, 2)
             # or
-            # After (self.input_key="instance"): (B=1, C, crop_H, crop_W), (B=1, num_nodes, 2)
+            # After (self.input_key="instance"): (n_samples, C, crop_H, crop_W), (n_samples, n_nodes, 2)
             yield ex

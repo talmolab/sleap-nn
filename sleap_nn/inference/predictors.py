@@ -5,14 +5,13 @@ from typing import Dict, List, Optional, Union, Iterator, Text
 from queue import Queue
 from pathlib import Path
 from abc import ABC, abstractmethod
-
 import numpy as np
 import sleap_io as sio
 import torch
 import attrs
 import lightning as L
 from torch.utils.data.dataloader import DataLoader
-from omegaconf.dictconfig import DictConfig
+from omegaconf import OmegaConf
 from sleap_nn.data.providers import LabelsReader, VideoReader
 from sleap_nn.data.resizing import (
     SizeMatcher,
@@ -32,7 +31,6 @@ from sleap_nn.training.model_trainer import (
     CentroidModel,
     BottomUpModel,
 )
-from omegaconf import OmegaConf
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import BottomUpInferenceModel
 from sleap_nn.inference.topdown import (
@@ -43,15 +41,50 @@ from sleap_nn.inference.topdown import (
 )
 
 
+@attrs.define
 class Predictor(ABC):
-    """Base interface class for predictors."""
+    """Base interface class for predictors.
+
+    This is the base predictor class for different types of models.
+
+    Attributes:
+        preprocess: Only for VideoReader provider. True if preprocessing (reszizing and
+            pad_to_stride) should be applied on the frames read in the video reader.
+            Default: True.
+        video_preprocess_config: Preprocessing config for VideoReader with keys: [`batch_size`,
+            `scale`, `is_rgb`, `max_stride`]. Default: {"batch_size": 4, "scale": 1.0,
+            "is_rgb": False, "max_stride": 1}
+        provider: Provider for inference pipeline. One of ["LabelsReader", "VideoReader"].
+            Default: LabelsReader.
+        pipeline: If provider is LabelsReader, pipeline is a `DataLoader` object. If provider
+            is VideoReader, pipeline is an instance of `sleap_nn.data.providers.VideoReader`
+            class. Default: None.
+        inference_model: Instance of one of the inference models ["TopDownInferenceModel",
+            "SingleInstanceInferenceModel", "BottomUpInferenceModel"]. Default: None.
+    """
+
+    preprocess: bool = True
+    video_preprocess_config: dict = {
+        "batch_size": 4,
+        "scale": 1.0,
+        "is_rgb": False,
+        "max_stride": 1,
+    }
+    provider: Union[LabelsReader, VideoReader] = LabelsReader
+    pipeline: Optional[Union[DataLoader, VideoReader]] = None
+    inference_model: Optional[
+        Union[
+            TopDownInferenceModel, SingleInstanceInferenceModel, BottomUpInferenceModel
+        ]
+    ] = None
 
     @classmethod
     def from_model_paths(cls, model_paths: List[Text]) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            model_paths: List of paths to the directory where the best.ckpt and training_config.yaml are saved.
+            model_paths: List of paths to the directory where the best.ckpt and
+                training_config.yaml are saved.
 
         Returns:
             A subclass of `Predictor`.
@@ -106,28 +139,35 @@ class Predictor(ABC):
             raise ValueError(
                 f"Could not create predictor from model paths:\n{model_paths}"
             )
-        predictor.model_path = model_paths
         return predictor
 
     @classmethod
     @abstractmethod
     def from_trained_models(cls, *args, **kwargs):
-        """Function to initialize the Predictor class for certain type of model."""
-        pass
+        """Initialize the Predictor class for certain type of model."""
 
     @property
     @abstractmethod
-    def data_config(self) -> DictConfig:
-        """Function to get the data parameters from the config."""
-        pass
+    def data_config(self) -> OmegaConf:
+        """Get the data parameters from the config."""
 
     @abstractmethod
     def make_pipeline(self):
-        """Function to create the data pipeline."""
-        pass
+        """Create the data pipeline."""
 
+    @abstractmethod
     def _initialize_inference_model(self):
-        pass
+        """Initialize the Inference model."""
+
+    def _convert_tensors_to_numpy(self, output):
+        """Convert tensors in output dictionary to numpy arrays."""
+        for k, v in output.items():
+            if isinstance(v, torch.Tensor):
+                if v.is_nested:
+                    output[k] = [i.cpu().numpy() for i in v]
+                else:
+                    output[k] = output[k].cpu().numpy()
+        return output
 
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
         """Create a generator that yields batches of inference results.
@@ -142,39 +182,35 @@ class Predictor(ABC):
         """
         # Initialize data pipeline and inference model if needed.
         self.make_pipeline()
+        if self.inference_model is None:
+            self._initialize_inference_model()
 
         # Loop over data batches.
         if self.provider == "LabelsReader":
-            for ex in self.data_pipeline:
+            for ex in self.pipeline:
                 outputs_list = self.inference_model(ex)
                 for output in outputs_list:
-                    for k, v in output.items():
-                        if isinstance(v, torch.Tensor):
-                            if v.is_nested:
-                                values = []
-                                for i in v:
-                                    values.append(i.cpu().numpy())
-                                output[k] = torch.nested.nested_tensor(values)
-                            else:
-                                output[k] = output[k].cpu().numpy()
+                    output = self._convert_tensors_to_numpy(output)
                     yield output
+
         elif self.provider == "VideoReader":
             try:
-                self.reader.start()
+                self.pipeline.start()
+                batch_size = self.video_preprocess_config["batch_size"]
                 done = False
                 while not done:
                     imgs = []
                     fidxs = []
                     org_szs = []
-                    for i in range(self.batch_size):
-                        frame = self.reader.frame_buffer.get()
+                    for _ in range(batch_size):
+                        frame = self.pipeline.frame_buffer.get()
                         if frame[0] is None:
                             done = True
                             break
                         imgs.append(frame[0].unsqueeze(dim=0))
                         fidxs.append(frame[1])
                         org_szs.append(frame[2].unsqueeze(dim=0))
-                    if len(imgs):
+                    if imgs:
                         imgs = torch.concatenate(imgs, dim=0)
                         fidxs = torch.tensor(fidxs, dtype=torch.int32)
                         org_szs = torch.concatenate(org_szs, dim=0)
@@ -182,39 +218,33 @@ class Predictor(ABC):
                             "image": imgs,
                             "frame_idx": fidxs,
                             "video_idx": torch.tensor(
-                                [0] * self.batch_size, dtype=torch.int32
+                                [0] * batch_size, dtype=torch.int32
                             ),
                             "orig_size": org_szs,
                         }
                         if not torch.is_floating_point(ex["image"]):  # normalization
                             ex["image"] = ex["image"].to(torch.float32) / 255.0
-                        if self.is_rgb:
+                        if self.video_preprocess_config["is_rgb"]:
                             ex["image"] = convert_to_rgb(ex["image"])
                         else:
                             ex["image"] = convert_to_grayscale(ex["image"])
                         if self.preprocess:
-                            if self.input_scale != 1.0:
-                                ex["image"] = resize_image(
-                                    ex["image"], self.input_scale
-                                )
-                            ex["image"] = pad_to_stride(ex["image"], self.max_stride)
+                            scale = self.video_preprocess_config["scale"]
+                            if scale != 1.0:
+                                ex["image"] = resize_image(ex["image"], scale)
+                            ex["image"] = pad_to_stride(
+                                ex["image"], self.video_preprocess_config["max_stride"]
+                            )
                         outputs_list = self.inference_model(ex)
                         for output in outputs_list:
-                            for k, v in output.items():
-                                if isinstance(v, torch.Tensor):
-                                    if v.is_nested:
-                                        values = []
-                                        for i in v:
-                                            values.append(i.cpu().numpy())
-                                        output[k] = torch.nested.nested_tensor(values)
-                                    else:
-                                        output[k] = output[k].cpu().numpy()
+                            output = self._convert_tensors_to_numpy(output)
                             yield output
 
             except Exception as e:
                 raise Exception(f"Error in VideoReader: {e}")
+
             finally:
-                self.reader.join()
+                self.pipeline.join()
 
     def predict(
         self,
@@ -248,8 +278,12 @@ class Predictor(ABC):
             # Just return the raw results.
             return list(generator)
 
+    @abstractmethod
+    def _make_labeled_frames_from_generator(self, generator) -> sio.Labels:
+        """Create `sio.Labels` object from the predictions."""
 
-@attrs.define(auto_attribs=True)
+
+@attrs.define
 class TopDownPredictor(Predictor):
     """Top-down multi-instance predictor.
 
@@ -265,13 +299,16 @@ class TopDownPredictor(Predictor):
                         for centroid model.
         confmap_model: A LightningModule instance created from the trained weights
                        for centered-instance model.
+        videos: List of `sio.Video` objects for creating the `sio.Labels` object from
+                        the output predictions.
 
     """
 
-    centroid_config: Optional[DictConfig] = attrs.field(default=None)
-    confmap_config: Optional[DictConfig] = attrs.field(default=None)
+    centroid_config: Optional[OmegaConf] = attrs.field(default=None)
+    confmap_config: Optional[OmegaConf] = attrs.field(default=None)
     centroid_model: Optional[L.LightningModule] = attrs.field(default=None)
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
+    videos: Optional[List[sio.Video]] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -291,7 +328,9 @@ class TopDownPredictor(Predictor):
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=self.centroid_config.inference_config.peak_threshold,
-                output_stride=self.centroid_config.inference_config.data.preprocessing.output_stride,
+                output_stride=(
+                    self.centroid_config.inference_config.data.preprocessing.output_stride
+                ),
                 refinement=self.centroid_config.inference_config.integral_refinement,
                 integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
                 return_confmaps=self.centroid_config.inference_config.return_confmaps,
@@ -331,7 +370,7 @@ class TopDownPredictor(Predictor):
         )
 
     @property
-    def data_config(self) -> DictConfig:
+    def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
         if self.centroid_config:
             return self.centroid_config.inference_config.data
@@ -405,22 +444,21 @@ class TopDownPredictor(Predictor):
             Predictor._predict_generator() method.
 
         Notes:
-            This method creates the class attribute `data_pipeline` and will be
+            This method creates the class attribute `pipeline` and will be
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
         self.provider = self.data_config.provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            self.instances_key = True
+            instances_key = True
             if self.centroid_config and self.confmap_config:
-                self.instances_key = False
-                self.max_stride = (
-                    self.centroid_config.model_config.backbone_config.backbone_config.max_stride
-                )
+                instances_key = False
+
             data_provider = provider.from_filename(
-                self.data_config.path, instances_key=self.instances_key
+                self.data_config.path, instances_key=instances_key
             )
+
             self.videos = data_provider.labels.videos
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
             pipeline = SizeMatcher(
@@ -460,37 +498,42 @@ class TopDownPredictor(Predictor):
             # Remove duplicates.
             self.pipeline = pipeline.sharding_filter()
 
-            self.data_pipeline = DataLoader(
+            self.pipeline = DataLoader(
                 self.pipeline,
                 **dict(self.data_config.data_loader),
             )
 
-            return self.data_pipeline
+            return self.pipeline
 
         elif self.provider == "VideoReader":
-            provider = VideoReader
-            self.preprocess = False
-            frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
-            )
-            self.batch_size = self.data_config.video_loader.batch_size
-            self.input_scale = self.data_config.scale
-            self.reader = provider.from_filename(
-                filename=self.data_config.path,
-                frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
-            )
-            self.videos = [self.reader.video]
-            self.is_rgb = self.data_config.is_rgb
             if self.centroid_config is None:
                 raise ValueError(
                     "Ground truth data was not detected... "
                     "Please load both models when predicting on non-ground-truth data."
                 )
-            self.max_stride = (
-                self.centroid_config.model_config.backbone_config.backbone_config.max_stride
+
+            provider = VideoReader
+            self.preprocess = False
+            if self.preprocess:
+                self.video_preprocess_config = {
+                    "batch_size": self.data_config.video_loader.batch_size,
+                    "scale": self.data_config.scale,
+                    "is_rgb": self.data_config.is_rgb,
+                    "max_stride": (
+                        self.centroid_config.model_config.backbone_config.backbone_config.max_stride
+                    ),
+                }
+
+            frame_queue = Queue(
+                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
             )
+            self.pipeline = provider.from_filename(
+                filename=self.data_config.path,
+                frame_buffer=frame_queue,
+                start_idx=self.data_config.video_loader.start_idx,
+                end_idx=self.data_config.video_loader.end_idx,
+            )
+            self.videos = [self.pipeline.video]
 
         else:
             raise Exception(
@@ -613,11 +656,14 @@ class SingleInstancePredictor(Predictor):
                         single-instance model.
         confmap_model: A LightningModule instance created from the trained weights for
                        single-instance model.
+        videos: List of `sio.Video` objects for creating the `sio.Labels` object from
+                        the output predictions.
 
     """
 
-    confmap_config: Optional[DictConfig] = attrs.field(default=None)
+    confmap_config: Optional[OmegaConf] = attrs.field(default=None)
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
+    videos: Optional[List[sio.Video]] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -632,7 +678,7 @@ class SingleInstancePredictor(Predictor):
         )
 
     @property
-    def data_config(self) -> DictConfig:
+    def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
         return self.confmap_config.inference_config.data
 
@@ -676,7 +722,7 @@ class SingleInstancePredictor(Predictor):
             Predictor._predict_generator() method.
 
         Notes:
-            This method creates the class attribute `data_pipeline` and will be
+            This method creates the class attribute `pipeline` and will be
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
@@ -701,47 +747,34 @@ class SingleInstancePredictor(Predictor):
             # Remove duplicates.
             self.pipeline = pipeline.sharding_filter()
 
-            self.data_pipeline = DataLoader(
+            self.pipeline = DataLoader(
                 self.pipeline,
                 **dict(self.data_config.data_loader),
             )
 
-            return self.data_pipeline
+            return self.pipeline
 
         elif self.provider == "VideoReader":
             provider = VideoReader
             self.preprocess = True
-            self.max_stride = (
-                self.confmap_config.model_config.backbone_config.backbone_config.max_stride
-            )
+            self.video_preprocess_config = {
+                "batch_size": self.data_config.video_loader.batch_size,
+                "scale": self.data_config.scale,
+                "is_rgb": self.data_config.is_rgb,
+                "max_stride": (
+                    self.confmap_config.model_config.backbone_config.backbone_config.max_stride
+                ),
+            }
             frame_queue = Queue(
                 maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
             )
-            self.batch_size = self.data_config.video_loader.batch_size
-            self.reader = provider.from_filename(
+            self.pipeline = provider.from_filename(
                 filename=self.data_config.path,
                 frame_buffer=frame_queue,
                 start_idx=self.data_config.video_loader.start_idx,
                 end_idx=self.data_config.video_loader.end_idx,
             )
-            self.videos = [self.reader.video]
-            self.is_rgb = self.data_config.is_rgb
-
-            provider = VideoReader
-
-            frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
-            )
-            self.batch_size = self.data_config.video_loader.batch_size
-            self.reader = provider.from_filename(
-                filename=self.data_config.path,
-                frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
-            )
-            self.videos = [self.reader.video]
-            self.input_scale = self.data_config.scale
-            self.is_rgb = self.data_config.is_rgb
+            self.videos = [self.pipeline.video]
 
         else:
             raise Exception(
@@ -864,29 +897,27 @@ class BottomUpPredictor(Predictor):
         min_line_scores: Minimum line score (between -1 and 1) required to form a match
             between candidate point pairs. Useful for rejecting spurious detections when
             there are no better ones.
-        max_instances: If not `None`, discard instances beyond this count when
-            predicting, regardless of whether filtering is done at the tracking stage.
-            This is useful for preventing extraneous instances from being created when
-            tracking is not being applied.
+        videos: List of `sio.Video` objects for creating the `sio.Labels` object from
+                        the output predictions.
 
     """
 
-    bottomup_config: Optional[DictConfig] = attrs.field(default=None)
+    bottomup_config: Optional[OmegaConf] = attrs.field(default=None)
     bottomup_model: Optional[L.LightningModule] = attrs.field(default=None)
     max_edge_length_ratio: float = 0.25
     dist_penalty_weight: float = 1.0
     n_points: int = 10
     min_instance_peaks: Union[int, float] = 0
     min_line_scores: float = 0.25
-    max_instances: Optional[int] = None
+    videos: Optional[List[sio.Video]] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
-        self.paf_idx = [
+        paf_idx = [
             x.head_type == "PartAffinityFieldsHead"
             for x in self.bottomup_config.model_config.head_configs
         ].index(True)
-        self.confmaps_idx = [
+        confmaps_idx = [
             x.head_type == "MultiInstanceConfmapsHead"
             for x in self.bottomup_config.model_config.head_configs
         ].index(True)
@@ -894,10 +925,10 @@ class BottomUpPredictor(Predictor):
             config=OmegaConf.create(
                 {
                     "confmaps": self.bottomup_config.model_config.head_configs[
-                        self.confmaps_idx
+                        confmaps_idx
                     ].head_config,
                     "pafs": self.bottomup_config.model_config.head_configs[
-                        self.paf_idx
+                        paf_idx
                     ].head_config,
                 }
             ),
@@ -932,8 +963,12 @@ class BottomUpPredictor(Predictor):
             torch_model=self.bottomup_model,
             paf_scorer=paf_scorer,
             peak_threshold=self.bottomup_config.inference_config.peak_threshold,
-            cms_output_stride=self.bottomup_config.inference_config.data.preprocessing.output_stride,
-            pafs_output_stride=self.bottomup_config.inference_config.data.preprocessing.pafs_output_stride,
+            cms_output_stride=(
+                self.bottomup_config.inference_config.data.preprocessing.output_stride
+            ),
+            pafs_output_stride=(
+                self.bottomup_config.inference_config.data.preprocessing.pafs_output_stride
+            ),
             refinement=self.bottomup_config.inference_config.integral_refinement,
             integral_patch_size=self.bottomup_config.inference_config.integral_patch_size,
             return_confmaps=self.bottomup_config.inference_config.return_confmaps,
@@ -943,7 +978,7 @@ class BottomUpPredictor(Predictor):
         )
 
     @property
-    def data_config(self) -> DictConfig:
+    def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
         return self.bottomup_config.inference_config.data
 
@@ -976,11 +1011,6 @@ class BottomUpPredictor(Predictor):
         bottomup_config.inference_config.data["skeletons"] = (
             bottomup_config.data_config.skeletons
         )
-        obj.max_instances = (
-            bottomup_config.inference_config.data.max_instances
-            if bottomup_config.inference_config.data.max_instances is not None
-            else None
-        )
 
         obj._initialize_inference_model()
         return obj
@@ -995,7 +1025,7 @@ class BottomUpPredictor(Predictor):
             Predictor._predict_generator() method.
 
         Notes:
-            This method creates the class attribute `data_pipeline` and will be
+            This method creates the class attribute `pipeline` and will be
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
@@ -1020,47 +1050,34 @@ class BottomUpPredictor(Predictor):
             # Remove duplicates.
             self.pipeline = pipeline.sharding_filter()
 
-            self.data_pipeline = DataLoader(
+            self.pipeline = DataLoader(
                 self.pipeline,
                 **dict(self.data_config.data_loader),
             )
 
-            return self.data_pipeline
+            return self.pipeline
 
         elif self.provider == "VideoReader":
             provider = VideoReader
             self.preprocess = True
-            self.max_stride = (
-                self.bottomup_config.model_config.backbone_config.backbone_config.max_stride
-            )
+            self.video_preprocess_config = {
+                "batch_size": self.data_config.video_loader.batch_size,
+                "scale": self.data_config.scale,
+                "is_rgb": self.data_config.is_rgb,
+                "max_stride": (
+                    self.bottomup_config.model_config.backbone_config.backbone_config.max_stride
+                ),
+            }
             frame_queue = Queue(
                 maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
             )
-            self.batch_size = self.data_config.video_loader.batch_size
-            self.reader = provider.from_filename(
+            self.pipeline = provider.from_filename(
                 filename=self.data_config.path,
                 frame_buffer=frame_queue,
                 start_idx=self.data_config.video_loader.start_idx,
                 end_idx=self.data_config.video_loader.end_idx,
             )
-            self.videos = [self.reader.video]
-            self.is_rgb = self.data_config.is_rgb
-
-            provider = VideoReader
-
-            frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
-            )
-            self.batch_size = self.data_config.video_loader.batch_size
-            self.reader = provider.from_filename(
-                filename=self.data_config.path,
-                frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
-            )
-            self.videos = [self.reader.video]
-            self.input_scale = self.data_config.scale
-            self.is_rgb = self.data_config.is_rgb
+            self.videos = [self.pipeline.video]
 
         else:
             raise Exception(
@@ -1128,14 +1145,12 @@ class BottomUpPredictor(Predictor):
                 pred_instances,
                 pred_values,
                 instance_score,
-                org_size,
             ) in zip(
                 ex["video_idx"],
                 ex["frame_idx"],
                 ex["pred_instance_peaks"],
                 ex["pred_peak_values"],
                 ex["instance_scores"],
-                ex["orig_size"],
             ):
 
                 # Loop over instances.
@@ -1155,13 +1170,19 @@ class BottomUpPredictor(Predictor):
                         )
                     )
 
-                if self.max_instances is not None:
+                max_instances = (
+                    self.bottomup_config.inference_config.data.max_instances
+                    if self.bottomup_config.inference_config.data.max_instances
+                    is not None
+                    else None
+                )
+                if max_instances is not None:
                     # Filter by score.
                     predicted_instances = sorted(
                         predicted_instances, key=lambda x: x.score, reverse=True
                     )
                     predicted_instances = predicted_instances[
-                        : min(self.max_instances, len(predicted_instances))
+                        : min(max_instances, len(predicted_instances))
                     ]
 
                 predicted_frames.append(

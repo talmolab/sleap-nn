@@ -375,7 +375,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     assert len(preds) == 1
     assert isinstance(preds[0], dict)
     assert "pred_confmaps" not in preds[0].keys()
-    assert preds[0]["pred_instance_peaks"].is_nested
+    assert isinstance(preds[0]["pred_instance_peaks"], list)
     assert tuple(preds[0]["pred_instance_peaks"][0].shape) == (2, 2, 2)
     assert tuple(preds[0]["pred_peak_values"][0].shape) == (2, 2)
     assert tuple(preds[0]["instance_scores"][0].shape) == (2,)
@@ -439,7 +439,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
         assert len(preds) == 25
         assert isinstance(preds[0], dict)
         assert "pred_confmaps" not in preds[0].keys()
-        assert preds[0]["pred_instance_peaks"].is_nested
+        assert isinstance(preds[0]["pred_instance_peaks"], list)
         assert tuple(preds[0]["pred_instance_peaks"][0].shape) == (2, 2, 2)
         assert tuple(preds[0]["pred_peak_values"][0].shape) == (2, 2)
         assert tuple(preds[0]["instance_scores"][0].shape) == (2,)

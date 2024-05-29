@@ -122,7 +122,6 @@ class BottomUpInferenceModel(L.LightningModule):
         cms = output["MultiInstanceConfmapsHead"]
         pafs = output["PartAffinityFieldsHead"].permute(0, 2, 3, 1)
         cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)
-        ## working till here!
 
         (
             predicted_instances,

@@ -372,7 +372,7 @@ class BottomUpPipeline:
             datapipe,
             sigma=self.data_config.preprocessing.pafs_gen.sigma,
             output_stride=self.data_config.preprocessing.pafs_gen.output_stride,
-            edge_inds=torch.Tensor(provider.edge_idxs),
+            edge_inds=torch.Tensor(provider.edge_inds),
             flatten_channels=True,
         )
 

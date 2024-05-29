@@ -80,6 +80,6 @@ class Normalizer(IterDataPipe):
             if not self.is_rgb:
                 image = convert_to_grayscale(image)
 
-            ex["image"] = image
+            ex["image"] = image  # (n_samples, channels, height, width)
 
             yield ex
