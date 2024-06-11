@@ -524,15 +524,14 @@ class TopDownPredictor(Predictor):
 
             provider = VideoReader
             self.preprocess = False
-            if self.preprocess:
-                self.video_preprocess_config = {
-                    "batch_size": self.data_config.video_loader.batch_size,
-                    "scale": self.data_config.scale,
-                    "is_rgb": self.data_config.is_rgb,
-                    "max_stride": (
-                        self.centroid_config.model_config.backbone_config.backbone_config.max_stride
-                    ),
-                }
+            self.video_preprocess_config = {
+                "batch_size": self.data_config.video_loader.batch_size,
+                "scale": self.data_config.scale,
+                "is_rgb": self.data_config.is_rgb,
+                "max_stride": (
+                    self.centroid_config.model_config.backbone_config.backbone_config.max_stride
+                ),
+            }
 
             frame_queue = Queue(
                 maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
