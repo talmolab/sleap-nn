@@ -159,9 +159,7 @@ model_config:
     -
         head_type: CenteredInstanceConfmapsHead
         head_config:
-          part_names:
-          - '0'
-          - '1'
+          part_names: None
           anchor_part: 0
           sigma: 1.5
           output_stride: 2
