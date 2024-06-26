@@ -15,7 +15,7 @@ The config file has four main sections:
 
 - `data_config`: 
     - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
-    - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps" or "CentroidConfmapsPipeline".
+    - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps", "CentroidConfmapsPipeline" or "BottomUp".
     - `train`:
         - `labels_path`: (str) Path to `.slp` files
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
@@ -32,6 +32,7 @@ The config file has four main sections:
             - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
             - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model. 
             - `conf_map_gen`: (Dict[float]) Dictionary in the format {"sigma": 1.5, "output_stride": 2}. *sigma* defines the spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.  *output_stride* defines the stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+            - `pafs_gen`: (Dict[float]) **Note**: Only for BottomUp model. The structure is same as `preprocessing.conf_map_gen`. 
             - `augmentation_config`:
                 - `random crop`: (Dict[float]) {"random_crop_p": None, "random_crop_hw": None}, where *random_crop_p* is the probability of applying random crop and *random_crop_hw* is the desired output size (out_h, out_w) of the crop. Must be Tuple[int, int], then out_h = size[0], out_w = size[1].
                 - `use_augmentations`: (bool) True if the data augmentation should be applied to the data, else False.
@@ -119,11 +120,12 @@ The config file has four main sections:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-    - `head_configs`
+    - `head_configs`: (List[dict]) List of heads in the model. For eg, BottomUp model has both 'MultiInstanceConfmapsHead' and 'PartAffinityFieldsHead' heads.
         - `head_type`: (str) Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
         - `head_config`:
-            - `part_names`: (List[str]) Text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used.
-            - `anchor_part`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
+            - `part_names`: (List[str]) Text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
+            - `edges`: (List[str]) **Note**: Only for 'PartAffinityFieldsHead'. List of indices `(src, dest)` that form an edge. 
+            - `anchor_part`: (int) **Note**: Only for 'CenteredInstanceConfmapsHead'. Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
             - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
             - `output_stride`: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
             - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
@@ -202,7 +204,10 @@ The config file has four main sections:
             - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
             - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
             - `output_stride`: (int) Stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+            - `pafs_output_stride`: (int) Stride of the output part affinity fields relative to the input image. 
     - `peak_threshold`: `float` between 0 and 1. Minimum confidence threshold. Peaks with values below this will be ignored.
     - `integral_refinement`: If `None`, returns the grid-aligned peaks with no refinement. If `"integral"`, peaks will be refined with integral regression.
     - `integral_patch_size`: Size of patches to crop around each rough peak as an integer scalar.
     - `return_confmaps`: If `True`, predicted confidence maps will be returned along with the predicted peak values and points. 
+    - `return_pafs`: If `True`, predicted part affinity fields will be returned along with the predicted peak values and points. 
+    - `return_paf_graph`: If `True`, the part affinity field graph will be returned together with the predicted instances.

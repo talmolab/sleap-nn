@@ -69,6 +69,11 @@ class LabelsReader(IterDataPipe):
             )
 
     @property
+    def edge_inds(self) -> list:
+        """Returns list of edge indices."""
+        return self.labels.skeletons[0].edge_inds
+
+    @property
     def max_height_and_width(self) -> Tuple[int, int]:
         """Return `(height, width)` that is the maximum of all videos."""
         return max(video.shape[1] for video in self.labels.videos), max(
@@ -90,9 +95,9 @@ class LabelsReader(IterDataPipe):
         """Return an example dictionary containing the following elements.
 
         "image": A torch.Tensor containing full raw frame image as a uint8 array
-            of shape (1, channels, height, width).
+            of shape (n_samples, channels, height, width).
         "instances": Keypoint coordinates for all instances in the frame as a
-            float32 torch.Tensor of shape (1, num_instances, num_nodes, 2).
+            float32 torch.Tensor of shape (n_samples, n_instances, n_nodes, 2).
         """
         for lf in self.labels:
             image = np.transpose(lf.image, (2, 0, 1))  # HWC -> CHW

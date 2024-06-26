@@ -26,6 +26,7 @@ def test_make_centered_bboxes():
 def test_instance_cropper(minimal_instance):
     """Test InstanceCropper module."""
     provider = LabelsReader.from_filename(minimal_instance)
+    provider.max_instances = 3
     datapipe = Normalizer(provider)
     datapipe = SizeMatcher(datapipe, provider)
     datapipe = Resizer(datapipe, scale=1.0)

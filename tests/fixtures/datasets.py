@@ -31,6 +31,12 @@ def minimal_instance_centroid_ckpt(sleap_data_dir):
 
 
 @pytest.fixture
+def minimal_instance_bottomup_ckpt(sleap_data_dir):
+    """Checkpoint file for BottomUP model."""
+    return Path(sleap_data_dir) / "minimal_instance_bottomup"
+
+
+@pytest.fixture
 def centered_instance_video(sleap_data_dir):
     """Sleap-io fly video .mp4 path."""
     return Path(sleap_data_dir) / "centered_pair_small.mp4"
