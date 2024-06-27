@@ -39,6 +39,7 @@ from sleap_nn.inference.topdown import (
     FindInstancePeaksGroundTruth,
     TopDownInferenceModel,
 )
+from sleap_nn.inference.utils import get_skeleton_from_config
 
 
 @attrs.define
@@ -301,6 +302,8 @@ class TopDownPredictor(Predictor):
                        for centered-instance model.
         videos: List of `sio.Video` objects for creating the `sio.Labels` object from
                         the output predictions.
+        skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
+                        the output predictions.
 
     """
 
@@ -309,6 +312,7 @@ class TopDownPredictor(Predictor):
     centroid_model: Optional[L.LightningModule] = attrs.field(default=None)
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
+    skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -404,8 +408,11 @@ class TopDownPredictor(Predictor):
             centroid_config = OmegaConf.load(
                 f"{centroid_ckpt_path}/training_config.yaml"
             )
+            skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
             centroid_model = CentroidModel.load_from_checkpoint(
-                f"{centroid_ckpt_path}/best.ckpt", config=centroid_config
+                f"{centroid_ckpt_path}/best.ckpt",
+                config=centroid_config,
+                skeletons=skeletons,
             )
             centroid_model.to(centroid_config.inference_config.device)
             centroid_model.m_device = centroid_config.inference_config.device
@@ -417,8 +424,11 @@ class TopDownPredictor(Predictor):
         if confmap_ckpt_path is not None:
             # Load confmap model.
             confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
+            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
             confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-                f"{confmap_ckpt_path}/best.ckpt", config=confmap_config
+                f"{confmap_ckpt_path}/best.ckpt",
+                config=confmap_config,
+                skeletons=skeletons,
             )
             confmap_model.to(confmap_config.inference_config.device)
             confmap_model.m_device = confmap_config.inference_config.device
@@ -433,6 +443,7 @@ class TopDownPredictor(Predictor):
             centroid_model=centroid_model,
             confmap_config=confmap_config,
             confmap_model=confmap_model,
+            skeletons=skeletons,
         )
 
         obj._initialize_inference_model()
@@ -570,38 +581,6 @@ class TopDownPredictor(Predictor):
         """
         preds = defaultdict(list)
         predicted_frames = []
-
-        skeletons = []
-        for name in self.data_config.skeletons.keys():
-            nodes = [
-                sio.model.skeleton.Node(n["name"])
-                for n in self.data_config.skeletons[name].nodes
-            ]
-            edges = [
-                sio.model.skeleton.Edge(
-                    sio.model.skeleton.Node(e["source"]["name"]),
-                    sio.model.skeleton.Node(e["destination"]["name"]),
-                )
-                for e in self.confmap_config.data_config.skeletons[name].edges
-            ]
-            if self.data_config.skeletons[name].symmetries:
-                list_args = [
-                    set(
-                        [
-                            sio.model.skeleton.Node(s[0]["name"]),
-                            sio.model.skeleton.Node(s[1]["name"]),
-                        ]
-                    )
-                    for s in self.data_config.skeletons[name].symmetries
-                ]
-                symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
-            else:
-                symmetries = []
-
-            skeletons.append(
-                sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
-            )
-
         skeleton_idx = 0
         # Loop through each predicted instance.
         for ex in generator:
@@ -627,7 +606,7 @@ class TopDownPredictor(Predictor):
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
                         points=pred_instances,
-                        skeleton=skeletons[skeleton_idx],
+                        skeleton=self.skeletons[skeleton_idx],
                         point_scores=pred_values,
                         instance_score=instance_score,
                     )
@@ -645,7 +624,7 @@ class TopDownPredictor(Predictor):
 
         pred_labels = sio.Labels(
             videos=self.videos,
-            skeletons=skeletons,
+            skeletons=self.skeletons,
             labeled_frames=predicted_frames,
         )
         return pred_labels
@@ -667,12 +646,15 @@ class SingleInstancePredictor(Predictor):
                        single-instance model.
         videos: List of `sio.Video` objects for creating the `sio.Labels` object from
                         the output predictions.
+        skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
+                        the output predictions.
 
     """
 
     confmap_config: Optional[OmegaConf] = attrs.field(default=None)
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
+    skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -706,8 +688,9 @@ class SingleInstancePredictor(Predictor):
 
         """
         confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
+        skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
         confmap_model = SingleInstanceModel.load_from_checkpoint(
-            f"{confmap_ckpt_path}/best.ckpt", config=confmap_config
+            f"{confmap_ckpt_path}/best.ckpt", config=confmap_config, skeletons=skeletons
         )
         confmap_model.to(confmap_config.inference_config.device)
         confmap_model.m_device = confmap_config.inference_config.device
@@ -716,6 +699,7 @@ class SingleInstancePredictor(Predictor):
         obj = cls(
             confmap_config=confmap_config,
             confmap_model=confmap_model,
+            skeletons=skeletons,
         )
 
         obj._initialize_inference_model()
@@ -809,36 +793,6 @@ class SingleInstancePredictor(Predictor):
             arrays returned from the inference result generator.
         """
         predicted_frames = []
-        skeletons = []
-        for name in self.confmap_config.data_config.skeletons.keys():
-            nodes = [
-                sio.model.skeleton.Node(n["name"])
-                for n in self.confmap_config.data_config.skeletons[name].nodes
-            ]
-            edges = [
-                sio.model.skeleton.Edge(
-                    sio.model.skeleton.Node(e["source"]["name"]),
-                    sio.model.skeleton.Node(e["destination"]["name"]),
-                )
-                for e in self.confmap_config.data_config.skeletons[name].edges
-            ]
-            if self.confmap_config.data_config.skeletons[name].symmetries:
-                list_args = [
-                    set(
-                        [
-                            sio.model.skeleton.Node(s[0]["name"]),
-                            sio.model.skeleton.Node(s[1]["name"]),
-                        ]
-                    )
-                    for s in self.confmap_config.data_config.skeletons[name].symmetries
-                ]
-                symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
-            else:
-                symmetries = []
-
-            skeletons.append(
-                sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
-            )
 
         skeleton_idx = 0
         for ex in generator:
@@ -859,7 +813,7 @@ class SingleInstancePredictor(Predictor):
 
                 inst = sio.PredictedInstance.from_numpy(
                     points=pred_instances,
-                    skeleton=skeletons[skeleton_idx],
+                    skeleton=self.skeletons[skeleton_idx],
                     instance_score=np.nansum(pred_values),
                     point_scores=pred_values,
                 )
@@ -873,7 +827,7 @@ class SingleInstancePredictor(Predictor):
 
         pred_labels = sio.Labels(
             videos=self.videos,
-            skeletons=skeletons,
+            skeletons=self.skeletons,
             labeled_frames=predicted_frames,
         )
         return pred_labels
@@ -908,6 +862,8 @@ class BottomUpPredictor(Predictor):
             there are no better ones.
         videos: List of `sio.Video` objects for creating the `sio.Labels` object from
                         the output predictions.
+        skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
+                        the output predictions.
 
     """
 
@@ -919,6 +875,7 @@ class BottomUpPredictor(Predictor):
     min_instance_peaks: Union[int, float] = 0
     min_line_scores: float = 0.25
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
+    skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -1013,8 +970,11 @@ class BottomUpPredictor(Predictor):
 
         """
         bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
+        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
         bottomup_model = BottomUpModel.load_from_checkpoint(
-            f"{bottomup_ckpt_path}/best.ckpt", config=bottomup_config
+            f"{bottomup_ckpt_path}/best.ckpt",
+            config=bottomup_config,
+            skeletons=skeletons,
         )
         bottomup_model.to(bottomup_config.inference_config.device)
         bottomup_model.m_device = bottomup_config.inference_config.device
@@ -1023,6 +983,7 @@ class BottomUpPredictor(Predictor):
         obj = cls(
             bottomup_config=bottomup_config,
             bottomup_model=bottomup_model,
+            skeletons=skeletons,
         )
         bottomup_config.inference_config.data["skeletons"] = (
             bottomup_config.data_config.skeletons
@@ -1121,37 +1082,6 @@ class BottomUpPredictor(Predictor):
         """
         predicted_frames = []
 
-        skeletons = []
-        for name in self.data_config.skeletons.keys():
-            nodes = [
-                sio.model.skeleton.Node(n["name"])
-                for n in self.data_config.skeletons[name].nodes
-            ]
-            edges = [
-                sio.model.skeleton.Edge(
-                    sio.model.skeleton.Node(e["source"]["name"]),
-                    sio.model.skeleton.Node(e["destination"]["name"]),
-                )
-                for e in self.bottomup_config.data_config.skeletons[name].edges
-            ]
-            if self.bottomup_config.data_config.skeletons[name].symmetries:
-                list_args = [
-                    set(
-                        [
-                            sio.model.skeleton.Node(s[0]["name"]),
-                            sio.model.skeleton.Node(s[1]["name"]),
-                        ]
-                    )
-                    for s in self.bottomup_config.data_config.skeletons[name].symmetries
-                ]
-                symmetries = [sio.model.skeleton.Symmetry(x) for x in list_args]
-            else:
-                symmetries = []
-
-            skeletons.append(
-                sio.model.skeleton.Skeleton(nodes, edges, symmetries, name)
-            )
-
         skeleton_idx = 0
         for ex in generator:
             # loop through each sample in a batch
@@ -1182,7 +1112,7 @@ class BottomUpPredictor(Predictor):
                             points=pts,
                             point_scores=confs,
                             instance_score=score,
-                            skeleton=skeletons[skeleton_idx],
+                            skeleton=self.skeletons[skeleton_idx],
                         )
                     )
 
@@ -1211,7 +1141,7 @@ class BottomUpPredictor(Predictor):
 
         pred_labels = sio.Labels(
             videos=self.videos,
-            skeletons=skeletons,
+            skeletons=self.skeletons,
             labeled_frames=predicted_frames,
         )
         return pred_labels

@@ -75,12 +75,6 @@ def test_trainer(config, tmp_path: str):
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
     model_trainer.train()
-    assert all(
-        [
-            not isinstance(i, L.pytorch.loggers.wandb.WandbLogger)
-            for i in model_trainer.logger
-        ]
-    )
 
     # disable ckpt, check if ckpt is created
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
@@ -193,6 +187,7 @@ def test_trainer(config, tmp_path: str):
     del single_instance_config.model_config.head_configs[0].head_config.anchor_part
 
     trainer = ModelTrainer(single_instance_config)
+    trainer._create_data_loaders()
     trainer._initialize_model()
     assert isinstance(trainer.model, SingleInstanceModel)
 
@@ -212,6 +207,8 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(centroid_config)
+    trainer._create_data_loaders()
+
     trainer._initialize_model()
     assert isinstance(trainer.model, CentroidModel)
 
@@ -256,6 +253,8 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(bottomup_config)
+    trainer._create_data_loaders()
+
     trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpModel)
 
@@ -363,13 +362,14 @@ def test_single_instance_model(config, tmp_path: str):
     config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
     del config.model_config.head_configs[0].head_config.anchor_part
 
-    model = SingleInstanceModel(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
+    model = SingleInstanceModel(config)
+
     img = input_["image"]
     img_shape = img.shape[-2:]
     preds = model(img)
@@ -396,6 +396,8 @@ def test_single_instance_model(config, tmp_path: str):
 
 def test_bottomup_model(config, tmp_path: str):
     """Test BottomUp model training."""
+    config_copy = config.copy()
+
     OmegaConf.update(config, "data_config.pipeline", "BottomUp")
     config.data_config.train.preprocessing["pafs_gen"] = {
         "sigma": 4,
@@ -415,13 +417,53 @@ def test_bottomup_model(config, tmp_path: str):
     del config.model_config.head_configs[0].head_config.anchor_part
     config.model_config.head_configs.append(paf)
 
-    model = BottomUpModel(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
+
+    model = BottomUpModel(config)
+
+    preds = model(input_["image"])
+
+    # check the output shape
+    loss = model.training_step(input_, 0)
+    assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
+    assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+
+    # with edges as None
+    config = config_copy
+    OmegaConf.update(config, "data_config.pipeline", "BottomUp")
+    config.data_config.train.preprocessing["pafs_gen"] = {
+        "sigma": 4,
+        "output_stride": 4,
+    }
+    config.data_config.val.preprocessing["pafs_gen"] = {"sigma": 4, "output_stride": 4}
+    config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
+    config.model_config.head_configs[0].head_config.part_names = None
+    paf = {
+        "head_type": "PartAffinityFieldsHead",
+        "head_config": {
+            "edges": None,
+            "sigma": 4,
+            "output_stride": 4,
+            "loss_weight": 1.0,
+        },
+    }
+    del config.model_config.head_configs[0].head_config.anchor_part
+    config.model_config.head_configs.append(paf)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
+    model_trainer = ModelTrainer(config)
+    model_trainer._create_data_loaders()
+    skeletons = model_trainer.skeletons
+    input_ = next(iter(model_trainer.train_data_loader))
+
+    model = BottomUpModel(config, skeletons)
+
     preds = model(input_["image"])
 
     # check the output shape

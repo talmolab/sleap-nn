@@ -165,17 +165,13 @@ model_config:
   head_configs:
   - head_type: MultiInstanceConfmapsHead
     head_config:
-      part_names:
-      - '0'
-      - '1'
+      part_names: None
       sigma: 1.5
       output_stride: 2
       loss_weight: 1.0
   - head_type: PartAffinityFieldsHead
     head_config:
-      edges:
-      - - '0'
-        - '1'
+      edges: None
       sigma: 50
       output_stride: 4
       loss_weight: 1.0

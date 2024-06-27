@@ -1,6 +1,7 @@
 """This module is to train a sleap-nn model using Lightning."""
 
 from pathlib import Path
+from typing import Optional, List
 import time
 from torch import nn
 import os
@@ -65,6 +66,14 @@ class ModelTrainer:
         self.m_device = self.config.trainer_config.device
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
+
+        # initialize attributes
+        self.model = None
+        self.provider = None
+        self.skeletons = None
+        self.train_data_loader = None
+        self.val_data_loader = None
+
         # set seed
         torch.manual_seed(self.seed)
 
@@ -80,7 +89,7 @@ class ModelTrainer:
             "BottomUp": BottomUpPipeline,
         }
 
-        if self.config.data_config.pipeline not in pipelines.keys():
+        if self.config.data_config.pipeline not in pipelines:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
 
         pipeline = pipelines[self.config.data_config.pipeline]
@@ -136,7 +145,9 @@ class ModelTrainer:
             "CentroidConfmaps": CentroidModel,
             "BottomUp": BottomUpModel,
         }
-        self.model = models[self.config.data_config.pipeline](self.config)
+        self.model = models[self.config.data_config.pipeline](
+            self.config, self.skeletons
+        )
 
     def _get_param_count(self):
         return sum(p.numel() for p in self.model.parameters())
@@ -144,7 +155,7 @@ class ModelTrainer:
     def train(self):
         """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
-        self.logger = []
+        logger = []
         if not self.config.trainer_config.save_ckpt_path:
             dir_path = "."
         else:
@@ -168,7 +179,7 @@ class ModelTrainer:
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs
             csv_logger = CSVLogger(dir_path)
-            self.logger.append(csv_logger)
+            logger.append(csv_logger)
 
         else:
             callbacks = []
@@ -190,10 +201,10 @@ class ModelTrainer:
                 os.environ["WANDB_MODE"] = "offline"
             else:
                 self._set_wandb()
-            self.wandb_logger = WandbLogger(
+            wandb_logger = WandbLogger(
                 project=wandb_config.project, name=wandb_config.name, save_dir=dir_path
             )
-            self.logger.append(self.wandb_logger)
+            logger.append(wandb_logger)
 
         # save the configs as yaml in the checkpoint dir
         self.config.trainer_config.wandb.api_key = ""
@@ -216,7 +227,7 @@ class ModelTrainer:
 
         trainer = L.Trainer(
             callbacks=callbacks,
-            logger=self.logger,
+            logger=logger,
             enable_checkpointing=self.config.trainer_config.save_ckpt,
             devices=self.config.trainer_config.trainer_devices,
             max_epochs=self.config.trainer_config.max_epochs,
@@ -238,8 +249,8 @@ class ModelTrainer:
                 value = self.config[list_keys[0]]
                 for l in list_keys[1:]:
                     value = value[l]
-                self.wandb_logger.experiment.config.update({key: value})
-            self.wandb_logger.experiment.config.update({"model_params": total_params})
+                wandb_logger.experiment.config.update({key: value})
+            wandb_logger.experiment.config.update({"model_params": total_params})
             wandb.finish()
 
         # save the configs as yaml in the checkpoint dir
@@ -257,13 +268,16 @@ class TrainingModel(L.LightningModule):
                 a pipeline class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-
+        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
     """
 
-    def __init__(self, config: OmegaConf):
+    def __init__(
+        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+    ):
         """Initialise the configs and the model."""
         super().__init__()
         self.config = config
+        self.skeletons = skeletons
         self.model_config = self.config.model_config
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
@@ -286,11 +300,29 @@ class TrainingModel(L.LightningModule):
                     "backbone_config.backbone_config.in_channels",
                     input_channels,
                 )
+
+        # if edges and part names aren't set in config, get it from `sio.Labels` object.
+        head_configs = self.model_config.head_configs
+        for idx in range(len(head_configs)):
+            if "part_names" in head_configs[idx].head_config.keys():
+                if head_configs[idx].head_config["part_names"] is None:
+                    part_names = [x.name for x in self.skeletons[0].nodes]
+                    head_configs[idx].head_config["part_names"] = part_names
+
+            if "edges" in head_configs[idx].head_config.keys():
+                if head_configs[idx].head_config["edges"] is None:
+                    edges = [
+                        (x.source.name, x.destination.name)
+                        for x in self.skeletons[0].edges
+                    ]
+                    head_configs[idx].head_config["edges"] = edges
+
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
-            head_configs=self.model_config.head_configs,
+            head_configs=head_configs,
             input_expand_channels=self.input_expand_channels,
         ).to(self.m_device)
+
         self.loss_weights = [
             x.head_config.loss_weight for x in self.model_config.head_configs
         ]
@@ -397,12 +429,15 @@ class SingleInstanceModel(TrainingModel):
             `TopdownConfmapsPipeline` class.
             (ii) model_config: backbone and head configs to be passed to `Model` class.
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
+        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
 
     """
 
-    def __init__(self, config: OmegaConf):
+    def __init__(
+        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+    ):
         """Initialise the configs and the model."""
-        super().__init__(config)
+        super().__init__(config, skeletons)
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -464,12 +499,15 @@ class TopDownCenteredInstanceModel(TrainingModel):
                 `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
+        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
 
     """
 
-    def __init__(self, config: OmegaConf):
+    def __init__(
+        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+    ):
         """Initialise the configs and the model."""
-        super().__init__(config)
+        super().__init__(config, skeletons)
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -531,12 +569,15 @@ class CentroidModel(TrainingModel):
                 `CentroidConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
+        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
 
     """
 
-    def __init__(self, config: OmegaConf):
+    def __init__(
+        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+    ):
         """Initialise the configs and the model."""
-        super().__init__(config)
+        super().__init__(config, skeletons)
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -598,12 +639,15 @@ class BottomUpModel(TrainingModel):
                 `BottomUpPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
+        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
 
     """
 
-    def __init__(self, config: OmegaConf):
+    def __init__(
+        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+    ):
         """Initialise the configs and the model."""
-        super().__init__(config)
+        super().__init__(config, skeletons)
 
     def forward(self, img):
         """Forward pass of the model."""
