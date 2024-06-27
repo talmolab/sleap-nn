@@ -208,6 +208,7 @@ def test_trainer(config, tmp_path: str):
 
     trainer = ModelTrainer(centroid_config)
     trainer._create_data_loaders()
+
     trainer._initialize_model()
     assert isinstance(trainer.model, CentroidModel)
 
@@ -253,6 +254,7 @@ def test_trainer(config, tmp_path: str):
 
     trainer = ModelTrainer(bottomup_config)
     trainer._create_data_loaders()
+
     trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpModel)
 
@@ -366,8 +368,8 @@ def test_single_instance_model(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
-
     model = SingleInstanceModel(config)
+
     img = input_["image"]
     img_shape = img.shape[-2:]
     preds = model(img)
@@ -395,6 +397,7 @@ def test_single_instance_model(config, tmp_path: str):
 def test_bottomup_model(config, tmp_path: str):
     """Test BottomUp model training."""
     config_copy = config.copy()
+
     OmegaConf.update(config, "data_config.pipeline", "BottomUp")
     config.data_config.train.preprocessing["pafs_gen"] = {
         "sigma": 4,
@@ -451,7 +454,6 @@ def test_bottomup_model(config, tmp_path: str):
     }
     del config.model_config.head_configs[0].head_config.anchor_part
     config.model_config.head_configs.append(paf)
-
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )

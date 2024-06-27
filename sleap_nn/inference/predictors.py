@@ -581,7 +581,6 @@ class TopDownPredictor(Predictor):
         """
         preds = defaultdict(list)
         predicted_frames = []
-
         skeleton_idx = 0
         # Loop through each predicted instance.
         for ex in generator:
