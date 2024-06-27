@@ -73,7 +73,7 @@ class ModelTrainer:
         self.skeletons = None
         self.train_data_loader = None
         self.val_data_loader = None
-        
+
         # set seed
         torch.manual_seed(self.seed)
 
@@ -322,7 +322,7 @@ class TrainingModel(L.LightningModule):
             head_configs=head_configs,
             input_expand_channels=self.input_expand_channels,
         ).to(self.m_device)
-        
+
         self.loss_weights = [
             x.head_config.loss_weight for x in self.model_config.head_configs
         ]
