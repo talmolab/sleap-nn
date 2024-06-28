@@ -27,7 +27,6 @@ The config file has three main sections:
         original image size will be retained. Default: None.
         - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
         - `preprocessing`:
-            - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
             - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model. 
             - `augmentation_config`:
                 - `random crop`: (Dict[float]) {"random_crop_p": None, "random_crop_hw": None}, where *random_crop_p* is the probability of applying random crop and *random_crop_hw* is the desired output size (out_h, out_w) of the crop. Must be Tuple[int, int], then out_h = size[0], out_w = size[1].

@@ -103,7 +103,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             "scale": 1.0,
             "is_rgb": False,
             "preprocessing": {
-                "anchor_ind": None,
                 "crop_hw": (160, 160),
             },
             "augmentation_config": {
@@ -174,7 +173,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             "scale": 1.0,
             "is_rgb": False,
             "preprocessing": {
-                "anchor_ind": None,
                 "crop_hw": (100, 100),
             },
             "augmentation_config": {
@@ -245,7 +243,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             "scale": 2.0,
             "is_rgb": False,
             "preprocessing": {
-                "anchor_ind": None,
                 "crop_hw": (100, 100),
             },
             "augmentation_config": {
@@ -455,9 +452,7 @@ def test_centroidconfmapspipeline(minimal_instance):
             "max_width": None,
             "scale": 1.0,
             "is_rgb": False,
-            "preprocessing": {
-                "anchor_ind": None,
-            },
+            "preprocessing": {},
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
                 "use_augmentations": False,
@@ -520,9 +515,7 @@ def test_centroidconfmapspipeline(minimal_instance):
             "max_width": None,
             "scale": 1.0,
             "is_rgb": False,
-            "preprocessing": {
-                "anchor_ind": None,
-            },
+            "preprocessing": {},
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
                 "use_augmentations": True,
@@ -588,9 +581,7 @@ def test_bottomuppipeline(minimal_instance):
             "max_width": None,
             "scale": 1.0,
             "is_rgb": False,
-            "preprocessing": {
-                "anchor_ind": None,
-            },
+            "preprocessing": {},
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
                 "use_augmentations": False,
@@ -661,9 +652,7 @@ def test_bottomuppipeline(minimal_instance):
             "max_width": None,
             "scale": 0.5,
             "is_rgb": False,
-            "preprocessing": {
-                "anchor_ind": None,
-            },
+            "preprocessing": {},
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
                 "use_augmentations": False,
@@ -731,9 +720,7 @@ def test_bottomuppipeline(minimal_instance):
             "max_width": None,
             "scale": 1.0,
             "is_rgb": False,
-            "preprocessing": {
-                "anchor_ind": None,
-            },
+            "preprocessing": {},
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (100, 100)},
                 "use_augmentations": False,
@@ -801,9 +788,7 @@ def test_bottomuppipeline(minimal_instance):
             "max_width": None,
             "scale": 1.0,
             "is_rgb": False,
-            "preprocessing": {
-                "anchor_ind": None,
-            },
+            "preprocessing": {},
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
                 "use_augmentations": True,

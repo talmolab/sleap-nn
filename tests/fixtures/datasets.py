@@ -57,7 +57,6 @@ def config(sleap_data_dir):
                     "max_height": None,
                     "scale": 1.0,
                     "preprocessing": {
-                        "anchor_ind": 0,
                         "crop_hw": [160, 160],
                     },
                     "augmentation_config": {
@@ -99,7 +98,6 @@ def config(sleap_data_dir):
                     "max_height": None,
                     "scale": 1.0,
                     "preprocessing": {
-                        "anchor_ind": 0,
                         "crop_hw": [160, 160],
                     },
                     "augmentation_config": {
@@ -182,8 +180,6 @@ def config(sleap_data_dir):
                 "model_ckpt": {
                     "save_top_k": 1,
                     "save_last": True,
-                    "monitor": "val_loss",
-                    "mode": "min",
                 },
                 "early_stopping": {
                     "stop_training_on_plateau": True,

@@ -8,7 +8,6 @@ data_config:
     scale: 0.5
     is_rgb: False
     preprocessing:
-      anchor_ind: 0
       crop_hw:
       - 160
       - 160
@@ -57,7 +56,6 @@ data_config:
     is_rgb: False
     scale: 0.5
     preprocessing:
-      anchor_ind: 0
       crop_hw:
       - 160
       - 160
@@ -164,8 +162,6 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: true
-    monitor: val_loss
-    mode: min
   device: cuda
   trainer_devices: 1
   trainer_accelerator: gpu

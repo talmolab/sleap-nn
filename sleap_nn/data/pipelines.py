@@ -27,7 +27,8 @@ class TopdownConfmapsPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
+        confmap_head: DictConfig object with all the keys in the `head_config` section.
+        (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     of original image according to given crop height and width and then the cropped
@@ -70,7 +71,7 @@ class TopdownConfmapsPipeline:
             )
 
         datapipe = InstanceCentroidFinder(
-            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
+            datapipe, anchor_ind=self.confmap_head.anchor_part
         )
 
         datapipe = InstanceCropper(
@@ -139,7 +140,8 @@ class SingleInstanceConfmapsPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
+        confmap_head: DictConfig object with all the keys in the `head_config` section.
+        (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
     """
 
     def __init__(
@@ -220,7 +222,8 @@ class CentroidConfmapsPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
+        confmap_head: DictConfig object with all the keys in the `head_config` section.
+        (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
     """
 
     def __init__(
@@ -287,7 +290,7 @@ class CentroidConfmapsPipeline:
         datapipe = Resizer(datapipe, scale=self.data_config.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
         datapipe = InstanceCentroidFinder(
-            datapipe, anchor_ind=self.data_config.preprocessing.anchor_ind
+            datapipe, anchor_ind=self.confmap_head.anchor_part
         )
 
         datapipe = MultiConfidenceMapGenerator(
@@ -309,8 +312,11 @@ class BottomUpPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
-        pafs_head: DictConfig object with `sigma` and `output_stride` keys for PAFs.
+        confmap_head: DictConfig object with all the keys in the `head_config` section.
+        (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        pafs_head: DictConfig object with all the keys in the `head_config` section
+        (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type )
+        for PAFs.
     """
 
     def __init__(

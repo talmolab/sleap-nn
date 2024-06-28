@@ -8,7 +8,6 @@ data_config:
     scale: 1.0
     is_rgb: false
     preprocessing:
-      anchor_ind: 0
       crop_hw:
       - 160
       - 160
@@ -57,7 +56,6 @@ data_config:
     is_rgb: false
     scale: 1.0
     preprocessing:
-      anchor_ind: 0
       crop_hw:
       - 160
       - 160
@@ -171,8 +169,6 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: true
-    monitor: val_loss
-    mode: min
   device: cpu
   trainer_devices: 1
   trainer_accelerator: cpu

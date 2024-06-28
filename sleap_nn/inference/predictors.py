@@ -80,12 +80,26 @@ class Predictor(ABC):
     ] = None
 
     @classmethod
-    def from_model_paths(cls, model_paths: List[Text]) -> "Predictor":
+    def from_model_paths(
+        cls,
+        model_paths: List[Text],
+        peak_threshold: float = 0.1,
+        integral_refinement: str = "integral",
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        output_stride: int = 2,
+        pafs_output_stride: int = 4,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[Dict[str]] = None,
+    ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
             model_paths: List of paths to the directory where the best.ckpt and
                 training_config.yaml are saved.
+            # TODO
 
         Returns:
             A subclass of `Predictor`.
@@ -105,7 +119,17 @@ class Predictor(ABC):
             confmap_ckpt_path = model_paths[
                 model_names.index("SingleInstanceConfmapsHead")
             ]
-            predictor = SingleInstancePredictor.from_trained_models(confmap_ckpt_path)
+            predictor = SingleInstancePredictor.from_trained_models(
+                confmap_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                output_stride=output_stride,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=preprocess_config,
+            )
 
         elif (
             "CentroidConfmapsHead" in model_names
@@ -126,6 +150,15 @@ class Predictor(ABC):
             predictor = TopDownPredictor.from_trained_models(
                 centroid_ckpt_path=centroid_ckpt_path,
                 confmap_ckpt_path=confmap_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                max_instances=max_instances,
+                output_stride=output_stride,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=preprocess_config,
             )
 
         elif (
@@ -135,7 +168,19 @@ class Predictor(ABC):
             bottomup_ckpt_path = model_paths[
                 model_names.index("MultiInstanceConfmapsHead")
             ]
-            predictor = BottomUpPredictor.from_trained_models(bottomup_ckpt_path)
+            predictor = BottomUpPredictor.from_trained_models(
+                bottomup_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                max_instances=max_instances,
+                output_stride=output_stride,
+                pafs_output_stride=pafs_output_stride,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=preprocess_config,
+            )
         else:
             raise ValueError(
                 f"Could not create predictor from model paths:\n{model_paths}"
@@ -153,7 +198,7 @@ class Predictor(ABC):
         """Get the data parameters from the config."""
 
     @abstractmethod
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str):
         """Create the data pipeline."""
 
     @abstractmethod
@@ -181,8 +226,8 @@ class Predictor(ABC):
             A generator yielding batches predicted results as dictionaries of numpy
             arrays.
         """
-        # Initialize data pipeline and inference model if needed.
-        self.make_pipeline()
+        # Initialize inference model if needed.
+
         if self.inference_model is None:
             self._initialize_inference_model()
 
@@ -313,6 +358,15 @@ class TopDownPredictor(Predictor):
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    peak_threshold: float = 0.1
+    integral_refinement: str = "integral"
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    max_instances: Optional[int] = None
+    output_stride: int = 2
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[Dict[str]] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -324,9 +378,6 @@ class TopDownPredictor(Predictor):
             max_stride = (
                 self.centroid_config.model_config.backbone_config.backbone_config.max_stride
             )
-            self.centroid_config.inference_config.data["skeletons"] = (
-                self.centroid_config.data_config.skeletons
-            )
 
             # if both centroid and centered-instance model are provided, set return crops to True
             if self.confmap_model:
@@ -335,41 +386,35 @@ class TopDownPredictor(Predictor):
             # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
-                peak_threshold=self.centroid_config.inference_config.peak_threshold,
-                output_stride=(
-                    self.centroid_config.inference_config.data.preprocessing.output_stride
-                ),
-                refinement=self.centroid_config.inference_config.integral_refinement,
-                integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
-                return_confmaps=self.centroid_config.inference_config.return_confmaps,
+                peak_threshold=self.peak_threshold,
+                output_stride=self.output_stride,
+                refinement=self.integral_refinement,
+                integral_patch_size=self.integral_patch_size,
+                return_confmaps=self.return_confmaps,
                 return_crops=return_crops,
-                max_instances=self.centroid_config.inference_config.data.max_instances,
-                crop_hw=tuple(
-                    self.centroid_config.inference_config.data.preprocessing.crop_hw
-                ),
-                input_scale=self.centroid_config.inference_config.data.scale,
+                max_instances=self.max_instances,
                 max_stride=max_stride,
+                input_scale=self.data_config.scale,
+                crop_hw=self.data_config.crop_hw,
             )
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
         if self.confmap_config is None:
             instance_peaks_layer = FindInstancePeaksGroundTruth()
         else:
-            self.confmap_config.inference_config.data["skeletons"] = (
-                self.confmap_config.data_config.skeletons
-            )
+
             max_stride = (
                 self.confmap_config.model_config.backbone_config.backbone_config.max_stride
             )
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
-                peak_threshold=self.confmap_config.inference_config.peak_threshold,
-                output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
-                refinement=self.confmap_config.inference_config.integral_refinement,
-                integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
-                return_confmaps=self.confmap_config.inference_config.return_confmaps,
-                input_scale=self.confmap_config.inference_config.data.scale,
+                peak_threshold=self.peak_threshold,
+                output_stride=self.output_stride,
+                refinement=self.integral_refinement,
+                integral_patch_size=self.integral_patch_size,
+                return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
+                input_scale=self.data_config.scale,
             )
 
         # Initialize the inference model with centroid and instance peak layers
@@ -381,14 +426,31 @@ class TopDownPredictor(Predictor):
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
         if self.centroid_config:
-            return self.centroid_config.inference_config.data
-        return self.confmap_config.inference_config.data
+            data_config = self.centroid_config.data_config.preprocessing
+        else:
+            data_config = self.confmap_config.data_config.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        else:
+            for k, v in self.preprocess_config.items():
+                if v is None:
+                    self.preprocess_config[k] = data_config[k]
+        return self.preprocess_config
 
     @classmethod
     def from_trained_models(
         cls,
         centroid_ckpt_path: Optional[Text] = None,
         confmap_ckpt_path: Optional[Text] = None,
+        peak_threshold: float = 0.1,
+        integral_refinement: str = "integral",
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        output_stride: int = 2,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[Dict[str]] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -414,8 +476,8 @@ class TopDownPredictor(Predictor):
                 config=centroid_config,
                 skeletons=skeletons,
             )
-            centroid_model.to(centroid_config.inference_config.device)
-            centroid_model.m_device = centroid_config.inference_config.device
+            centroid_model.to(device)
+            centroid_model.m_device = device
 
         else:
             centroid_config = None
@@ -430,8 +492,8 @@ class TopDownPredictor(Predictor):
                 config=confmap_config,
                 skeletons=skeletons,
             )
-            confmap_model.to(confmap_config.inference_config.device)
-            confmap_model.m_device = confmap_config.inference_config.device
+            confmap_model.to(device)
+            confmap_model.m_device = device
 
         else:
             confmap_config = None
@@ -444,12 +506,21 @@ class TopDownPredictor(Predictor):
             confmap_config=confmap_config,
             confmap_model=confmap_model,
             skeletons=skeletons,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            output_stride=output_stride,
+            return_confmaps=return_confmaps,
+            device=device,
+            preprocess_config=preprocess_config,
         )
 
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str, num_workers: int = 2):
         """Make a data loading pipeline.
 
         Returns:
@@ -463,7 +534,7 @@ class TopDownPredictor(Predictor):
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
-        self.provider = self.data_config.provider
+        self.provider = provider
 
         # LabelsReader provider
         if self.provider == "LabelsReader":
@@ -475,7 +546,7 @@ class TopDownPredictor(Predictor):
                 instances_key = False
 
             data_provider = provider.from_filename(
-                self.data_config.path, instances_key=instances_key
+                data_path, instances_key=instances_key
             )
 
             self.videos = data_provider.labels.videos
@@ -491,11 +562,11 @@ class TopDownPredictor(Predictor):
             if not self.centroid_model:
                 pipeline = InstanceCentroidFinder(
                     pipeline,
-                    anchor_ind=self.data_config.preprocessing.anchor_ind,
+                    anchor_ind=self.confmap_config.model_config.head_configs.confmaps.head_config.anchor_part,
                 )
                 pipeline = InstanceCropper(
                     pipeline,
-                    crop_hw=self.data_config.preprocessing.crop_hw,
+                    crop_hw=self.data_config.crop_hw,
                 )
 
                 pipeline = KeyFilter(
@@ -519,8 +590,7 @@ class TopDownPredictor(Predictor):
             self.pipeline = pipeline.sharding_filter()
 
             self.pipeline = DataLoader(
-                self.pipeline,
-                **dict(self.data_config.data_loader),
+                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
             )
 
             return self.pipeline
@@ -536,7 +606,7 @@ class TopDownPredictor(Predictor):
             provider = VideoReader
             self.preprocess = False
             self.video_preprocess_config = {
-                "batch_size": self.data_config.video_loader.batch_size,
+                "batch_size": self.batch_size,
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
@@ -545,13 +615,13 @@ class TopDownPredictor(Predictor):
             }
 
             frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+                maxsize=self.data_config.video_queue_maxsize if not None else 16
             )
             self.pipeline = provider.from_filename(
-                filename=self.data_config.path,
+                filename=data_path,
                 frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
+                start_idx=self.data_config.videoreader_start_idx,
+                end_idx=self.data_config.videoreader_end_idx,
             )
             self.videos = [self.pipeline.video]
 
@@ -655,29 +725,52 @@ class SingleInstancePredictor(Predictor):
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    peak_threshold: float = 0.1
+    integral_refinement: str = "integral"
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    output_stride: int = 2
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[Dict[str]] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
         self.inference_model = SingleInstanceInferenceModel(
             torch_model=self.confmap_model,
-            peak_threshold=self.confmap_config.inference_config.peak_threshold,
-            output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
-            refinement=self.confmap_config.inference_config.integral_refinement,
-            integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
-            return_confmaps=self.confmap_config.inference_config.return_confmaps,
-            input_scale=self.confmap_config.inference_config.data.scale,
+            peak_threshold=self.peak_threshold,
+            output_stride=self.output_stride,
+            refinement=self.integral_refinement,
+            integral_patch_size=self.integral_patch_size,
+            return_confmaps=self.return_confmaps,
+            input_scale=self.data_config.scale,
         )
 
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        return self.confmap_config.inference_config.data
+        data_config = self.confmap_config.data_config.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        else:
+            for k, v in self.preprocess_config.items():
+                if v is None:
+                    self.preprocess_config[k] = data_config[k]
+        return self.preprocess_config
 
     @classmethod
     def from_trained_models(
         cls,
         confmap_ckpt_path: Optional[Text] = None,
-    ) -> "TopDownPredictor":
+        peak_threshold: float = 0.1,
+        integral_refinement: str = "integral",
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        output_stride: int = 2,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[Dict[str]] = None,
+    ) -> "SingleInstancePredictor":
         """Create predictor from saved models.
 
         Args:
@@ -692,20 +785,28 @@ class SingleInstancePredictor(Predictor):
         confmap_model = SingleInstanceModel.load_from_checkpoint(
             f"{confmap_ckpt_path}/best.ckpt", config=confmap_config, skeletons=skeletons
         )
-        confmap_model.to(confmap_config.inference_config.device)
-        confmap_model.m_device = confmap_config.inference_config.device
+        confmap_model.to(device)
+        confmap_model.m_device = device
 
         # create an instance of SingleInstancePredictor class
         obj = cls(
             confmap_config=confmap_config,
             confmap_model=confmap_model,
             skeletons=skeletons,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            output_stride=output_stride,
+            return_confmaps=return_confmaps,
+            device=device,
+            preprocess_config=preprocess_config,
         )
 
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str, num_workers: int):
         """Make a data loading pipeline.
 
         Returns:
@@ -719,10 +820,10 @@ class SingleInstancePredictor(Predictor):
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
-        self.provider = self.data_config.provider
+        self.provider = provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            data_provider = provider.from_filename(self.data_config.path)
+            data_provider = provider.from_filename(data_path)
             self.videos = data_provider.labels.videos
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
             pipeline = SizeMatcher(
@@ -741,8 +842,7 @@ class SingleInstancePredictor(Predictor):
             self.pipeline = pipeline.sharding_filter()
 
             self.pipeline = DataLoader(
-                self.pipeline,
-                **dict(self.data_config.data_loader),
+                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
             )
 
             return self.pipeline
@@ -751,7 +851,7 @@ class SingleInstancePredictor(Predictor):
             provider = VideoReader
             self.preprocess = True
             self.video_preprocess_config = {
-                "batch_size": self.data_config.video_loader.batch_size,
+                "batch_size": self.batch_size,
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
@@ -759,14 +859,15 @@ class SingleInstancePredictor(Predictor):
                 ),
             }
             frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+                maxsize=self.data_config.video_queue_maxsize if not None else 16
             )
             self.pipeline = provider.from_filename(
-                filename=self.data_config.path,
+                filename=data_path,
                 frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
+                start_idx=self.data_config.videoreader_start_idx,
+                end_idx=self.data_config.videoreader_end_idx,
             )
+
             self.videos = [self.pipeline.video]
 
         else:
@@ -876,6 +977,16 @@ class BottomUpPredictor(Predictor):
     min_line_scores: float = 0.25
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    peak_threshold: float = 0.1
+    integral_refinement: str = "integral"
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    max_instances: Optional[int] = None
+    output_stride: int = 2
+    pafs_output_stride: int = 4
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[Dict[str]] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -902,7 +1013,7 @@ class BottomUpPredictor(Predictor):
                         paf_idx
                     ].head_config,
                 }
-            ),
+            ),  # TODO
             max_edge_length_ratio=(
                 self.bottomup_config.inference_config.max_edge_length_ratio
                 if "max_edge_length_ratio"
@@ -935,30 +1046,41 @@ class BottomUpPredictor(Predictor):
         self.inference_model = BottomUpInferenceModel(
             torch_model=self.bottomup_model,
             paf_scorer=paf_scorer,
-            peak_threshold=self.bottomup_config.inference_config.peak_threshold,
-            cms_output_stride=(
-                self.bottomup_config.inference_config.data.preprocessing.output_stride
-            ),
-            pafs_output_stride=(
-                self.bottomup_config.inference_config.data.preprocessing.pafs_output_stride
-            ),
-            refinement=self.bottomup_config.inference_config.integral_refinement,
-            integral_patch_size=self.bottomup_config.inference_config.integral_patch_size,
-            return_confmaps=self.bottomup_config.inference_config.return_confmaps,
-            return_pafs=self.bottomup_config.inference_config.return_pafs,
-            return_paf_graph=self.bottomup_config.inference_config.return_pafs,
-            input_scale=self.bottomup_config.inference_config.data.scale,
+            peak_threshold=self.peak_threshold,
+            cms_output_stride=self.output_stride,
+            pafs_output_stride=self.pafs_output_stride,
+            refinement=self.integral_refinement,
+            integral_patch_size=self.integral_patch_size,
+            return_confmaps=self.return_confmaps,
+            input_scale=self.data_config.scale,
         )
 
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        return self.bottomup_config.inference_config.data
+        data_config = self.bottomup_config.data_config.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        else:
+            for k, v in self.preprocess_config.items():
+                if v is None:
+                    self.preprocess_config[k] = data_config[k]
+        return self.preprocess_config
 
     @classmethod
     def from_trained_models(
         cls,
         bottomup_ckpt_path: Optional[Text] = None,
+        peak_threshold: float = 0.1,
+        integral_refinement: str = "integral",
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        output_stride: int = 2,
+        pafs_output_stride: int = 4,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[Dict[str]] = None,
     ) -> "BottomUpPredictor":
         """Create predictor from saved models.
 
@@ -976,23 +1098,29 @@ class BottomUpPredictor(Predictor):
             config=bottomup_config,
             skeletons=skeletons,
         )
-        bottomup_model.to(bottomup_config.inference_config.device)
-        bottomup_model.m_device = bottomup_config.inference_config.device
+        bottomup_model.to(device)
+        bottomup_model.m_device = device
 
         # create an instance of SingleInstancePredictor class
         obj = cls(
             bottomup_config=bottomup_config,
             bottomup_model=bottomup_model,
             skeletons=skeletons,
-        )
-        bottomup_config.inference_config.data["skeletons"] = (
-            bottomup_config.data_config.skeletons
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            output_stride=output_stride,
+            pafs_output_stride=pafs_output_stride,
+            return_confmaps=return_confmaps,
+            preprocess_config=preprocess_config,
         )
 
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str, num_workers: int):
         """Make a data loading pipeline.
 
         Returns:
@@ -1006,10 +1134,10 @@ class BottomUpPredictor(Predictor):
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
-        self.provider = self.data_config.provider
+        self.provider = provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            data_provider = provider.from_filename(self.data_config.path)
+            data_provider = provider.from_filename(data_path)
             self.videos = data_provider.labels.videos
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
             pipeline = SizeMatcher(
@@ -1028,8 +1156,7 @@ class BottomUpPredictor(Predictor):
             self.pipeline = pipeline.sharding_filter()
 
             self.pipeline = DataLoader(
-                self.pipeline,
-                **dict(self.data_config.data_loader),
+                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
             )
 
             return self.pipeline
@@ -1038,7 +1165,7 @@ class BottomUpPredictor(Predictor):
             provider = VideoReader
             self.preprocess = True
             self.video_preprocess_config = {
-                "batch_size": self.data_config.video_loader.batch_size,
+                "batch_size": self.batch_size,
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
@@ -1046,14 +1173,15 @@ class BottomUpPredictor(Predictor):
                 ),
             }
             frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+                maxsize=self.data_config.video_queue_maxsize if not None else 16
             )
             self.pipeline = provider.from_filename(
-                filename=self.data_config.path,
+                filename=data_path,
                 frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
+                start_idx=self.data_config.videoreader_start_idx,
+                end_idx=self.data_config.videoreader_end_idx,
             )
+
             self.videos = [self.pipeline.video]
 
         else:
@@ -1117,10 +1245,7 @@ class BottomUpPredictor(Predictor):
                     )
 
                 max_instances = (
-                    self.bottomup_config.inference_config.data.max_instances
-                    if self.bottomup_config.inference_config.data.max_instances
-                    is not None
-                    else None
+                    self.max_instances if self.max_instances is not None else None
                 )
                 if max_instances is not None:
                     # Filter by score.
@@ -1145,3 +1270,83 @@ class BottomUpPredictor(Predictor):
             labeled_frames=predicted_frames,
         )
         return pred_labels
+
+
+def main(
+    data_path: str,
+    model_paths: List[str],
+    max_instances: int,
+    max_width: int,
+    max_height: int,
+    is_rgb: bool,
+    scale: float,
+    provider: str,
+    batch_size: int,
+    num_workers: int,
+    video_queue_maxsize: int,
+    videoreader_start_idx: int,
+    videoreader_end_idx: int,
+    crop_hw: List[int],
+    output_stride: int,
+    pafs_output_stride: int,
+    peak_threshold: float,
+    integral_refinement: str,
+    integral_patch_size: int,
+    return_confmaps: bool,
+    return_pafs: bool,
+    return_paf_graph: bool,
+    make_labels: bool,
+    save_path: str,
+    device: str,
+    max_edge_length_ratio: float,
+    dist_penalty_weight: float,
+):
+
+    preprocess_config = {  # if not given, then use from training config
+        "is_rgb": is_rgb,
+        "scale": scale,
+        "crop_hw": crop_hw,
+        "max_width": max_width,
+        "max_height": max_height,
+    }
+
+    # initializes the inference model
+    predictor = Predictor.from_model_paths(
+        model_paths,
+        peak_threshold=peak_threshold,
+        integral_refinement=integral_refinement,
+        integral_patch_size=integral_patch_size,
+        batch_size=batch_size,
+        max_instances=max_instances,
+        output_stride=output_stride,
+        pafs_output_stride=pafs_output_stride,
+        return_confmaps=return_confmaps,
+        device=device,
+        preprocess_config=preprocess_config,
+    )
+
+    if isinstance(predictor, BottomUpPredictor):
+        predictor.inference_model.paf_scorer.max_edge_length_ratio = (
+            max_edge_length_ratio
+        )
+        predictor.inference_model.paf_scorer.dist_penalty_weight = dist_penalty_weight
+        predictor.inference_model.return_pafs = return_pafs
+        predictor.inference_model.return_paf_graph = return_paf_graph
+
+    # initialize make_pipeline function
+    if provider == "VideoReader":
+        preprocess_config["video_queue_maxsize"] = video_queue_maxsize
+        preprocess_config["videoreader_start_idx"] = videoreader_start_idx
+        preprocess_config["videoreader_end_idx"] = videoreader_end_idx
+
+    predictor.make_pipeline(
+        provider, data_path, OmegaConf.create(preprocess_config), num_workers
+    )
+
+    # run predict
+    output = predictor.predict(
+        make_labels=make_labels,
+        save_path=save_path,
+    )
+
+    return output
