@@ -27,16 +27,20 @@ class TopdownConfmapsPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     of original image according to given crop height and width and then the cropped
     images are scaled.
     """
 
-    def __init__(self, data_config: DictConfig, max_stride: int) -> None:
+    def __init__(
+        self, data_config: DictConfig, max_stride: int, confmap_head: DictConfig
+    ) -> None:
         """Initialize the data config."""
         self.data_config = data_config
         self.max_stride = max_stride
+        self.confmap_head = confmap_head
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -103,8 +107,8 @@ class TopdownConfmapsPipeline:
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
-            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
-            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            sigma=self.confmap_head.sigma,
+            output_stride=self.confmap_head.output_stride,
             image_key="instance_image",
             instance_key="instance",
         )
@@ -135,12 +139,16 @@ class SingleInstanceConfmapsPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
     """
 
-    def __init__(self, data_config: DictConfig, max_stride: int) -> None:
+    def __init__(
+        self, data_config: DictConfig, max_stride: int, confmap_head: DictConfig
+    ) -> None:
         """Initialize the data config."""
         self.data_config = data_config
         self.max_stride = max_stride
+        self.confmap_head = confmap_head
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -184,8 +192,8 @@ class SingleInstanceConfmapsPipeline:
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
-            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
-            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            sigma=self.confmap_head.sigma,
+            output_stride=self.confmap_head.output_stride,
             image_key="image",
             instance_key="instances",
         )
@@ -212,12 +220,16 @@ class CentroidConfmapsPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
     """
 
-    def __init__(self, data_config: DictConfig, max_stride: int) -> None:
+    def __init__(
+        self, data_config: DictConfig, max_stride: int, confmap_head: DictConfig
+    ) -> None:
         """Initialize the data config."""
         self.data_config = data_config
         self.max_stride = max_stride
+        self.confmap_head = confmap_head
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -280,8 +292,8 @@ class CentroidConfmapsPipeline:
 
         datapipe = MultiConfidenceMapGenerator(
             datapipe,
-            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
-            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            sigma=self.confmap_head.sigma,
+            output_stride=self.confmap_head.output_stride,
             centroids=True,
         )
 
@@ -297,12 +309,22 @@ class BottomUpPipeline:
         data_config: Data-related configuration.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        confmap_head: DictConfig object with `sigma` and `output_stride` keys.
+        pafs_head: DictConfig object with `sigma` and `output_stride` keys for PAFs.
     """
 
-    def __init__(self, data_config: DictConfig, max_stride: int) -> None:
+    def __init__(
+        self,
+        data_config: DictConfig,
+        max_stride: int,
+        confmap_head: DictConfig,
+        pafs_head: DictConfig,
+    ) -> None:
         """Initialize the data config."""
         self.data_config = data_config
         self.max_stride = max_stride
+        self.confmap_head = confmap_head
+        self.pafs_head = pafs_head
 
     def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
         """Create training pipeline with input data only.
@@ -363,15 +385,15 @@ class BottomUpPipeline:
 
         datapipe = MultiConfidenceMapGenerator(
             datapipe,
-            sigma=self.data_config.preprocessing.conf_map_gen.sigma,
-            output_stride=self.data_config.preprocessing.conf_map_gen.output_stride,
+            sigma=self.confmap_head.sigma,
+            output_stride=self.confmap_head.output_stride,
             centroids=False,
         )
 
         datapipe = PartAffinityFieldsGenerator(
             datapipe,
-            sigma=self.data_config.preprocessing.pafs_gen.sigma,
-            output_stride=self.data_config.preprocessing.pafs_gen.output_stride,
+            sigma=self.pafs_head.sigma,
+            output_stride=self.pafs_head.output_stride,
             edge_inds=torch.Tensor(provider.edge_inds),
             flatten_channels=True,
         )

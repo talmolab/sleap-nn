@@ -121,13 +121,12 @@ class UNet(nn.Module):
         )
 
     @classmethod
-    def from_config(cls, config: OmegaConf):
+    def from_config(cls, config: OmegaConf, output_stride: int):
         """Create UNet from a config."""
         stem_blocks = 0
         if config.stem_stride is not None:
             stem_blocks = np.log2(config.stem_stride).astype(int)
         down_blocks = np.log2(config.max_stride).astype(int) - stem_blocks
-        output_stride = min(config.output_strides)
         up_blocks = np.log2(config.max_stride / output_stride).astype(int)
         return cls(
             in_channels=config.in_channels,

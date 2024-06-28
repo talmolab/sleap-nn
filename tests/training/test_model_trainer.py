@@ -6,6 +6,7 @@ from typing import Text
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
+from omegaconf.omegaconf import DictConfig
 import lightning as L
 from pathlib import Path
 import pandas as pd
@@ -181,10 +182,12 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(
         single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
     )
-    single_instance_config.model_config.head_configs[0].head_type = (
+    single_instance_config.model_config.head_configs["confmaps"].head_type = (
         "SingleInstanceConfmapsHead"
     )
-    del single_instance_config.model_config.head_configs[0].head_config.anchor_part
+    del single_instance_config.model_config.head_configs[
+        "confmaps"
+    ].head_config.anchor_part
 
     trainer = ModelTrainer(single_instance_config)
     trainer._create_data_loaders()
@@ -194,9 +197,11 @@ def test_trainer(config, tmp_path: str):
     # Centroid model
     centroid_config = config.copy()
     OmegaConf.update(centroid_config, "data_config.pipeline", "CentroidConfmaps")
-    centroid_config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
+    centroid_config.model_config.head_configs["confmaps"].head_type = (
+        "CentroidConfmapsHead"
+    )
 
-    del centroid_config.model_config.head_configs[0].head_config.part_names
+    del centroid_config.model_config.head_configs["confmaps"].head_config.part_names
 
     if Path(config.trainer_config.save_ckpt_path).exists():
         shutil.rmtree(config.trainer_config.save_ckpt_path)
@@ -222,16 +227,10 @@ def test_trainer(config, tmp_path: str):
 
     # bottom up model
     bottomup_config = config.copy()
-    bottomup_config.data_config.train.preprocessing["pafs_gen"] = {
-        "sigma": 4,
-        "output_stride": 4,
-    }
-    bottomup_config.data_config.val.preprocessing["pafs_gen"] = {
-        "sigma": 4,
-        "output_stride": 4,
-    }
     OmegaConf.update(bottomup_config, "data_config.pipeline", "BottomUp")
-    bottomup_config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
+    bottomup_config.model_config.head_configs["confmaps"].head_type = (
+        "MultiInstanceConfmapsHead"
+    )
     paf = {
         "head_type": "PartAffinityFieldsHead",
         "head_config": {
@@ -241,8 +240,8 @@ def test_trainer(config, tmp_path: str):
             "loss_weight": 1.0,
         },
     }
-    del bottomup_config.model_config.head_configs[0].head_config.anchor_part
-    bottomup_config.model_config.head_configs.append(paf)
+    del bottomup_config.model_config.head_configs["confmaps"].head_config.anchor_part
+    bottomup_config.model_config.head_configs["pafs"] = paf
 
     if Path(bottomup_config.trainer_config.save_ckpt_path).exists():
         shutil.rmtree(bottomup_config.trainer_config.save_ckpt_path)
@@ -303,7 +302,6 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [2],
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
         },
@@ -333,8 +331,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
-    del config.model_config.head_configs[0].head_config.part_names
+    config.model_config.head_configs["confmaps"].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs["confmaps"].head_config.part_names
 
     model = CentroidModel(config)
 
@@ -359,8 +357,10 @@ def test_single_instance_model(config, tmp_path: str):
     """Test the SingleInstanceModel training."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
     OmegaConf.update(config, "model_config.init_weights", "xavier")
-    config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
-    del config.model_config.head_configs[0].head_config.anchor_part
+    config.model_config.head_configs["confmaps"].head_type = (
+        "SingleInstanceConfmapsHead"
+    )
+    del config.model_config.head_configs["confmaps"].head_config.anchor_part
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -380,11 +380,11 @@ def test_single_instance_model(config, tmp_path: str):
         2,
         int(
             img_shape[0]
-            / config.data_config.train.preprocessing.conf_map_gen.output_stride
+            / config.model_config.head_configs.confmaps.head_config.output_stride
         ),
         int(
             img_shape[1]
-            / config.data_config.train.preprocessing.conf_map_gen.output_stride
+            / config.model_config.head_configs.confmaps.head_config.output_stride
         ),
     )
 
@@ -399,12 +399,7 @@ def test_bottomup_model(config, tmp_path: str):
     config_copy = config.copy()
 
     OmegaConf.update(config, "data_config.pipeline", "BottomUp")
-    config.data_config.train.preprocessing["pafs_gen"] = {
-        "sigma": 4,
-        "output_stride": 4,
-    }
-    config.data_config.val.preprocessing["pafs_gen"] = {"sigma": 4, "output_stride": 4}
-    config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
+    config.model_config.head_configs["confmaps"].head_type = "MultiInstanceConfmapsHead"
     paf = {
         "head_type": "PartAffinityFieldsHead",
         "head_config": {
@@ -414,8 +409,8 @@ def test_bottomup_model(config, tmp_path: str):
             "loss_weight": 1.0,
         },
     }
-    del config.model_config.head_configs[0].head_config.anchor_part
-    config.model_config.head_configs.append(paf)
+    del config.model_config.head_configs["confmaps"].head_config.anchor_part
+    config.model_config.head_configs["pafs"] = paf
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -436,13 +431,8 @@ def test_bottomup_model(config, tmp_path: str):
     # with edges as None
     config = config_copy
     OmegaConf.update(config, "data_config.pipeline", "BottomUp")
-    config.data_config.train.preprocessing["pafs_gen"] = {
-        "sigma": 4,
-        "output_stride": 4,
-    }
-    config.data_config.val.preprocessing["pafs_gen"] = {"sigma": 4, "output_stride": 4}
-    config.model_config.head_configs[0].head_type = "MultiInstanceConfmapsHead"
-    config.model_config.head_configs[0].head_config.part_names = None
+    config.model_config.head_configs["confmaps"].head_type = "MultiInstanceConfmapsHead"
+    config.model_config.head_configs["confmaps"].head_config.part_names = None
     paf = {
         "head_type": "PartAffinityFieldsHead",
         "head_config": {
@@ -452,8 +442,8 @@ def test_bottomup_model(config, tmp_path: str):
             "loss_weight": 1.0,
         },
     }
-    del config.model_config.head_configs[0].head_config.anchor_part
-    config.model_config.head_configs.append(paf)
+    del config.model_config.head_configs["confmaps"].head_config.anchor_part
+    config.model_config.head_configs["pafs"] = paf
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )

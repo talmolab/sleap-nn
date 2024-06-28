@@ -28,7 +28,9 @@ from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
 
 
-def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
+def get_backbone(
+    backbone: str, backbone_config: DictConfig, output_stride: int
+) -> nn.Module:
     """Get a backbone model `nn.Module` based on the provided name.
 
     This function returns an instance of a PyTorch `nn.Module`
@@ -37,6 +39,7 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
     Args:
         backbone (str): Name of the backbone. Supported values are 'unet'.
         backbone_config (DictConfig): A config for the backbone.
+        output_stride (int): Output stride to compute the number of down blocks.
 
     Returns:
         nn.Module: An instance of the requested backbone model.
@@ -51,7 +54,9 @@ def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
             f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
         )
 
-    backbone = backbones[backbone].from_config(backbone_config)
+    backbone = backbones[backbone].from_config(
+        backbone_config, output_stride=output_stride
+    )
 
     return backbone
 
@@ -106,7 +111,7 @@ class Model(nn.Module):
 
     Attributes:
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
-        head_config: An `DictConfig` configuration dictionary for the model head.
+        head_configs: An `DictConfig` configuration dictionary for the model heads.
         input_expand_channels: Integer representing the number of channels the image
                                 should be expanded to.
     """
@@ -114,7 +119,7 @@ class Model(nn.Module):
     def __init__(
         self,
         backbone_config: DictConfig,
-        head_configs: List[DictConfig],
+        head_configs: DictConfig,
         input_expand_channels: int,
     ) -> None:
         """Initialize the backbone and head based on the backbone_config."""
@@ -123,16 +128,22 @@ class Model(nn.Module):
         self.head_configs = head_configs
         self.input_expand_channels = input_expand_channels
 
-        self.backbone = get_backbone(
-            backbone_config.backbone_type, backbone_config.backbone_config
-        )
-
         self.heads = []
-        for head_config in head_configs:
+        output_strides = []
+        for head_type in head_configs:
+            head_config = head_configs[head_type]
             head = get_head(head_config.head_type, head_config.head_config)
             self.heads.append(head)
+            output_strides.append(head_config.head_config.output_stride)
 
-        min_output_stride = min(backbone_config.backbone_config.output_strides)
+        min_output_stride = min(output_strides)
+
+        self.backbone = get_backbone(
+            backbone_config.backbone_type,
+            backbone_config.backbone_config,
+            min_output_stride,
+        )
+
         strides = self.backbone.dec.current_strides
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
@@ -156,7 +167,7 @@ class Model(nn.Module):
     def from_config(
         cls,
         backbone_config: DictConfig,
-        head_configs: List[DictConfig],
+        head_configs: DictConfig,
         input_expand_channels: int,
     ) -> "Model":
         """Create the model from a config dictionary."""
@@ -170,7 +181,7 @@ class Model(nn.Module):
         """Forward pass through the model."""
         if self.input_expand_channels != 1:
             input_list = []
-            for i in range(self.input_expand_channels):
+            for _ in range(self.input_expand_channels):
                 input_list.append(x)
             x = torch.concatenate(input_list, dim=-3)
         backbone_outputs = self.backbone(x)

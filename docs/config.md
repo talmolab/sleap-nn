@@ -1,15 +1,13 @@
 ### Config file
 
 This document contains the docstrings for the config file required to pass to the `sleap_nn.ModelTrainer` class to train and run inference on a sleap-nn model.
-The config file has four main sections:
+The config file has three main sections:
 
 - 1. `data_config`: Creating a data pipeline.
 
 - 2. `model_config`: Initialise the sleap-nn backbone and head models.
 
 - 3. `trainer_config`: Hyperparameters required to train the model with Lightning.
-
-- 4. `inference_config`: Inference related configs.
 
 ***Note***: The structure for `train` in data_config is used for validation set as well, with the key: `val`. Similarly, the structure for `train_data_loader` in trainer_config section is used for `val_data_loader`.
 
@@ -31,8 +29,6 @@ The config file has four main sections:
         - `preprocessing`:
             - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
             - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model. 
-            - `conf_map_gen`: (Dict[float]) Dictionary in the format {"sigma": 1.5, "output_stride": 2}. *sigma* defines the spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.  *output_stride* defines the stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
-            - `pafs_gen`: (Dict[float]) **Note**: Only for BottomUp model. The structure is same as `preprocessing.conf_map_gen`. 
             - `augmentation_config`:
                 - `random crop`: (Dict[float]) {"random_crop_p": None, "random_crop_hw": None}, where *random_crop_p* is the probability of applying random crop and *random_crop_hw* is the desired output size (out_h, out_w) of the crop. Must be Tuple[int, int], then out_h = size[0], out_w = size[1].
                 - `use_augmentations`: (bool) True if the data augmentation should be applied to the data, else False.
@@ -80,11 +76,6 @@ The config file has four main sections:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-            - `output_strides`: (List[int]) List of output strides for each head layer.
-            - `block_contraction`: (bool) If True, reduces the number of filters at the end of middle
-            and decoder blocks. This has the effect of introducing an additional
-            bottleneck before each upsampling step. The original implementation does not
-            do this, but the CARE implementation does. Default: False
             - `stacks`: (int) Number of upsampling blocks in the decoder. Default is 3.
             - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
         - `backbone_config`: (for ConvNext)
@@ -92,7 +83,6 @@ The config file has four main sections:
                 - `depths`: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
                 - `channels`: (List(int)) Number of channels in each block. Default: [96, 192, 384, 768].
             - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. Default: "tiny". 
-            - `output_strides`: (List[int]) List of output strides for each head layer.
             - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. Default is 4.
             - `stem_patch_stride`: (int) Convolutional stride in the stem layer. Default is 2.
             - `in_channels`: (int) Number of input channels. Default is 1.
@@ -115,40 +105,34 @@ The config file has four main sections:
             - `kernel_size`: (int) Size of the convolutional kernels. Default is 3.
             - `filters_rate`: (float) Factor to adjust the number of filters per block. Default is 1.5.
             - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
-            - `output_strides`: (List[int]) List of output strides for each head layer.
             - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-    - `head_configs`: (List[dict]) List of heads in the model. For eg, BottomUp model has both 'MultiInstanceConfmapsHead' and 'PartAffinityFieldsHead' heads.
-        - `head_type`: (str) Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
-        - `head_config`:
-            - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
-            - `edges`: (List[str]) `None` if edges from `sio.Labels` file can be used directly. **Note**: Only for 'PartAffinityFieldsHead'. List of indices `(src, dest)` that form an edge. 
-            - `anchor_part`: (int) **Note**: Only for 'CenteredInstanceConfmapsHead'. Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
-            - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
-            - `output_stride`: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
-            - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
+    - `head_configs`: (Dict) Dictionary having head configs with keys `confmaps` and `pafs`. For eg, BottomUp model has both `confmaps` and `pafs` whereas Centroid model only has `confmaps` key. All the keys follow the same structure as given below:
+        - `confmaps`:
+            - `head_type`: (str) Name of the head. Supported values are 'SingleInstanceConfmapsHead', 'CentroidConfmapsHead', 'CenteredInstanceConfmapsHead', 'MultiInstanceConfmapsHead', 'PartAffinityFieldsHead', 'ClassMapsHead', 'ClassVectorsHead', 'OffsetRefinementHead'
+            - `head_config`:
+                - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
+                - `edges`: (List[str]) `None` if edges from `sio.Labels` file can be used directly. **Note**: Only for 'PartAffinityFieldsHead'. List of indices `(src, dest)` that form an edge. 
+                - `anchor_part`: (int) **Note**: Only for 'CenteredInstanceConfmapsHead'. Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
+                - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
+                - `output_stride`: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+                - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
+        - `pafs`: (same structure as that of `confmaps`.)
 
 - `trainer_config`: 
-    - `train_data_loader`:
+    - `train_data_loader`: (**Note**: Any parameters from [Torch's DataLoader](https://pytorch.org/docs/stable/data.html#torch.utils.data.DataLoader) could be used.)
         - `batch_size`: (int) Number of samples per batch or batch size for training data. *Default* = 1.
         - `shuffle`: (bool) True to have the data reshuffled at every epoch. *Default*: False.
         - `num_workers`: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: 0.
-        - `pin_memory`: (bool) If True, the data loader will copy Tensors into device/CUDA pinned memory before returning them.
-        - `drop_last`: (bool) True to drop the last incomplete batch, if the dataset size is not divisible by the batch size. If False and the size of dataset is not divisible by the batch size, then the last batch will be smaller. *Default*: False.
         - `prefetch_factor`: (int) Number of batches loaded in advance by each worker. 2 means there will be a total of 2 * num_workers batches prefetched across all workers. (default value depends on the set value for num_workers. If value of num_workers=0 default is None. Otherwise, if value of num_workers > 0 default is 2).
     - `val_data_loader`: (Similar to `train_data_loader`)
-    - `model_ckpt`:
+    - `model_ckpt`: (**Note**: Any parameters from [Lightning's ModelCheckpoint](https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.ModelCheckpoint.html) could be used.)
         - `save_top_k`: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
         - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: None.
-        - `auto_insert_metric_name`– (str) When not None, the checkpoints filenames will contain the metric name. For example, `filename='checkpoint_{epoch:02d}-{acc:02.0f}'` with epoch 1 and acc 1.12 will resolve to `checkpoint_epoch=01-acc=01.ckpt`.
         - `monitor`: (str) Quantity to monitor for e.g., "val_loss". When None, this saves a checkpoint only for the last epoch. *Default*: None
         - `mode`: (str) One of {"min", "max"}. If save_top_k != 0, the decision to overwrite the current save file is made based on either the maximization or the minimization of the monitored quantity. For 'val_acc', this should be 'max', for 'val_loss' this should be 'min', etc.
-    - `early_stopping`: TODO
-        - `stop_training_on_plateau`: (bool)
-        - `min_delta`: (float)
-        - `patience`: (int)
     - `device`: (str) Device on which torch.Tensor will be allocated. One of the ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
     - `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
     - `trainer_accelerator`: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to.
@@ -177,37 +161,7 @@ The config file has four main sections:
         - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. *Default*: 10.
         - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: 0.1.
         - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: 0.
-
-- `inference_config`:
-    - `device`: (str) Device on which torch.Tensor will be allocated. One of the ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu"). 
-    - `data`:
-        - `path`: (str) Path to `.slp` file or `.mp4` to run inference on.
-        - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
-        original image size will be retained. Default: None
-        - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
-        original image size will be retained. Default: None
-        - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
-        - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
-        channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If input has three channels and this
-        is set to False, then we convert the image to grayscale (single-channel)
-        image. 
-        - `provider`: (str) Provider class to read the input sleap files. Either "LabelsReader" or "VideoReader".
-        - `data_loader`: (Similar to trainer_config.train_data_loader) This section is used only if provider is `LabelsReader`.
-        - `video_loader`: (only if provider is `VideoReader`).
-            - `batch_size`: (int) Number of samples per batch.
-            - `queue_maxsize`: (int) Maximum size of the frame buffer queue.
-            - `start_idx`: (int) Start index of the frames to read. If None, 0 is set as the default.
-            - `end_idx`: (int) End index of the frames to read. If None, length of the video is set as
-            the default.
-        - `preprocessing`: 
-            - `anchor_ind`: (int) Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
-            - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
-            - `output_stride`: (int) Stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
-            - `pafs_output_stride`: (int) Stride of the output part affinity fields relative to the input image. 
-    - `peak_threshold`: `float` between 0 and 1. Minimum confidence threshold. Peaks with values below this will be ignored.
-    - `integral_refinement`: If `None`, returns the grid-aligned peaks with no refinement. If `"integral"`, peaks will be refined with integral regression.
-    - `integral_patch_size`: Size of patches to crop around each rough peak as an integer scalar.
-    - `return_confmaps`: If `True`, predicted confidence maps will be returned along with the predicted peak values and points. 
-    - `return_pafs`: If `True`, predicted part affinity fields will be returned along with the predicted peak values and points. 
-    - `return_paf_graph`: If `True`, the part affinity field graph will be returned together with the predicted instances.
+    - `early_stopping`: TODO
+        - `stop_training_on_plateau`: (bool)
+        - `min_delta`: (float)
+        - `patience`: (int)

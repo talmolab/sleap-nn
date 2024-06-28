@@ -227,9 +227,8 @@ class ConvNextWrapper(nn.Module):
         return self.dec.x_in_shape
 
     @classmethod
-    def from_config(cls, config: OmegaConf):
+    def from_config(cls, config: OmegaConf, output_stride: int):
         """Create ConvNextWrapper from a config."""
-        output_stride = min(config.output_strides)
         return cls(
             in_channels=config.in_channels,
             model_type=config.model_type,

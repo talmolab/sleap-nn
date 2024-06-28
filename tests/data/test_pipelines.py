@@ -1,4 +1,5 @@
 from omegaconf import OmegaConf
+from omegaconf.omegaconf import DictConfig
 
 import sleap_io as sio
 
@@ -104,7 +105,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (160, 160),
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
@@ -137,8 +137,10 @@ def test_topdownconfmapspipeline(minimal_instance):
         }
     )
 
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16
+        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
@@ -174,7 +176,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (100, 100),
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
@@ -208,7 +209,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=8
+        data_config=base_topdown_data_config, max_stride=8, confmap_head=confmap_head
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
@@ -246,7 +247,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             "preprocessing": {
                 "anchor_ind": None,
                 "crop_hw": (100, 100),
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
@@ -280,7 +280,7 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16
+        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
@@ -323,9 +323,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
             "max_width": None,
             "scale": 2.0,
             "is_rgb": False,
-            "preprocessing": {
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-            },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
                 "use_augmentations": False,
@@ -357,8 +354,12 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         }
     )
 
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+
     pipeline = SingleInstanceConfmapsPipeline(
-        data_config=base_singleinstance_data_config, max_stride=8
+        data_config=base_singleinstance_data_config,
+        max_stride=8,
+        confmap_head=confmap_head,
     )
     data_provider = LabelsReader(labels=labels)
 
@@ -387,9 +388,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
             "max_width": None,
             "scale": 1.0,
             "is_rgb": False,
-            "preprocessing": {
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-            },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
                 "use_augmentations": True,
@@ -422,7 +420,9 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     )
 
     pipeline = SingleInstanceConfmapsPipeline(
-        data_config=base_singleinstance_data_config, max_stride=8
+        data_config=base_singleinstance_data_config,
+        max_stride=8,
+        confmap_head=confmap_head,
     )
 
     data_provider = LabelsReader(labels=labels)
@@ -457,7 +457,6 @@ def test_centroidconfmapspipeline(minimal_instance):
             "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
@@ -489,9 +488,10 @@ def test_centroidconfmapspipeline(minimal_instance):
             },
         }
     )
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
     pipeline = CentroidConfmapsPipeline(
-        data_config=base_centroid_data_config, max_stride=32
+        data_config=base_centroid_data_config, max_stride=32, confmap_head=confmap_head
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
@@ -522,7 +522,6 @@ def test_centroidconfmapspipeline(minimal_instance):
             "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
@@ -556,7 +555,7 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
 
     pipeline = CentroidConfmapsPipeline(
-        data_config=base_centroid_data_config, max_stride=32
+        data_config=base_centroid_data_config, max_stride=32, confmap_head=confmap_head
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
@@ -583,7 +582,7 @@ def test_centroidconfmapspipeline(minimal_instance):
 
 def test_bottomuppipeline(minimal_instance):
     """Test BottomUpPipeline class."""
-    base_centroid_data_config = OmegaConf.create(
+    base_bottom_config = OmegaConf.create(
         {
             "max_height": None,
             "max_width": None,
@@ -591,8 +590,6 @@ def test_bottomuppipeline(minimal_instance):
             "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
@@ -625,7 +622,15 @@ def test_bottomuppipeline(minimal_instance):
         }
     )
 
-    pipeline = BottomUpPipeline(data_config=base_centroid_data_config, max_stride=32)
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
+
+    pipeline = BottomUpPipeline(
+        data_config=base_bottom_config,
+        max_stride=32,
+        confmap_head=confmap_head,
+        pafs_head=pafs_head,
+    )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
@@ -650,7 +655,7 @@ def test_bottomuppipeline(minimal_instance):
     assert sample["part_affinity_fields"].shape == (96, 96, 2)
 
     # with scaling
-    base_centroid_data_config = OmegaConf.create(
+    base_bottom_config = OmegaConf.create(
         {
             "max_height": None,
             "max_width": None,
@@ -658,8 +663,6 @@ def test_bottomuppipeline(minimal_instance):
             "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
@@ -692,7 +695,12 @@ def test_bottomuppipeline(minimal_instance):
         }
     )
 
-    pipeline = BottomUpPipeline(data_config=base_centroid_data_config, max_stride=32)
+    pipeline = BottomUpPipeline(
+        data_config=base_bottom_config,
+        max_stride=32,
+        confmap_head=confmap_head,
+        pafs_head=pafs_head,
+    )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
@@ -717,7 +725,7 @@ def test_bottomuppipeline(minimal_instance):
     assert sample["part_affinity_fields"].shape == (48, 48, 2)
 
     # with padding
-    base_centroid_data_config = OmegaConf.create(
+    base_bottom_config = OmegaConf.create(
         {
             "max_height": None,
             "max_width": None,
@@ -725,8 +733,6 @@ def test_bottomuppipeline(minimal_instance):
             "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (100, 100)},
@@ -759,7 +765,12 @@ def test_bottomuppipeline(minimal_instance):
         }
     )
 
-    pipeline = BottomUpPipeline(data_config=base_centroid_data_config, max_stride=32)
+    pipeline = BottomUpPipeline(
+        data_config=base_bottom_config,
+        max_stride=32,
+        confmap_head=confmap_head,
+        pafs_head=pafs_head,
+    )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
@@ -784,7 +795,7 @@ def test_bottomuppipeline(minimal_instance):
     assert sample["part_affinity_fields"].shape == (32, 32, 2)
 
     # with random crop
-    base_centroid_data_config = OmegaConf.create(
+    base_bottom_config = OmegaConf.create(
         {
             "max_height": None,
             "max_width": None,
@@ -792,8 +803,6 @@ def test_bottomuppipeline(minimal_instance):
             "is_rgb": False,
             "preprocessing": {
                 "anchor_ind": None,
-                "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
-                "pafs_gen": {"sigma": 4, "output_stride": 4},
             },
             "augmentation_config": {
                 "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
@@ -826,7 +835,12 @@ def test_bottomuppipeline(minimal_instance):
         }
     )
 
-    pipeline = BottomUpPipeline(data_config=base_centroid_data_config, max_stride=32)
+    pipeline = BottomUpPipeline(
+        data_config=base_bottom_config,
+        max_stride=32,
+        confmap_head=confmap_head,
+        pafs_head=pafs_head,
+    )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
     datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
