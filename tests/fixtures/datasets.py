@@ -57,9 +57,7 @@ def config(sleap_data_dir):
                     "max_height": None,
                     "scale": 1.0,
                     "preprocessing": {
-                        "anchor_ind": 0,
                         "crop_hw": [160, 160],
-                        "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
                     },
                     "augmentation_config": {
                         "random_crop": {
@@ -100,9 +98,7 @@ def config(sleap_data_dir):
                     "max_height": None,
                     "scale": 1.0,
                     "preprocessing": {
-                        "anchor_ind": 0,
                         "crop_hw": [160, 160],
-                        "conf_map_gen": {"sigma": 1.5, "output_stride": 2},
                     },
                     "augmentation_config": {
                         "random_crop": {
@@ -153,12 +149,10 @@ def config(sleap_data_dir):
                         "stem_stride": None,
                         "middle_block": True,
                         "up_interpolate": True,
-                        "output_strides": [2],
-                        "block_contraction": False,
                     },
                 },
-                "head_configs": [
-                    {
+                "head_configs": {
+                    "confmaps": {
                         "head_type": "CenteredInstanceConfmapsHead",
                         "head_config": {
                             "part_names": [
@@ -171,29 +165,21 @@ def config(sleap_data_dir):
                             "loss_weight": 1.0,
                         },
                     }
-                ],
+                },
             },
             "trainer_config": {
                 "train_data_loader": {
                     "batch_size": 1,
                     "shuffle": True,
                     "num_workers": 2,
-                    "pin_memory": True,
-                    "drop_last": False,
                 },
                 "val_data_loader": {
                     "batch_size": 1,
-                    "shuffle": False,
                     "num_workers": 0,
-                    "pin_memory": True,
-                    "drop_last": False,
                 },
                 "model_ckpt": {
                     "save_top_k": 1,
                     "save_last": True,
-                    "monitor": "val_loss",
-                    "mode": "min",
-                    "auto_insert_metric_name": False,
                 },
                 "early_stopping": {
                     "stop_training_on_plateau": True,
@@ -234,41 +220,6 @@ def config(sleap_data_dir):
                     "min_lr": 1e-08,
                 },
             },
-            "inference_config": {
-                "device": "cpu",
-                "data": {
-                    "path": f"./tests/assets/minimal_instance.pkg.slp",
-                    "max_width": None,
-                    "max_height": None,
-                    "scale": 1.0,
-                    "max_instances": None,
-                    "is_rgb": False,
-                    "provider": "LabelsReader",
-                    "data_loader": {
-                        "batch_size": 4,
-                        "shuffle": False,
-                        "num_workers": 2,
-                        "pin_memory": True,
-                        "drop_last": False,
-                    },
-                    "video_loader": {
-                        "batch_size": 4,
-                        "queue_maxsize": 8,
-                        "start_idx": 0,
-                        "end_idx": 100,
-                    },
-                    "preprocessing": {
-                        "anchor_ind": 0,
-                        "crop_hw": [160, 160],
-                        "output_stride": 2,
-                    },
-                },
-                "peak_threshold": 0.2,
-                "integral_refinement": "integral",
-                "integral_patch_size": 5,
-                "return_confmaps": False,
-            },
         }
     )
-
     return init_config

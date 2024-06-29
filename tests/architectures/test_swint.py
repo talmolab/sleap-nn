@@ -21,12 +21,11 @@ def test_swint_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_stride": 2,
         }
     )
 
-    swint = SwinTWrapper.from_config(config)
+    swint = SwinTWrapper.from_config(config, output_stride=1)
 
     in_channels = int(
         swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)
@@ -130,12 +129,11 @@ def test_swint_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_stride": 4,
         }
     )
 
-    swint = SwinTWrapper.from_config(config)
+    swint = SwinTWrapper.from_config(config, output_stride=1)
 
     swint.eval()
 
@@ -161,12 +159,11 @@ def test_swint_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_stride": 2,
         }
     )
 
-    swint = SwinTWrapper.from_config(config)
+    swint = SwinTWrapper.from_config(config, output_stride=1)
 
     in_channels = int(
         swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)
@@ -206,12 +203,11 @@ def test_swint_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_stride": 2,
         }
     )
 
-    swint = SwinTWrapper.from_config(config)
+    swint = SwinTWrapper.from_config(config, output_stride=1)
 
     in_channels = int(
         swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)

@@ -19,13 +19,12 @@ def test_convnext_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
         }
     )
 
-    convnext = ConvNextWrapper.from_config(config)
+    convnext = ConvNextWrapper.from_config(config, output_stride=1)
 
     in_channels = int(
         convnext.max_channels / config.filters_rate ** len(convnext.dec.decoder_stack)
@@ -107,13 +106,12 @@ def test_convnext_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_kernel": 4,
             "stem_patch_stride": 4,
         }
     )
 
-    convnext = ConvNextWrapper.from_config(config)
+    convnext = ConvNextWrapper.from_config(config, output_stride=1)
 
     convnext.eval()
 
@@ -138,13 +136,12 @@ def test_convnext_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
         }
     )
 
-    convnext = ConvNextWrapper.from_config(config)
+    convnext = ConvNextWrapper.from_config(config, output_stride=1)
 
     in_channels = int(
         convnext.max_channels / config.filters_rate ** len(convnext.dec.decoder_stack)
@@ -182,13 +179,12 @@ def test_convnext_reference():
             "filters_rate": 2,
             "convs_per_block": 2,
             "up_interpolate": True,
-            "output_strides": [1],
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
         }
     )
 
-    convnext = ConvNextWrapper.from_config(config)
+    convnext = ConvNextWrapper.from_config(config, output_stride=1)
 
     in_channels = int(
         convnext.max_channels / config.filters_rate ** len(convnext.dec.decoder_stack)
