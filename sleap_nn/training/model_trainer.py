@@ -208,6 +208,8 @@ class ModelTrainer:
                 **dict(self.config.trainer_config.model_ckpt),
                 dirpath=dir_path,
                 filename="best",
+                monitor="val_loss",
+                mode="min"
             )
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs

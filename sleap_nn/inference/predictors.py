@@ -1,7 +1,7 @@
 """Predictors for running inference."""
 
 from collections import defaultdict
-from typing import Dict, List, Optional, Union, Iterator, Text
+from typing import Dict, List, Optional, Union, Iterator, Text, Any
 from queue import Queue
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -92,7 +92,7 @@ class Predictor(ABC):
         pafs_output_stride: int = 4,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str]] = None,
+        preprocess_config: Optional[Dict[str, Any]] = None,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -366,7 +366,7 @@ class TopDownPredictor(Predictor):
     output_stride: int = 2
     return_confmaps: bool = False
     device: str = "cpu"
-    preprocess_config: Optional[Dict[str]] = None
+    preprocess_config: Optional[Dict[str, Any]] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -450,7 +450,7 @@ class TopDownPredictor(Predictor):
         output_stride: int = 2,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str]] = None,
+        preprocess_config: Optional[Dict[str, Any]] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -732,7 +732,7 @@ class SingleInstancePredictor(Predictor):
     output_stride: int = 2
     return_confmaps: bool = False
     device: str = "cpu"
-    preprocess_config: Optional[Dict[str]] = None
+    preprocess_config: Optional[Dict[str, Any]] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -769,7 +769,7 @@ class SingleInstancePredictor(Predictor):
         output_stride: int = 2,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str]] = None,
+        preprocess_config: Optional[Dict[str, Any]] = None,
     ) -> "SingleInstancePredictor":
         """Create predictor from saved models.
 
@@ -986,7 +986,7 @@ class BottomUpPredictor(Predictor):
     pafs_output_stride: int = 4
     return_confmaps: bool = False
     device: str = "cpu"
-    preprocess_config: Optional[Dict[str]] = None
+    preprocess_config: Optional[Dict[str, Any]] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -1080,7 +1080,7 @@ class BottomUpPredictor(Predictor):
         pafs_output_stride: int = 4,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str]] = None,
+        preprocess_config: Optional[Dict[str, Any]] = None,
     ) -> "BottomUpPredictor":
         """Create predictor from saved models.
 
@@ -1275,31 +1275,34 @@ class BottomUpPredictor(Predictor):
 def main(
     data_path: str,
     model_paths: List[str],
-    max_instances: int,
-    max_width: int,
-    max_height: int,
-    is_rgb: bool,
-    scale: float,
-    provider: str,
-    batch_size: int,
-    num_workers: int,
-    video_queue_maxsize: int,
-    videoreader_start_idx: int,
-    videoreader_end_idx: int,
-    crop_hw: List[int],
-    output_stride: int,
-    pafs_output_stride: int,
-    peak_threshold: float,
-    integral_refinement: str,
-    integral_patch_size: int,
-    return_confmaps: bool,
-    return_pafs: bool,
-    return_paf_graph: bool,
-    make_labels: bool,
-    save_path: str,
-    device: str,
-    max_edge_length_ratio: float,
-    dist_penalty_weight: float,
+    max_instances: int = None,
+    max_width: int = None,
+    max_height: int = None,
+    is_rgb: bool = False,
+    scale: float = 1.0,
+    provider: str = "LabelsReader",
+    batch_size: int = 4,
+    num_workers: int = 2,
+    video_queue_maxsize: int = 8,
+    videoreader_start_idx: int = 0,
+    videoreader_end_idx: int = 100,
+    crop_hw: List[int] = (160, 160),
+    output_stride: int = 2,
+    pafs_output_stride: int = 4,
+    peak_threshold: float = 0.0,
+    integral_refinement: str = "integral",
+    integral_patch_size: int = 5,
+    return_confmaps: bool = False,
+    return_pafs: bool = False,
+    max_edge_length_ratio: float = 0.25,
+    dist_penalty_weight: float = 1.0,
+    n_points: int = 10,
+    min_instance_peaks: Union[int, float] = 0,
+    min_line_scores: float = 0.25,
+    return_paf_graph: bool = False,
+    make_labels: bool = True,
+    save_path: str = "",
+    device: str = "cpu",
 ):
 
     preprocess_config = {  # if not given, then use from training config
@@ -1332,6 +1335,10 @@ def main(
         predictor.inference_model.paf_scorer.dist_penalty_weight = dist_penalty_weight
         predictor.inference_model.return_pafs = return_pafs
         predictor.inference_model.return_paf_graph = return_paf_graph
+        predictor.inference_model.paf_scorer.max_edge_length_ratio = max_edge_length_ratio
+        predictor.inference_model.paf_scorer.min_line_scores = min_line_scores
+        predictor.inference_model.paf_scorer.min_instance_peaks = min_instance_peaks
+        predictor.inference_model.paf_scorer.n_points = n_points
 
     # initialize make_pipeline function
     if provider == "VideoReader":
@@ -1339,9 +1346,7 @@ def main(
         preprocess_config["videoreader_start_idx"] = videoreader_start_idx
         preprocess_config["videoreader_end_idx"] = videoreader_end_idx
 
-    predictor.make_pipeline(
-        provider, data_path, OmegaConf.create(preprocess_config), num_workers
-    )
+    predictor.make_pipeline(provider, data_path, num_workers)
 
     # run predict
     output = predictor.predict(

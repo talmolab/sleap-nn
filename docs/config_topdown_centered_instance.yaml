@@ -160,7 +160,7 @@ trainer_config:
   val_data_loader:
     batch_size: 4
     num_workers: 2
-  model_ckpt: # TODO: do we need monitor/ mode?
+  model_ckpt:
     save_top_k: 1
     save_last: true
   device: cuda
