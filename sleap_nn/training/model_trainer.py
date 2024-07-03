@@ -209,7 +209,7 @@ class ModelTrainer:
                 dirpath=dir_path,
                 filename="best",
                 monitor="val_loss",
-                mode="min"
+                mode="min",
             )
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs

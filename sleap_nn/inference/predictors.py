@@ -92,7 +92,7 @@ class Predictor(ABC):
         pafs_output_stride: int = 4,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str, Any]] = None,
+        preprocess_config: Optional[OmegaConf] = None,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -111,9 +111,16 @@ class Predictor(ABC):
         model_config_paths = [
             OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
         ]
-        model_names = [
-            (c.model_config.head_configs[0].head_type) for c in model_config_paths
-        ]
+        model_names = sum(
+            [
+                [
+                    c.model_config.head_configs[head].head_type
+                    for head in c.model_config.head_configs
+                ]
+                for c in model_config_paths
+            ],
+            [],
+        )
 
         if "SingleInstanceConfmapsHead" in model_names:
             confmap_ckpt_path = model_paths[
@@ -366,7 +373,7 @@ class TopDownPredictor(Predictor):
     output_stride: int = 2
     return_confmaps: bool = False
     device: str = "cpu"
-    preprocess_config: Optional[Dict[str, Any]] = None
+    preprocess_config: Optional[OmegaConf] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -426,15 +433,11 @@ class TopDownPredictor(Predictor):
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
         if self.centroid_config:
-            data_config = self.centroid_config.data_config.preprocessing
+            data_config = self.centroid_config.data_config.train.preprocessing
         else:
-            data_config = self.confmap_config.data_config.preprocessing
+            data_config = self.confmap_config.data_config.train.preprocessing
         if self.preprocess_config is None:
             return data_config
-        else:
-            for k, v in self.preprocess_config.items():
-                if v is None:
-                    self.preprocess_config[k] = data_config[k]
         return self.preprocess_config
 
     @classmethod
@@ -450,7 +453,7 @@ class TopDownPredictor(Predictor):
         output_stride: int = 2,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str, Any]] = None,
+        preprocess_config: Optional[OmegaConf] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -732,7 +735,7 @@ class SingleInstancePredictor(Predictor):
     output_stride: int = 2
     return_confmaps: bool = False
     device: str = "cpu"
-    preprocess_config: Optional[Dict[str, Any]] = None
+    preprocess_config: Optional[OmegaConf] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -749,13 +752,9 @@ class SingleInstancePredictor(Predictor):
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        data_config = self.confmap_config.data_config.preprocessing
+        data_config = self.confmap_config.data_config.train.preprocessing
         if self.preprocess_config is None:
             return data_config
-        else:
-            for k, v in self.preprocess_config.items():
-                if v is None:
-                    self.preprocess_config[k] = data_config[k]
         return self.preprocess_config
 
     @classmethod
@@ -769,7 +768,7 @@ class SingleInstancePredictor(Predictor):
         output_stride: int = 2,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str, Any]] = None,
+        preprocess_config: Optional[OmegaConf] = None,
     ) -> "SingleInstancePredictor":
         """Create predictor from saved models.
 
@@ -986,60 +985,27 @@ class BottomUpPredictor(Predictor):
     pafs_output_stride: int = 4
     return_confmaps: bool = False
     device: str = "cpu"
-    preprocess_config: Optional[Dict[str, Any]] = None
+    preprocess_config: Optional[OmegaConf] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
-        # get the index of pafs head configs
-        paf_idx = [
-            x.head_type == "PartAffinityFieldsHead"
-            for x in self.bottomup_config.model_config.head_configs
-        ].index(True)
-
-        # get the index of confmap head configs
-        confmaps_idx = [
-            x.head_type == "MultiInstanceConfmapsHead"
-            for x in self.bottomup_config.model_config.head_configs
-        ].index(True)
-
         # initialize the paf scorer
         paf_scorer = PAFScorer.from_config(
             config=OmegaConf.create(
                 {
                     "confmaps": self.bottomup_config.model_config.head_configs[
-                        confmaps_idx
+                        "confmaps"
                     ].head_config,
                     "pafs": self.bottomup_config.model_config.head_configs[
-                        paf_idx
+                        "pafs"
                     ].head_config,
                 }
-            ),  # TODO
-            max_edge_length_ratio=(
-                self.bottomup_config.inference_config.max_edge_length_ratio
-                if "max_edge_length_ratio"
-                in self.bottomup_config.inference_config.keys()
-                else self.max_edge_length_ratio
             ),
-            dist_penalty_weight=(
-                self.bottomup_config.inference_config.dist_penalty_weight
-                if "dist_penalty_weight" in self.bottomup_config.inference_config.keys()
-                else self.dist_penalty_weight
-            ),
-            n_points=(
-                self.bottomup_config.inference_config.n_points
-                if "n_points" in self.bottomup_config.inference_config.keys()
-                else self.n_points
-            ),
-            min_instance_peaks=(
-                self.bottomup_config.inference_config.min_instance_peaks
-                if "min_instance_peaks" in self.bottomup_config.inference_config.keys()
-                else self.min_instance_peaks
-            ),
-            min_line_scores=(
-                self.bottomup_config.inference_config.min_line_scores
-                if "min_line_scores" in self.bottomup_config.inference_config.keys()
-                else self.min_line_scores
-            ),
+            max_edge_length_ratio=self.max_edge_length_ratio,
+            dist_penalty_weight=self.dist_penalty_weight,
+            n_points=self.n_points,
+            min_instance_peaks=self.min_instance_peaks,
+            min_line_scores=self.min_line_scores,
         )
 
         # initialize the BottomUpInferenceModel
@@ -1058,13 +1024,9 @@ class BottomUpPredictor(Predictor):
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        data_config = self.bottomup_config.data_config.preprocessing
+        data_config = self.bottomup_config.data_config.train.preprocessing
         if self.preprocess_config is None:
             return data_config
-        else:
-            for k, v in self.preprocess_config.items():
-                if v is None:
-                    self.preprocess_config[k] = data_config[k]
         return self.preprocess_config
 
     @classmethod
@@ -1080,7 +1042,7 @@ class BottomUpPredictor(Predictor):
         pafs_output_stride: int = 4,
         return_confmaps: bool = False,
         device: str = "cpu",
-        preprocess_config: Optional[Dict[str, Any]] = None,
+        preprocess_config: Optional[OmegaConf] = None,
     ) -> "BottomUpPredictor":
         """Create predictor from saved models.
 
@@ -1313,6 +1275,11 @@ def main(
         "max_height": max_height,
     }
 
+    if provider == "VideoReader":
+        preprocess_config["video_queue_maxsize"] = video_queue_maxsize
+        preprocess_config["videoreader_start_idx"] = videoreader_start_idx
+        preprocess_config["videoreader_end_idx"] = videoreader_end_idx
+
     # initializes the inference model
     predictor = Predictor.from_model_paths(
         model_paths,
@@ -1325,7 +1292,7 @@ def main(
         pafs_output_stride=pafs_output_stride,
         return_confmaps=return_confmaps,
         device=device,
-        preprocess_config=preprocess_config,
+        preprocess_config=OmegaConf.create(preprocess_config),
     )
 
     if isinstance(predictor, BottomUpPredictor):
@@ -1335,16 +1302,14 @@ def main(
         predictor.inference_model.paf_scorer.dist_penalty_weight = dist_penalty_weight
         predictor.inference_model.return_pafs = return_pafs
         predictor.inference_model.return_paf_graph = return_paf_graph
-        predictor.inference_model.paf_scorer.max_edge_length_ratio = max_edge_length_ratio
+        predictor.inference_model.paf_scorer.max_edge_length_ratio = (
+            max_edge_length_ratio
+        )
         predictor.inference_model.paf_scorer.min_line_scores = min_line_scores
         predictor.inference_model.paf_scorer.min_instance_peaks = min_instance_peaks
         predictor.inference_model.paf_scorer.n_points = n_points
 
     # initialize make_pipeline function
-    if provider == "VideoReader":
-        preprocess_config["video_queue_maxsize"] = video_queue_maxsize
-        preprocess_config["videoreader_start_idx"] = videoreader_start_idx
-        preprocess_config["videoreader_end_idx"] = videoreader_end_idx
 
     predictor.make_pipeline(provider, data_path, num_workers)
 
