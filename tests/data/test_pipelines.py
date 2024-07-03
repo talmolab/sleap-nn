@@ -136,7 +136,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         }
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
     pipeline = TopdownConfmapsPipeline(
         data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
@@ -351,7 +351,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         }
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
     pipeline = SingleInstanceConfmapsPipeline(
         data_config=base_singleinstance_data_config,
@@ -483,7 +483,7 @@ def test_centroidconfmapspipeline(minimal_instance):
             },
         }
     )
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
     pipeline = CentroidConfmapsPipeline(
         data_config=base_centroid_data_config, max_stride=32, confmap_head=confmap_head
@@ -772,6 +772,7 @@ def test_bottomuppipeline(minimal_instance):
         "scale",
         "part_affinity_fields",
     ]
+
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
 
