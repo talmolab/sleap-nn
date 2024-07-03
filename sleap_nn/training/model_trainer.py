@@ -82,26 +82,59 @@ class ModelTrainer:
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
-        pipelines = {
-            "SingleInstanceConfmaps": SingleInstanceConfmapsPipeline,
-            "TopdownConfmaps": TopdownConfmapsPipeline,
-            "CentroidConfmaps": CentroidConfmapsPipeline,
-            "BottomUp": BottomUpPipeline,
-        }
 
-        if self.config.data_config.pipeline not in pipelines:
+        if self.config.data_config.pipeline == "SingleInstanceConfmaps":
+            train_pipeline = SingleInstanceConfmapsPipeline(
+                data_config=self.config.data_config.train,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+            )
+            val_pipeline = SingleInstanceConfmapsPipeline(
+                data_config=self.config.data_config.val,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+            )
+
+        elif self.config.data_config.pipeline == "TopdownConfmaps":
+            train_pipeline = TopdownConfmapsPipeline(
+                data_config=self.config.data_config.train,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+            )
+            val_pipeline = TopdownConfmapsPipeline(
+                data_config=self.config.data_config.val,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+            )
+
+        elif self.config.data_config.pipeline == "CentroidConfmaps":
+            train_pipeline = CentroidConfmapsPipeline(
+                data_config=self.config.data_config.train,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+            )
+            val_pipeline = CentroidConfmapsPipeline(
+                data_config=self.config.data_config.val,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+            )
+
+        elif self.config.data_config.pipeline == "BottomUp":
+            train_pipeline = BottomUpPipeline(
+                data_config=self.config.data_config.train,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+                pafs_head=self.config.model_config.head_configs.pafs.head_config,
+            )
+            val_pipeline = BottomUpPipeline(
+                data_config=self.config.data_config.val,
+                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+                pafs_head=self.config.model_config.head_configs.pafs.head_config,
+            )
+
+        else:
             raise Exception(f"{self.config.data_config.pipeline} is not defined.")
-
-        pipeline = pipelines[self.config.data_config.pipeline]
-
-        train_pipeline = pipeline(
-            data_config=self.config.data_config.train,
-            max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-        )
-        val_pipeline = pipeline(
-            data_config=self.config.data_config.val,
-            max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-        )
 
         # train
         train_labels = sio.load_slp(self.config.data_config.train.labels_path)
@@ -175,6 +208,8 @@ class ModelTrainer:
                 **dict(self.config.trainer_config.model_ckpt),
                 dirpath=dir_path,
                 filename="best",
+                monitor="val_loss",
+                mode="min",
             )
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs
@@ -303,19 +338,19 @@ class TrainingModel(L.LightningModule):
 
         # if edges and part names aren't set in config, get it from `sio.Labels` object.
         head_configs = self.model_config.head_configs
-        for idx in range(len(head_configs)):
-            if "part_names" in head_configs[idx].head_config.keys():
-                if head_configs[idx].head_config["part_names"] is None:
+        for key in head_configs:
+            if "part_names" in head_configs[key].head_config.keys():
+                if head_configs[key].head_config["part_names"] is None:
                     part_names = [x.name for x in self.skeletons[0].nodes]
-                    head_configs[idx].head_config["part_names"] = part_names
+                    head_configs[key].head_config["part_names"] = part_names
 
-            if "edges" in head_configs[idx].head_config.keys():
-                if head_configs[idx].head_config["edges"] is None:
+            if "edges" in head_configs[key].head_config.keys():
+                if head_configs[key].head_config["edges"] is None:
                     edges = [
                         (x.source.name, x.destination.name)
                         for x in self.skeletons[0].edges
                     ]
-                    head_configs[idx].head_config["edges"] = edges
+                    head_configs[key].head_config["edges"] = edges
 
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
@@ -324,7 +359,8 @@ class TrainingModel(L.LightningModule):
         ).to(self.m_device)
 
         self.loss_weights = [
-            x.head_config.loss_weight for x in self.model_config.head_configs
+            self.model_config.head_configs[x].head_config.loss_weight
+            for x in self.model_config.head_configs
         ]
         self.training_loss = {}
         self.val_loss = {}

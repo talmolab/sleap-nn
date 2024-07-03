@@ -80,12 +80,49 @@ class Predictor(ABC):
     ] = None
 
     @classmethod
-    def from_model_paths(cls, model_paths: List[Text]) -> "Predictor":
+    def from_model_paths(
+        cls,
+        model_paths: List[Text],
+        peak_threshold: float = 0.2,
+        integral_refinement: str = None,
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        output_stride: int = 2,
+        pafs_output_stride: int = 4,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[OmegaConf] = None,
+    ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            model_paths: List of paths to the directory where the best.ckpt and
-                training_config.yaml are saved.
+            model_paths: (List[str]) List of paths to the directory where the best.ckpt
+                and training_config.yaml are saved.
+            peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2.
+            integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+                If `"integral"`, peaks will be refined with integral regression.
+                Default: None.
+            integral_patch_size: (int) Size of patches to crop around each rough peak as an
+                integer scalar. Default: 5.
+            batch_size: (int) Number of samples per batch. Default: 4.
+            max_instances: (int) Max number of instances to consider from the predictions.
+            output_stride: (int) Stride of the output confidence maps relative to the input
+                image. This is the reciprocal of the resolution, e.g., an output stride
+                of 2 results in confidence maps that are 0.5x the size of the input.
+                Increasing this value can considerably speed up model performance and
+                decrease memory requirements, at the cost of decreased spatial resolution.
+                Default: 2
+            pafs_output_stride: (int) Stride of the output part affinity fields relative
+                to the input image. Default: 4.
+            return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+                along with the predicted peak values and points. Default: False.
+            device: (str) Device on which torch.Tensor will be allocated. One of the
+                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                Default: "cpu"
+            preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
 
         Returns:
             A subclass of `Predictor`.
@@ -97,15 +134,32 @@ class Predictor(ABC):
         model_config_paths = [
             OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
         ]
-        model_names = [
-            (c.model_config.head_configs[0].head_type) for c in model_config_paths
-        ]
+        model_names = sum(
+            [
+                [
+                    c.model_config.head_configs[head].head_type
+                    for head in c.model_config.head_configs
+                ]
+                for c in model_config_paths
+            ],
+            [],
+        )
 
         if "SingleInstanceConfmapsHead" in model_names:
             confmap_ckpt_path = model_paths[
                 model_names.index("SingleInstanceConfmapsHead")
             ]
-            predictor = SingleInstancePredictor.from_trained_models(confmap_ckpt_path)
+            predictor = SingleInstancePredictor.from_trained_models(
+                confmap_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                output_stride=output_stride,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=preprocess_config,
+            )
 
         elif (
             "CentroidConfmapsHead" in model_names
@@ -126,6 +180,15 @@ class Predictor(ABC):
             predictor = TopDownPredictor.from_trained_models(
                 centroid_ckpt_path=centroid_ckpt_path,
                 confmap_ckpt_path=confmap_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                max_instances=max_instances,
+                output_stride=output_stride,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=preprocess_config,
             )
 
         elif (
@@ -135,7 +198,19 @@ class Predictor(ABC):
             bottomup_ckpt_path = model_paths[
                 model_names.index("MultiInstanceConfmapsHead")
             ]
-            predictor = BottomUpPredictor.from_trained_models(bottomup_ckpt_path)
+            predictor = BottomUpPredictor.from_trained_models(
+                bottomup_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                max_instances=max_instances,
+                output_stride=output_stride,
+                pafs_output_stride=pafs_output_stride,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=preprocess_config,
+            )
         else:
             raise ValueError(
                 f"Could not create predictor from model paths:\n{model_paths}"
@@ -153,7 +228,7 @@ class Predictor(ABC):
         """Get the data parameters from the config."""
 
     @abstractmethod
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str):
         """Create the data pipeline."""
 
     @abstractmethod
@@ -181,8 +256,8 @@ class Predictor(ABC):
             A generator yielding batches predicted results as dictionaries of numpy
             arrays.
         """
-        # Initialize data pipeline and inference model if needed.
-        self.make_pipeline()
+        # Initialize inference model if needed.
+
         if self.inference_model is None:
             self._initialize_inference_model()
 
@@ -304,6 +379,29 @@ class TopDownPredictor(Predictor):
                         the output predictions.
         skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
                         the output predictions.
+        peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+            this will be ignored. Default: 0.2
+        integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+            If `"integral"`, peaks will be refined with integral regression.
+            Default: None.
+        integral_patch_size: (int) Size of patches to crop around each rough peak as an
+            integer scalar. Default: 5.
+        batch_size: (int) Number of samples per batch. Default: 4.
+        max_instances: (int) Max number of instances to consider from the predictions.
+        output_stride: (int) Stride of the output confidence maps relative to the input
+            image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+            Default: 2
+        return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+            along with the predicted peak values and points. Default: False.
+        device: (str) Device on which torch.Tensor will be allocated. One of the
+            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            Default: "cpu"
+        preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+            in the `data_config.preprocessing` section.
+
 
     """
 
@@ -313,6 +411,15 @@ class TopDownPredictor(Predictor):
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    peak_threshold: float = 0.2
+    integral_refinement: str = None
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    max_instances: Optional[int] = None
+    output_stride: int = 2
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[OmegaConf] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -324,9 +431,6 @@ class TopDownPredictor(Predictor):
             max_stride = (
                 self.centroid_config.model_config.backbone_config.backbone_config.max_stride
             )
-            self.centroid_config.inference_config.data["skeletons"] = (
-                self.centroid_config.data_config.skeletons
-            )
 
             # if both centroid and centered-instance model are provided, set return crops to True
             if self.confmap_model:
@@ -335,41 +439,35 @@ class TopDownPredictor(Predictor):
             # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
-                peak_threshold=self.centroid_config.inference_config.peak_threshold,
-                output_stride=(
-                    self.centroid_config.inference_config.data.preprocessing.output_stride
-                ),
-                refinement=self.centroid_config.inference_config.integral_refinement,
-                integral_patch_size=self.centroid_config.inference_config.integral_patch_size,
-                return_confmaps=self.centroid_config.inference_config.return_confmaps,
+                peak_threshold=self.peak_threshold,
+                output_stride=self.output_stride,
+                refinement=self.integral_refinement,
+                integral_patch_size=self.integral_patch_size,
+                return_confmaps=self.return_confmaps,
                 return_crops=return_crops,
-                max_instances=self.centroid_config.inference_config.data.max_instances,
-                crop_hw=tuple(
-                    self.centroid_config.inference_config.data.preprocessing.crop_hw
-                ),
-                input_scale=self.centroid_config.inference_config.data.scale,
+                max_instances=self.max_instances,
                 max_stride=max_stride,
+                input_scale=self.data_config.scale,
+                crop_hw=self.data_config.crop_hw,
             )
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
         if self.confmap_config is None:
             instance_peaks_layer = FindInstancePeaksGroundTruth()
         else:
-            self.confmap_config.inference_config.data["skeletons"] = (
-                self.confmap_config.data_config.skeletons
-            )
+
             max_stride = (
                 self.confmap_config.model_config.backbone_config.backbone_config.max_stride
             )
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
-                peak_threshold=self.confmap_config.inference_config.peak_threshold,
-                output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
-                refinement=self.confmap_config.inference_config.integral_refinement,
-                integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
-                return_confmaps=self.confmap_config.inference_config.return_confmaps,
-                input_scale=self.confmap_config.inference_config.data.scale,
+                peak_threshold=self.peak_threshold,
+                output_stride=self.output_stride,
+                refinement=self.integral_refinement,
+                integral_patch_size=self.integral_patch_size,
+                return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
+                input_scale=self.data_config.scale,
             )
 
         # Initialize the inference model with centroid and instance peak layers
@@ -381,20 +479,55 @@ class TopDownPredictor(Predictor):
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
         if self.centroid_config:
-            return self.centroid_config.inference_config.data
-        return self.confmap_config.inference_config.data
+            data_config = self.centroid_config.data_config.train.preprocessing
+        else:
+            data_config = self.confmap_config.data_config.train.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        return self.preprocess_config
 
     @classmethod
     def from_trained_models(
         cls,
         centroid_ckpt_path: Optional[Text] = None,
         confmap_ckpt_path: Optional[Text] = None,
+        peak_threshold: float = 0.2,
+        integral_refinement: str = None,
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        output_stride: int = 2,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[OmegaConf] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
         Args:
             centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2
+            integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+                If `"integral"`, peaks will be refined with integral regression.
+                Default: None.
+            integral_patch_size: (int) Size of patches to crop around each rough peak as an
+                integer scalar. Default: 5.
+            batch_size: (int) Number of samples per batch. Default: 4.
+            max_instances: (int) Max number of instances to consider from the predictions.
+            output_stride: (int) Stride of the output confidence maps relative to the input
+                image. This is the reciprocal of the resolution, e.g., an output stride
+                of 2 results in confidence maps that are 0.5x the size of the input.
+                Increasing this value can considerably speed up model performance and
+                decrease memory requirements, at the cost of decreased spatial resolution.
+                Default: 2.
+            return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+                along with the predicted peak values and points. Default: False.
+            device: (str) Device on which torch.Tensor will be allocated. One of the
+                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                Default: "cpu"
+            preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -414,8 +547,8 @@ class TopDownPredictor(Predictor):
                 config=centroid_config,
                 skeletons=skeletons,
             )
-            centroid_model.to(centroid_config.inference_config.device)
-            centroid_model.m_device = centroid_config.inference_config.device
+            centroid_model.to(device)
+            centroid_model.m_device = device
 
         else:
             centroid_config = None
@@ -430,8 +563,8 @@ class TopDownPredictor(Predictor):
                 config=confmap_config,
                 skeletons=skeletons,
             )
-            confmap_model.to(confmap_config.inference_config.device)
-            confmap_model.m_device = confmap_config.inference_config.device
+            confmap_model.to(device)
+            confmap_model.m_device = device
 
         else:
             confmap_config = None
@@ -444,13 +577,29 @@ class TopDownPredictor(Predictor):
             confmap_config=confmap_config,
             confmap_model=confmap_model,
             skeletons=skeletons,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            output_stride=output_stride,
+            return_confmaps=return_confmaps,
+            device=device,
+            preprocess_config=preprocess_config,
         )
 
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str, num_workers: int = 0):
         """Make a data loading pipeline.
+
+        Args:
+            provider: (str) Provider class to read the input sleap files.
+                Either "LabelsReader" or "VideoReader".
+            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            num_workers: (int) Number of subprocesses to use for data loading. 0 means
+                that the data will be loaded in the main process. *Default*: 0.
 
         Returns:
             Torch DataLoader where each item is a dictionary with key `image` if provider
@@ -463,7 +612,7 @@ class TopDownPredictor(Predictor):
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
-        self.provider = self.data_config.provider
+        self.provider = provider
 
         # LabelsReader provider
         if self.provider == "LabelsReader":
@@ -475,7 +624,7 @@ class TopDownPredictor(Predictor):
                 instances_key = False
 
             data_provider = provider.from_filename(
-                self.data_config.path, instances_key=instances_key
+                data_path, instances_key=instances_key
             )
 
             self.videos = data_provider.labels.videos
@@ -491,11 +640,11 @@ class TopDownPredictor(Predictor):
             if not self.centroid_model:
                 pipeline = InstanceCentroidFinder(
                     pipeline,
-                    anchor_ind=self.data_config.preprocessing.anchor_ind,
+                    anchor_ind=self.confmap_config.model_config.head_configs.confmaps.head_config.anchor_part,
                 )
                 pipeline = InstanceCropper(
                     pipeline,
-                    crop_hw=self.data_config.preprocessing.crop_hw,
+                    crop_hw=self.data_config.crop_hw,
                 )
 
                 pipeline = KeyFilter(
@@ -519,8 +668,7 @@ class TopDownPredictor(Predictor):
             self.pipeline = pipeline.sharding_filter()
 
             self.pipeline = DataLoader(
-                self.pipeline,
-                **dict(self.data_config.data_loader),
+                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
             )
 
             return self.pipeline
@@ -536,7 +684,7 @@ class TopDownPredictor(Predictor):
             provider = VideoReader
             self.preprocess = False
             self.video_preprocess_config = {
-                "batch_size": self.data_config.video_loader.batch_size,
+                "batch_size": self.batch_size,
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
@@ -545,13 +693,13 @@ class TopDownPredictor(Predictor):
             }
 
             frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+                maxsize=self.data_config.video_queue_maxsize if not None else 16
             )
             self.pipeline = provider.from_filename(
-                filename=self.data_config.path,
+                filename=data_path,
                 frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
+                start_idx=self.data_config.videoreader_start_idx,
+                end_idx=self.data_config.videoreader_end_idx,
             )
             self.videos = [self.pipeline.video]
 
@@ -648,6 +796,27 @@ class SingleInstancePredictor(Predictor):
                         the output predictions.
         skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
                         the output predictions.
+        peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+            this will be ignored. Default: 0.2
+        integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+            If `"integral"`, peaks will be refined with integral regression.
+            Default: None.
+        integral_patch_size: (int) Size of patches to crop around each rough peak as an
+            integer scalar. Default: 5.
+        batch_size: (int) Number of samples per batch. Default: 4.
+        output_stride: (int) Stride of the output confidence maps relative to the input
+            image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+            Default: 2
+        return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+            along with the predicted peak values and points. Default: False.
+        device: (str) Device on which torch.Tensor will be allocated. One of the
+            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            Default: "cpu"
+        preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
 
     """
 
@@ -655,33 +824,73 @@ class SingleInstancePredictor(Predictor):
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    peak_threshold: float = 0.2
+    integral_refinement: str = None
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    output_stride: int = 2
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[OmegaConf] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
         self.inference_model = SingleInstanceInferenceModel(
             torch_model=self.confmap_model,
-            peak_threshold=self.confmap_config.inference_config.peak_threshold,
-            output_stride=self.confmap_config.inference_config.data.preprocessing.output_stride,
-            refinement=self.confmap_config.inference_config.integral_refinement,
-            integral_patch_size=self.confmap_config.inference_config.integral_patch_size,
-            return_confmaps=self.confmap_config.inference_config.return_confmaps,
-            input_scale=self.confmap_config.inference_config.data.scale,
+            peak_threshold=self.peak_threshold,
+            output_stride=self.output_stride,
+            refinement=self.integral_refinement,
+            integral_patch_size=self.integral_patch_size,
+            return_confmaps=self.return_confmaps,
+            input_scale=self.data_config.scale,
         )
 
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        return self.confmap_config.inference_config.data
+        data_config = self.confmap_config.data_config.train.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        return self.preprocess_config
 
     @classmethod
     def from_trained_models(
         cls,
         confmap_ckpt_path: Optional[Text] = None,
-    ) -> "TopDownPredictor":
+        peak_threshold: float = 0.2,
+        integral_refinement: str = None,
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        output_stride: int = 2,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[OmegaConf] = None,
+    ) -> "SingleInstancePredictor":
         """Create predictor from saved models.
 
         Args:
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2
+            integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+                If `"integral"`, peaks will be refined with integral regression.
+                Default: None.
+            integral_patch_size: (int) Size of patches to crop around each rough peak as an
+                integer scalar. Default: 5.
+            batch_size: (int) Number of samples per batch. Default: 4.
+            output_stride: (int) Stride of the output confidence maps relative to the input
+                image. This is the reciprocal of the resolution, e.g., an output stride
+                of 2 results in confidence maps that are 0.5x the size of the input.
+                Increasing this value can considerably speed up model performance and
+                decrease memory requirements, at the cost of decreased spatial resolution.
+                Default: 2
+            return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+                along with the predicted peak values and points. Default: False.
+            device: (str) Device on which torch.Tensor will be allocated. One of the
+                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                Default: "cpu"
+            preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
 
         Returns:
             An instance of `SingleInstancePredictor` with the loaded models.
@@ -692,21 +901,36 @@ class SingleInstancePredictor(Predictor):
         confmap_model = SingleInstanceModel.load_from_checkpoint(
             f"{confmap_ckpt_path}/best.ckpt", config=confmap_config, skeletons=skeletons
         )
-        confmap_model.to(confmap_config.inference_config.device)
-        confmap_model.m_device = confmap_config.inference_config.device
+        confmap_model.to(device)
+        confmap_model.m_device = device
 
         # create an instance of SingleInstancePredictor class
         obj = cls(
             confmap_config=confmap_config,
             confmap_model=confmap_model,
             skeletons=skeletons,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            output_stride=output_stride,
+            return_confmaps=return_confmaps,
+            device=device,
+            preprocess_config=preprocess_config,
         )
 
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str, num_workers: int = 0):
         """Make a data loading pipeline.
+
+        Args:
+            provider: (str) Provider class to read the input sleap files.
+                Either "LabelsReader" or "VideoReader".
+            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            num_workers: (int) Number of subprocesses to use for data loading. 0 means
+                that the data will be loaded in the main process. *Default*: 0.
 
         Returns:
             Torch DataLoader where each item is a dictionary with key `image` if provider
@@ -719,10 +943,10 @@ class SingleInstancePredictor(Predictor):
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
-        self.provider = self.data_config.provider
+        self.provider = provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            data_provider = provider.from_filename(self.data_config.path)
+            data_provider = provider.from_filename(data_path)
             self.videos = data_provider.labels.videos
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
             pipeline = SizeMatcher(
@@ -741,8 +965,7 @@ class SingleInstancePredictor(Predictor):
             self.pipeline = pipeline.sharding_filter()
 
             self.pipeline = DataLoader(
-                self.pipeline,
-                **dict(self.data_config.data_loader),
+                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
             )
 
             return self.pipeline
@@ -751,7 +974,7 @@ class SingleInstancePredictor(Predictor):
             provider = VideoReader
             self.preprocess = True
             self.video_preprocess_config = {
-                "batch_size": self.data_config.video_loader.batch_size,
+                "batch_size": self.batch_size,
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
@@ -759,14 +982,15 @@ class SingleInstancePredictor(Predictor):
                 ),
             }
             frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+                maxsize=self.data_config.video_queue_maxsize if not None else 16
             )
             self.pipeline = provider.from_filename(
-                filename=self.data_config.path,
+                filename=data_path,
                 frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
+                start_idx=self.data_config.videoreader_start_idx,
+                end_idx=self.data_config.videoreader_end_idx,
             )
+
             self.videos = [self.pipeline.video]
 
         else:
@@ -864,6 +1088,30 @@ class BottomUpPredictor(Predictor):
                         the output predictions.
         skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
                         the output predictions.
+        peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+            this will be ignored. Default: 0.2
+        integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+            If `"integral"`, peaks will be refined with integral regression.
+            Default: None.
+        integral_patch_size: (int) Size of patches to crop around each rough peak as an
+            integer scalar. Default: 5.
+        batch_size: (int) Number of samples per batch. Default: 4.
+        max_instances: (int) Max number of instances to consider from the predictions.
+        output_stride: (int) Stride of the output confidence maps relative to the input
+            image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+            Default: 2
+        pafs_output_stride: (int) Stride of the output part affinity fields relative
+            to the input image. Default: 4.
+        return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+            along with the predicted peak values and points. Default: False.
+        device: (str) Device on which torch.Tensor will be allocated. One of the
+            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            Default: "cpu".
+        preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
 
     """
 
@@ -876,94 +1124,102 @@ class BottomUpPredictor(Predictor):
     min_line_scores: float = 0.25
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    peak_threshold: float = 0.2
+    integral_refinement: str = None
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    max_instances: Optional[int] = None
+    output_stride: int = 2
+    pafs_output_stride: int = 4
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[OmegaConf] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
-        # get the index of pafs head configs
-        paf_idx = [
-            x.head_type == "PartAffinityFieldsHead"
-            for x in self.bottomup_config.model_config.head_configs
-        ].index(True)
-
-        # get the index of confmap head configs
-        confmaps_idx = [
-            x.head_type == "MultiInstanceConfmapsHead"
-            for x in self.bottomup_config.model_config.head_configs
-        ].index(True)
-
         # initialize the paf scorer
         paf_scorer = PAFScorer.from_config(
             config=OmegaConf.create(
                 {
                     "confmaps": self.bottomup_config.model_config.head_configs[
-                        confmaps_idx
+                        "confmaps"
                     ].head_config,
                     "pafs": self.bottomup_config.model_config.head_configs[
-                        paf_idx
+                        "pafs"
                     ].head_config,
                 }
             ),
-            max_edge_length_ratio=(
-                self.bottomup_config.inference_config.max_edge_length_ratio
-                if "max_edge_length_ratio"
-                in self.bottomup_config.inference_config.keys()
-                else self.max_edge_length_ratio
-            ),
-            dist_penalty_weight=(
-                self.bottomup_config.inference_config.dist_penalty_weight
-                if "dist_penalty_weight" in self.bottomup_config.inference_config.keys()
-                else self.dist_penalty_weight
-            ),
-            n_points=(
-                self.bottomup_config.inference_config.n_points
-                if "n_points" in self.bottomup_config.inference_config.keys()
-                else self.n_points
-            ),
-            min_instance_peaks=(
-                self.bottomup_config.inference_config.min_instance_peaks
-                if "min_instance_peaks" in self.bottomup_config.inference_config.keys()
-                else self.min_instance_peaks
-            ),
-            min_line_scores=(
-                self.bottomup_config.inference_config.min_line_scores
-                if "min_line_scores" in self.bottomup_config.inference_config.keys()
-                else self.min_line_scores
-            ),
+            max_edge_length_ratio=self.max_edge_length_ratio,
+            dist_penalty_weight=self.dist_penalty_weight,
+            n_points=self.n_points,
+            min_instance_peaks=self.min_instance_peaks,
+            min_line_scores=self.min_line_scores,
         )
 
         # initialize the BottomUpInferenceModel
         self.inference_model = BottomUpInferenceModel(
             torch_model=self.bottomup_model,
             paf_scorer=paf_scorer,
-            peak_threshold=self.bottomup_config.inference_config.peak_threshold,
-            cms_output_stride=(
-                self.bottomup_config.inference_config.data.preprocessing.output_stride
-            ),
-            pafs_output_stride=(
-                self.bottomup_config.inference_config.data.preprocessing.pafs_output_stride
-            ),
-            refinement=self.bottomup_config.inference_config.integral_refinement,
-            integral_patch_size=self.bottomup_config.inference_config.integral_patch_size,
-            return_confmaps=self.bottomup_config.inference_config.return_confmaps,
-            return_pafs=self.bottomup_config.inference_config.return_pafs,
-            return_paf_graph=self.bottomup_config.inference_config.return_pafs,
-            input_scale=self.bottomup_config.inference_config.data.scale,
+            peak_threshold=self.peak_threshold,
+            cms_output_stride=self.output_stride,
+            pafs_output_stride=self.pafs_output_stride,
+            refinement=self.integral_refinement,
+            integral_patch_size=self.integral_patch_size,
+            return_confmaps=self.return_confmaps,
+            input_scale=self.data_config.scale,
         )
 
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        return self.bottomup_config.inference_config.data
+        data_config = self.bottomup_config.data_config.train.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        return self.preprocess_config
 
     @classmethod
     def from_trained_models(
         cls,
         bottomup_ckpt_path: Optional[Text] = None,
+        peak_threshold: float = 0.2,
+        integral_refinement: str = None,
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        output_stride: int = 2,
+        pafs_output_stride: int = 4,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[OmegaConf] = None,
     ) -> "BottomUpPredictor":
         """Create predictor from saved models.
 
         Args:
             bottomup_ckpt_path: Path to a bottom-up ckpt dir with model.ckpt and config.yaml.
+            peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2
+            integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+                If `"integral"`, peaks will be refined with integral regression.
+                Default: None.
+            integral_patch_size: (int) Size of patches to crop around each rough peak as an
+                integer scalar. Default: 5.
+            batch_size: (int) Number of samples per batch. Default: 4.
+            max_instances: (int) Max number of instances to consider from the predictions.
+            output_stride: (int) Stride of the output confidence maps relative to the input
+                image. This is the reciprocal of the resolution, e.g., an output stride
+                of 2 results in confidence maps that are 0.5x the size of the input.
+                Increasing this value can considerably speed up model performance and
+                decrease memory requirements, at the cost of decreased spatial resolution.
+                Default: 2
+            pafs_output_stride: (int) Stride of the output part affinity fields relative
+                to the input image. Default: 4.
+            return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+                along with the predicted peak values and points. Default: False.
+            device: (str) Device on which torch.Tensor will be allocated. One of the
+                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                Default: "cpu"
+            preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
 
         Returns:
             An instance of `BottomUpPredictor` with the loaded models.
@@ -976,24 +1232,37 @@ class BottomUpPredictor(Predictor):
             config=bottomup_config,
             skeletons=skeletons,
         )
-        bottomup_model.to(bottomup_config.inference_config.device)
-        bottomup_model.m_device = bottomup_config.inference_config.device
+        bottomup_model.to(device)
+        bottomup_model.m_device = device
 
         # create an instance of SingleInstancePredictor class
         obj = cls(
             bottomup_config=bottomup_config,
             bottomup_model=bottomup_model,
             skeletons=skeletons,
-        )
-        bottomup_config.inference_config.data["skeletons"] = (
-            bottomup_config.data_config.skeletons
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            output_stride=output_stride,
+            pafs_output_stride=pafs_output_stride,
+            return_confmaps=return_confmaps,
+            preprocess_config=preprocess_config,
         )
 
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self):
+    def make_pipeline(self, provider: str, data_path: str, num_workers: int = 0):
         """Make a data loading pipeline.
+
+        Args:
+            provider: (str) Provider class to read the input sleap files.
+                Either "LabelsReader" or "VideoReader".
+            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            num_workers: (int) Number of subprocesses to use for data loading. 0 means
+                that the data will be loaded in the main process. *Default*: 0.
 
         Returns:
             Torch DataLoader where each item is a dictionary with key `image` if provider
@@ -1006,10 +1275,10 @@ class BottomUpPredictor(Predictor):
             called automatically when predicting on data from a new source only when the
             provider is LabelsReader.
         """
-        self.provider = self.data_config.provider
+        self.provider = provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            data_provider = provider.from_filename(self.data_config.path)
+            data_provider = provider.from_filename(data_path)
             self.videos = data_provider.labels.videos
             pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
             pipeline = SizeMatcher(
@@ -1028,8 +1297,7 @@ class BottomUpPredictor(Predictor):
             self.pipeline = pipeline.sharding_filter()
 
             self.pipeline = DataLoader(
-                self.pipeline,
-                **dict(self.data_config.data_loader),
+                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
             )
 
             return self.pipeline
@@ -1038,7 +1306,7 @@ class BottomUpPredictor(Predictor):
             provider = VideoReader
             self.preprocess = True
             self.video_preprocess_config = {
-                "batch_size": self.data_config.video_loader.batch_size,
+                "batch_size": self.batch_size,
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
@@ -1046,14 +1314,15 @@ class BottomUpPredictor(Predictor):
                 ),
             }
             frame_queue = Queue(
-                maxsize=self.data_config.video_loader.queue_maxsize if not None else 16
+                maxsize=self.data_config.video_queue_maxsize if not None else 16
             )
             self.pipeline = provider.from_filename(
-                filename=self.data_config.path,
+                filename=data_path,
                 frame_buffer=frame_queue,
-                start_idx=self.data_config.video_loader.start_idx,
-                end_idx=self.data_config.video_loader.end_idx,
+                start_idx=self.data_config.videoreader_start_idx,
+                end_idx=self.data_config.videoreader_end_idx,
             )
+
             self.videos = [self.pipeline.video]
 
         else:
@@ -1117,10 +1386,7 @@ class BottomUpPredictor(Predictor):
                     )
 
                 max_instances = (
-                    self.bottomup_config.inference_config.data.max_instances
-                    if self.bottomup_config.inference_config.data.max_instances
-                    is not None
-                    else None
+                    self.max_instances if self.max_instances is not None else None
                 )
                 if max_instances is not None:
                     # Filter by score.
@@ -1145,3 +1411,170 @@ class BottomUpPredictor(Predictor):
             labeled_frames=predicted_frames,
         )
         return pred_labels
+
+
+def main(
+    data_path: str,
+    model_paths: List[str],
+    max_instances: int = None,
+    max_width: int = None,
+    max_height: int = None,
+    is_rgb: bool = False,
+    scale: float = 1.0,
+    provider: str = "LabelsReader",
+    batch_size: int = 4,
+    num_workers: int = 0,
+    video_queue_maxsize: int = 8,
+    videoreader_start_idx: int = 0,
+    videoreader_end_idx: int = 100,
+    crop_hw: List[int] = (160, 160),
+    output_stride: int = 2,
+    pafs_output_stride: int = 4,
+    peak_threshold: float = 0.2,
+    integral_refinement: str = None,
+    integral_patch_size: int = 5,
+    return_confmaps: bool = False,
+    return_pafs: bool = False,
+    return_paf_graph: bool = False,
+    max_edge_length_ratio: float = 0.25,
+    dist_penalty_weight: float = 1.0,
+    n_points: int = 10,
+    min_instance_peaks: Union[int, float] = 0,
+    min_line_scores: float = 0.25,
+    make_labels: bool = True,
+    save_path: str = "",
+    device: str = "cpu",
+):
+    """Entry point to run inference on trained SLEAP-NN models.
+
+    Args:
+        data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+        model_paths: TODO
+        max_instances: (int) Max number of instances to consider from the predictions.
+        max_width: (int) Maximum width the image should be padded to. If not provided, the
+                original image size will be retained. Default: None.
+        max_height: (int) Maximum height the image should be padded to. If not provided, the
+                original image size will be retained. Default: None.
+        is_rgb: (bool) True if the image has 3 channels (RGB image). If input has only one
+                channel when this is set to `True`, then the images from single-channel
+                is replicated along the channel axis. If input has three channels and this
+                is set to False, then we convert the image to grayscale (single-channel)
+                image. Default: False.
+        scale: (float) Float indicating if the images should be resized before being
+                passed to the model. Default: 1.0.
+        provider: (str) Provider class to read the input sleap files.
+                Either "LabelsReader" or "VideoReader". Default: LabelsReader.
+        batch_size: (int) Number of samples per batch. Default: 4.
+        num_workers: (int) Number of subprocesses to use for data loading. 0 means
+                that the data will be loaded in the main process. *Default*: 0.
+        video_queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+        videoreader_start_idx: (int) Start index of the frames to read. Default: 0.
+        videoreader_end_idx: (int) End index of the frames to read. Default: 100.
+        crop_hw: List[int] Minimum height and width of the crop in pixels. Default: (160, 160).
+        output_stride: (int) Stride of the output confidence maps relative to the input
+                image. This is the reciprocal of the resolution, e.g., an output stride
+                of 2 results in confidence maps that are 0.5x the size of the input.
+                Increasing this value can considerably speed up model performance and
+                decrease memory requirements, at the cost of decreased spatial resolution.
+                Default: 2
+        pafs_output_stride: (int) Stride of the output part affinity fields relative
+                to the input image. Default: 4.
+        peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2.
+        integral_refinement: (str) If `None`, returns the grid-aligned peaks with no refinement.
+                If `"integral"`, peaks will be refined with integral regression.
+                Default: None.
+        integral_patch_size: (int) Size of patches to crop around each rough peak as an
+                integer scalar. Default: 5.
+        return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+                along with the predicted peak values and points. Default: False.
+        return_pafs: (bool) If `True`, the part affinity fields will be returned together with
+                the predicted instances. This will result in slower inference times since
+                the data must be copied off of the GPU, but is useful for visualizing the
+                raw output of the model. Default: False.
+        return_paf_graph: (bool) If `True`, the part affinity field graph will be returned
+                together with the predicted instances. The graph is obtained by parsing the
+                part affinity fields with the `paf_scorer` instance and is an intermediate
+                representation used during instance grouping. Default: False.
+        max_edge_length_ratio: (float) The maximum expected length of a connected pair of points
+                as a fraction of the image size. Candidate connections longer than this
+                length will be penalized during matching. Default: 0.25.
+        dist_penalty_weight: (float) A coefficient to scale weight of the distance penalty as
+                a scalar float. Set to values greater than 1.0 to enforce the distance
+                penalty more strictly.Default: 1.0.
+        n_points: (int) Number of points to sample along the line integral. Default: 10.
+        min_instance_peaks: Union[int, float] Minimum number of peaks the instance should
+                have to be considered a real instance. Instances with fewer peaks than
+                this will be discarded (useful for filtering spurious detections).
+                Default: 0.
+        min_line_scores: (float) Minimum line score (between -1 and 1) required to form a match
+                between candidate point pairs. Useful for rejecting spurious detections when
+                there are no better ones. Default: 0.25.
+        make_labels: (bool) If `True` (the default), returns a `sio.Labels` instance with
+                `sio.PredictedInstance`s. If `False`, just return a list of
+                dictionaries containing the raw arrays returned by the inference model.
+                Default: True.
+        save_path: (str) Path to save the labels file if `make_labels` is True.
+                Default is current working directory.
+        device: (str) Device on which torch.Tensor will be allocated. One of the
+                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                Default: "cpu".
+
+    Returns:
+        Returns `sio.Labels` object if `make_labels` is True. Else this function returns
+            a list of Dictionaries with the predictions.
+
+    """
+    preprocess_config = {  # if not given, then use from training config
+        "is_rgb": is_rgb,
+        "scale": scale,
+        "crop_hw": crop_hw,
+        "max_width": max_width,
+        "max_height": max_height,
+    }
+
+    if provider == "VideoReader":
+        preprocess_config["video_queue_maxsize"] = video_queue_maxsize
+        preprocess_config["videoreader_start_idx"] = videoreader_start_idx
+        preprocess_config["videoreader_end_idx"] = videoreader_end_idx
+
+    # initializes the inference model
+    predictor = Predictor.from_model_paths(
+        model_paths,
+        peak_threshold=peak_threshold,
+        integral_refinement=integral_refinement,
+        integral_patch_size=integral_patch_size,
+        batch_size=batch_size,
+        max_instances=max_instances,
+        output_stride=output_stride,
+        pafs_output_stride=pafs_output_stride,
+        return_confmaps=return_confmaps,
+        device=device,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    if isinstance(predictor, BottomUpPredictor):
+        predictor.inference_model.paf_scorer.max_edge_length_ratio = (
+            max_edge_length_ratio
+        )
+        predictor.inference_model.paf_scorer.dist_penalty_weight = dist_penalty_weight
+        predictor.inference_model.return_pafs = return_pafs
+        predictor.inference_model.return_paf_graph = return_paf_graph
+        predictor.inference_model.paf_scorer.max_edge_length_ratio = (
+            max_edge_length_ratio
+        )
+        predictor.inference_model.paf_scorer.min_line_scores = min_line_scores
+        predictor.inference_model.paf_scorer.min_instance_peaks = min_instance_peaks
+        predictor.inference_model.paf_scorer.n_points = n_points
+
+    # initialize make_pipeline function
+
+    predictor.make_pipeline(provider, data_path, num_workers)
+
+    # run predict
+    output = predictor.predict(
+        make_labels=make_labels,
+        save_path=save_path,
+    )
+
+    return output

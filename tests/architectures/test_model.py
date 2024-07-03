@@ -1,6 +1,7 @@
 import pytest
 import torch
 from omegaconf import OmegaConf
+from omegaconf.omegaconf import DictConfig
 
 from sleap_nn.architectures.model import Model, get_backbone, get_head
 from sleap_nn.architectures.heads import Head
@@ -25,14 +26,14 @@ def test_get_backbone():
                 "stem_stride": None,
                 "middle_block": True,
                 "up_interpolate": True,
-                "output_strides": [1],
-                "block_contraction": False,
             },
         }
     )
 
     backbone = get_backbone(
-        base_unet_model_config.backbone_type, base_unet_model_config.backbone_config
+        base_unet_model_config.backbone_type,
+        base_unet_model_config.backbone_config,
+        output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
@@ -50,7 +51,6 @@ def test_get_backbone():
                 "filters_rate": 2,
                 "convs_per_block": 2,
                 "up_interpolate": True,
-                "output_strides": [1],
                 "stem_patch_kernel": 4,
                 "stem_patch_stride": 2,
             },
@@ -60,11 +60,12 @@ def test_get_backbone():
     backbone = get_backbone(
         base_convnext_model_config.backbone_type,
         base_convnext_model_config.backbone_config,
+        output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
     with pytest.raises(KeyError):
-        _ = get_backbone("invalid_input", base_unet_model_config.backbone_config)
+        _ = get_backbone("invalid_input", base_unet_model_config.backbone_config, 1)
 
     # swint
     base_convnext_model_config = OmegaConf.create(
@@ -82,7 +83,6 @@ def test_get_backbone():
                 "filters_rate": 2,
                 "convs_per_block": 2,
                 "up_interpolate": True,
-                "output_strides": [1],
                 "stem_patch_stride": 4,
             },
         }
@@ -91,11 +91,14 @@ def test_get_backbone():
     backbone = get_backbone(
         base_convnext_model_config.backbone_type,
         base_convnext_model_config.backbone_config,
+        output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
     with pytest.raises(KeyError):
-        _ = get_backbone("invalid_input", base_unet_model_config.backbone_config)
+        _ = get_backbone(
+            "invalid_input", base_unet_model_config.backbone_config, output_stride=1
+        )
 
 
 def test_get_head():
@@ -135,8 +138,6 @@ def test_unet_model():
                 "stem_stride": None,
                 "middle_block": True,
                 "up_interpolate": True,
-                "output_strides": [1],
-                "block_contraction": False,
             },
         }
     )
@@ -155,12 +156,12 @@ def test_unet_model():
 
     model = Model(
         backbone_config=base_unet_model_config,
-        head_configs=[base_unet_head_config],
+        head_configs=DictConfig({"confmap_head": base_unet_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
-    assert model.head_configs == [base_unet_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_unet_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -188,8 +189,6 @@ def test_unet_model():
                 "stem_stride": None,
                 "middle_block": True,
                 "up_interpolate": True,
-                "output_strides": [1],
-                "block_contraction": False,
             },
         }
     )
@@ -208,12 +207,12 @@ def test_unet_model():
 
     model = Model(
         backbone_config=base_unet_model_config,
-        head_configs=[base_unet_head_config],
+        head_configs=DictConfig({"confmap_head": base_unet_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
-    assert model.head_configs == [base_unet_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_unet_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -241,8 +240,6 @@ def test_unet_model():
                 "stem_stride": None,
                 "middle_block": True,
                 "up_interpolate": False,
-                "output_strides": [1],
-                "block_contraction": False,
             },
         }
     )
@@ -261,12 +258,12 @@ def test_unet_model():
 
     model = Model(
         backbone_config=base_unet_model_config,
-        head_configs=[base_unet_head_config],
+        head_configs=DictConfig({"confmap_head": base_unet_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
-    assert model.head_configs == [base_unet_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_unet_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -294,7 +291,6 @@ def test_convnext_model():
                 "filters_rate": 2,
                 "convs_per_block": 2,
                 "up_interpolate": True,
-                "output_strides": [1],
                 "stem_patch_kernel": 4,
                 "stem_patch_stride": 2,
             },
@@ -315,12 +311,12 @@ def test_convnext_model():
 
     model = Model(
         backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
+        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_convnext_model_config
-    assert model.head_configs == [base_convnext_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_convnext_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -335,7 +331,7 @@ def test_convnext_model():
 
     model = Model.from_config(
         backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
+        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
         input_expand_channels=1,
     ).to(device)
 
@@ -362,7 +358,6 @@ def test_convnext_model():
                 "filters_rate": 2,
                 "convs_per_block": 2,
                 "up_interpolate": True,
-                "output_strides": [1],
                 "stem_patch_kernel": 4,
                 "stem_patch_stride": 4,
             },
@@ -383,12 +378,12 @@ def test_convnext_model():
 
     model = Model(
         backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
+        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_convnext_model_config
-    assert model.head_configs == [base_convnext_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_convnext_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -403,7 +398,7 @@ def test_convnext_model():
 
     model = Model.from_config(
         backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
+        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
         input_expand_channels=1,
     ).to(device)
 
@@ -430,7 +425,6 @@ def test_convnext_model():
                 "filters_rate": 2,
                 "convs_per_block": 2,
                 "up_interpolate": False,
-                "output_strides": [1],
                 "stem_patch_kernel": 4,
                 "stem_patch_stride": 4,
             },
@@ -451,12 +445,12 @@ def test_convnext_model():
 
     model = Model(
         backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
+        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_convnext_model_config
-    assert model.head_configs == [base_convnext_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_convnext_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -471,7 +465,7 @@ def test_convnext_model():
 
     model = Model.from_config(
         backbone_config=base_convnext_model_config,
-        head_configs=[base_convnext_head_config],
+        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
         input_expand_channels=1,
     ).to(device)
 
@@ -504,7 +498,6 @@ def test_swint_model():
                 "filters_rate": 2,
                 "convs_per_block": 2,
                 "up_interpolate": True,
-                "output_strides": [1],
                 "stem_patch_stride": 4,
             },
         }
@@ -524,12 +517,12 @@ def test_swint_model():
 
     model = Model(
         backbone_config=base_swint_model_config,
-        head_configs=[base_swint_head_config],
+        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_swint_model_config
-    assert model.head_configs == [base_swint_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_swint_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -544,7 +537,7 @@ def test_swint_model():
 
     model = Model.from_config(
         backbone_config=base_swint_model_config,
-        head_configs=[base_swint_head_config],
+        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
         input_expand_channels=1,
     ).to(device)
 
@@ -573,7 +566,6 @@ def test_swint_model():
                 "filters_rate": 2,
                 "convs_per_block": 2,
                 "up_interpolate": False,
-                "output_strides": [1],
                 "stem_patch_stride": 4,
                 "stem_stride": None,
             },
@@ -594,12 +586,12 @@ def test_swint_model():
 
     model = Model(
         backbone_config=base_swint_model_config,
-        head_configs=[base_swint_head_config],
+        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
         input_expand_channels=1,
     ).to(device)
 
     assert model.backbone_config == base_swint_model_config
-    assert model.head_configs == [base_swint_head_config]
+    assert model.head_configs == DictConfig({"confmap_head": base_swint_head_config})
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -614,7 +606,7 @@ def test_swint_model():
 
     model = Model.from_config(
         backbone_config=base_swint_model_config,
-        head_configs=[base_swint_head_config],
+        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
         input_expand_channels=1,
     ).to(device)
 

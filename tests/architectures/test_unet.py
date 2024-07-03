@@ -29,12 +29,11 @@ def test_unet_reference():
             "stem_stride": None,
             "middle_block": True,
             "up_interpolate": True,
-            "output_strides": [1],
             "block_contraction": False,
         }
     )
 
-    unet = UNet.from_config(config=config)
+    unet = UNet.from_config(config=config, output_stride=1)
 
     in_channels = int(
         unet.max_channels / config.filters_rate ** len(unet.dec.decoder_stack)
@@ -129,12 +128,11 @@ def test_unet_reference():
             "stem_stride": 2,
             "middle_block": True,
             "up_interpolate": True,
-            "output_strides": [1],
             "block_contraction": False,
         }
     )
 
-    unet = UNet.from_config(config=config)
+    unet = UNet.from_config(config=config, output_stride=1)
 
     in_channels = int(
         unet.max_channels / config.filters_rate ** len(unet.dec.decoder_stack)

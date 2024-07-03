@@ -32,20 +32,20 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     )
 
     data_provider = LabelsReader.from_filename(minimal_instance)
-    pipeline = Normalizer(data_provider, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = Normalizer(data_provider, is_rgb=False)
     pipeline = SizeMatcher(
         pipeline,
         provider=data_provider,
-        max_height=config.inference_config.data.max_height,
-        max_width=config.inference_config.data.max_width,
+        max_height=None,
+        max_width=None,
     )
     pipeline = InstanceCentroidFinder(
         pipeline,
-        anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
+        anchor_ind=0,
     )
     pipeline = InstanceCropper(
         pipeline,
-        crop_hw=config.inference_config.data.preprocessing.crop_hw,
+        crop_hw=(160, 160),
     )
     pipeline = Resizer(
         pipeline, scale=1.0, image_key="instance_image", instances_key="instance"
@@ -55,7 +55,7 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
         pipeline,
-        **dict(config.inference_config.data.data_loader),
+        batch_size=4,
     )
     find_peaks_layer = FindInstancePeaks(
         torch_model=torch_model,
@@ -69,8 +69,8 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
 def test_centroid_inference_model(config):
     """Test CentroidCrop class to run inference on centroid models."""
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
-    del config.model_config.head_configs[0].head_config.part_names
+    config.model_config.head_configs["confmaps"].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs["confmaps"].head_config.part_names
 
     trainer = ModelTrainer(config)
     trainer._create_data_loaders()
@@ -124,19 +124,19 @@ def test_find_instance_peaks_groundtruth(
     data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,
-        max_height=config.inference_config.data.max_height,
-        max_width=config.inference_config.data.max_width,
+        max_height=None,
+        max_width=None,
     )
-    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = Normalizer(pipeline, is_rgb=False)
     pipeline = InstanceCentroidFinder(
         pipeline,
-        anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
+        anchor_ind=0,
     )
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
         pipeline,
-        **dict(config.inference_config.data.data_loader),
+        batch_size=4,
     )
 
     p = iter(data_pipeline)
@@ -158,19 +158,19 @@ def test_find_instance_peaks_groundtruth(
     data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,
-        max_height=config.inference_config.data.max_height,
-        max_width=config.inference_config.data.max_width,
+        max_height=None,
+        max_width=None,
     )
-    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = Normalizer(pipeline, is_rgb=False)
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
         pipeline,
-        **dict(config.inference_config.data.data_loader),
+        batch_size=4,
     )
 
     OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    config.model_config.head_configs[0].head_type = "CentroidConfmapsHead"
-    del config.model_config.head_configs[0].head_config.part_names
+    config.model_config.head_configs["confmaps"].head_type = "CentroidConfmapsHead"
+    del config.model_config.head_configs["confmaps"].head_config.part_names
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     model = CentroidModel.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt", config=config
@@ -258,19 +258,19 @@ def test_topdown_inference_model(
     data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,
-        max_height=config.inference_config.data.max_height,
-        max_width=config.inference_config.data.max_width,
+        max_height=None,
+        max_width=None,
     )
-    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = Normalizer(pipeline, is_rgb=False)
     pipeline = InstanceCentroidFinder(
         pipeline,
-        anchor_ind=config.inference_config.data.preprocessing.anchor_ind,
+        anchor_ind=0,
     )
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
         pipeline,
-        **dict(config.inference_config.data.data_loader),
+        batch_size=4,
     )
 
     # if centroid layer is none and centered-instance model.
@@ -281,7 +281,7 @@ def test_topdown_inference_model(
     for x in loader:
         outputs.append(topdown_inf_layer(x))
     for i in outputs[0]:
-        assert i["centroid_val"] == 1
+        assert i["centroid_val"][0] == 1
         assert "pred_instance_peaks" in i and "pred_peak_values" in i
 
     # if centroid layer is none and "instances" not in data
@@ -306,14 +306,14 @@ def test_topdown_inference_model(
     data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,
-        max_height=config.inference_config.data.max_height,
-        max_width=config.inference_config.data.max_width,
+        max_height=None,
+        max_width=None,
     )
-    pipeline = Normalizer(pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = Normalizer(pipeline, is_rgb=False)
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
         pipeline,
-        **dict(config.inference_config.data.data_loader),
+        batch_size=4,
     )
 
     centroid_layer = CentroidCrop(

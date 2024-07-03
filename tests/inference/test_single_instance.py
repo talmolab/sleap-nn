@@ -19,8 +19,10 @@ def test_single_instance_inference_model(
 ):
     """Test SingleInstanceInferenceModel."""
     OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
-    del config.model_config.head_configs[0].head_config.anchor_part
+    config.model_config.head_configs["confmaps"].head_type = (
+        "SingleInstanceConfmapsHead"
+    )
+    del config.model_config.head_configs["confmaps"].head_config.anchor_part
 
     torch_model = SingleInstanceModel.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt", config=config
@@ -32,18 +34,18 @@ def test_single_instance_inference_model(
         lf.instances = lf.instances[:1]
 
     provider_pipeline = LabelsReader(labels)
-    pipeline = Normalizer(provider_pipeline, is_rgb=config.inference_config.data.is_rgb)
+    pipeline = Normalizer(provider_pipeline, is_rgb=False)
     pipeline = SizeMatcher(
         pipeline,
-        max_height=config.inference_config.data.max_height,
-        max_width=config.inference_config.data.max_width,
+        max_height=None,
+        max_width=None,
         provider=provider_pipeline,
     )
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
         pipeline,
-        **dict(config.inference_config.data.data_loader),
+        batch_size=4,
     )
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model,

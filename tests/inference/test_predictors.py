@@ -2,7 +2,7 @@ import sleap_io as sio
 from typing import Text
 import pytest
 from omegaconf import OmegaConf
-from sleap_nn.inference.predictors import Predictor
+from sleap_nn.inference.predictors import main
 
 
 def test_topdown_predictor(
@@ -14,9 +14,14 @@ def test_topdown_predictor(
     # for centered instance model
     # check if labels are created from ckpt
 
-    predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
-    pred_labels = predictor.predict(make_labels=True)
-    assert predictor.centroid_config is None
+    pred_labels = main(
+        model_paths=[minimal_instance_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        return_confmaps=False,
+        make_labels=True,
+        peak_threshold=0.1,
+    )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
     assert len(pred_labels[0].instances) == 2
@@ -32,7 +37,15 @@ def test_topdown_predictor(
     assert lf.image.shape == gt_lf.image.shape
 
     # check if dictionaries are created when make labels is set to False
-    preds = predictor.predict(make_labels=False)
+    preds = main(
+        model_paths=[minimal_instance_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        make_labels=False,
+        peak_threshold=0.0,
+        integral_refinement="integral",
+        batch_size=1,
+    )
     assert isinstance(preds, list)
     assert len(preds) == 2
     assert isinstance(preds[0], dict)
@@ -41,196 +54,106 @@ def test_topdown_predictor(
     # if model parameter is not set right
     with pytest.raises(ValueError):
         config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-        model_name = config.model_config.head_configs[0].head_type
-        config.model_config.head_configs[0].head_type = "instance"
+        model_name = config.model_config.head_configs["confmaps"].head_type
+        config.model_config.head_configs["confmaps"].head_type = "instance"
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
-        predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
+        preds = main(
+            model_paths=[minimal_instance_ckpt],
+            data_path="./tests/assets/minimal_instance.pkg.slp",
+            provider="LabelsReader",
+            make_labels=False,
+        )
 
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    config.model_config.head_configs[0].head_type = model_name
+    config.model_config.head_configs["confmaps"].head_type = model_name
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
     # centroid + centroid instance model
-    predictor = Predictor.from_model_paths(
-        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
+    pred_labels = main(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=0.0,
+        integral_refinement="integral",
     )
-    pred_labels = predictor.predict(make_labels=True)
-    assert predictor.centroid_config is not None
-    assert predictor.confmap_config is not None
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
-    assert len(pred_labels[0].instances) <= config.inference_config.data.max_instances
+    assert len(pred_labels[0].instances) <= 6
 
     # centroid model
-    predictor = Predictor.from_model_paths(model_paths=[minimal_instance_centroid_ckpt])
-    pred_labels = predictor.predict(make_labels=False)
-    assert predictor.confmap_config is None
+    pred_labels = main(
+        model_paths=[minimal_instance_centroid_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        make_labels=False,
+        max_instances=6,
+        peak_threshold=0.1,
+    )
     assert len(pred_labels) == 1
     assert pred_labels[0]["centroids"].shape == (1, 1, 2, 2)
 
     # Provider = VideoReader
     # centroid + centered-instance model inference
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    centroid_config = OmegaConf.load(
-        f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+
+    pred_labels = main(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path="./tests/assets/centered_pair_small.mp4",
+        provider="VideoReader",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=0.0,
+        integral_refinement="integral",
+        videoreader_start_idx=0,
+        videoreader_end_idx=100,
     )
-    _centroid_config = centroid_config.copy()
-    _config = config.copy()
-    try:
-        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
-        OmegaConf.update(
-            centroid_config, "inference_config.data.provider", "VideoReader"
-        )
-        OmegaConf.update(
-            config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.update(
-            centroid_config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
-        OmegaConf.save(
-            centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
-        )
-        predictor = Predictor.from_model_paths(
-            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
-        )
-        pred_labels = predictor.predict(make_labels=True)
-        assert predictor.centroid_config is not None
-        assert predictor.confmap_config is not None
-        assert isinstance(pred_labels, sio.Labels)
-        assert len(pred_labels) == 100
-    finally:
-        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
-        OmegaConf.save(
-            _centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
-        )
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 100
 
     # Unrecognized provider
-    config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
-    _config = config.copy()
-    try:
-        OmegaConf.update(config, "inference_config.data.provider", "Reader")
-        OmegaConf.update(
-            config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.save(config, f"{minimal_instance_centroid_ckpt}/training_config.yaml")
-        predictor = Predictor.from_model_paths(
-            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
-        )
-        with pytest.raises(
-            Exception,
-            match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
-        ):
-            pred_labels = predictor.predict(make_labels=True)
-
-    finally:
-        OmegaConf.save(
-            _config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+    with pytest.raises(
+        Exception,
+        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
+    ):
+        pred_labels = main(
+            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+            data_path="./tests/assets/centered_pair_small.mp4",
+            provider="Reader",
+            make_labels=True,
+            max_instances=6,
         )
 
     # Provider = VideoReader
     # error in Videoreader but graceful execution
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    centroid_config = OmegaConf.load(
-        f"{minimal_instance_centroid_ckpt}/training_config.yaml"
-    )
-    _centroid_config = centroid_config.copy()
-    _config = config.copy()
-    try:
-        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
-        OmegaConf.update(
-            centroid_config, "inference_config.data.provider", "VideoReader"
-        )
-        OmegaConf.update(
-            config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.update(
-            centroid_config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.update(
-            config,
-            "inference_config.data.video_reader.start_idx",
-            1100,
-        )
-        OmegaConf.update(
-            centroid_config,
-            "inference_config.data.video_reader.start_idx",
-            1100,
-        )
 
-        OmegaConf.update(
-            centroid_config,
-            "inference_config.data.video_reader.end_idx",
-            1103,
-        )
-        OmegaConf.update(
-            config,
-            "inference_config.data.video_reader.end_idx",
-            1103,
-        )
-        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
-        OmegaConf.save(
-            centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
-        )
-        predictor = Predictor.from_model_paths(
-            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt]
-        )
-        pred_labels = predictor.predict(make_labels=True)
-    finally:
-        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
-        OmegaConf.save(
-            _centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
-        )
+    pred_labels = main(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path="./tests/assets/centered_pair_small.mp4",
+        provider="VideoReader",
+        make_labels=True,
+        max_instances=6,
+        videoreader_start_idx=1100,
+        videoreader_end_idx=1103,
+        peak_threshold=0.1,
+    )
 
     # Provider = VideoReader
     # centroid model not provided
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    centroid_config = OmegaConf.load(
-        f"{minimal_instance_centroid_ckpt}/training_config.yaml"
-    )
-    _centroid_config = centroid_config.copy()
-    _config = config.copy()
-    try:
-        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
-        OmegaConf.update(
-            centroid_config, "inference_config.data.provider", "VideoReader"
-        )
-        OmegaConf.update(
-            config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.update(
-            centroid_config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
-        OmegaConf.save(
-            centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
-        )
 
-        with pytest.raises(
-            ValueError,
-            match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
-        ):
-            predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
-            pred_labels = predictor.predict(make_labels=True)
-
-    finally:
-        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
-        OmegaConf.save(
-            _centroid_config, f"{minimal_instance_centroid_ckpt}/training_config.yaml"
+    with pytest.raises(
+        ValueError,
+        match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
+    ):
+        pred_labels = main(
+            model_paths=[minimal_instance_ckpt],
+            data_path="./tests/assets/centered_pair_small.mp4",
+            provider="VideoReader",
+            make_labels=True,
+            max_instances=6,
+            videoreader_start_idx=0,
+            videoreader_end_idx=100,
+            peak_threshold=0.1,
         )
 
 
@@ -243,16 +166,24 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
     try:
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        OmegaConf.update(config, "inference_config.data.max_height", 500)
-        OmegaConf.update(config, "inference_config.data.max_width", 500)
-        OmegaConf.update(config, "inference_config.data.scale", 0.9)
-        config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
-        del config.model_config.head_configs[0].head_config.anchor_part
+        config.model_config.head_configs["confmaps"].head_type = (
+            "SingleInstanceConfmapsHead"
+        )
+        del config.model_config.head_configs["confmaps"].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
-        predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
-        pred_labels = predictor.predict(make_labels=True)
+        pred_labels = main(
+            model_paths=[minimal_instance_ckpt],
+            data_path="./tests/assets/minimal_instance.pkg.slp",
+            provider="LabelsReader",
+            make_labels=True,
+            max_instances=6,
+            peak_threshold=0.3,
+            max_height=500,
+            max_width=500,
+            scale=0.9,
+        )
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 1
         assert len(pred_labels[0].instances) == 1
@@ -266,7 +197,16 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
         # check if dictionaries are created when make labels is set to False
-        preds = predictor.predict(make_labels=False)
+        preds = main(
+            model_paths=[minimal_instance_ckpt],
+            data_path="./tests/assets/minimal_instance.pkg.slp",
+            provider="LabelsReader",
+            make_labels=False,
+            peak_threshold=0.3,
+            max_height=500,
+            max_width=500,
+            scale=0.9,
+        )
         assert isinstance(preds, list)
         assert len(preds) == 1
         assert isinstance(preds[0], dict)
@@ -282,21 +222,22 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "inference_config.data.provider", "VideoReader")
-        OmegaConf.update(
-            config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        OmegaConf.update(config, "inference_config.data.scale", 0.9)
-        config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
-        del config.model_config.head_configs[0].head_config.anchor_part
+        config.model_config.head_configs["confmaps"].head_type = (
+            "SingleInstanceConfmapsHead"
+        )
+        del config.model_config.head_configs["confmaps"].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
-        predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
-        pred_labels = predictor.predict(make_labels=True)
+        pred_labels = main(
+            model_paths=[minimal_instance_ckpt],
+            data_path="./tests/assets/centered_pair_small.mp4",
+            provider="VideoReader",
+            make_labels=True,
+            peak_threshold=0.3,
+            scale=0.9,
+        )
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 100
         assert len(pred_labels[0].instances) == 1
@@ -308,7 +249,14 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         assert lf.frame_idx == 0
 
         # check if dictionaries are created when make labels is set to False
-        preds = predictor.predict(make_labels=False)
+        preds = main(
+            model_paths=[minimal_instance_ckpt],
+            data_path="./tests/assets/centered_pair_small.mp4",
+            provider="VideoReader",
+            make_labels=False,
+            peak_threshold=0.3,
+            scale=0.9,
+        )
         assert isinstance(preds, list)
         assert len(preds) == 25
         assert preds[0]["pred_instance_peaks"].shape[0] == 4
@@ -326,24 +274,26 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "inference_config.data.provider", "Reader")
-        OmegaConf.update(
-            config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
         OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        config.model_config.head_configs[0].head_type = "SingleInstanceConfmapsHead"
-        del config.model_config.head_configs[0].head_config.anchor_part
+        config.model_config.head_configs["confmaps"].head_type = (
+            "SingleInstanceConfmapsHead"
+        )
+        del config.model_config.head_configs["confmaps"].head_config.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
-        predictor = Predictor.from_model_paths(model_paths=[minimal_instance_ckpt])
         with pytest.raises(
             Exception,
             match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
         ):
-            pred_labels = predictor.predict(make_labels=True)
+            preds = main(
+                model_paths=[minimal_instance_ckpt],
+                data_path="./tests/assets/centered_pair_small.mp4",
+                provider="Reader",
+                make_labels=False,
+                peak_threshold=0.3,
+                scale=0.9,
+            )
 
     finally:
         # save the original config back
@@ -355,11 +305,18 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     # provider as LabelsReader
 
     # check if labels are created from ckpt
-    predictor = Predictor.from_model_paths(model_paths=[minimal_instance_bottomup_ckpt])
-    pred_labels = predictor.predict(make_labels=True)
+    pred_labels = main(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=0.03,
+    )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
-    assert len(pred_labels[0].instances) == 2
+    assert len(pred_labels[0].instances) == 6
+    print(pred_labels[0].instances)
     lf = pred_labels[0]
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
@@ -370,108 +327,80 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
     # check if dictionaries are created when make labels is set to False
-    preds = predictor.predict(make_labels=False)
+    preds = main(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        make_labels=False,
+        max_instances=6,
+        peak_threshold=0.03,
+    )
     assert isinstance(preds, list)
     assert len(preds) == 1
     assert isinstance(preds[0], dict)
     assert "pred_confmaps" not in preds[0].keys()
     assert isinstance(preds[0]["pred_instance_peaks"], list)
-    assert tuple(preds[0]["pred_instance_peaks"][0].shape) == (2, 2, 2)
-    assert tuple(preds[0]["pred_peak_values"][0].shape) == (2, 2)
-    assert tuple(preds[0]["instance_scores"][0].shape) == (2,)
+    assert tuple(preds[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
+    assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
 
     # with higher threshold
-    train_config = OmegaConf.load(
-        f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
+    pred_labels = main(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=1.0,
     )
-    orig_config = train_config.copy()
-    try:
-        OmegaConf.update(train_config, "inference_config.peak_threshold", 1.0)
-        OmegaConf.save(
-            train_config, f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
-        )
-
-        predictor = Predictor.from_model_paths(
-            model_paths=[minimal_instance_bottomup_ckpt]
-        )
-        pred_labels = predictor.predict(make_labels=True)
-        assert isinstance(pred_labels, sio.Labels)
-        assert len(pred_labels) == 1
-        assert len(pred_labels[0].instances) == 0
-
-    finally:
-        OmegaConf.save(
-            orig_config, f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
-        )
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 1
+    assert len(pred_labels[0].instances) == 0
 
     # change to video reader
-    train_config = OmegaConf.load(
-        f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
+    pred_labels = main(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        data_path="./tests/assets/centered_pair_small.mp4",
+        provider="VideoReader",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=0.03,
+        videoreader_start_idx=0,
+        videoreader_end_idx=100,
     )
-    orig_config = train_config.copy()
-    try:
-        OmegaConf.update(train_config, "inference_config.data.provider", "VideoReader")
-        OmegaConf.update(
-            train_config,
-            "inference_config.data.path",
-            f"./tests/assets/centered_pair_small.mp4",
-        )
-        OmegaConf.save(
-            train_config, f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
-        )
 
-        # check if labels are created from ckpt
-        predictor = Predictor.from_model_paths(
-            model_paths=[minimal_instance_bottomup_ckpt]
-        )
-        pred_labels = predictor.predict(make_labels=True)
-        predictor = Predictor.from_model_paths(
-            model_paths=[minimal_instance_bottomup_ckpt]
-        )
-        pred_labels = predictor.predict(make_labels=True)
-        assert isinstance(pred_labels, sio.Labels)
-        assert len(pred_labels) == 100
-        assert len(pred_labels[0].instances) == 2
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 100
+    assert len(pred_labels[0].instances) == 6
 
-        # check if dictionaries are created when make labels is set to False
-        preds = predictor.predict(make_labels=False)
-        assert isinstance(preds, list)
-        assert len(preds) == 25
-        assert isinstance(preds[0], dict)
-        assert "pred_confmaps" not in preds[0].keys()
-        assert isinstance(preds[0]["pred_instance_peaks"], list)
-        assert tuple(preds[0]["pred_instance_peaks"][0].shape) == (2, 2, 2)
-        assert tuple(preds[0]["pred_peak_values"][0].shape) == (2, 2)
-        assert tuple(preds[0]["instance_scores"][0].shape) == (2,)
-
-    finally:
-        OmegaConf.save(
-            orig_config, f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
-        )
+    # check if dictionaries are created when make labels is set to False
+    preds = main(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        data_path="./tests/assets/centered_pair_small.mp4",
+        provider="VideoReader",
+        make_labels=False,
+        max_instances=6,
+        peak_threshold=0.03,
+        videoreader_start_idx=0,
+        videoreader_end_idx=100,
+    )
+    assert isinstance(preds, list)
+    assert len(preds) == 25
+    assert isinstance(preds[0], dict)
+    assert "pred_confmaps" not in preds[0].keys()
+    assert isinstance(preds[0]["pred_instance_peaks"], list)
+    assert tuple(preds[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
+    assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
 
     # unrecognized provider
-    train_config = OmegaConf.load(
-        f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
-    )
-    orig_config = train_config.copy()
-    try:
-        OmegaConf.update(train_config, "inference_config.data.provider", "Reader")
-        OmegaConf.save(
-            train_config, f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
-        )
-
-        # check if labels are created from ckpt
-        predictor = Predictor.from_model_paths(
-            model_paths=[minimal_instance_bottomup_ckpt]
-        )
-        with pytest.raises(
-            Exception,
-            match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
-        ):
-            pred_labels = predictor.predict(make_labels=True)
-
-    finally:
-        # save the original config back
-        OmegaConf.save(
-            orig_config, f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
+    with pytest.raises(
+        Exception,
+        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
+    ):
+        preds = main(
+            model_paths=[minimal_instance_bottomup_ckpt],
+            data_path="./tests/assets/minimal_instance.pkg.slp",
+            provider="Reader",
+            make_labels=True,
+            max_instances=6,
+            peak_threshold=0.03,
         )
