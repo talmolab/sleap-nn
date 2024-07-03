@@ -20,6 +20,7 @@ def test_topdown_predictor(
         provider="LabelsReader",
         return_confmaps=False,
         make_labels=True,
+        peak_threshold=0.1,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -41,6 +42,9 @@ def test_topdown_predictor(
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
         make_labels=False,
+        peak_threshold=0.0,
+        integral_refinement="integral",
+        batch_size=1,
     )
     assert isinstance(preds, list)
     assert len(preds) == 2
@@ -71,6 +75,8 @@ def test_topdown_predictor(
         provider="LabelsReader",
         make_labels=True,
         max_instances=6,
+        peak_threshold=0.0,
+        integral_refinement="integral",
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -83,6 +89,7 @@ def test_topdown_predictor(
         provider="LabelsReader",
         make_labels=False,
         max_instances=6,
+        peak_threshold=0.1,
     )
     assert len(pred_labels) == 1
     assert pred_labels[0]["centroids"].shape == (1, 1, 2, 2)
@@ -96,6 +103,8 @@ def test_topdown_predictor(
         provider="VideoReader",
         make_labels=True,
         max_instances=6,
+        peak_threshold=0.0,
+        integral_refinement="integral",
         videoreader_start_idx=0,
         videoreader_end_idx=100,
     )
@@ -126,6 +135,7 @@ def test_topdown_predictor(
         max_instances=6,
         videoreader_start_idx=1100,
         videoreader_end_idx=1103,
+        peak_threshold=0.1,
     )
 
     # Provider = VideoReader
@@ -143,6 +153,7 @@ def test_topdown_predictor(
             max_instances=6,
             videoreader_start_idx=0,
             videoreader_end_idx=100,
+            peak_threshold=0.1,
         )
 
 
