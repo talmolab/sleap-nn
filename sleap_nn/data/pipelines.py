@@ -62,10 +62,13 @@ class TopdownConfmapsPipeline:
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
+        if (
+            self.data_config.use_augmentations
+            and "intensity" in self.data_config.augmentation_config
+        ):
             datapipe = KorniaAugmenter(
                 datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
+                **dict(self.data_config.augmentation_config.intensity),
                 image_key="image",
                 instance_key="instances",
             )
@@ -79,19 +82,13 @@ class TopdownConfmapsPipeline:
             self.data_config.preprocessing.crop_hw,
         )
 
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
+        if (
+            self.data_config.use_augmentations
+            and "geometric" in self.data_config.augmentation_config
+        ):
             datapipe = KorniaAugmenter(
                 datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="instance_image",
-                instance_key="instance",
-            )
-
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
+                **dict(self.data_config.augmentation_config.geometric),
                 image_key="instance_image",
                 instance_key="instance",
             )
@@ -171,23 +168,31 @@ class SingleInstanceConfmapsPipeline:
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
-                image_key="image",
-                instance_key="instances",
-            )
+        if self.data_config.use_augmentations:
+            if "intensity" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.intensity),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "geometric" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.geometric),
+                    image_key="image",
+                    instance_key="instances",
+                )
 
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="image",
-                instance_key="instances",
-            )
+            if "random_crop" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
+                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
+                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                    image_key="image",
+                    instance_key="instances",
+                )
 
         datapipe = Resizer(datapipe, scale=self.data_config.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
@@ -262,30 +267,30 @@ class CentroidConfmapsPipeline:
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
-                image_key="image",
-                instance_key="instances",
-            )
-
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="image",
-                instance_key="instances",
-            )
-
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
-                image_key="image",
-                instance_key="instances",
-            )
+        if self.data_config.use_augmentations:
+            if "intensity" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.intensity),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "geometric" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.geometric),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "random_crop" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
+                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
+                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                    image_key="image",
+                    instance_key="instances",
+                )
 
         datapipe = Resizer(datapipe, scale=self.data_config.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
@@ -361,30 +366,31 @@ class BottomUpPipeline:
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
-                image_key="image",
-                instance_key="instances",
-            )
+        if self.data_config.use_augmentations:
+            if "intensity" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.intensity),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "geometric" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.geometric),
+                    image_key="image",
+                    instance_key="instances",
+                )
 
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="image",
-                instance_key="instances",
-            )
-
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
-                image_key="image",
-                instance_key="instances",
-            )
+            if "random_crop" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
+                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
+                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                    image_key="image",
+                    instance_key="instances",
+                )
 
         datapipe = Resizer(datapipe, scale=self.data_config.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)

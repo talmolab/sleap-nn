@@ -59,35 +59,14 @@ def config(sleap_data_dir):
                     "preprocessing": {
                         "crop_hw": [160, 160],
                     },
+                    "use_augmentations": False,
                     "augmentation_config": {
-                        "random_crop": {
-                            "random_crop_p": 0,
-                            "random_crop_hw": [160, 160],
-                        },
-                        "use_augmentations": False,
-                        "augmentations": {
-                            "intensity": {
-                                "uniform_noise": [0.0, 0.04],
-                                "uniform_noise_p": 0,
-                                "gaussian_noise_mean": 0.02,
-                                "gaussian_noise_std": 0.004,
-                                "gaussian_noise_p": 0,
-                                "contrast": [0.5, 2.0],
-                                "contrast_p": 0,
-                                "brightness": 0.0,
-                                "brightness_p": 0,
-                            },
-                            "geometric": {
-                                "rotation": 180.0,
-                                "scale": 0,
-                                "translate": [0, 0],
-                                "affine_p": 0.5,
-                                "erase_scale": [0.0001, 0.01],
-                                "erase_ratio": [1, 1],
-                                "erase_p": 0,
-                                "mixup_lambda": None,
-                                "mixup_p": 0,
-                            },
+                        "geometric": {
+                            "rotation": 180.0,
+                            "scale": 0,
+                            "translate_width": 0,
+                            "translate_height": 0,
+                            "affine_p": 0.5,
                         },
                     },
                 },
@@ -100,37 +79,7 @@ def config(sleap_data_dir):
                     "preprocessing": {
                         "crop_hw": [160, 160],
                     },
-                    "augmentation_config": {
-                        "random_crop": {
-                            "random_crop_p": 0,
-                            "random_crop_hw": [160, 160],
-                        },
-                        "use_augmentations": False,
-                        "augmentations": {
-                            "intensity": {
-                                "uniform_noise": [0.0, 0.04],
-                                "uniform_noise_p": 0,
-                                "gaussian_noise_mean": 0.02,
-                                "gaussian_noise_std": 0.004,
-                                "gaussian_noise_p": 0,
-                                "contrast": [0.5, 2.0],
-                                "contrast_p": 0,
-                                "brightness": 0.0,
-                                "brightness_p": 0,
-                            },
-                            "geometric": {
-                                "rotation": 180.0,
-                                "scale": 0,
-                                "translate": [0, 0],
-                                "affine_p": 0.5,
-                                "erase_scale": [0.0001, 0.01],
-                                "erase_ratio": [1, 1],
-                                "erase_p": 0,
-                                "mixup_lambda": None,
-                                "mixup_p": 0,
-                            },
-                        },
-                    },
+                    "use_augmentations": False,
                 },
             },
             "model_config": {
