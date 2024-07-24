@@ -16,17 +16,17 @@ The config file has three main sections:
     - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps", "CentroidConfmapsPipeline" or "BottomUp".
     - `train`:
         - `labels_path`: (str) Path to `.slp` files
-        - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
-        channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If input has three channels and this
-        is set to False, then we convert the image to grayscale (single-channel)
-        image.
-        - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
-        original image size will be retained. Default: None.
-        - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
-        original image size will be retained. Default: None.
-        - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
         - `preprocessing`:
+            - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+            - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
+            original image size will be retained. Default: None.
+            - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
+            original image size will be retained. Default: None.
+            - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor. 
             - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
         - `use_augmentations`: (bool) True if the data augmentation should be applied to the data, else False. 
         - `augmentation_config`: (only if `use_augmentations` is `True`) #TODO

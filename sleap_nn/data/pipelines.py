@@ -54,11 +54,11 @@ class TopdownConfmapsPipeline:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
@@ -95,7 +95,7 @@ class TopdownConfmapsPipeline:
 
         datapipe = Resizer(
             datapipe,
-            scale=self.data_config.scale,
+            scale=self.data_config.preprocessing.scale,
             image_key="instance_image",
             instances_key="instance",
         )
@@ -160,11 +160,11 @@ class SingleInstanceConfmapsPipeline:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
@@ -194,7 +194,7 @@ class SingleInstanceConfmapsPipeline:
                     instance_key="instances",
                 )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
         datapipe = ConfidenceMapGenerator(
@@ -259,11 +259,11 @@ class CentroidConfmapsPipeline:
             "num_instances",
             "scale",
         ]
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
@@ -292,7 +292,7 @@ class CentroidConfmapsPipeline:
                     instance_key="instances",
                 )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
         datapipe = InstanceCentroidFinder(
             datapipe, anchor_ind=self.confmap_head.anchor_part
@@ -358,11 +358,11 @@ class BottomUpPipeline:
             "scale",
             "part_affinity_fields",
         ]
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
@@ -392,7 +392,7 @@ class BottomUpPipeline:
                     instance_key="instances",
                 )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
         datapipe = MultiConfidenceMapGenerator(

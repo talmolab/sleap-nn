@@ -98,11 +98,11 @@ def test_topdownconfmapspipeline(minimal_instance):
     """Test the TopdownConfmapsPipeline."""
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
                 "crop_hw": (160, 160),
             },
             "use_augmentations": False,
@@ -141,11 +141,11 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
                 "crop_hw": (100, 100),
             },
             "use_augmentations": True,
@@ -218,11 +218,11 @@ def test_topdownconfmapspipeline(minimal_instance):
     # Test with resizing and padding
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 2.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": False,
                 "crop_hw": (100, 100),
             },
             "use_augmentations": True,
@@ -303,10 +303,12 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 2.0,
-            "is_rgb": False,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": False,
+            },
             "use_augmentations": False,
         }
     )
@@ -341,10 +343,12 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
             "use_augmentations": True,
             "augmentation_config": {
                 "random_crop": {
@@ -415,11 +419,12 @@ def test_centroidconfmapspipeline(minimal_instance):
     """Test CentroidConfmapsPipeline class."""
     base_centroid_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
             "use_augmentations": False,
         }
     )
@@ -451,11 +456,12 @@ def test_centroidconfmapspipeline(minimal_instance):
 
     base_centroid_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
             "use_augmentations": True,
             "augmentation_config": {
                 "random_crop": {
@@ -524,11 +530,12 @@ def test_bottomuppipeline(minimal_instance):
     """Test BottomUpPipeline class."""
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
             "use_augmentations": False,
         }
     )
@@ -568,11 +575,12 @@ def test_bottomuppipeline(minimal_instance):
     # with scaling
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 0.5,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 0.5,
+                "is_rgb": False,
+            },
             "use_augmentations": False,
         }
     )
@@ -609,11 +617,12 @@ def test_bottomuppipeline(minimal_instance):
     # with padding
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
             "use_augmentations": True,
             "augmentation_config": {
                 "random_crop": {
@@ -685,11 +694,12 @@ def test_bottomuppipeline(minimal_instance):
     # with random crop
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
             "use_augmentations": True,
             "augmentation_config": {
                 "random_crop": {

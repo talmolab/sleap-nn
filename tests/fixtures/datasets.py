@@ -52,11 +52,11 @@ def config(sleap_data_dir):
                 "pipeline": "TopdownConfmaps",
                 "train": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                    "is_rgb": False,
-                    "max_width": None,
-                    "max_height": None,
-                    "scale": 1.0,
                     "preprocessing": {
+                        "is_rgb": False,
+                        "max_width": None,
+                        "max_height": None,
+                        "scale": 1.0,
                         "crop_hw": [160, 160],
                     },
                     "use_augmentations": False,
@@ -72,11 +72,11 @@ def config(sleap_data_dir):
                 },
                 "val": {
                     "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                    "is_rgb": False,
-                    "max_width": None,
-                    "max_height": None,
-                    "scale": 1.0,
                     "preprocessing": {
+                        "is_rgb": False,
+                        "max_width": None,
+                        "max_height": None,
+                        "scale": 1.0,
                         "crop_hw": [160, 160],
                     },
                     "use_augmentations": False,

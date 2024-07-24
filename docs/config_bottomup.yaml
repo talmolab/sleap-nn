@@ -3,14 +3,14 @@ data_config:
   pipeline: BottomUp
   train:
     labels_path: minimal_instance.pkg.slp
-    max_width: null
-    max_height: null
-    scale: 1.0
-    is_rgb: false
     preprocessing:
+      max_width: null
+      max_height: null
+      scale: 1.0
+      is_rgb: false
       crop_hw:
-      - 160
-      - 160
+        - 160
+        - 160
     use_augmentations: true
     augmentation_config:
       geometric:
@@ -21,14 +21,14 @@ data_config:
         affine_p: 0.5
   val:
     labels_path: minimal_instance.pkg.slp
-    max_width: null
-    max_height: null
-    is_rgb: false
-    scale: 1.0
     preprocessing:
+      max_width: null
+      max_height: null
+      is_rgb: false
+      scale: 1.0
       crop_hw:
-      - 160
-      - 160
+        - 160
+        - 160
     use_augmentations: false
 model_config:
   init_weights: xavier

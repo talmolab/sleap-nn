@@ -3,14 +3,14 @@ data_config:
   pipeline: CentroidConfmaps
   train:
     labels_path: "minimal_instance.pkg.slp"
-    max_width: 
-    max_height: 
-    scale: 0.5
-    is_rgb: False
     preprocessing:
+      max_width: 
+      max_height: 
+      scale: 0.5
+      is_rgb: False
       crop_hw:
-      - 160
-      - 160
+        - 160
+        - 160
     use_augmentations: true
     augmentation_config: # sample augmentation_config
       random_crop:
@@ -44,14 +44,14 @@ data_config:
         mixup_p: 0
   val:
     labels_path: "minimal_instance.pkg.slp"
-    max_width: 
-    max_height: 
-    is_rgb: False
-    scale: 0.5
     preprocessing:
+      max_width: 
+      max_height: 
+      is_rgb: False
+      scale: 0.5
       crop_hw:
-      - 160
-      - 160
+        - 160
+        - 160
     use_augmentations: false
 model_config:
   init_weights: xavier

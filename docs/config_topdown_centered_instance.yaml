@@ -3,14 +3,14 @@ data_config:
   pipeline: TopdownConfmaps
   train:
     labels_path: "minimal_instance.pkg.slp"
-    max_width: 
-    max_height: 
-    scale: 1.0
-    is_rgb: False
     preprocessing:
+      max_width: 
+      max_height: 
+      scale: 1.0
+      is_rgb: False
       crop_hw:
-      - 160
-      - 160
+        - 160
+        - 160
     use_augmentations: true
     augmentation_config:
       geometric:
@@ -21,14 +21,14 @@ data_config:
         affine_p: 0.5
   val:
     labels_path: "minimal_instance.pkg.slp"
-    max_width: 
-    max_height: 
-    is_rgb: False
-    scale: 1.0
     preprocessing:
+      max_width: 
+      max_height: 
+      is_rgb: False
+      scale: 1.0
       crop_hw:
-      - 160
-      - 160
+        - 160
+        - 160
     use_augmentations: false
 model_config:
   init_weights: xavier
