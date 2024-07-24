@@ -84,67 +84,51 @@ class ModelTrainer:
             self.provider = LabelsReader
 
         if self.config.data_config.pipeline == "SingleInstanceConfmaps":
-            train_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
-            )
-            val_pipeline = SingleInstanceConfmapsPipeline(
-                data_config=self.config.data_config.val,
+            data_pipeline = SingleInstanceConfmapsPipeline(
+                data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.confmaps.head_config,
             )
 
         elif self.config.data_config.pipeline == "TopdownConfmaps":
-            train_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
-            )
-            val_pipeline = TopdownConfmapsPipeline(
-                data_config=self.config.data_config.val,
+            data_pipeline = TopdownConfmapsPipeline(
+                data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.confmaps.head_config,
             )
 
         elif self.config.data_config.pipeline == "CentroidConfmaps":
-            train_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.train,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
-            )
-            val_pipeline = CentroidConfmapsPipeline(
-                data_config=self.config.data_config.val,
+            data_pipeline = CentroidConfmapsPipeline(
+                data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.confmaps.head_config,
             )
 
         elif self.config.data_config.pipeline == "BottomUp":
-            train_pipeline = BottomUpPipeline(
-                data_config=self.config.data_config.train,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
-                pafs_head=self.config.model_config.head_configs.pafs.head_config,
-            )
-            val_pipeline = BottomUpPipeline(
-                data_config=self.config.data_config.val,
+            data_pipeline = BottomUpPipeline(
+                data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.confmaps.head_config,
                 pafs_head=self.config.model_config.head_configs.pafs.head_config,
             )
 
         else:
-            raise Exception(f"{self.config.data_config.pipeline} is not defined.")
+            raise Exception(
+                f"{self.config.data_config.pipeline} is not defined. Please choose one of: `SingleInstanceConfmaps`, `TopdownConfmaps`, `CentroidConfmaps`, `BottomUp`."
+            )
 
         # train
-        train_labels = sio.load_slp(self.config.data_config.train.labels_path)
+        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
         self.skeletons = train_labels.skeletons
 
         train_labels_reader = self.provider(train_labels)
 
-        train_datapipe = train_pipeline.make_training_pipeline(
+        train_datapipe = data_pipeline.make_training_pipeline(
             data_provider=train_labels_reader,
+            use_augmentations=self.config.data_config.use_augmentations_train,
         )
+
+        # Make sure an epoch runs for `steps_per_epoch` iterations
         if self.steps_per_epoch is not None:
             train_datapipe = Cycler(train_datapipe)
 
@@ -152,20 +136,24 @@ class ModelTrainer:
         train_datapipe = train_datapipe.sharding_filter()
         self.train_data_loader = DataLoader(
             train_datapipe,
-            **dict(self.config.trainer_config.train_data_loader),
+            batch_size=self.config.trainer_config.train_data_loader.batch_size,
+            shuffle=self.config.trainer_config.train_data_loader.shuffle,
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
         )
 
         # val
         val_labels_reader = self.provider.from_filename(
-            self.config.data_config.val.labels_path,
+            self.config.data_config.val_labels_path,
         )
-        val_datapipe = val_pipeline.make_training_pipeline(
-            data_provider=val_labels_reader,
+        val_datapipe = data_pipeline.make_training_pipeline(
+            data_provider=val_labels_reader, use_augmentations=False
         )
         val_datapipe = val_datapipe.sharding_filter()
         self.val_data_loader = DataLoader(
             val_datapipe,
-            **dict(self.config.trainer_config.val_data_loader),
+            batch_size=self.config.trainer_config.train_data_loader.batch_size,
+            shuffle=False,
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
         )
 
     def _set_wandb(self):
@@ -201,11 +189,13 @@ class ModelTrainer:
                 print(
                     f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
                 )
+
         if self.config.trainer_config.save_ckpt:
 
             # create checkpoint callback
             checkpoint_callback = ModelCheckpoint(
-                **dict(self.config.trainer_config.model_ckpt),
+                save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
+                save_last=self.config.trainer_config.model_ckpt.save_last,
                 dirpath=dir_path,
                 filename="best",
                 monitor="val_loss",
@@ -431,18 +421,24 @@ class TrainingModel(L.LightningModule):
     def configure_optimizers(self):
         """Configure optimiser and learning rate scheduler."""
         if self.trainer_config.optimizer_name == "Adam":
-            optimizer = torch.optim.Adam(
-                self.parameters(),
-                **dict(self.trainer_config.optimizer),
-            )
+            optim = torch.optim.Adam
         elif self.trainer_config.optimizer_name == "AdamW":
-            optimizer = torch.optim.AdamW(
-                self.parameters(),
-                **dict(self.trainer_config.optimizer),
-            )
+            optim = torch.optim.AdamW
+
+        optimizer = optim(
+            self.parameters(),
+            lr=self.trainer_config.optimizer.lr,
+            amsgrad=self.trainer_config.optimizer.amsgrad,
+        )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            **dict(self.trainer_config.lr_scheduler),
+            mode=self.trainer_config.lr_scheduler.mode,
+            threshold=self.trainer_config.lr_scheduler.threshold,
+            threshold_mode=self.trainer_config.lr_scheduler.threshold_mode,
+            cooldown=self.trainer_config.lr_scheduler.cooldown,
+            patience=self.trainer_config.lr_scheduler.patience,
+            factor=self.trainer_config.lr_scheduler.factor,
+            min_lr=self.trainer_config.lr_scheduler.min_lr,
         )
         return {
             "optimizer": optimizer,

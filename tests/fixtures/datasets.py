@@ -50,36 +50,24 @@ def config(sleap_data_dir):
             "data_config": {
                 "provider": "LabelsReader",
                 "pipeline": "TopdownConfmaps",
-                "train": {
-                    "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                    "preprocessing": {
-                        "is_rgb": False,
-                        "max_width": None,
-                        "max_height": None,
-                        "scale": 1.0,
-                        "crop_hw": [160, 160],
-                    },
-                    "use_augmentations": False,
-                    "augmentation_config": {
-                        "geometric": {
-                            "rotation": 180.0,
-                            "scale": 0,
-                            "translate_width": 0,
-                            "translate_height": 0,
-                            "affine_p": 0.5,
-                        },
-                    },
+                "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "preprocessing": {
+                    "is_rgb": False,
+                    "max_width": None,
+                    "max_height": None,
+                    "scale": 1.0,
+                    "crop_hw": [160, 160],
                 },
-                "val": {
-                    "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                    "preprocessing": {
-                        "is_rgb": False,
-                        "max_width": None,
-                        "max_height": None,
-                        "scale": 1.0,
-                        "crop_hw": [160, 160],
+                "use_augmentations_train": False,
+                "augmentation_config": {
+                    "geometric": {
+                        "rotation": 180.0,
+                        "scale": 0,
+                        "translate_width": 0,
+                        "translate_height": 0,
+                        "affine_p": 0.5,
                     },
-                    "use_augmentations": False,
                 },
             },
             "model_config": {

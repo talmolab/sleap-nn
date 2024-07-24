@@ -1449,7 +1449,8 @@ def main(
 
     Args:
         data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
-        model_paths: TODO
+        model_paths: (List[str]) List of paths to the directory where the best.ckpt
+                and training_config.yaml are saved.
         max_instances: (int) Max number of instances to consider from the predictions.
         max_width: (int) Maximum width the image should be padded to. If not provided, the
                 original image size will be retained. Default: None.

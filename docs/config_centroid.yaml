@@ -1,58 +1,48 @@
 data_config:
   provider: LabelsReader
   pipeline: CentroidConfmaps
-  train:
-    labels_path: "minimal_instance.pkg.slp"
-    preprocessing:
-      max_width: 
-      max_height: 
-      scale: 0.5
-      is_rgb: False
-      crop_hw:
-        - 160
-        - 160
-    use_augmentations: true
-    augmentation_config: # sample augmentation_config
-      random_crop:
-        random_crop_p: 0
-        crop_height: 160
-        crop_width: 160
-      intensity:
-        uniform_noise_min: 0.0
-        uniform_noise_max: 0.04
-        uniform_noise_p: 0
-        gaussian_noise_mean: 0.02
-        gaussian_noise_std: 0.004
-        gaussian_noise_p: 0
-        contrast_min: 0.5
-        contrast_max: 2.0
-        contrast_p: 0
-        brightness: 0.0
-        brightness_p: 0
-      geometric:
-        rotation: 180.0
-        scale: 0
-        translate_width: 0
-        translate_height: 0
-        affine_p: 0.5
-        erase_scale_min: 0.0001
-        erase_scale_max: 0.01
-        erase_ratio_min: 1
-        erase_ratio_max: 1
-        erase_p: 0
-        mixup_lambda: null
-        mixup_p: 0
-  val:
-    labels_path: "minimal_instance.pkg.slp"
-    preprocessing:
-      max_width: 
-      max_height: 
-      is_rgb: False
-      scale: 0.5
-      crop_hw:
-        - 160
-        - 160
-    use_augmentations: false
+  train_labels_path: minimal_instance.pkg.slp
+  val_labels_path: minimal_instance.pkg.slp
+  preprocessing:
+    max_width: 
+    max_height: 
+    scale: 0.5
+    is_rgb: False
+    crop_hw:
+      - 160
+      - 160
+  use_augmentations_train: true
+  augmentation_config: # sample augmentation_config
+    random_crop:
+      random_crop_p: 0
+      crop_height: 160
+      crop_width: 160
+    intensity:
+      uniform_noise_min: 0.0
+      uniform_noise_max: 0.04
+      uniform_noise_p: 0
+      gaussian_noise_mean: 0.02
+      gaussian_noise_std: 0.004
+      gaussian_noise_p: 0
+      contrast_min: 0.5
+      contrast_max: 2.0
+      contrast_p: 0
+      brightness: 0.0
+      brightness_p: 0
+    geometric:
+      rotation: 180.0
+      scale: 0
+      translate_width: 0
+      translate_height: 0
+      affine_p: 0.5
+      erase_scale_min: 0.0001
+      erase_scale_max: 0.01
+      erase_ratio_min: 1
+      erase_ratio_max: 1
+      erase_p: 0
+      mixup_lambda: null
+      mixup_p: 0
+
 model_config:
   init_weights: xavier
   pre_trained_weights:

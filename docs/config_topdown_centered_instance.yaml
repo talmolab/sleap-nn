@@ -1,35 +1,25 @@
 data_config:
   provider: LabelsReader
   pipeline: TopdownConfmaps
-  train:
-    labels_path: "minimal_instance.pkg.slp"
-    preprocessing:
-      max_width: 
-      max_height: 
-      scale: 1.0
-      is_rgb: False
-      crop_hw:
-        - 160
-        - 160
-    use_augmentations: true
-    augmentation_config:
-      geometric:
-        rotation: 180.0
-        scale: 0
-        translate_width: 0
-        translate_height: 0
-        affine_p: 0.5
-  val:
-    labels_path: "minimal_instance.pkg.slp"
-    preprocessing:
-      max_width: 
-      max_height: 
-      is_rgb: False
-      scale: 1.0
-      crop_hw:
-        - 160
-        - 160
-    use_augmentations: false
+  train_labels_path: minimal_instance.pkg.slp
+  val_labels_path: minimal_instance.pkg.slp
+  preprocessing:
+    max_width: 
+    max_height: 
+    scale: 1.0
+    is_rgb: False
+    crop_hw:
+      - 160
+      - 160
+  use_augmentations_train: true
+  augmentation_config:
+    geometric:
+      rotation: 180.0
+      scale: 0
+      translate_width: 0
+      translate_height: 0
+      affine_p: 0.5
+
 model_config:
   init_weights: xavier
   pre_trained_weights:

@@ -14,51 +14,50 @@ The config file has three main sections:
 - `data_config`: 
     - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
     - `pipeline`: (str) Pipeline for training data. One of "TopdownConfmaps", "SingleInstanceConfmaps", "CentroidConfmapsPipeline" or "BottomUp".
-    - `train`:
-        - `labels_path`: (str) Path to `.slp` files
-        - `preprocessing`:
-            - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
-            - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
-            original image size will be retained. Default: None.
-            - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
-            original image size will be retained. Default: None.
-            - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor. 
-            - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
-        - `use_augmentations`: (bool) True if the data augmentation should be applied to the data, else False. 
-        - `augmentation_config`: (only if `use_augmentations` is `True`) #TODO
-            - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop. 
-            - `intensity`: (Optional)
-                - `uniform_noise_min`: (float) Minimum value for uniform noise (uniform_noise_min >=0).
-                - `uniform_noise_max`: (float) Maximum value for uniform noise (uniform_noise_max <>=1).
-                - `uniform_noise_p`: (float) Probability of applying random uniform noise. *Default*=0.0
-                - `gaussian_noise_mean`: (float) The mean of the gaussian noise distribution.
-                - `gaussian_noise_std`: (float) The standard deviation of the gaussian noise distribution.
-                - `gaussian_noise_p`: (float) Probability of applying random gaussian noise. *Default*=0.0
-                - `contrast_min`: (float) Minimum contrast factor to apply. Default: 0.5.
-                - `contrast_max`: (float) Maximum contrast factor to apply. Default: 2.0.
-                - `contrast_p`: (float) Probability of applying random contrast. *Default*=0.0
-                - `brightness`: (float) The brightness factor to apply. *Default*: (1.0, 1.0).
-                - `brightness_p`: (float) Probability of applying random brightness. *Default*=0.0
-            - `geometric`: (Optional)
-                - `rotation`: (float) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
-                - `scale`: (float) A scaling factor as a scalar float specifying the amount of scaling. A
-                random factor between (1 - scale, 1 + scale) will be sampled and applied to both images and keypoints. If `None`, no scaling augmentation will be applied.
-                - `translate_width`: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default.
-                - `translate_height`: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default.
-                - `affine_p`: (float) Probability of applying random affine transformations. *Default*=0.0
-                - `erase_scale_min`: (float) Minimum value of range of proportion of erased area against input image. *Default*: 0.0001.
-                - `erase_scale_max`: (float) Maximum value of range of proportion of erased area against input image. *Default*: 0.01.
-                - `erase_ration_min`: (float) Minimum value of range of aspect ratio of erased area. *Default*: 1.
-                - `erase_ratio_max`: (float) Maximum value of range of aspect ratio of erased area. *Default*: 1.
-                - `erase_p`: (float) Probability of applying random erase. *Default*=0.0
-                - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `None`.
-                - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
-                - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
-    - `val`: (Similar to `train` structure)
+    - `train_labels_path`: (str) Path to training data (`.slp` file)
+    - `val_labels_path`: (str) Path to validation data (`.slp` file)
+    - `preprocessing`:
+        - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If input has three channels and this
+        is set to False, then we convert the image to grayscale (single-channel)
+        image.
+        - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
+        original image size will be retained. Default: None.
+        - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
+        original image size will be retained. Default: None.
+        - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor. 
+        - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
+    - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. 
+    - `augmentation_config`: (only if `use_augmentations` is `True`)
+        - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop. 
+        - `intensity`: (Optional)
+            - `uniform_noise_min`: (float) Minimum value for uniform noise (uniform_noise_min >=0).
+            - `uniform_noise_max`: (float) Maximum value for uniform noise (uniform_noise_max <>=1).
+            - `uniform_noise_p`: (float) Probability of applying random uniform noise. *Default*=0.0
+            - `gaussian_noise_mean`: (float) The mean of the gaussian noise distribution.
+            - `gaussian_noise_std`: (float) The standard deviation of the gaussian noise distribution.
+            - `gaussian_noise_p`: (float) Probability of applying random gaussian noise. *Default*=0.0
+            - `contrast_min`: (float) Minimum contrast factor to apply. Default: 0.5.
+            - `contrast_max`: (float) Maximum contrast factor to apply. Default: 2.0.
+            - `contrast_p`: (float) Probability of applying random contrast. *Default*=0.0
+            - `brightness`: (float) The brightness factor to apply. *Default*: (1.0, 1.0).
+            - `brightness_p`: (float) Probability of applying random brightness. *Default*=0.0
+        - `geometric`: (Optional)
+            - `rotation`: (float) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
+            - `scale`: (float) A scaling factor as a scalar float specifying the amount of scaling. A
+            random factor between (1 - scale, 1 + scale) will be sampled and applied to both images and keypoints. If `None`, no scaling augmentation will be applied.
+            - `translate_width`: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default.
+            - `translate_height`: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default.
+            - `affine_p`: (float) Probability of applying random affine transformations. *Default*=0.0
+            - `erase_scale_min`: (float) Minimum value of range of proportion of erased area against input image. *Default*: 0.0001.
+            - `erase_scale_max`: (float) Maximum value of range of proportion of erased area against input image. *Default*: 0.01.
+            - `erase_ration_min`: (float) Minimum value of range of aspect ratio of erased area. *Default*: 1.
+            - `erase_ratio_max`: (float) Maximum value of range of aspect ratio of erased area. *Default*: 1.
+            - `erase_p`: (float) Probability of applying random erase. *Default*=0.0
+            - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `None`.
+            - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
+            - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
 
 - `model_config`: 
     - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
