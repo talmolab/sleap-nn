@@ -131,24 +131,17 @@ class Predictor(ABC):
             `MoveNetPredictor`, `TopDownMultiClassPredictor`,
             `BottomUpMultiClassPredictor`.
         """
-        model_config_paths = [
+        model_configs = [
             OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
         ]
-        model_names = sum(
-            [
-                [
-                    c.model_config.head_configs[head].head_type
-                    for head in c.model_config.head_configs
-                ]
-                for c in model_config_paths
-            ],
-            [],
-        )
+        model_names = []
+        for config in model_configs:
+            for k, v in config.model_config.head_configs.items():
+                if v is not None:
+                    model_names.append(k)
 
-        if "SingleInstanceConfmapsHead" in model_names:
-            confmap_ckpt_path = model_paths[
-                model_names.index("SingleInstanceConfmapsHead")
-            ]
+        if "single_instance" in model_names:
+            confmap_ckpt_path = model_paths[model_names.index("single_instance")]
             predictor = SingleInstancePredictor.from_trained_models(
                 confmap_ckpt_path,
                 peak_threshold=peak_threshold,
@@ -161,20 +154,13 @@ class Predictor(ABC):
                 preprocess_config=preprocess_config,
             )
 
-        elif (
-            "CentroidConfmapsHead" in model_names
-            or "CenteredInstanceConfmapsHead" in model_names
-        ):
+        elif "centroid" in model_names or "centered_instance" in model_names:
             centroid_ckpt_path = None
             confmap_ckpt_path = None
-            if "CentroidConfmapsHead" in model_names:
-                centroid_ckpt_path = model_paths[
-                    model_names.index("CentroidConfmapsHead")
-                ]
-            if "CenteredInstanceConfmapsHead" in model_names:
-                confmap_ckpt_path = model_paths[
-                    model_names.index("CenteredInstanceConfmapsHead")
-                ]
+            if "centroid" in model_names:
+                centroid_ckpt_path = model_paths[model_names.index("centroid")]
+            if "centered_instance" in model_names:
+                confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
 
             # create an instance of the TopDown predictor class
             predictor = TopDownPredictor.from_trained_models(
@@ -191,13 +177,8 @@ class Predictor(ABC):
                 preprocess_config=preprocess_config,
             )
 
-        elif (
-            "MultiInstanceConfmapsHead" in model_names
-            or "PartAffinityFieldsHead" in model_names
-        ):
-            bottomup_ckpt_path = model_paths[
-                model_names.index("MultiInstanceConfmapsHead")
-            ]
+        elif "bottom_up" in model_names:
+            bottomup_ckpt_path = model_paths[model_names.index("bottom_up")]
             predictor = BottomUpPredictor.from_trained_models(
                 bottomup_ckpt_path,
                 peak_threshold=peak_threshold,
@@ -640,7 +621,7 @@ class TopDownPredictor(Predictor):
             if not self.centroid_model:
                 pipeline = InstanceCentroidFinder(
                     pipeline,
-                    anchor_ind=self.confmap_config.model_config.head_configs.confmaps.head_config.anchor_part,
+                    anchor_ind=self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part,
                 )
                 pipeline = InstanceCropper(
                     pipeline,
@@ -1141,12 +1122,12 @@ class BottomUpPredictor(Predictor):
         paf_scorer = PAFScorer.from_config(
             config=OmegaConf.create(
                 {
-                    "confmaps": self.bottomup_config.model_config.head_configs[
+                    "confmaps": self.bottomup_config.model_config.head_configs.bottom_up[
                         "confmaps"
-                    ].head_config,
-                    "pafs": self.bottomup_config.model_config.head_configs[
+                    ],
+                    "pafs": self.bottomup_config.model_config.head_configs.bottom_up[
                         "pafs"
-                    ].head_config,
+                    ],
                 }
             ),
             max_edge_length_ratio=self.max_edge_length_ratio,

@@ -104,21 +104,20 @@ def test_get_backbone():
 def test_get_head():
     base_unet_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
-    head = get_head(base_unet_head_config.head_type, base_unet_head_config.head_config)
-    assert isinstance(head, Head)
+    head = get_head("single_instance", base_unet_head_config)
+    assert isinstance(head[0], Head)
 
-    with pytest.raises(KeyError):
-        _ = get_head("invalid_input", base_unet_head_config.head_config)
+    with pytest.raises(Exception):
+        _ = get_head("invalid_input", base_unet_head_config)
 
 
 def test_unet_model():
@@ -144,24 +143,24 @@ def test_unet_model():
 
     base_unet_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_unet_model_config,
-        head_configs=DictConfig({"confmap_head": base_unet_head_config}),
+        head_configs=base_unet_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_unet_head_config})
+    assert model.head_configs == base_unet_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -171,8 +170,8 @@ def test_unet_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_unet_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     # filter rate = 1.5
     base_unet_model_config = OmegaConf.create(
@@ -195,24 +194,24 @@ def test_unet_model():
 
     base_unet_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_unet_model_config,
-        head_configs=DictConfig({"confmap_head": base_unet_head_config}),
+        head_configs=base_unet_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_unet_head_config})
+    assert model.head_configs == base_unet_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -222,8 +221,8 @@ def test_unet_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_unet_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     # upsampling stack with TransposeConv layers
     base_unet_model_config = OmegaConf.create(
@@ -246,24 +245,24 @@ def test_unet_model():
 
     base_unet_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_unet_model_config,
-        head_configs=DictConfig({"confmap_head": base_unet_head_config}),
+        head_configs=base_unet_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_unet_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_unet_head_config})
+    assert model.head_configs == base_unet_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -273,8 +272,8 @@ def test_unet_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_unet_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_unet_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
 
 def test_convnext_model():
@@ -299,24 +298,24 @@ def test_convnext_model():
 
     base_convnext_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_convnext_model_config,
-        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
+        head_configs=base_convnext_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_convnext_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_convnext_head_config})
+    assert model.head_configs == base_convnext_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -326,13 +325,14 @@ def test_convnext_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
         backbone_config=base_convnext_model_config,
-        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
+        head_configs=base_convnext_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
@@ -343,8 +343,8 @@ def test_convnext_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     # stride = 4
     base_convnext_model_config = OmegaConf.create(
@@ -366,24 +366,24 @@ def test_convnext_model():
 
     base_convnext_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_convnext_model_config,
-        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
+        head_configs=base_convnext_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_convnext_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_convnext_head_config})
+    assert model.head_configs == base_convnext_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -393,13 +393,14 @@ def test_convnext_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
         backbone_config=base_convnext_model_config,
-        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
+        head_configs=base_convnext_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
@@ -410,8 +411,8 @@ def test_convnext_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     # transposeconv as upsampling stack
     base_convnext_model_config = OmegaConf.create(
@@ -433,24 +434,24 @@ def test_convnext_model():
 
     base_convnext_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_convnext_model_config,
-        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
+        head_configs=base_convnext_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_convnext_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_convnext_head_config})
+    assert model.head_configs == base_convnext_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -460,13 +461,14 @@ def test_convnext_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
         backbone_config=base_convnext_model_config,
-        head_configs=DictConfig({"confmap_head": base_convnext_head_config}),
+        head_configs=base_convnext_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
@@ -477,8 +479,8 @@ def test_convnext_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_convnext_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_convnext_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
 
 def test_swint_model():
@@ -505,24 +507,24 @@ def test_swint_model():
 
     base_swint_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_swint_model_config,
-        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
+        head_configs=base_swint_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_swint_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_swint_head_config})
+    assert model.head_configs == base_swint_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -532,13 +534,14 @@ def test_swint_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_swint_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_swint_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
         backbone_config=base_swint_model_config,
-        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
+        head_configs=base_swint_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
@@ -549,8 +552,8 @@ def test_swint_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_swint_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_swint_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     # transposeConv for upsampling stack
     base_swint_model_config = OmegaConf.create(
@@ -574,24 +577,24 @@ def test_swint_model():
 
     base_swint_head_config = OmegaConf.create(
         {
-            "head_type": "SingleInstanceConfmapsHead",
-            "head_config": {
+            "confmaps": {
                 "part_names": [f"{i}" for i in range(13)],
                 "sigma": 5.0,
                 "output_stride": 1,
                 "loss_weight": 1.0,
-            },
+            }
         }
     )
 
     model = Model(
         backbone_config=base_swint_model_config,
-        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
+        head_configs=base_swint_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     assert model.backbone_config == base_swint_model_config
-    assert model.head_configs == DictConfig({"confmap_head": base_swint_head_config})
+    assert model.head_configs == base_swint_head_config
 
     x = torch.rand(1, 1, 192, 192).to(device)
     model.eval()
@@ -601,13 +604,14 @@ def test_swint_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_swint_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_swint_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
         backbone_config=base_swint_model_config,
-        head_configs=DictConfig({"confmap_head": base_swint_head_config}),
+        head_configs=base_swint_head_config,
         input_expand_channels=1,
+        model_type="single_instance",
     ).to(device)
 
     x = torch.rand(1, 1, 192, 192).to(device)
@@ -618,5 +622,5 @@ def test_swint_model():
 
     assert type(z) is dict
     assert len(z.keys()) == 1
-    assert z[base_swint_head_config.head_type].shape == (1, 13, 192, 192)
-    assert z[base_swint_head_config.head_type].dtype == torch.float32
+    assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["SingleInstanceConfmapsHead"].dtype == torch.float32

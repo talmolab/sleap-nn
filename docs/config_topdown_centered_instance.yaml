@@ -1,6 +1,5 @@
 data_config:
   provider: LabelsReader
-  pipeline: TopdownConfmaps
   train_labels_path: minimal_instance.pkg.slp
   val_labels_path: minimal_instance.pkg.slp
   preprocessing:
@@ -66,15 +65,16 @@ model_config:
   #     up_interpolate: True
   #     stem_patch_stride: 2
 
-  head_configs: 
-    confmaps:
-        head_type: CenteredInstanceConfmapsHead
-        head_config:
-          part_names: None
-          anchor_part: 0
-          sigma: 1.5
-          output_stride: 2
-          loss_weight: 1.0
+  head_configs:
+    single_instance:
+    centroid:
+    bottom_up:
+    centered_instance: 
+      confmaps:
+        part_names: None
+        anchor_part: 0
+        sigma: 1.5
+        output_stride: 2
 trainer_config:
   train_data_loader:
     batch_size: 4
@@ -86,7 +86,6 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: true
-  device: cuda
   trainer_devices: 1
   trainer_accelerator: gpu # TODO: redo device + trainer_accelerator!
   enable_progress_bar: false

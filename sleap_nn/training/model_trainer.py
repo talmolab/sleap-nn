@@ -63,11 +63,11 @@ class ModelTrainer:
         """Initialise the class with configs and set the seed and device as class attributes."""
         self.config = config
 
-        self.m_device = self.config.trainer_config.device
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
         # initialize attributes
+        self.model_type = None
         self.model = None
         self.provider = None
         self.skeletons = None
@@ -83,38 +83,44 @@ class ModelTrainer:
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
 
-        if self.config.data_config.pipeline == "SingleInstanceConfmaps":
+        # check which head type to choose the model
+        for k, v in self.config.model_config.head_configs.items():
+            if v is not None:
+                self.model_type = k
+                break
+
+        if self.model_type == "single_instance":
             data_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+                confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
             )
 
-        elif self.config.data_config.pipeline == "TopdownConfmaps":
+        elif self.model_type == "centered_instance":
             data_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+                confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
             )
 
-        elif self.config.data_config.pipeline == "CentroidConfmaps":
+        elif self.model_type == "centroid":
             data_pipeline = CentroidConfmapsPipeline(
                 data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
+                confmap_head=self.config.model_config.head_configs.centroid.confmaps,
             )
 
-        elif self.config.data_config.pipeline == "BottomUp":
+        elif self.model_type == "bottom_up":
             data_pipeline = BottomUpPipeline(
                 data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.confmaps.head_config,
-                pafs_head=self.config.model_config.head_configs.pafs.head_config,
+                confmap_head=self.config.model_config.head_configs.bottom_up.confmaps,
+                pafs_head=self.config.model_config.head_configs.bottom_up.pafs,
             )
 
         else:
             raise Exception(
-                f"{self.config.data_config.pipeline} is not defined. Please choose one of: `SingleInstanceConfmaps`, `TopdownConfmaps`, `CentroidConfmaps`, `BottomUp`."
+                f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottom_up`."
             )
 
         # train
@@ -161,13 +167,13 @@ class ModelTrainer:
 
     def _initialize_model(self):
         models = {
-            "SingleInstanceConfmaps": SingleInstanceModel,
-            "TopdownConfmaps": TopDownCenteredInstanceModel,
-            "CentroidConfmaps": CentroidModel,
-            "BottomUp": BottomUpModel,
+            "single_instance": SingleInstanceModel,
+            "centered_instance": TopDownCenteredInstanceModel,
+            "centroid": CentroidModel,
+            "bottom_up": BottomUpModel,
         }
-        self.model = models[self.config.data_config.pipeline](
-            self.config, self.skeletons
+        self.model = models[self.model_type](
+            self.config, self.skeletons, self.model_type
         )
 
     def _get_param_count(self):
@@ -294,10 +300,14 @@ class TrainingModel(L.LightningModule):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
     """
 
     def __init__(
-        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+        self,
+        config: OmegaConf,
+        skeletons: Optional[List[sio.Skeleton]],
+        model_type: str,
     ):
         """Initialise the configs and the model."""
         super().__init__()
@@ -306,7 +316,7 @@ class TrainingModel(L.LightningModule):
         self.model_config = self.config.model_config
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
-        self.m_device = self.trainer_config.device
+        self.model_type = model_type
         self.input_expand_channels = (
             self.model_config.backbone_config.backbone_config.in_channels
         )
@@ -327,31 +337,34 @@ class TrainingModel(L.LightningModule):
                 )
 
         # if edges and part names aren't set in config, get it from `sio.Labels` object.
-        head_configs = self.model_config.head_configs
-        for key in head_configs:
-            if "part_names" in head_configs[key].head_config.keys():
-                if head_configs[key].head_config["part_names"] is None:
+        head_config = self.model_config.head_configs[self.model_type]
+        for key in head_config:
+            if "part_names" in head_config[key].keys():
+                if head_config[key]["part_names"] is None:
                     part_names = [x.name for x in self.skeletons[0].nodes]
-                    head_configs[key].head_config["part_names"] = part_names
+                    head_config[key]["part_names"] = part_names
 
-            if "edges" in head_configs[key].head_config.keys():
-                if head_configs[key].head_config["edges"] is None:
+            if "edges" in head_config[key].keys():
+                if head_config[key]["edges"] is None:
                     edges = [
                         (x.source.name, x.destination.name)
                         for x in self.skeletons[0].edges
                     ]
-                    head_configs[key].head_config["edges"] = edges
+                    head_config[key]["edges"] = edges
 
         self.model = Model(
             backbone_config=self.model_config.backbone_config,
-            head_configs=head_configs,
+            head_configs=head_config,
             input_expand_channels=self.input_expand_channels,
-        ).to(self.m_device)
+            model_type=self.model_type,
+        )
 
-        self.loss_weights = [
-            self.model_config.head_configs[x].head_config.loss_weight
-            for x in self.model_config.head_configs
-        ]
+        if len(self.model_config.head_configs[self.model_type]) > 1:
+            self.loss_weights = [
+                self.model_config.head_configs[self.model_type][x].loss_weight
+                for x in self.model_config.head_configs[self.model_type]
+            ]
+
         self.training_loss = {}
         self.val_loss = {}
         self.learning_rate = {}
@@ -363,11 +376,6 @@ class TrainingModel(L.LightningModule):
         # Pre-trained weights for the encoder stack.
         if self.model_config.pre_trained_weights:
             self.model.backbone.enc.load_state_dict(ckpt, strict=False)
-
-    @property
-    def device(self):
-        """Save the device as an attribute to the class."""
-        return next(self.model.parameters()).device
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -432,9 +440,9 @@ class TrainingModel(L.LightningModule):
         )
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
-            mode=self.trainer_config.lr_scheduler.mode,
+            mode="min",
             threshold=self.trainer_config.lr_scheduler.threshold,
-            threshold_mode=self.trainer_config.lr_scheduler.threshold_mode,
+            threshold_mode="rel",
             cooldown=self.trainer_config.lr_scheduler.cooldown,
             patience=self.trainer_config.lr_scheduler.patience,
             factor=self.trainer_config.lr_scheduler.factor,
@@ -462,29 +470,31 @@ class SingleInstanceModel(TrainingModel):
             (ii) model_config: backbone and head configs to be passed to `Model` class.
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
 
     """
 
     def __init__(
-        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+        self,
+        config: OmegaConf,
+        skeletons: Optional[List[sio.Skeleton]],
+        model_type: str,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons)
+        super().__init__(config, skeletons, model_type)
 
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1)
-        img = img.to(self.m_device)
         return self.model(img)["SingleInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["confidence_maps"], dim=1
-        ).to(self.m_device)
+        )
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
-        y = y.to(self.m_device)
         loss = nn.MSELoss()(y_preds, y)
         self.log(
             "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
@@ -493,12 +503,11 @@ class SingleInstanceModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["confidence_maps"], dim=1
-        ).to(self.m_device)
+        )
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
-        y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(
@@ -532,29 +541,31 @@ class TopDownCenteredInstanceModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
 
     """
 
     def __init__(
-        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+        self,
+        config: OmegaConf,
+        skeletons: Optional[List[sio.Skeleton]],
+        model_type: str,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons)
+        super().__init__(config, skeletons, model_type)
 
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1)
-        img = img.to(self.m_device)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
-            self.m_device
-        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
+        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
+            batch["confidence_maps"], dim=1
+        )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
-        y = y.to(self.m_device)
         loss = nn.MSELoss()(y_preds, y)
         self.log(
             "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
@@ -563,12 +574,11 @@ class TopDownCenteredInstanceModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
-            self.m_device
-        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
+        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
+            batch["confidence_maps"], dim=1
+        )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
-        y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(
@@ -602,29 +612,31 @@ class CentroidModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
 
     """
 
     def __init__(
-        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+        self,
+        config: OmegaConf,
+        skeletons: Optional[List[sio.Skeleton]],
+        model_type: str,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons)
+        super().__init__(config, skeletons, model_type)
 
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1)
-        img = img.to(self.m_device)
         return self.model(img)["CentroidConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["centroids_confidence_maps"], dim=1
-        ).to(self.m_device)
+        )
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        y = y.to(self.m_device)
         loss = nn.MSELoss()(y_preds, y)
         self.log(
             "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
@@ -633,12 +645,11 @@ class CentroidModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.m_device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["centroids_confidence_maps"], dim=1
-        ).to(self.m_device)
+        )
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
-        y = y.to(self.m_device)
         val_loss = nn.MSELoss()(y_preds, y)
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(
@@ -672,19 +683,22 @@ class BottomUpModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
 
     """
 
     def __init__(
-        self, config: OmegaConf, skeletons: Optional[List[sio.Skeleton]] = None
+        self,
+        config: OmegaConf,
+        skeletons: Optional[List[sio.Skeleton]],
+        model_type: str,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons)
+        super().__init__(config, skeletons, model_type)
 
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1)
-        img = img.to(self.m_device)
         output = self.model(img)
         return {
             "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
@@ -693,9 +707,9 @@ class BottomUpModel(TrainingModel):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X = torch.squeeze(batch["image"], dim=1).to(self.m_device)
-        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
-        y_paf = batch["part_affinity_fields"].to(self.m_device)
+        X = torch.squeeze(batch["image"], dim=1)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
+        y_paf = batch["part_affinity_fields"]
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"].permute(0, 2, 3, 1)
         confmaps = preds["MultiInstanceConfmapsHead"]
@@ -711,9 +725,9 @@ class BottomUpModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X = torch.squeeze(batch["image"], dim=1).to(self.m_device)
-        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.m_device)
-        y_paf = batch["part_affinity_fields"].to(self.m_device)
+        X = torch.squeeze(batch["image"], dim=1)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
+        y_paf = batch["part_affinity_fields"]
 
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"].permute(0, 2, 3, 1)

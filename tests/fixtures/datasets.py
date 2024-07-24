@@ -49,7 +49,6 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "pipeline": "TopdownConfmaps",
                 "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "preprocessing": {
@@ -89,9 +88,11 @@ def config(sleap_data_dir):
                     },
                 },
                 "head_configs": {
-                    "confmaps": {
-                        "head_type": "CenteredInstanceConfmapsHead",
-                        "head_config": {
+                    "single_instance": None,
+                    "centroid": None,
+                    "bottom_up": None,
+                    "centered_instance": {
+                        "confmaps": {
                             "part_names": [
                                 "0",
                                 "1",
@@ -99,9 +100,8 @@ def config(sleap_data_dir):
                             "anchor_part": 1,
                             "sigma": 1.5,
                             "output_stride": 2,
-                            "loss_weight": 1.0,
-                        },
-                    }
+                        }
+                    },
                 },
             },
             "trainer_config": {
@@ -123,7 +123,6 @@ def config(sleap_data_dir):
                     "min_delta": 1e-08,
                     "patience": 20,
                 },
-                "device": "cpu",
                 "trainer_devices": 1,
                 "trainer_accelerator": "cpu",
                 "enable_progress_bar": False,
