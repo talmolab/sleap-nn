@@ -140,7 +140,7 @@ def config(sleap_data_dir):
                         "trainer_config.optimizer_name",
                         "trainer_config.optimizer.amsgrad",
                         "trainer_config.optimizer.lr",
-                        "model_config.backbone_config.backbone_type",
+                        "model_config.backbone_type",
                         "model_config.init_weights",
                     ],
                 },

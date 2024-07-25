@@ -67,7 +67,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
     This function returns an instance of a PyTorch `nn.Module`
     corresponding to the given head name.
 
-    Args: TODO
+    Args:
         model_type (str): Name of the head. Supported values are
             - 'single_instance'
             - 'centroid'
@@ -77,11 +77,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
 
     Returns:
         nn.Module: An instance of the requested head.
-
-    Raises:
-        KeyError: If the provided head name is not one of the supported values.
     """
-
     heads = []
     if model_type == "single_instance":
         heads.append(SingleInstanceConfmapsHead(**head_config.confmaps))

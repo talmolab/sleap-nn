@@ -409,9 +409,7 @@ class TopDownPredictor(Predictor):
         if self.centroid_config is None:
             centroid_crop_layer = None
         else:
-            max_stride = (
-                self.centroid_config.model_config.backbone_config.backbone_config.max_stride
-            )
+            max_stride = self.centroid_config.model_config.backbone_config.max_stride
 
             # if both centroid and centered-instance model are provided, set return crops to True
             if self.confmap_model:
@@ -437,9 +435,7 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaksGroundTruth()
         else:
 
-            max_stride = (
-                self.confmap_config.model_config.backbone_config.backbone_config.max_stride
-            )
+            max_stride = self.confmap_config.model_config.backbone_config.max_stride
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=self.peak_threshold,
@@ -669,7 +665,7 @@ class TopDownPredictor(Predictor):
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
-                    self.centroid_config.model_config.backbone_config.backbone_config.max_stride
+                    self.centroid_config.model_config.backbone_config.max_stride
                 ),
             }
 
@@ -939,7 +935,7 @@ class SingleInstancePredictor(Predictor):
             pipeline = Resizer(pipeline, scale=self.data_config.scale)
             pipeline = PadToStride(
                 pipeline,
-                max_stride=self.confmap_config.model_config.backbone_config.backbone_config.max_stride,
+                max_stride=self.confmap_config.model_config.backbone_config.max_stride,
             )
 
             # Remove duplicates.
@@ -959,7 +955,7 @@ class SingleInstancePredictor(Predictor):
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
-                    self.confmap_config.model_config.backbone_config.backbone_config.max_stride
+                    self.confmap_config.model_config.backbone_config.max_stride
                 ),
             }
             frame_queue = Queue(
@@ -1269,9 +1265,7 @@ class BottomUpPredictor(Predictor):
                 provider=data_provider,
             )
             pipeline = Resizer(pipeline, scale=self.data_config.scale)
-            max_stride = (
-                self.bottomup_config.model_config.backbone_config.backbone_config.max_stride
-            )
+            max_stride = self.bottomup_config.model_config.backbone_config.max_stride
             pipeline = PadToStride(pipeline, max_stride=max_stride)
 
             # Remove duplicates.
@@ -1291,7 +1285,7 @@ class BottomUpPredictor(Predictor):
                 "scale": self.data_config.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
-                    self.bottomup_config.model_config.backbone_config.backbone_config.max_stride
+                    self.bottomup_config.model_config.backbone_config.max_stride
                 ),
             }
             frame_queue = Queue(
