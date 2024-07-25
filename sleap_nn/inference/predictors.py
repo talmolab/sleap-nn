@@ -456,9 +456,9 @@ class TopDownPredictor(Predictor):
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
         if self.centroid_config:
-            data_config = self.centroid_config.data_config.train.preprocessing
+            data_config = self.centroid_config.data_config.preprocessing
         else:
-            data_config = self.confmap_config.data_config.train.preprocessing
+            data_config = self.confmap_config.data_config.preprocessing
         if self.preprocess_config is None:
             return data_config
         return self.preprocess_config
@@ -523,6 +523,7 @@ class TopDownPredictor(Predictor):
                 f"{centroid_ckpt_path}/best.ckpt",
                 config=centroid_config,
                 skeletons=skeletons,
+                model_type="centroid",
             )
             centroid_model.to(device)
             centroid_model.m_device = device
@@ -539,6 +540,7 @@ class TopDownPredictor(Predictor):
                 f"{confmap_ckpt_path}/best.ckpt",
                 config=confmap_config,
                 skeletons=skeletons,
+                model_type="centered_instance",
             )
             confmap_model.to(device)
             confmap_model.m_device = device
@@ -825,7 +827,7 @@ class SingleInstancePredictor(Predictor):
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        data_config = self.confmap_config.data_config.train.preprocessing
+        data_config = self.confmap_config.data_config.preprocessing
         if self.preprocess_config is None:
             return data_config
         return self.preprocess_config
@@ -876,7 +878,10 @@ class SingleInstancePredictor(Predictor):
         confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
         confmap_model = SingleInstanceModel.load_from_checkpoint(
-            f"{confmap_ckpt_path}/best.ckpt", config=confmap_config, skeletons=skeletons
+            f"{confmap_ckpt_path}/best.ckpt",
+            config=confmap_config,
+            skeletons=skeletons,
+            model_type="single_instance",
         )
         confmap_model.to(device)
         confmap_model.m_device = device
@@ -1149,7 +1154,7 @@ class BottomUpPredictor(Predictor):
     @property
     def data_config(self) -> OmegaConf:
         """Returns data config section from the overall config."""
-        data_config = self.bottomup_config.data_config.train.preprocessing
+        data_config = self.bottomup_config.data_config.preprocessing
         if self.preprocess_config is None:
             return data_config
         return self.preprocess_config
@@ -1208,6 +1213,7 @@ class BottomUpPredictor(Predictor):
             f"{bottomup_ckpt_path}/best.ckpt",
             config=bottomup_config,
             skeletons=skeletons,
+            model_type="bottom_up",
         )
         bottomup_model.to(device)
         bottomup_model.m_device = device

@@ -54,9 +54,11 @@ def test_topdown_predictor(
     # if model parameter is not set right
     with pytest.raises(ValueError):
         config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-        model_name = config.model_config.head_configs["confmaps"].head_type
-        config.model_config.head_configs["confmaps"].head_type = "instance"
-        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+        config_copy = config.copy()
+        head_config = config_copy.model_config.head_configs.centered_instance
+        del config_copy.model_config.head_configs.centered_instance
+        OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
+        OmegaConf.save(config_copy, f"{minimal_instance_ckpt}/training_config.yaml")
         preds = main(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
@@ -64,8 +66,6 @@ def test_topdown_predictor(
             make_labels=False,
         )
 
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    config.model_config.head_configs["confmaps"].head_type = model_name
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
     # centroid + centroid instance model
@@ -165,11 +165,12 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        config.model_config.head_configs["confmaps"].head_type = (
-            "SingleInstanceConfmapsHead"
+        head_config = config.model_config.head_configs.centered_instance
+        del config.model_config.head_configs.centered_instance
+        OmegaConf.update(
+            config, "model_config.head_configs.single_instance", head_config
         )
-        del config.model_config.head_configs["confmaps"].head_config.anchor_part
+        del config.model_config.head_configs.single_instance.confmaps.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -222,11 +223,12 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        config.model_config.head_configs["confmaps"].head_type = (
-            "SingleInstanceConfmapsHead"
+        head_config = config.model_config.head_configs.centered_instance
+        del config.model_config.head_configs.centered_instance
+        OmegaConf.update(
+            config, "model_config.head_configs.single_instance", head_config
         )
-        del config.model_config.head_configs["confmaps"].head_config.anchor_part
+        del config.model_config.head_configs.single_instance.confmaps.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -274,11 +276,12 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        config.model_config.head_configs["confmaps"].head_type = (
-            "SingleInstanceConfmapsHead"
+        head_config = config.model_config.head_configs.centered_instance
+        del config.model_config.head_configs.centered_instance
+        OmegaConf.update(
+            config, "model_config.head_configs.single_instance", head_config
         )
-        del config.model_config.head_configs["confmaps"].head_config.anchor_part
+        del config.model_config.head_configs.single_instance.confmaps.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt

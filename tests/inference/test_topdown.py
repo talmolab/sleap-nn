@@ -28,7 +28,10 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     # for centered instance model
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/best.ckpt", config=config
+        f"{minimal_instance_ckpt}/best.ckpt",
+        config=config,
+        skeletons=None,
+        model_type="centered_instance",
     )
 
     data_provider = LabelsReader.from_filename(minimal_instance)
@@ -68,9 +71,14 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
 
 def test_centroid_inference_model(config):
     """Test CentroidCrop class to run inference on centroid models."""
-    OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    config.model_config.head_configs["confmaps"].head_type = "CentroidConfmapsHead"
-    del config.model_config.head_configs["confmaps"].head_config.part_names
+
+    OmegaConf.update(
+        config,
+        "model_config.head_configs.centroid",
+        config.model_config.head_configs.centered_instance,
+    )
+    del config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centroid["confmaps"].part_names
 
     trainer = ModelTrainer(config)
     trainer._create_data_loaders()
@@ -168,12 +176,19 @@ def test_find_instance_peaks_groundtruth(
         batch_size=4,
     )
 
-    OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    config.model_config.head_configs["confmaps"].head_type = "CentroidConfmapsHead"
-    del config.model_config.head_configs["confmaps"].head_config.part_names
+    OmegaConf.update(
+        config,
+        "model_config.head_configs.centroid",
+        config.model_config.head_configs.centered_instance,
+    )
+    del config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centroid["confmaps"].part_names
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     model = CentroidModel.load_from_checkpoint(
-        f"{minimal_instance_centroid_ckpt}/best.ckpt", config=config
+        f"{minimal_instance_centroid_ckpt}/best.ckpt",
+        config=config,
+        skeletons=None,
+        model_type="centroid",
     )
 
     layer = CentroidCrop(
@@ -300,7 +315,10 @@ def test_topdown_inference_model(
     # centroid layer and find peaks
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     torch_model = CentroidModel.load_from_checkpoint(
-        f"{minimal_instance_centroid_ckpt}/best.ckpt", config=config
+        f"{minimal_instance_centroid_ckpt}/best.ckpt",
+        config=config,
+        skeletons=None,
+        model_type="centroid",
     )
 
     data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
