@@ -12,27 +12,22 @@ def test_get_backbone():
     # unet
     base_unet_model_config = OmegaConf.create(
         {
-            "backbone_type": "unet",
-            "init_weights": "default",
-            "pre_trained_weights": None,
-            "backbone_config": {
-                "in_channels": 1,
-                "kernel_size": 3,
-                "filters": 16,
-                "filters_rate": 2,
-                "max_stride": 16,
-                "convs_per_block": 2,
-                "stacks": 1,
-                "stem_stride": None,
-                "middle_block": True,
-                "up_interpolate": True,
-            },
+            "in_channels": 1,
+            "kernel_size": 3,
+            "filters": 16,
+            "filters_rate": 2,
+            "max_stride": 16,
+            "convs_per_block": 2,
+            "stacks": 1,
+            "stem_stride": None,
+            "middle_block": True,
+            "up_interpolate": True,
         }
     )
 
     backbone = get_backbone(
-        base_unet_model_config.backbone_type,
-        base_unet_model_config.backbone_config,
+        "unet",
+        base_unet_model_config,
         output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
@@ -40,65 +35,53 @@ def test_get_backbone():
     # convnext
     base_convnext_model_config = OmegaConf.create(
         {
-            "backbone_type": "convnext",
-            "init_weights": "default",
-            "pretrained_weights": "",
-            "backbone_config": {
-                "in_channels": 1,
-                "model_type": "tiny",
-                "arch": None,
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "convs_per_block": 2,
-                "up_interpolate": True,
-                "stem_patch_kernel": 4,
-                "stem_patch_stride": 2,
-            },
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "stem_patch_kernel": 4,
+            "stem_patch_stride": 2,
         }
     )
 
     backbone = get_backbone(
-        base_convnext_model_config.backbone_type,
-        base_convnext_model_config.backbone_config,
+        "convnext",
+        base_convnext_model_config,
         output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
     with pytest.raises(KeyError):
-        _ = get_backbone("invalid_input", base_unet_model_config.backbone_config, 1)
+        _ = get_backbone("invalid_input", base_unet_model_config, 1)
 
     # swint
     base_convnext_model_config = OmegaConf.create(
         {
-            "backbone_type": "swint",
-            "init_weights": "default",
-            "pretrained_weights": "",
-            "backbone_config": {
-                "in_channels": 1,
-                "model_type": "tiny",
-                "arch": None,
-                "patch_size": [4, 4],
-                "window_size": [7, 7],
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "convs_per_block": 2,
-                "up_interpolate": True,
-                "stem_patch_stride": 4,
-            },
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "patch_size": [4, 4],
+            "window_size": [7, 7],
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "stem_patch_stride": 4,
         }
     )
 
     backbone = get_backbone(
-        base_convnext_model_config.backbone_type,
-        base_convnext_model_config.backbone_config,
+        "swint",
+        base_convnext_model_config,
         output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
     with pytest.raises(KeyError):
-        _ = get_backbone(
-            "invalid_input", base_unet_model_config.backbone_config, output_stride=1
-        )
+        _ = get_backbone("invalid_input", base_unet_model_config, output_stride=1)
 
 
 def test_get_head():
@@ -125,19 +108,16 @@ def test_unet_model():
 
     base_unet_model_config = OmegaConf.create(
         {
-            "backbone_type": "unet",
-            "backbone_config": {
-                "in_channels": 1,
-                "kernel_size": 3,
-                "filters": 16,
-                "filters_rate": 2,
-                "max_stride": 16,
-                "convs_per_block": 2,
-                "stacks": 1,
-                "stem_stride": None,
-                "middle_block": True,
-                "up_interpolate": True,
-            },
+            "in_channels": 1,
+            "kernel_size": 3,
+            "filters": 16,
+            "filters_rate": 2,
+            "max_stride": 16,
+            "convs_per_block": 2,
+            "stacks": 1,
+            "stem_stride": None,
+            "middle_block": True,
+            "up_interpolate": True,
         }
     )
 
@@ -153,6 +133,7 @@ def test_unet_model():
     )
 
     model = Model(
+        backbone_type="unet",
         backbone_config=base_unet_model_config,
         head_configs=base_unet_head_config,
         input_expand_channels=1,
@@ -176,19 +157,16 @@ def test_unet_model():
     # filter rate = 1.5
     base_unet_model_config = OmegaConf.create(
         {
-            "backbone_type": "unet",
-            "backbone_config": {
-                "in_channels": 1,
-                "kernel_size": 3,
-                "filters": 16,
-                "filters_rate": 1.5,
-                "max_stride": 16,
-                "convs_per_block": 2,
-                "stacks": 1,
-                "stem_stride": None,
-                "middle_block": True,
-                "up_interpolate": True,
-            },
+            "in_channels": 1,
+            "kernel_size": 3,
+            "filters": 16,
+            "filters_rate": 1.5,
+            "max_stride": 16,
+            "convs_per_block": 2,
+            "stacks": 1,
+            "stem_stride": None,
+            "middle_block": True,
+            "up_interpolate": True,
         }
     )
 
@@ -204,6 +182,7 @@ def test_unet_model():
     )
 
     model = Model(
+        backbone_type="unet",
         backbone_config=base_unet_model_config,
         head_configs=base_unet_head_config,
         input_expand_channels=1,
@@ -227,19 +206,16 @@ def test_unet_model():
     # upsampling stack with TransposeConv layers
     base_unet_model_config = OmegaConf.create(
         {
-            "backbone_type": "unet",
-            "backbone_config": {
-                "in_channels": 1,
-                "kernel_size": 3,
-                "filters": 16,
-                "filters_rate": 1.5,
-                "max_stride": 16,
-                "convs_per_block": 2,
-                "stacks": 1,
-                "stem_stride": None,
-                "middle_block": True,
-                "up_interpolate": False,
-            },
+            "in_channels": 1,
+            "kernel_size": 3,
+            "filters": 16,
+            "filters_rate": 1.5,
+            "max_stride": 16,
+            "convs_per_block": 2,
+            "stacks": 1,
+            "stem_stride": None,
+            "middle_block": True,
+            "up_interpolate": False,
         }
     )
 
@@ -255,6 +231,7 @@ def test_unet_model():
     )
 
     model = Model(
+        backbone_type="unet",
         backbone_config=base_unet_model_config,
         head_configs=base_unet_head_config,
         input_expand_channels=1,
@@ -281,18 +258,15 @@ def test_convnext_model():
 
     base_convnext_model_config = OmegaConf.create(
         {
-            "backbone_type": "convnext",
-            "backbone_config": {
-                "in_channels": 1,
-                "model_type": "tiny",
-                "arch": None,
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "convs_per_block": 2,
-                "up_interpolate": True,
-                "stem_patch_kernel": 4,
-                "stem_patch_stride": 2,
-            },
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "stem_patch_kernel": 4,
+            "stem_patch_stride": 2,
         }
     )
 
@@ -308,6 +282,7 @@ def test_convnext_model():
     )
 
     model = Model(
+        backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
         input_expand_channels=1,
@@ -329,6 +304,7 @@ def test_convnext_model():
     assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
+        backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
         input_expand_channels=1,
@@ -349,18 +325,15 @@ def test_convnext_model():
     # stride = 4
     base_convnext_model_config = OmegaConf.create(
         {
-            "backbone_type": "convnext",
-            "backbone_config": {
-                "in_channels": 1,
-                "model_type": "tiny",
-                "arch": None,
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "convs_per_block": 2,
-                "up_interpolate": True,
-                "stem_patch_kernel": 4,
-                "stem_patch_stride": 4,
-            },
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "stem_patch_kernel": 4,
+            "stem_patch_stride": 4,
         }
     )
 
@@ -376,6 +349,7 @@ def test_convnext_model():
     )
 
     model = Model(
+        backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
         input_expand_channels=1,
@@ -397,6 +371,7 @@ def test_convnext_model():
     assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
+        backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
         input_expand_channels=1,
@@ -417,18 +392,15 @@ def test_convnext_model():
     # transposeconv as upsampling stack
     base_convnext_model_config = OmegaConf.create(
         {
-            "backbone_type": "convnext",
-            "backbone_config": {
-                "in_channels": 1,
-                "model_type": "tiny",
-                "arch": None,
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "convs_per_block": 2,
-                "up_interpolate": False,
-                "stem_patch_kernel": 4,
-                "stem_patch_stride": 4,
-            },
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": False,
+            "stem_patch_kernel": 4,
+            "stem_patch_stride": 4,
         }
     )
 
@@ -444,6 +416,7 @@ def test_convnext_model():
     )
 
     model = Model(
+        backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
         input_expand_channels=1,
@@ -465,6 +438,7 @@ def test_convnext_model():
     assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
+        backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
         input_expand_channels=1,
@@ -489,19 +463,16 @@ def test_swint_model():
     # stride = 4
     base_swint_model_config = OmegaConf.create(
         {
-            "backbone_type": "swint",
-            "backbone_config": {
-                "in_channels": 1,
-                "model_type": "tiny",
-                "arch": None,
-                "patch_size": [4, 4],
-                "window_size": [7, 7],
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "convs_per_block": 2,
-                "up_interpolate": True,
-                "stem_patch_stride": 4,
-            },
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "patch_size": [4, 4],
+            "window_size": [7, 7],
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": True,
+            "stem_patch_stride": 4,
         }
     )
 
@@ -517,6 +488,7 @@ def test_swint_model():
     )
 
     model = Model(
+        backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
         input_expand_channels=1,
@@ -538,6 +510,7 @@ def test_swint_model():
     assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
+        backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
         input_expand_channels=1,
@@ -558,20 +531,17 @@ def test_swint_model():
     # transposeConv for upsampling stack
     base_swint_model_config = OmegaConf.create(
         {
-            "backbone_type": "swint",
-            "backbone_config": {
-                "in_channels": 1,
-                "model_type": "tiny",
-                "arch": None,
-                "patch_size": [4, 4],
-                "window_size": [7, 7],
-                "kernel_size": 3,
-                "filters_rate": 2,
-                "convs_per_block": 2,
-                "up_interpolate": False,
-                "stem_patch_stride": 4,
-                "stem_stride": None,
-            },
+            "in_channels": 1,
+            "model_type": "tiny",
+            "arch": None,
+            "patch_size": [4, 4],
+            "window_size": [7, 7],
+            "kernel_size": 3,
+            "filters_rate": 2,
+            "convs_per_block": 2,
+            "up_interpolate": False,
+            "stem_patch_stride": 4,
+            "stem_stride": None,
         }
     )
 
@@ -587,6 +557,7 @@ def test_swint_model():
     )
 
     model = Model(
+        backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
         input_expand_channels=1,
@@ -608,6 +579,7 @@ def test_swint_model():
     assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
     model = Model.from_config(
+        backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
         input_expand_channels=1,

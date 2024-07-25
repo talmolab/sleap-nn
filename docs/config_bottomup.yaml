@@ -7,9 +7,6 @@ data_config:
     max_height: null
     scale: 1.0
     is_rgb: false
-    crop_hw:
-      - 160
-      - 160
   use_augmentations_train: true
   augmentation_config:
     geometric:
@@ -22,19 +19,18 @@ data_config:
 model_config:
   init_weights: xavier
   pre_trained_weights: null
+  backbone_type: unet
   backbone_config:
-    backbone_type: unet
-    backbone_config:
-      in_channels: 1
-      kernel_size: 3
-      filters: 16
-      filters_rate: 2
-      max_stride: 16
-      convs_per_block: 2
-      stacks: 1
-      stem_stride: null
-      middle_block: true
-      up_interpolate: true
+    in_channels: 1
+    kernel_size: 3
+    filters: 16
+    filters_rate: 2
+    max_stride: 16
+    convs_per_block: 2
+    stacks: 1
+    stem_stride: null
+    middle_block: true
+    up_interpolate: true
   
 #   pre_trained_weights: ConvNeXt_Tiny_Weights
 #   backbone_config:

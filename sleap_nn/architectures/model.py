@@ -108,6 +108,7 @@ class Model(nn.Module):
     """Model creates a model consisting of a backbone and head.
 
     Attributes:
+        backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
         input_expand_channels: Integer representing the number of channels the image
@@ -117,6 +118,7 @@ class Model(nn.Module):
 
     def __init__(
         self,
+        backbone_type: str,
         backbone_config: DictConfig,
         head_configs: DictConfig,
         input_expand_channels: int,
@@ -124,6 +126,7 @@ class Model(nn.Module):
     ) -> None:
         """Initialize the backbone and head based on the backbone_config."""
         super().__init__()
+        self.backbone_type = backbone_type
         self.backbone_config = backbone_config
         self.head_configs = head_configs
         self.input_expand_channels = input_expand_channels
@@ -138,8 +141,8 @@ class Model(nn.Module):
         min_output_stride = min(output_strides)
 
         self.backbone = get_backbone(
-            backbone_config.backbone_type,
-            backbone_config.backbone_config,
+            self.backbone_type,
+            backbone_config,
             min_output_stride,
         )
 
@@ -149,7 +152,7 @@ class Model(nn.Module):
             in_channels = int(
                 self.backbone.max_channels
                 / (
-                    self.backbone_config.backbone_config.filters_rate
+                    self.backbone_config.filters_rate
                     ** len(self.backbone.dec.decoder_stack)
                 )
             )
@@ -157,14 +160,13 @@ class Model(nn.Module):
                 factor = strides.index(min_output_stride) - strides.index(
                     head.output_stride
                 )
-                in_channels = in_channels * (
-                    self.backbone_config.backbone_config.filters_rate**factor
-                )
+                in_channels = in_channels * (self.backbone_config.filters_rate**factor)
             self.head_layers.append(head.make_head(x_in=int(in_channels)))
 
     @classmethod
     def from_config(
         cls,
+        backbone_type: str,
         backbone_config: DictConfig,
         head_configs: DictConfig,
         input_expand_channels: int,
@@ -172,6 +174,7 @@ class Model(nn.Module):
     ) -> "Model":
         """Create the model from a config dictionary."""
         return cls(
+            backbone_type=backbone_type,
             backbone_config=backbone_config,
             head_configs=head_configs,
             input_expand_channels=input_expand_channels,

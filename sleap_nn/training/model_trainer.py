@@ -92,28 +92,28 @@ class ModelTrainer:
         if self.model_type == "single_instance":
             data_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
             )
 
         elif self.model_type == "centered_instance":
             data_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
             )
 
         elif self.model_type == "centroid":
             data_pipeline = CentroidConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
             )
 
         elif self.model_type == "bottom_up":
             data_pipeline = BottomUpPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.backbone_config.max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.bottom_up.confmaps,
                 pafs_head=self.config.model_config.head_configs.bottom_up.pafs,
             )
@@ -317,22 +317,17 @@ class TrainingModel(L.LightningModule):
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
         self.model_type = model_type
-        self.input_expand_channels = (
-            self.model_config.backbone_config.backbone_config.in_channels
-        )
+        self.input_expand_channels = self.model_config.backbone_config.in_channels
         if self.model_config.pre_trained_weights:
             ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
                 progress=True, check_hash=True
             )
             input_channels = ckpt["features.0.0.weight"].shape[-3]
-            if (
-                self.model_config.backbone_config.backbone_config.in_channels
-                != input_channels
-            ):
+            if self.model_config.backbone_config.in_channels != input_channels:
                 self.input_expand_channels = input_channels
                 OmegaConf.update(
                     self.model_config,
-                    "backbone_config.backbone_config.in_channels",
+                    "backbone_config.in_channels",
                     input_channels,
                 )
 
@@ -353,6 +348,7 @@ class TrainingModel(L.LightningModule):
                     head_config[key]["edges"] = edges
 
         self.model = Model(
+            backbone_type=self.model_config.backbone_type,
             backbone_config=self.model_config.backbone_config,
             head_configs=head_config,
             input_expand_channels=self.input_expand_channels,
