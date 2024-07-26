@@ -157,7 +157,7 @@ The config file has three main sections:
     - `use_wandb`: (bool) True to enable wandb logging.
     - `save_ckpt`: (bool) True to enable checkpointing. 
     - `save_ckpt_path`: (str) Directory path to save the training config and checkpoint files. *Default*: "./"
-    - `wandb`:
+    - `wandb`: (Only if `use_wandb` is `True`, else skip this)
         - `entity`: (str) Entity of wandb project.
         - `project`: (str) Project name for the wandb project.
         - `name`: (str) Name of the current run.

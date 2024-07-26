@@ -113,7 +113,7 @@ trainer_config:
   use_wandb: false
   save_ckpt: true
   save_ckpt_path: 'min_inst_centroid'
-  wandb:
+  wandb: # sample wandb config
     entity: 
     project: 'test_centroid_centered'
     name: 'fly_unet_centered'

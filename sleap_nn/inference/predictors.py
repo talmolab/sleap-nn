@@ -526,7 +526,6 @@ class TopDownPredictor(Predictor):
                 model_type="centroid",
             )
             centroid_model.to(device)
-            centroid_model.m_device = device
 
         else:
             centroid_config = None
@@ -543,7 +542,6 @@ class TopDownPredictor(Predictor):
                 model_type="centered_instance",
             )
             confmap_model.to(device)
-            confmap_model.m_device = device
 
         else:
             confmap_config = None
@@ -884,7 +882,6 @@ class SingleInstancePredictor(Predictor):
             model_type="single_instance",
         )
         confmap_model.to(device)
-        confmap_model.m_device = device
 
         # create an instance of SingleInstancePredictor class
         obj = cls(
@@ -1216,7 +1213,6 @@ class BottomUpPredictor(Predictor):
             model_type="bottom_up",
         )
         bottomup_model.to(device)
-        bottomup_model.m_device = device
 
         # create an instance of SingleInstancePredictor class
         obj = cls(
