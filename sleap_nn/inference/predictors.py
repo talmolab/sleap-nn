@@ -83,7 +83,7 @@ class Predictor(ABC):
     def from_model_paths(
         cls,
         model_paths: List[Text],
-        peak_threshold: float = 0.2,
+        peak_threshold: Union[float, List[float]] = 0.2,
         integral_refinement: str = None,
         integral_patch_size: int = 5,
         batch_size: int = 4,
@@ -100,7 +100,10 @@ class Predictor(ABC):
             model_paths: (List[str]) List of paths to the directory where the best.ckpt
                 and training_config.yaml are saved.
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
-                this will be ignored. Default: 0.2.
+                this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
+                centroid and centered-instance model, where the first element corresponds
+                to centroid model peak finding threshold and the second element is for
+                centered-instance model peak finding.
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
                 Default: None.
@@ -361,7 +364,10 @@ class TopDownPredictor(Predictor):
         skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
                         the output predictions.
         peak_threshold: (float) Minimum confidence threshold. Peaks with values below
-            this will be ignored. Default: 0.2
+                this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
+                centroid and centered-instance model, where the first element corresponds
+                to centroid model peak finding threshold and the second element is for
+                centered-instance model peak finding.
         integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
             If `"integral"`, peaks will be refined with integral regression.
             Default: None.
@@ -392,7 +398,7 @@ class TopDownPredictor(Predictor):
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
-    peak_threshold: float = 0.2
+    peak_threshold: Union[float, List[float]] = 0.2
     integral_refinement: str = None
     integral_patch_size: int = 5
     batch_size: int = 4
@@ -406,6 +412,13 @@ class TopDownPredictor(Predictor):
         """Initialize the inference model from the trained models and configuration."""
         # Create an instance of CentroidLayer if centroid_config is not None
         return_crops = False
+        if isinstance(self.peak_threshold, List):
+            centroid_peak_threshold = self.peak_threshold[0]
+            centeredinstance_peak_threshold = self.peak_threshold[1]
+        else:
+            centroid_peak_threshold = self.peak_threshold
+            centeredinstance_peak_threshold = self.peak_threshold
+
         if self.centroid_config is None:
             centroid_crop_layer = None
         else:
@@ -418,7 +431,7 @@ class TopDownPredictor(Predictor):
             # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
-                peak_threshold=self.peak_threshold,
+                peak_threshold=centroid_peak_threshold,
                 output_stride=self.output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
@@ -426,7 +439,7 @@ class TopDownPredictor(Predictor):
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.data_config.scale,
+                input_scale=self.centroid_config.data_config.preprocessing.scale,
                 crop_hw=self.data_config.crop_hw,
             )
 
@@ -438,13 +451,13 @@ class TopDownPredictor(Predictor):
             max_stride = self.confmap_config.model_config.backbone_config.max_stride
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
-                peak_threshold=self.peak_threshold,
+                peak_threshold=centeredinstance_peak_threshold,
                 output_stride=self.output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
-                input_scale=self.data_config.scale,
+                input_scale=self.confmap_config.data_config.preprocessing.scale,
             )
 
         # Initialize the inference model with centroid and instance peak layers
@@ -662,7 +675,7 @@ class TopDownPredictor(Predictor):
             self.preprocess = False
             self.video_preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.data_config.scale,
+                "scale": self.centroid_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.centroid_config.model_config.backbone_config.max_stride
@@ -819,7 +832,7 @@ class SingleInstancePredictor(Predictor):
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.data_config.scale,
+            input_scale=self.confmap_config.data_config.preprocessing.scale,
         )
 
     @property
@@ -934,7 +947,9 @@ class SingleInstancePredictor(Predictor):
                 max_width=self.data_config.max_width,
                 provider=data_provider,
             )
-            pipeline = Resizer(pipeline, scale=self.data_config.scale)
+            pipeline = Resizer(
+                pipeline, scale=self.confmap_config.data_config.preprocessing.scale
+            )
             pipeline = PadToStride(
                 pipeline,
                 max_stride=self.confmap_config.model_config.backbone_config.max_stride,
@@ -954,7 +969,7 @@ class SingleInstancePredictor(Predictor):
             self.preprocess = True
             self.video_preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.data_config.scale,
+                "scale": self.confmap_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.confmap_config.model_config.backbone_config.max_stride
@@ -1145,7 +1160,7 @@ class BottomUpPredictor(Predictor):
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.data_config.scale,
+            input_scale=self.bottomup_config.data_config.preprocessing.scale,
         )
 
     @property
@@ -1266,7 +1281,9 @@ class BottomUpPredictor(Predictor):
                 max_width=self.data_config.max_width,
                 provider=data_provider,
             )
-            pipeline = Resizer(pipeline, scale=self.data_config.scale)
+            pipeline = Resizer(
+                pipeline, scale=self.bottomup_config.data_config.preprocessing.scale
+            )
             max_stride = self.bottomup_config.model_config.backbone_config.max_stride
             pipeline = PadToStride(pipeline, max_stride=max_stride)
 
@@ -1284,7 +1301,7 @@ class BottomUpPredictor(Predictor):
             self.preprocess = True
             self.video_preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.data_config.scale,
+                "scale": self.bottomup_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.bottomup_config.model_config.backbone_config.max_stride
@@ -1397,7 +1414,6 @@ def main(
     max_width: int = None,
     max_height: int = None,
     is_rgb: bool = False,
-    scale: float = 1.0,
     provider: str = "LabelsReader",
     batch_size: int = 4,
     num_workers: int = 0,
@@ -1407,7 +1423,7 @@ def main(
     crop_hw: List[int] = (160, 160),
     output_stride: int = 2,
     pafs_output_stride: int = 4,
-    peak_threshold: float = 0.2,
+    peak_threshold: Union[float, List[float]] = 0.2,
     integral_refinement: str = None,
     integral_patch_size: int = 5,
     return_confmaps: bool = False,
@@ -1438,8 +1454,6 @@ def main(
                 is replicated along the channel axis. If input has three channels and this
                 is set to False, then we convert the image to grayscale (single-channel)
                 image. Default: False.
-        scale: (float) Float indicating if the images should be resized before being
-                passed to the model. Default: 1.0.
         provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader". Default: LabelsReader.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -1458,7 +1472,10 @@ def main(
         pafs_output_stride: (int) Stride of the output part affinity fields relative
                 to the input image. Default: 4.
         peak_threshold: (float) Minimum confidence threshold. Peaks with values below
-                this will be ignored. Default: 0.2.
+                this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
+                centroid and centered-instance model, where the first element corresponds
+                to centroid model peak finding threshold and the second element is for
+                centered-instance model peak finding.
         integral_refinement: (str) If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
                 Default: None.
@@ -1505,7 +1522,6 @@ def main(
     """
     preprocess_config = {  # if not given, then use from training config
         "is_rgb": is_rgb,
-        "scale": scale,
         "crop_hw": crop_hw,
         "max_width": max_width,
         "max_height": max_height,
