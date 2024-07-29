@@ -412,7 +412,7 @@ class TopDownPredictor(Predictor):
         """Initialize the inference model from the trained models and configuration."""
         # Create an instance of CentroidLayer if centroid_config is not None
         return_crops = False
-        if isinstance(self.peak_threshold, List):
+        if isinstance(self.peak_threshold, list):
             centroid_peak_threshold = self.peak_threshold[0]
             centeredinstance_peak_threshold = self.peak_threshold[1]
         else:

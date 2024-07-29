@@ -157,9 +157,9 @@ class ModelTrainer:
         val_datapipe = val_datapipe.sharding_filter()
         self.val_data_loader = DataLoader(
             val_datapipe,
-            batch_size=self.config.trainer_config.train_data_loader.batch_size,
+            batch_size=self.config.trainer_config.val_data_loader.batch_size,
             shuffle=False,
-            num_workers=self.config.trainer_config.train_data_loader.num_workers,
+            num_workers=self.config.trainer_config.val_data_loader.num_workers,
         )
 
     def _set_wandb(self):
