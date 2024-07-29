@@ -27,7 +27,7 @@ data_config:
       brightness_p: 0
     geometric:
       rotation: 180.0
-      scale: 0
+      scale: null
       translate_width: 0
       translate_height: 0
       affine_p: 0.5
@@ -87,7 +87,7 @@ model_config:
   head_configs:
     single_instance:
     centered_instance:
-    bottom_up: 
+    bottomup: 
     centroid:
       confmaps:
         anchor_part: 0

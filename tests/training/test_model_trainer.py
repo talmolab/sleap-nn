@@ -235,19 +235,17 @@ def test_trainer(config, tmp_path: str):
 
     # bottom up model
     bottomup_config = config.copy()
-    OmegaConf.update(
-        bottomup_config, "model_config.head_configs.bottom_up", head_config
-    )
+    OmegaConf.update(bottomup_config, "model_config.head_configs.bottomup", head_config)
     paf = {
         "edges": [("part1", "part2")],
         "sigma": 4,
         "output_stride": 4,
         "loss_weight": 1.0,
     }
-    del bottomup_config.model_config.head_configs.bottom_up["confmaps"].anchor_part
+    del bottomup_config.model_config.head_configs.bottomup["confmaps"].anchor_part
     del bottomup_config.model_config.head_configs.centered_instance
-    bottomup_config.model_config.head_configs.bottom_up["pafs"] = paf
-    bottomup_config.model_config.head_configs.bottom_up.confmaps.loss_weight = 1.0
+    bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
+    bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
     if Path(bottomup_config.trainer_config.save_ckpt_path).exists():
         shutil.rmtree(bottomup_config.trainer_config.save_ckpt_path)
@@ -409,17 +407,17 @@ def test_bottomup_model(config, tmp_path: str):
     config_copy = config.copy()
 
     head_config = config.model_config.head_configs.centered_instance
-    OmegaConf.update(config, "model_config.head_configs.bottom_up", head_config)
+    OmegaConf.update(config, "model_config.head_configs.bottomup", head_config)
     paf = {
         "edges": [("part1", "part2")],
         "sigma": 4,
         "output_stride": 4,
         "loss_weight": 1.0,
     }
-    del config.model_config.head_configs.bottom_up["confmaps"].anchor_part
+    del config.model_config.head_configs.bottomup["confmaps"].anchor_part
     del config.model_config.head_configs.centered_instance
-    config.model_config.head_configs.bottom_up["pafs"] = paf
-    config.model_config.head_configs.bottom_up.confmaps.loss_weight = 1.0
+    config.model_config.head_configs.bottomup["pafs"] = paf
+    config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -428,7 +426,7 @@ def test_bottomup_model(config, tmp_path: str):
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(config, None, "bottom_up")
+    model = BottomUpModel(config, None, "bottomup")
 
     preds = model(input_["image"])
 
@@ -440,17 +438,17 @@ def test_bottomup_model(config, tmp_path: str):
     # with edges as None
     config = config_copy
     head_config = config.model_config.head_configs.centered_instance
-    OmegaConf.update(config, "model_config.head_configs.bottom_up", head_config)
+    OmegaConf.update(config, "model_config.head_configs.bottomup", head_config)
     paf = {
         "edges": None,
         "sigma": 4,
         "output_stride": 4,
         "loss_weight": 1.0,
     }
-    del config.model_config.head_configs.bottom_up["confmaps"].anchor_part
+    del config.model_config.head_configs.bottomup["confmaps"].anchor_part
     del config.model_config.head_configs.centered_instance
-    config.model_config.head_configs.bottom_up["pafs"] = paf
-    config.model_config.head_configs.bottom_up.confmaps.loss_weight = 1.0
+    config.model_config.head_configs.bottomup["pafs"] = paf
+    config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -460,7 +458,7 @@ def test_bottomup_model(config, tmp_path: str):
     skeletons = model_trainer.skeletons
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(config, skeletons, "bottom_up")
+    model = BottomUpModel(config, skeletons, "bottomup")
 
     preds = model(input_["image"])
 

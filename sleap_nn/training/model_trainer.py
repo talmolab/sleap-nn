@@ -110,17 +110,17 @@ class ModelTrainer:
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
             )
 
-        elif self.model_type == "bottom_up":
+        elif self.model_type == "bottomup":
             data_pipeline = BottomUpPipeline(
                 data_config=self.config.data_config,
                 max_stride=self.config.model_config.backbone_config.max_stride,
-                confmap_head=self.config.model_config.head_configs.bottom_up.confmaps,
-                pafs_head=self.config.model_config.head_configs.bottom_up.pafs,
+                confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
+                pafs_head=self.config.model_config.head_configs.bottomup.pafs,
             )
 
         else:
             raise Exception(
-                f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottom_up`."
+                f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
             )
 
         # train
@@ -170,7 +170,7 @@ class ModelTrainer:
             "single_instance": SingleInstanceModel,
             "centered_instance": TopDownCenteredInstanceModel,
             "centroid": CentroidModel,
-            "bottom_up": BottomUpModel,
+            "bottomup": BottomUpModel,
         }
         self.model = models[self.model_type](
             self.config, self.skeletons, self.model_type
@@ -301,7 +301,7 @@ class TrainingModel(L.LightningModule):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
     """
 
     def __init__(
@@ -467,7 +467,7 @@ class SingleInstanceModel(TrainingModel):
             (ii) model_config: backbone and head configs to be passed to `Model` class.
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
     """
 
@@ -538,7 +538,7 @@ class TopDownCenteredInstanceModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
     """
 
@@ -609,7 +609,7 @@ class CentroidModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
     """
 
@@ -680,7 +680,7 @@ class BottomUpModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
     """
 

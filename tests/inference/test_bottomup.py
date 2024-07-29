@@ -31,7 +31,7 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         f"{minimal_instance_bottomup_ckpt}/best.ckpt",
         config=train_config,
         skeletons=None,
-        model_type="bottom_up",
+        model_type="bottomup",
     )
 
     inference_layer = BottomUpInferenceModel(
@@ -39,10 +39,10 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         paf_scorer=PAFScorer.from_config(
             config=OmegaConf.create(
                 {
-                    "confmaps": train_config.model_config.head_configs.bottom_up[
+                    "confmaps": train_config.model_config.head_configs.bottomup[
                         "confmaps"
                     ],
-                    "pafs": train_config.model_config.head_configs.bottom_up["pafs"],
+                    "pafs": train_config.model_config.head_configs.bottomup["pafs"],
                 }
             )
         ),
@@ -66,10 +66,10 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         paf_scorer=PAFScorer.from_config(
             config=OmegaConf.create(
                 {
-                    "confmaps": train_config.model_config.head_configs.bottom_up[
+                    "confmaps": train_config.model_config.head_configs.bottomup[
                         "confmaps"
                     ],
-                    "pafs": train_config.model_config.head_configs.bottom_up["pafs"],
+                    "pafs": train_config.model_config.head_configs.bottomup["pafs"],
                 }
             )
         ),

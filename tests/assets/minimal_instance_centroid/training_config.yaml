@@ -15,7 +15,7 @@ data_config:
       crop_width: 160
     geometric:
       rotation: 180.0
-      scale: 0
+      scale: null
       translate_width: 0
       translate_height: 0
       affine_p: 0.5
@@ -48,7 +48,7 @@ model_config:
   head_configs:
     single_instance: null
     centered_instance: null
-    bottom_up: null
+    bottomup: null
     centroid:
       confmaps:
         anchor_part: 0

@@ -180,8 +180,8 @@ class Predictor(ABC):
                 preprocess_config=preprocess_config,
             )
 
-        elif "bottom_up" in model_names:
-            bottomup_ckpt_path = model_paths[model_names.index("bottom_up")]
+        elif "bottomup" in model_names:
+            bottomup_ckpt_path = model_paths[model_names.index("bottomup")]
             predictor = BottomUpPredictor.from_trained_models(
                 bottomup_ckpt_path,
                 peak_threshold=peak_threshold,
@@ -414,10 +414,10 @@ class TopDownPredictor(Predictor):
         return_crops = False
         if isinstance(self.peak_threshold, list):
             centroid_peak_threshold = self.peak_threshold[0]
-            centeredinstance_peak_threshold = self.peak_threshold[1]
+            centered_instance_peak_threshold = self.peak_threshold[1]
         else:
             centroid_peak_threshold = self.peak_threshold
-            centeredinstance_peak_threshold = self.peak_threshold
+            centered_instance_peak_threshold = self.peak_threshold
 
         if self.centroid_config is None:
             centroid_crop_layer = None
@@ -451,7 +451,7 @@ class TopDownPredictor(Predictor):
             max_stride = self.confmap_config.model_config.backbone_config.max_stride
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
-                peak_threshold=centeredinstance_peak_threshold,
+                peak_threshold=centered_instance_peak_threshold,
                 output_stride=self.output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
@@ -1135,10 +1135,10 @@ class BottomUpPredictor(Predictor):
         paf_scorer = PAFScorer.from_config(
             config=OmegaConf.create(
                 {
-                    "confmaps": self.bottomup_config.model_config.head_configs.bottom_up[
+                    "confmaps": self.bottomup_config.model_config.head_configs.bottomup[
                         "confmaps"
                     ],
-                    "pafs": self.bottomup_config.model_config.head_configs.bottom_up[
+                    "pafs": self.bottomup_config.model_config.head_configs.bottomup[
                         "pafs"
                     ],
                 }
@@ -1225,7 +1225,7 @@ class BottomUpPredictor(Predictor):
             f"{bottomup_ckpt_path}/best.ckpt",
             config=bottomup_config,
             skeletons=skeletons,
-            model_type="bottom_up",
+            model_type="bottomup",
         )
         bottomup_model.to(device)
 

@@ -14,7 +14,7 @@ data_config:
   augmentation_config:
     geometric:
       rotation: 180.0
-      scale: 0
+      scale: null
       translate_width: 0
       translate_height: 0
       affine_p: 0.5
@@ -35,7 +35,7 @@ model_config:
     up_interpolate: true
   head_configs:
     single_instance: null
-    bottom_up: null
+    bottomup: null
     centroid: null
     centered_instance:
       confmaps:

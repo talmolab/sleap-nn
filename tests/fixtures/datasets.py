@@ -88,7 +88,7 @@ def config(sleap_data_dir):
                 "head_configs": {
                     "single_instance": None,
                     "centroid": None,
-                    "bottom_up": None,
+                    "bottomup": None,
                     "centered_instance": {
                         "confmaps": {
                             "part_names": [

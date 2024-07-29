@@ -72,7 +72,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'single_instance'
             - 'centroid'
             - 'centered_instance'
-            - 'bottom_up'
+            - 'bottomup'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -88,13 +88,13 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
     elif model_type == "centroid":
         heads.append(CentroidConfmapsHead(**head_config.confmaps))
 
-    elif model_type == "bottom_up":
+    elif model_type == "bottomup":
         heads.append(MultiInstanceConfmapsHead(**head_config.confmaps))
         heads.append(PartAffinityFieldsHead(**head_config.pafs))
 
     else:
         raise Exception(
-            f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottom_up`."
+            f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
         )
 
     return heads
@@ -109,7 +109,7 @@ class Model(nn.Module):
         head_configs: An `DictConfig` configuration dictionary for the model heads.
         input_expand_channels: Integer representing the number of channels the image
                                 should be expanded to.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottom_up`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
     """
 
     def __init__(
