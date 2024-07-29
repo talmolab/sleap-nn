@@ -58,11 +58,11 @@ def config(sleap_data_dir):
                     "scale": 1.0,
                     "crop_hw": [160, 160],
                 },
-                "use_augmentations_train": False,
+                "use_augmentations_train": True,
                 "augmentation_config": {
                     "geometric": {
                         "rotation": 180.0,
-                        "scale": 0,
+                        "scale": None,
                         "translate_width": 0,
                         "translate_height": 0,
                         "affine_p": 0.5,

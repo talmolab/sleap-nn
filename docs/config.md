@@ -44,8 +44,7 @@ The config file has three main sections:
             - `brightness_p`: (float) Probability of applying random brightness. *Default*=0.0
         - `geometric`: (Optional)
             - `rotation`: (float) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
-            - `scale`: (float) A scaling factor as a scalar float specifying the amount of scaling. A
-            random factor between (1 - scale, 1 + scale) will be sampled and applied to both images and keypoints. If `None`, no scaling augmentation will be applied.
+            - `scale`: (float) scaling factor interval. If (a, b) represents isotropic scaling, the scale is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d Default: None.
             - `translate_width`: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default.
             - `translate_height`: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default.
             - `affine_p`: (float) Probability of applying random affine transformations. *Default*=0.0

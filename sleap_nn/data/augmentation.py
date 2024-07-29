@@ -101,10 +101,10 @@ class KorniaAugmenter(IterDataPipe):
         rotation: Angles in degrees as a scalar float of the amount of rotation. A
             random angle in `(-rotation, rotation)` will be sampled and applied to both
             images and keypoints. Set to 0 to disable rotation augmentation.
-        scale: A scaling factor as a scalar float specifying the amount of scaling. A
-            random factor between `(1 - scale, 1 + scale)` will be sampled and applied
-            to both images and keypoints. If `None`, no scaling augmentation will be
-            applied.
+        scale: scaling factor interval. If (a, b) represents isotropic scaling, the scale
+            is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale
+            is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d.
+            Default: None.
         translate_width: Maximum absolute fraction for horizontal translation. For example,
             if translate_width=a, then horizontal shift is randomly sampled in the range
             -img_width * a < dx < img_width * a. Will not translate by default.
@@ -154,7 +154,9 @@ class KorniaAugmenter(IterDataPipe):
         self,
         source_dp: IterDataPipe,
         rotation: Optional[float] = 15.0,
-        scale: Optional[float] = 0.05,
+        scale: Union[
+            Optional[float], Tuple[float, float], Tuple[float, float, float, float]
+        ] = None,
         translate_width: Optional[float] = 0.02,
         translate_height: Optional[float] = 0.02,
         affine_p: float = 0.0,
@@ -185,7 +187,7 @@ class KorniaAugmenter(IterDataPipe):
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
         self.rotation = rotation
-        self.scale = (1 - scale, 1 + scale)
+        self.scale = scale
         self.translate_width = translate_width
         self.translate_height = translate_height
         self.affine_p = affine_p
