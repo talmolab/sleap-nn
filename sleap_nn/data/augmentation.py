@@ -188,6 +188,8 @@ class KorniaAugmenter(IterDataPipe):
         self.source_dp = source_dp
         self.rotation = rotation
         self.scale = scale
+        if isinstance(self.scale, float):
+            self.scale = (scale, scale)
         self.translate_width = translate_width
         self.translate_height = translate_height
         self.affine_p = affine_p
