@@ -43,29 +43,30 @@ class TopdownConfmapsPipeline:
         self.max_stride = max_stride
         self.confmap_head = confmap_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if (
-            self.data_config.use_augmentations
-            and "intensity" in self.data_config.augmentation_config
-        ):
+        if use_augmentations and "intensity" in self.data_config.augmentation_config:
             datapipe = KorniaAugmenter(
                 datapipe,
                 **dict(self.data_config.augmentation_config.intensity),
@@ -82,10 +83,7 @@ class TopdownConfmapsPipeline:
             self.data_config.preprocessing.crop_hw,
         )
 
-        if (
-            self.data_config.use_augmentations
-            and "geometric" in self.data_config.augmentation_config
-        ):
+        if use_augmentations and "geometric" in self.data_config.augmentation_config:
             datapipe = KorniaAugmenter(
                 datapipe,
                 **dict(self.data_config.augmentation_config.geometric),
@@ -95,7 +93,7 @@ class TopdownConfmapsPipeline:
 
         datapipe = Resizer(
             datapipe,
-            scale=self.data_config.scale,
+            scale=self.data_config.preprocessing.scale,
             image_key="instance_image",
             instances_key="instance",
         )
@@ -149,26 +147,30 @@ class SingleInstanceConfmapsPipeline:
         self.max_stride = max_stride
         self.confmap_head = confmap_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if self.data_config.use_augmentations:
+        if use_augmentations:
             if "intensity" in self.data_config.augmentation_config:
                 datapipe = KorniaAugmenter(
                     datapipe,
@@ -194,7 +196,7 @@ class SingleInstanceConfmapsPipeline:
                     instance_key="instances",
                 )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
         datapipe = ConfidenceMapGenerator(
@@ -239,12 +241,16 @@ class CentroidConfmapsPipeline:
         self.max_stride = max_stride
         self.confmap_head = confmap_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
@@ -259,15 +265,15 @@ class CentroidConfmapsPipeline:
             "num_instances",
             "scale",
         ]
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if self.data_config.use_augmentations:
+        if use_augmentations:
             if "intensity" in self.data_config.augmentation_config:
                 datapipe = KorniaAugmenter(
                     datapipe,
@@ -292,7 +298,7 @@ class CentroidConfmapsPipeline:
                     instance_key="instances",
                 )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
         datapipe = InstanceCentroidFinder(
             datapipe, anchor_ind=self.confmap_head.anchor_part
@@ -337,12 +343,16 @@ class BottomUpPipeline:
         self.confmap_head = confmap_head
         self.pafs_head = pafs_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
@@ -358,15 +368,15 @@ class BottomUpPipeline:
             "scale",
             "part_affinity_fields",
         ]
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if self.data_config.use_augmentations:
+        if use_augmentations:
             if "intensity" in self.data_config.augmentation_config:
                 datapipe = KorniaAugmenter(
                     datapipe,
@@ -392,7 +402,7 @@ class BottomUpPipeline:
                     instance_key="instances",
                 )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
         datapipe = MultiConfidenceMapGenerator(

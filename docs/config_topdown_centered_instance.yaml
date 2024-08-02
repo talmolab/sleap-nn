@@ -1,51 +1,39 @@
 data_config:
   provider: LabelsReader
-  pipeline: TopdownConfmaps
-  train:
-    labels_path: "minimal_instance.pkg.slp"
+  train_labels_path: minimal_instance.pkg.slp
+  val_labels_path: minimal_instance.pkg.slp
+  preprocessing:
     max_width: 
     max_height: 
     scale: 1.0
     is_rgb: False
-    preprocessing:
-      crop_hw:
+    crop_hw:
       - 160
       - 160
-    use_augmentations: true
-    augmentation_config:
-      geometric:
-        rotation: 180.0
-        scale: 0
-        translate_width: 0
-        translate_height: 0
-        affine_p: 0.5
-  val:
-    labels_path: "minimal_instance.pkg.slp"
-    max_width: 
-    max_height: 
-    is_rgb: False
-    scale: 1.0
-    preprocessing:
-      crop_hw:
-      - 160
-      - 160
-    use_augmentations: false
+  use_augmentations_train: true
+  augmentation_config:
+    geometric:
+      rotation: 180.0
+      scale: null
+      translate_width: 0
+      translate_height: 0
+      affine_p: 0.5
+
 model_config:
   init_weights: xavier
   pre_trained_weights:
+  backbone_type: unet
   backbone_config:
-    backbone_type: unet
-    backbone_config:
-        in_channels: 1
-        kernel_size: 3
-        filters: 16
-        filters_rate: 2
-        max_stride: 16
-        convs_per_block: 2
-        stacks: 1
-        stem_stride: 
-        middle_block: True
-        up_interpolate: True
+      in_channels: 1
+      kernel_size: 3
+      filters: 16
+      filters_rate: 2
+      max_stride: 16
+      convs_per_block: 2
+      stacks: 1
+      stem_stride: 
+      middle_block: True
+      up_interpolate: True
   
   # pre_trained_weights: ConvNeXt_Tiny_Weights
   # backbone_config:
@@ -76,15 +64,16 @@ model_config:
   #     up_interpolate: True
   #     stem_patch_stride: 2
 
-  head_configs: 
-    confmaps:
-        head_type: CenteredInstanceConfmapsHead
-        head_config:
-          part_names: None
-          anchor_part: 0
-          sigma: 1.5
-          output_stride: 2
-          loss_weight: 1.0
+  head_configs:
+    single_instance:
+    centroid:
+    bottomup:
+    centered_instance: 
+      confmaps:
+        part_names: None
+        anchor_part: 0
+        sigma: 1.5
+        output_stride: 2
 trainer_config:
   train_data_loader:
     batch_size: 4
@@ -96,7 +85,6 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: true
-  device: cuda
   trainer_devices: 1
   trainer_accelerator: gpu # TODO: redo device + trainer_accelerator!
   enable_progress_bar: false
@@ -106,18 +94,6 @@ trainer_config:
   use_wandb: false
   save_ckpt: true
   save_ckpt_path: 'min_inst_centered'
-  wandb:
-    entity: 
-    project: 'test_centroid_centered'
-    name: 'fly_unet_centered'
-    wandb_mode: ''
-    api_key: ''
-    log_params:
-    - trainer_config.optimizer_name
-    - trainer_config.optimizer.amsgrad
-    - trainer_config.optimizer.lr
-    - model_config.backbone_config.backbone_type
-    - model_config.init_weights
   optimizer_name: Adam
   optimizer:
     lr: 0.0001

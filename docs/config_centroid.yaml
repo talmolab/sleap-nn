@@ -1,74 +1,59 @@
 data_config:
   provider: LabelsReader
-  pipeline: CentroidConfmaps
-  train:
-    labels_path: "minimal_instance.pkg.slp"
+  train_labels_path: minimal_instance.pkg.slp
+  val_labels_path: minimal_instance.pkg.slp
+  preprocessing:
     max_width: 
     max_height: 
     scale: 0.5
     is_rgb: False
-    preprocessing:
-      crop_hw:
-      - 160
-      - 160
-    use_augmentations: true
-    augmentation_config: # sample augmentation_config
-      random_crop:
-        random_crop_p: 0
-        crop_height: 160
-        crop_width: 160
-      intensity:
-        uniform_noise_min: 0.0
-        uniform_noise_max: 0.04
-        uniform_noise_p: 0
-        gaussian_noise_mean: 0.02
-        gaussian_noise_std: 0.004
-        gaussian_noise_p: 0
-        contrast_min: 0.5
-        contrast_max: 2.0
-        contrast_p: 0
-        brightness: 0.0
-        brightness_p: 0
-      geometric:
-        rotation: 180.0
-        scale: 0
-        translate_width: 0
-        translate_height: 0
-        affine_p: 0.5
-        erase_scale_min: 0.0001
-        erase_scale_max: 0.01
-        erase_ratio_min: 1
-        erase_ratio_max: 1
-        erase_p: 0
-        mixup_lambda: null
-        mixup_p: 0
-  val:
-    labels_path: "minimal_instance.pkg.slp"
-    max_width: 
-    max_height: 
-    is_rgb: False
-    scale: 0.5
-    preprocessing:
-      crop_hw:
-      - 160
-      - 160
-    use_augmentations: false
+  use_augmentations_train: true
+  augmentation_config: # sample augmentation_config
+    random_crop:
+      random_crop_p: 0
+      crop_height: 160
+      crop_width: 160
+    intensity:
+      uniform_noise_min: 0.0
+      uniform_noise_max: 0.04
+      uniform_noise_p: 0
+      gaussian_noise_mean: 0.02
+      gaussian_noise_std: 0.004
+      gaussian_noise_p: 0
+      contrast_min: 0.5
+      contrast_max: 2.0
+      contrast_p: 0
+      brightness: 0.0
+      brightness_p: 0
+    geometric:
+      rotation: 180.0
+      scale: null
+      translate_width: 0
+      translate_height: 0
+      affine_p: 0.5
+      erase_scale_min: 0.0001
+      erase_scale_max: 0.01
+      erase_ratio_min: 1
+      erase_ratio_max: 1
+      erase_p: 0
+      mixup_lambda: null
+      mixup_p: 0
+
 model_config:
   init_weights: xavier
   pre_trained_weights:
+  backbone_type: unet
   backbone_config:
-    backbone_type: unet
-    backbone_config:
-        in_channels: 1
-        kernel_size: 3
-        filters: 16
-        filters_rate: 2
-        max_stride: 16
-        convs_per_block: 2
-        stacks: 1
-        stem_stride: 
-        middle_block: True
-        up_interpolate: True
+      in_channels: 1
+      kernel_size: 3
+      filters: 16
+      filters_rate: 2
+      max_stride: 16
+      convs_per_block: 2
+      stacks: 1
+      stem_stride: 
+      middle_block: True
+      up_interpolate: True
 
   #   pre_trained_weights: ConvNeXt_Tiny_Weights
   #   backbone_config:
@@ -99,14 +84,15 @@ model_config:
   #     up_interpolate: True
   #     stem_patch_stride: 2
 
-  head_configs: 
-    confmaps:
-        head_type: CentroidConfmapsHead
-        head_config:
-          anchor_part: 0
-          sigma: 1.5
-          output_stride: 2
-          loss_weight: 1.0
+  head_configs:
+    single_instance:
+    centered_instance:
+    bottomup: 
+    centroid:
+      confmaps:
+        anchor_part: 0
+        sigma: 1.5
+        output_stride: 2
 trainer_config:
   train_data_loader:
     batch_size: 4
@@ -118,7 +104,6 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: true
-  device: cuda
   trainer_devices: 1
   trainer_accelerator: gpu
   enable_progress_bar: false
@@ -128,7 +113,7 @@ trainer_config:
   use_wandb: false
   save_ckpt: true
   save_ckpt_path: 'min_inst_centroid'
-  wandb:
+  wandb: # sample wandb config
     entity: 
     project: 'test_centroid_centered'
     name: 'fly_unet_centered'
@@ -138,7 +123,7 @@ trainer_config:
     - trainer_config.optimizer_name
     - trainer_config.optimizer.amsgrad
     - trainer_config.optimizer.lr
-    - model_config.backbone_config.backbone_type
+    - model_config.backbone_type
     - model_config.init_weights
   optimizer_name: Adam
   optimizer:

@@ -49,61 +49,48 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "pipeline": "TopdownConfmaps",
-                "train": {
-                    "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "preprocessing": {
                     "is_rgb": False,
                     "max_width": None,
                     "max_height": None,
                     "scale": 1.0,
-                    "preprocessing": {
-                        "crop_hw": [160, 160],
-                    },
-                    "use_augmentations": False,
-                    "augmentation_config": {
-                        "geometric": {
-                            "rotation": 180.0,
-                            "scale": 0,
-                            "translate_width": 0,
-                            "translate_height": 0,
-                            "affine_p": 0.5,
-                        },
-                    },
+                    "crop_hw": [160, 160],
                 },
-                "val": {
-                    "labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                    "is_rgb": False,
-                    "max_width": None,
-                    "max_height": None,
-                    "scale": 1.0,
-                    "preprocessing": {
-                        "crop_hw": [160, 160],
+                "use_augmentations_train": True,
+                "augmentation_config": {
+                    "geometric": {
+                        "rotation": 180.0,
+                        "scale": None,
+                        "translate_width": 0,
+                        "translate_height": 0,
+                        "affine_p": 0.5,
                     },
-                    "use_augmentations": False,
                 },
             },
             "model_config": {
                 "init_weights": "default",
                 "pre_trained_weights": None,
+                "backbone_type": "unet",
                 "backbone_config": {
-                    "backbone_type": "unet",
-                    "backbone_config": {
-                        "in_channels": 1,
-                        "kernel_size": 3,
-                        "filters": 16,
-                        "filters_rate": 2,
-                        "max_stride": 16,
-                        "convs_per_block": 2,
-                        "stacks": 1,
-                        "stem_stride": None,
-                        "middle_block": True,
-                        "up_interpolate": True,
-                    },
+                    "in_channels": 1,
+                    "kernel_size": 3,
+                    "filters": 16,
+                    "filters_rate": 2,
+                    "max_stride": 16,
+                    "convs_per_block": 2,
+                    "stacks": 1,
+                    "stem_stride": None,
+                    "middle_block": True,
+                    "up_interpolate": True,
                 },
                 "head_configs": {
-                    "confmaps": {
-                        "head_type": "CenteredInstanceConfmapsHead",
-                        "head_config": {
+                    "single_instance": None,
+                    "centroid": None,
+                    "bottomup": None,
+                    "centered_instance": {
+                        "confmaps": {
                             "part_names": [
                                 "0",
                                 "1",
@@ -111,9 +98,8 @@ def config(sleap_data_dir):
                             "anchor_part": 1,
                             "sigma": 1.5,
                             "output_stride": 2,
-                            "loss_weight": 1.0,
-                        },
-                    }
+                        }
+                    },
                 },
             },
             "trainer_config": {
@@ -135,7 +121,6 @@ def config(sleap_data_dir):
                     "min_delta": 1e-08,
                     "patience": 20,
                 },
-                "device": "cpu",
                 "trainer_devices": 1,
                 "trainer_accelerator": "cpu",
                 "enable_progress_bar": False,
@@ -155,7 +140,7 @@ def config(sleap_data_dir):
                         "trainer_config.optimizer_name",
                         "trainer_config.optimizer.amsgrad",
                         "trainer_config.optimizer.lr",
-                        "model_config.backbone_config.backbone_type",
+                        "model_config.backbone_type",
                         "model_config.init_weights",
                     ],
                 },

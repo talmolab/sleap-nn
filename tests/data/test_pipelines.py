@@ -98,14 +98,14 @@ def test_topdownconfmapspipeline(minimal_instance):
     """Test the TopdownConfmapsPipeline."""
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
                 "crop_hw": (160, 160),
             },
-            "use_augmentations": False,
+            "use_augmentations_train": False,
         },
     )
 
@@ -116,7 +116,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_topdown_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -141,14 +144,14 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
                 "crop_hw": (100, 100),
             },
-            "use_augmentations": True,
+            "use_augmentations_train": True,
             "augmentation_config": {
                 "random_crop": {
                     "random_crop_p": 0.0,
@@ -191,7 +194,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_topdown_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -218,14 +224,14 @@ def test_topdownconfmapspipeline(minimal_instance):
     # Test with resizing and padding
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 2.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": False,
                 "crop_hw": (100, 100),
             },
-            "use_augmentations": True,
+            "use_augmentations_train": True,
             "augmentation_config": {
                 "random_crop": {
                     "random_crop_p": 0.0,
@@ -268,7 +274,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_topdown_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -303,11 +312,13 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 2.0,
-            "is_rgb": False,
-            "use_augmentations": False,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": False,
         }
     )
 
@@ -320,7 +331,10 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=labels)
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_singleinstance_data_config.use_augmentations_train,
+    )
 
     sample = next(iter(datapipe))
 
@@ -341,11 +355,13 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "use_augmentations": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
                 "random_crop": {
                     "random_crop_p": 1.0,
@@ -390,7 +406,10 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=labels)
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_singleinstance_data_config.use_augmentations_train,
+    )
 
     sample = next(iter(datapipe))
 
@@ -415,12 +434,13 @@ def test_centroidconfmapspipeline(minimal_instance):
     """Test CentroidConfmapsPipeline class."""
     base_centroid_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
-            "use_augmentations": False,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": False,
         }
     )
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
@@ -430,7 +450,10 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_centroid_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -451,12 +474,13 @@ def test_centroidconfmapspipeline(minimal_instance):
 
     base_centroid_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
-            "use_augmentations": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
                 "random_crop": {
                     "random_crop_p": 1.0,
@@ -499,7 +523,10 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_centroid_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -524,12 +551,13 @@ def test_bottomuppipeline(minimal_instance):
     """Test BottomUpPipeline class."""
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
-            "use_augmentations": False,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": False,
         }
     )
 
@@ -544,7 +572,10 @@ def test_bottomuppipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -568,12 +599,13 @@ def test_bottomuppipeline(minimal_instance):
     # with scaling
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 0.5,
-            "is_rgb": False,
-            "preprocessing": {},
-            "use_augmentations": False,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 0.5,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": False,
         }
     )
 
@@ -585,7 +617,10 @@ def test_bottomuppipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -609,12 +644,13 @@ def test_bottomuppipeline(minimal_instance):
     # with padding
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
-            "use_augmentations": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
                 "random_crop": {
                     "random_crop_p": 1.0,
@@ -660,7 +696,10 @@ def test_bottomuppipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -685,12 +724,13 @@ def test_bottomuppipeline(minimal_instance):
     # with random crop
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
-            "use_augmentations": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
                 "random_crop": {
                     "random_crop_p": 1.0,
@@ -736,7 +776,10 @@ def test_bottomuppipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
