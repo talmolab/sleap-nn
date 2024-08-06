@@ -53,7 +53,9 @@ class Tracker:
                 window_size=window_size, max_tracks=max_tracks
             )
         elif candidates_method == "local_queues":
-            candidates = LocalQueueCandidates
+            candidates = LocalQueueCandidates(
+                window_size=window_size, max_tracks=max_tracks
+            )
         else:
             raise ValueError(
                 f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
@@ -85,24 +87,16 @@ class Tracker:
 
             # track assignment
             cost_matrix = self._scores_to_cost_matrix(scores)
-            track_instances, new_track_ids = self._assign_tracks(
-                track_instances, cost_matrix
-            )
+            track_instances = self._assign_tracks(track_instances, cost_matrix)
 
-        else:
-            # Assign new tracks for instances.
-            track_id = 0
-            new_track_ids = []
+        else:  # Initialization of tracker queue
             for t in track_instances:
                 if t.instance_score > self.instance_score_threshold:
-                    t.track_id = track_id
-                    new_track_ids.append(track_id)
-                    track_id = track_id + 1
-            if not new_track_ids:
-                new_track_ids = None
+                    new_tracks_id = self.candidates.get_new_track_id()
+                    t.track_id = new_tracks_id
 
-        # update the candidates with the newly tracked instances.
-        self.candidates.update_candidates(track_instances, new_track_ids)
+        # update the candidates tracker queue with the newly tracked instances.
+        self.candidates.update_candidates(track_instances)
 
         # convert the track_instances back to `List[sio.PredictedInstance]` objects.
         new_pred_instances = []
@@ -185,26 +179,20 @@ class Tracker:
             cost_matrix: Cost matrix of shape (len(track_instances), num_existing_tracks).
 
         Returns:
-            Tuple (`track_instances`, `new_track_ids`) where the first is
-            the list of `TrackInstance` objects with track IDs assigned and the latter is
-            a list of new track IDs to be created.
+            `track_instances` which is a list of `TrackInstance` objects with track IDs assigned.
         """
         row_inds, col_inds = linear_sum_assignment(cost_matrix)
         for row, col in zip(row_inds, col_inds):
             track_instances[row].track_id = col
 
         # Create new tracks for instances with unassigned tracks from Hungarian matching
-        new_track_ids = None
         new_track_instances_inds = [
             x for x in range(len(track_instances)) if x not in row_inds
         ]
         if new_track_instances_inds:
-            new_track_ids = []
-            new_track_id = max(self.candidates.current_tracks) + 1
             for ind in new_track_instances_inds:
                 if track_instances[ind].instance_score > self.instance_score_threshold:
+                    new_track_id = self.candidates.get_new_track_id()
                     track_instances[ind].track_id = new_track_id
-                    new_track_ids.append(new_track_id)
-                    new_track_id += 1
 
-        return track_instances, new_track_ids
+        return track_instances

@@ -29,20 +29,17 @@ def test_fixed_window_candidates(minimal_instance_ckpt):
     tracker = Tracker.from_config()
     track_instances = tracker._get_features(pred_instances)
 
-    fixed_window_candidates = FixedWindowCandidates(2, 20)
+    fixed_window_candidates = FixedWindowCandidates(3, 20)
     assert isinstance(fixed_window_candidates.tracker_queue, Deque)
     fixed_window_candidates.update_candidates(track_instances)
     # track_id set as None
     assert not fixed_window_candidates.tracker_queue
 
-    for ind, t in enumerate(track_instances):
-        t.track_id = ind
-        fixed_window_candidates.current_tracks.append(ind)
+    for t in track_instances:
+        t.track_id = fixed_window_candidates.get_new_track_id()
 
     fixed_window_candidates.update_candidates(track_instances)
     assert len(fixed_window_candidates.tracker_queue) == 2
 
-    for ind, t in enumerate(track_instances):
-        t.track_id = 0
-    fixed_window_candidates.update_candidates(track_instances)
-    assert len(fixed_window_candidates.tracker_queue) == 2
+    new_track_id = fixed_window_candidates.get_new_track_id()
+    assert new_track_id == 2

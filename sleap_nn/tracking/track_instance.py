@@ -12,6 +12,6 @@ class TrackInstance:
 
     src_instance: sio.PredictedInstance
     feature: np.array
-    instance_score: float
+    instance_score: float = None
     track_id: Optional[int] = None
     tracking_score: Optional[float] = None
