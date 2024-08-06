@@ -40,19 +40,31 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
 
-    OmegaConf.update(config, "data_config.pipeline", "TopDown")
-    model_trainer = ModelTrainer(config)
-    with pytest.raises(Exception, match="TopDown is not defined."):
+    # test exception
+    config_copy = config.copy()
+    head_config = config_copy.model_config.head_configs.centered_instance
+    del config_copy.model_config.head_configs.centered_instance
+    OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
+    model_trainer = ModelTrainer(config_copy)
+    with pytest.raises(Exception):
         model_trainer._create_data_loaders()
 
-    OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    model_trainer = ModelTrainer(config)
+    # test single instance pipeline
+    config_copy = config.copy()
+    del config_copy.model_config.head_configs.centered_instance
+    OmegaConf.update(
+        config_copy, "model_config.head_configs.single_instance", head_config
+    )
+    model_trainer = ModelTrainer(config_copy)
     model_trainer._create_data_loaders()
     assert len(list(iter(model_trainer.train_data_loader))) == 1
     assert len(list(iter(model_trainer.val_data_loader))) == 1
 
-    OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    model_trainer = ModelTrainer(config)
+    # test centroid pipeline
+    config_copy = config.copy()
+    del config_copy.model_config.head_configs.centered_instance
+    OmegaConf.update(config_copy, "model_config.head_configs.centroid", head_config)
+    model_trainer = ModelTrainer(config_copy)
     model_trainer._create_data_loaders()
     assert len(list(iter(model_trainer.train_data_loader))) == 1
     assert len(list(iter(model_trainer.val_data_loader))) == 1
@@ -70,7 +82,7 @@ def test_wandb():
 
 
 def test_trainer(config, tmp_path: str):
-    # for topdown centered instance model
+    # # for topdown centered instance model
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -179,15 +191,14 @@ def test_trainer(config, tmp_path: str):
 
     # For Single instance model
     single_instance_config = config.copy()
+    head_config = single_instance_config.model_config.head_configs.centered_instance
+    del single_instance_config.model_config.head_configs.centered_instance
     OmegaConf.update(
-        single_instance_config, "data_config.pipeline", "SingleInstanceConfmaps"
+        single_instance_config, "model_config.head_configs.single_instance", head_config
     )
-    single_instance_config.model_config.head_configs["confmaps"].head_type = (
-        "SingleInstanceConfmapsHead"
+    del (
+        single_instance_config.model_config.head_configs.single_instance.confmaps.anchor_part
     )
-    del single_instance_config.model_config.head_configs[
-        "confmaps"
-    ].head_config.anchor_part
 
     trainer = ModelTrainer(single_instance_config)
     trainer._create_data_loaders()
@@ -196,15 +207,12 @@ def test_trainer(config, tmp_path: str):
 
     # Centroid model
     centroid_config = config.copy()
-    OmegaConf.update(centroid_config, "data_config.pipeline", "CentroidConfmaps")
-    centroid_config.model_config.head_configs["confmaps"].head_type = (
-        "CentroidConfmapsHead"
-    )
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
-    del centroid_config.model_config.head_configs["confmaps"].head_config.part_names
-
-    if Path(config.trainer_config.save_ckpt_path).exists():
-        shutil.rmtree(config.trainer_config.save_ckpt_path)
+    if Path(centroid_config.trainer_config.save_ckpt_path).exists():
+        shutil.rmtree(centroid_config.trainer_config.save_ckpt_path)
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -227,21 +235,17 @@ def test_trainer(config, tmp_path: str):
 
     # bottom up model
     bottomup_config = config.copy()
-    OmegaConf.update(bottomup_config, "data_config.pipeline", "BottomUp")
-    bottomup_config.model_config.head_configs["confmaps"].head_type = (
-        "MultiInstanceConfmapsHead"
-    )
+    OmegaConf.update(bottomup_config, "model_config.head_configs.bottomup", head_config)
     paf = {
-        "head_type": "PartAffinityFieldsHead",
-        "head_config": {
-            "edges": [("part1", "part2")],
-            "sigma": 4,
-            "output_stride": 4,
-            "loss_weight": 1.0,
-        },
+        "edges": [("part1", "part2")],
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
     }
-    del bottomup_config.model_config.head_configs["confmaps"].head_config.anchor_part
-    bottomup_config.model_config.head_configs["pafs"] = paf
+    del bottomup_config.model_config.head_configs.bottomup["confmaps"].anchor_part
+    del bottomup_config.model_config.head_configs.centered_instance
+    bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
+    bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
     if Path(bottomup_config.trainer_config.save_ckpt_path).exists():
         shutil.rmtree(bottomup_config.trainer_config.save_ckpt_path)
@@ -269,7 +273,7 @@ def test_trainer(config, tmp_path: str):
 def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # unet
-    model = TopDownCenteredInstanceModel(config)
+    model = TopDownCenteredInstanceModel(config, None, "centered_instance")
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
@@ -290,10 +294,10 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     OmegaConf.update(
         config, "model_config.pre_trained_weights", "ConvNeXt_Tiny_Weights"
     )
-    OmegaConf.update(config, "model_config.backbone_config.backbone_type", "convnext")
+    OmegaConf.update(config, "model_config.backbone_type", "convnext")
     OmegaConf.update(
         config,
-        "model_config.backbone_config.backbone_config",
+        "model_config.backbone_config",
         {
             "in_channels": 1,
             "model_type": "tiny",
@@ -306,7 +310,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "stem_patch_stride": 2,
         },
     )
-    model = TopDownCenteredInstanceModel(config)
+    model = TopDownCenteredInstanceModel(config, None, "centered_instance")
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
@@ -330,11 +334,15 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
-    OmegaConf.update(config, "data_config.pipeline", "CentroidConfmaps")
-    config.model_config.head_configs["confmaps"].head_type = "CentroidConfmapsHead"
-    del config.model_config.head_configs["confmaps"].head_config.part_names
+    OmegaConf.update(
+        config,
+        "model_config.head_configs.centroid",
+        config.model_config.head_configs.centered_instance,
+    )
+    del config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centroid["confmaps"].part_names
 
-    model = CentroidModel(config)
+    model = CentroidModel(config, None, "centroid")
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -355,12 +363,12 @@ def test_centroid_model(config, tmp_path: str):
 
 def test_single_instance_model(config, tmp_path: str):
     """Test the SingleInstanceModel training."""
-    OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
+    head_config = config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centered_instance
+    OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
+    del config.model_config.head_configs.single_instance.confmaps.anchor_part
+
     OmegaConf.update(config, "model_config.init_weights", "xavier")
-    config.model_config.head_configs["confmaps"].head_type = (
-        "SingleInstanceConfmapsHead"
-    )
-    del config.model_config.head_configs["confmaps"].head_config.anchor_part
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -368,7 +376,7 @@ def test_single_instance_model(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
-    model = SingleInstanceModel(config)
+    model = SingleInstanceModel(config, None, "single_instance")
 
     img = input_["image"]
     img_shape = img.shape[-2:]
@@ -380,11 +388,11 @@ def test_single_instance_model(config, tmp_path: str):
         2,
         int(
             img_shape[0]
-            / config.model_config.head_configs.confmaps.head_config.output_stride
+            / config.model_config.head_configs.single_instance.confmaps.output_stride
         ),
         int(
             img_shape[1]
-            / config.model_config.head_configs.confmaps.head_config.output_stride
+            / config.model_config.head_configs.single_instance.confmaps.output_stride
         ),
     )
 
@@ -398,19 +406,18 @@ def test_bottomup_model(config, tmp_path: str):
     """Test BottomUp model training."""
     config_copy = config.copy()
 
-    OmegaConf.update(config, "data_config.pipeline", "BottomUp")
-    config.model_config.head_configs["confmaps"].head_type = "MultiInstanceConfmapsHead"
+    head_config = config.model_config.head_configs.centered_instance
+    OmegaConf.update(config, "model_config.head_configs.bottomup", head_config)
     paf = {
-        "head_type": "PartAffinityFieldsHead",
-        "head_config": {
-            "edges": [("part1", "part2")],
-            "sigma": 4,
-            "output_stride": 4,
-            "loss_weight": 1.0,
-        },
+        "edges": [("part1", "part2")],
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
     }
-    del config.model_config.head_configs["confmaps"].head_config.anchor_part
-    config.model_config.head_configs["pafs"] = paf
+    del config.model_config.head_configs.bottomup["confmaps"].anchor_part
+    del config.model_config.head_configs.centered_instance
+    config.model_config.head_configs.bottomup["pafs"] = paf
+    config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -419,7 +426,7 @@ def test_bottomup_model(config, tmp_path: str):
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(config)
+    model = BottomUpModel(config, None, "bottomup")
 
     preds = model(input_["image"])
 
@@ -430,20 +437,19 @@ def test_bottomup_model(config, tmp_path: str):
 
     # with edges as None
     config = config_copy
-    OmegaConf.update(config, "data_config.pipeline", "BottomUp")
-    config.model_config.head_configs["confmaps"].head_type = "MultiInstanceConfmapsHead"
-    config.model_config.head_configs["confmaps"].head_config.part_names = None
+    head_config = config.model_config.head_configs.centered_instance
+    OmegaConf.update(config, "model_config.head_configs.bottomup", head_config)
     paf = {
-        "head_type": "PartAffinityFieldsHead",
-        "head_config": {
-            "edges": None,
-            "sigma": 4,
-            "output_stride": 4,
-            "loss_weight": 1.0,
-        },
+        "edges": None,
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
     }
-    del config.model_config.head_configs["confmaps"].head_config.anchor_part
-    config.model_config.head_configs["pafs"] = paf
+    del config.model_config.head_configs.bottomup["confmaps"].anchor_part
+    del config.model_config.head_configs.centered_instance
+    config.model_config.head_configs.bottomup["pafs"] = paf
+    config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
+
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
@@ -452,7 +458,7 @@ def test_bottomup_model(config, tmp_path: str):
     skeletons = model_trainer.skeletons
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(config, skeletons)
+    model = BottomUpModel(config, skeletons, "bottomup")
 
     preds = model(input_["image"])
 
