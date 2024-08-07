@@ -36,7 +36,6 @@ def test_key_filter(minimal_instance):
     datapipe = KeyFilter(datapipe, keep_keys=None)
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -46,7 +45,6 @@ def test_key_filter(minimal_instance):
         "frame_idx",
         "num_instances",
         "orig_size",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -76,7 +74,6 @@ def test_key_filter(minimal_instance):
     datapipe = KeyFilter(datapipe, keep_keys=None)
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -86,7 +83,6 @@ def test_key_filter(minimal_instance):
         "frame_idx",
         "num_instances",
         "orig_size",
-        "scale",
         "original_image",
     ]
 
@@ -122,7 +118,6 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -132,7 +127,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "scale",
     ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -200,7 +194,6 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -210,7 +203,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -280,7 +272,6 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -290,7 +281,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -345,7 +335,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "instances",
         "confidence_maps",
         "orig_size",
-        "scale",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -420,7 +409,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "instances",
         "confidence_maps",
         "orig_size",
-        "scale",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -462,7 +450,6 @@ def test_centroidconfmapspipeline(minimal_instance):
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
     ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -535,7 +522,6 @@ def test_centroidconfmapspipeline(minimal_instance):
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -584,7 +570,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
     sample = next(iter(datapipe))
@@ -629,7 +614,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
     sample = next(iter(datapipe))
@@ -708,7 +692,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
 
@@ -788,7 +771,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
 

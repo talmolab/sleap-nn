@@ -111,7 +111,6 @@ class TopdownConfmapsPipeline:
         datapipe = KeyFilter(
             datapipe,
             keep_keys=[
-                # "image",
                 "video_idx",
                 "frame_idx",
                 "centroid",
