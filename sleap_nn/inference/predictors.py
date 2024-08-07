@@ -650,7 +650,6 @@ class TopDownPredictor(Predictor):
                         "confidence_maps",
                         "num_instances",
                         "orig_size",
-                        "scale",
                     ],
                 )
 

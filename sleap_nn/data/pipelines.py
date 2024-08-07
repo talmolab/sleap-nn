@@ -111,7 +111,6 @@ class TopdownConfmapsPipeline:
         datapipe = KeyFilter(
             datapipe,
             keep_keys=[
-                "image",
                 "video_idx",
                 "frame_idx",
                 "centroid",
@@ -121,7 +120,6 @@ class TopdownConfmapsPipeline:
                 "confidence_maps",
                 "num_instances",
                 "orig_size",
-                "scale",
             ],
         )
 
@@ -215,7 +213,6 @@ class SingleInstanceConfmapsPipeline:
                 "instances",
                 "confidence_maps",
                 "orig_size",
-                "scale",
             ],
         )
 
@@ -263,7 +260,6 @@ class CentroidConfmapsPipeline:
             "centroids_confidence_maps",
             "orig_size",
             "num_instances",
-            "scale",
         ]
         datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
@@ -365,7 +361,6 @@ class BottomUpPipeline:
             "confidence_maps",
             "orig_size",
             "num_instances",
-            "scale",
             "part_affinity_fields",
         ]
         datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)

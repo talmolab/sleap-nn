@@ -124,7 +124,6 @@ class Resizer(IterDataPipe):
             if self.scale != 1.0:
                 ex[self.image_key] = resize_image(ex[self.image_key], self.scale)
                 ex[self.instances_key] = ex[self.instances_key] * self.scale
-            ex["scale"] = self.scale
             yield ex
 
 
