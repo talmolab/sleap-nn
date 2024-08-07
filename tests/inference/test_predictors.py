@@ -54,9 +54,11 @@ def test_topdown_predictor(
     # if model parameter is not set right
     with pytest.raises(ValueError):
         config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-        model_name = config.model_config.head_configs["confmaps"].head_type
-        config.model_config.head_configs["confmaps"].head_type = "instance"
-        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+        config_copy = config.copy()
+        head_config = config_copy.model_config.head_configs.centered_instance
+        del config_copy.model_config.head_configs.centered_instance
+        OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
+        OmegaConf.save(config_copy, f"{minimal_instance_ckpt}/training_config.yaml")
         preds = main(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
@@ -64,8 +66,6 @@ def test_topdown_predictor(
             make_labels=False,
         )
 
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    config.model_config.head_configs["confmaps"].head_type = model_name
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
     # centroid + centroid instance model
@@ -75,7 +75,7 @@ def test_topdown_predictor(
         provider="LabelsReader",
         make_labels=True,
         max_instances=6,
-        peak_threshold=0.0,
+        peak_threshold=[0.0, 0.0],
         integral_refinement="integral",
     )
     assert isinstance(pred_labels, sio.Labels)
@@ -103,7 +103,7 @@ def test_topdown_predictor(
         provider="VideoReader",
         make_labels=True,
         max_instances=6,
-        peak_threshold=0.0,
+        peak_threshold=[0.0, 0.0],
         integral_refinement="integral",
         videoreader_start_idx=0,
         videoreader_end_idx=100,
@@ -165,11 +165,14 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        config.model_config.head_configs["confmaps"].head_type = (
-            "SingleInstanceConfmapsHead"
+        head_config = config.model_config.head_configs.centered_instance
+        del config.model_config.head_configs.centered_instance
+        OmegaConf.update(
+            config, "model_config.head_configs.single_instance", head_config
         )
-        del config.model_config.head_configs["confmaps"].head_config.anchor_part
+        del config.model_config.head_configs.single_instance.confmaps.anchor_part
+        OmegaConf.update(config, "data_config.preprocessing.scale", 0.9)
+
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -182,7 +185,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             peak_threshold=0.3,
             max_height=500,
             max_width=500,
-            scale=0.9,
         )
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 1
@@ -205,7 +207,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             peak_threshold=0.3,
             max_height=500,
             max_width=500,
-            scale=0.9,
         )
         assert isinstance(preds, list)
         assert len(preds) == 1
@@ -222,11 +223,14 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        config.model_config.head_configs["confmaps"].head_type = (
-            "SingleInstanceConfmapsHead"
+        head_config = config.model_config.head_configs.centered_instance
+        del config.model_config.head_configs.centered_instance
+        OmegaConf.update(
+            config, "model_config.head_configs.single_instance", head_config
         )
-        del config.model_config.head_configs["confmaps"].head_config.anchor_part
+        del config.model_config.head_configs.single_instance.confmaps.anchor_part
+        OmegaConf.update(config, "data_config.preprocessing.scale", 0.9)
+
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -236,7 +240,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             provider="VideoReader",
             make_labels=True,
             peak_threshold=0.3,
-            scale=0.9,
         )
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 100
@@ -255,7 +258,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             provider="VideoReader",
             make_labels=False,
             peak_threshold=0.3,
-            scale=0.9,
         )
         assert isinstance(preds, list)
         assert len(preds) == 25
@@ -274,11 +276,12 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     config = _config.copy()
 
     try:
-        OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-        config.model_config.head_configs["confmaps"].head_type = (
-            "SingleInstanceConfmapsHead"
+        head_config = config.model_config.head_configs.centered_instance
+        del config.model_config.head_configs.centered_instance
+        OmegaConf.update(
+            config, "model_config.head_configs.single_instance", head_config
         )
-        del config.model_config.head_configs["confmaps"].head_config.anchor_part
+        del config.model_config.head_configs.single_instance.confmaps.anchor_part
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
@@ -292,7 +295,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
                 provider="Reader",
                 make_labels=False,
                 peak_threshold=0.3,
-                scale=0.9,
             )
 
     finally:

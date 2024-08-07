@@ -43,29 +43,33 @@ class TopdownConfmapsPipeline:
         self.max_stride = max_stride
         self.confmap_head = confmap_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
+        if use_augmentations and "intensity" in self.data_config.augmentation_config:
             datapipe = KorniaAugmenter(
                 datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
+                **dict(self.data_config.augmentation_config.intensity),
                 image_key="image",
                 instance_key="instances",
             )
@@ -79,26 +83,17 @@ class TopdownConfmapsPipeline:
             self.data_config.preprocessing.crop_hw,
         )
 
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
+        if use_augmentations and "geometric" in self.data_config.augmentation_config:
             datapipe = KorniaAugmenter(
                 datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="instance_image",
-                instance_key="instance",
-            )
-
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
+                **dict(self.data_config.augmentation_config.geometric),
                 image_key="instance_image",
                 instance_key="instance",
             )
 
         datapipe = Resizer(
             datapipe,
-            scale=self.data_config.scale,
+            scale=self.data_config.preprocessing.scale,
             image_key="instance_image",
             instances_key="instance",
         )
@@ -116,7 +111,6 @@ class TopdownConfmapsPipeline:
         datapipe = KeyFilter(
             datapipe,
             keep_keys=[
-                "image",
                 "video_idx",
                 "frame_idx",
                 "centroid",
@@ -126,7 +120,6 @@ class TopdownConfmapsPipeline:
                 "confidence_maps",
                 "num_instances",
                 "orig_size",
-                "scale",
             ],
         )
 
@@ -152,44 +145,56 @@ class SingleInstanceConfmapsPipeline:
         self.max_stride = max_stride
         self.confmap_head = confmap_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
-                image_key="image",
-                instance_key="instances",
-            )
+        if use_augmentations:
+            if "intensity" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.intensity),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "geometric" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.geometric),
+                    image_key="image",
+                    instance_key="instances",
+                )
 
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="image",
-                instance_key="instances",
-            )
+            if "random_crop" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
+                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
+                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                    image_key="image",
+                    instance_key="instances",
+                )
 
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
         datapipe = ConfidenceMapGenerator(
@@ -208,7 +213,6 @@ class SingleInstanceConfmapsPipeline:
                 "instances",
                 "confidence_maps",
                 "orig_size",
-                "scale",
             ],
         )
 
@@ -234,12 +238,16 @@ class CentroidConfmapsPipeline:
         self.max_stride = max_stride
         self.confmap_head = confmap_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
@@ -252,42 +260,41 @@ class CentroidConfmapsPipeline:
             "centroids_confidence_maps",
             "orig_size",
             "num_instances",
-            "scale",
         ]
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
-                image_key="image",
-                instance_key="instances",
-            )
+        if use_augmentations:
+            if "intensity" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.intensity),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "geometric" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.geometric),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "random_crop" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
+                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
+                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                    image_key="image",
+                    instance_key="instances",
+                )
 
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="image",
-                instance_key="instances",
-            )
-
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
-                image_key="image",
-                instance_key="instances",
-            )
-
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
         datapipe = InstanceCentroidFinder(
             datapipe, anchor_ind=self.confmap_head.anchor_part
@@ -332,12 +339,16 @@ class BottomUpPipeline:
         self.confmap_head = confmap_head
         self.pafs_head = pafs_head
 
-    def make_training_pipeline(self, data_provider: IterDataPipe) -> IterDataPipe:
+    def make_training_pipeline(
+        self, data_provider: IterDataPipe, use_augmentations: bool = False
+    ) -> IterDataPipe:
         """Create training pipeline with input data only.
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
                 `LabelsReader` instance.
+            use_augmentations: `True` if augmentations should be applied to the training
+                pipeline, else `False`. Default: `False`.
 
         Returns:
             An `IterDataPipe` instance configured to produce input examples.
@@ -350,43 +361,43 @@ class BottomUpPipeline:
             "confidence_maps",
             "orig_size",
             "num_instances",
-            "scale",
             "part_affinity_fields",
         ]
-        datapipe = Normalizer(provider, self.data_config.is_rgb)
+        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
         datapipe = SizeMatcher(
             datapipe,
-            max_height=self.data_config.max_height,
-            max_width=self.data_config.max_width,
+            max_height=self.data_config.preprocessing.max_height,
+            max_width=self.data_config.preprocessing.max_width,
             provider=provider,
         )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.intensity),
-                image_key="image",
-                instance_key="instances",
-            )
+        if use_augmentations:
+            if "intensity" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.intensity),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "geometric" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.geometric),
+                    image_key="image",
+                    instance_key="instances",
+                )
 
-        if self.data_config.augmentation_config.random_crop.random_crop_p:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                random_crop_hw=self.data_config.augmentation_config.random_crop.random_crop_hw,
-                random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                image_key="image",
-                instance_key="instances",
-            )
+            if "random_crop" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
+                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
+                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
+                    image_key="image",
+                    instance_key="instances",
+                )
 
-        if self.data_config.augmentation_config.use_augmentations:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.augmentations.geometric),
-                image_key="image",
-                instance_key="instances",
-            )
-
-        datapipe = Resizer(datapipe, scale=self.data_config.scale)
+        datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
         datapipe = MultiConfidenceMapGenerator(

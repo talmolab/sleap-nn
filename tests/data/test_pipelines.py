@@ -36,7 +36,6 @@ def test_key_filter(minimal_instance):
     datapipe = KeyFilter(datapipe, keep_keys=None)
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -46,7 +45,6 @@ def test_key_filter(minimal_instance):
         "frame_idx",
         "num_instances",
         "orig_size",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -76,7 +74,6 @@ def test_key_filter(minimal_instance):
     datapipe = KeyFilter(datapipe, keep_keys=None)
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -86,7 +83,6 @@ def test_key_filter(minimal_instance):
         "frame_idx",
         "num_instances",
         "orig_size",
-        "scale",
         "original_image",
     ]
 
@@ -98,42 +94,15 @@ def test_topdownconfmapspipeline(minimal_instance):
     """Test the TopdownConfmapsPipeline."""
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
                 "crop_hw": (160, 160),
             },
-            "augmentation_config": {
-                "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": False,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
-                },
-            },
-        }
+            "use_augmentations_train": False,
+        },
     )
 
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
@@ -143,10 +112,12 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_topdown_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -156,7 +127,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "scale",
     ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -168,39 +138,46 @@ def test_topdownconfmapspipeline(minimal_instance):
 
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
                 "crop_hw": (100, 100),
             },
+            "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": True,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
+                "random_crop": {
+                    "random_crop_p": 0.0,
+                    "crop_height": 160,
+                    "crop_width": 160,
+                },
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
                 },
             },
         }
@@ -211,10 +188,12 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_topdown_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -224,7 +203,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -238,39 +216,46 @@ def test_topdownconfmapspipeline(minimal_instance):
     # Test with resizing and padding
     base_topdown_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 2.0,
-            "is_rgb": False,
             "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": False,
                 "crop_hw": (100, 100),
             },
+            "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": True,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
+                "random_crop": {
+                    "random_crop_p": 0.0,
+                    "crop_height": 160,
+                    "crop_width": 160,
+                },
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
                 },
             },
         }
@@ -281,10 +266,12 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_topdown_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -294,7 +281,6 @@ def test_topdownconfmapspipeline(minimal_instance):
         "video_idx",
         "orig_size",
         "num_instances",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -316,38 +302,13 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 2.0,
-            "is_rgb": False,
-            "augmentation_config": {
-                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": False,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
-                },
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": False,
             },
+            "use_augmentations_train": False,
         }
     )
 
@@ -360,7 +321,10 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=labels)
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_singleinstance_data_config.use_augmentations_train,
+    )
 
     sample = next(iter(datapipe))
 
@@ -371,7 +335,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "instances",
         "confidence_maps",
         "orig_size",
-        "scale",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -381,36 +344,45 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     base_singleinstance_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": True,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
+                "random_crop": {
+                    "random_crop_p": 1.0,
+                    "crop_height": 160,
+                    "crop_width": 160,
+                },
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
                 },
             },
         }
@@ -423,7 +395,10 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=labels)
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_singleinstance_data_config.use_augmentations_train,
+    )
 
     sample = next(iter(datapipe))
 
@@ -434,7 +409,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         "instances",
         "confidence_maps",
         "orig_size",
-        "scale",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -448,39 +422,13 @@ def test_centroidconfmapspipeline(minimal_instance):
     """Test CentroidConfmapsPipeline class."""
     base_centroid_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
-            "augmentation_config": {
-                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": False,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
-                },
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
             },
+            "use_augmentations_train": False,
         }
     )
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
@@ -490,7 +438,10 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_centroid_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -499,7 +450,6 @@ def test_centroidconfmapspipeline(minimal_instance):
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
     ]
     sample = next(iter(datapipe))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -511,37 +461,45 @@ def test_centroidconfmapspipeline(minimal_instance):
 
     base_centroid_data_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": True,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
+                "random_crop": {
+                    "random_crop_p": 1.0,
+                    "crop_height": 160,
+                    "crop_width": 160,
+                },
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
                 },
             },
         }
@@ -552,7 +510,10 @@ def test_centroidconfmapspipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_centroid_data_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -561,7 +522,6 @@ def test_centroidconfmapspipeline(minimal_instance):
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
     ]
 
     sample = next(iter(datapipe))
@@ -577,39 +537,13 @@ def test_bottomuppipeline(minimal_instance):
     """Test BottomUpPipeline class."""
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
-            "augmentation_config": {
-                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": False,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
-                },
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
             },
+            "use_augmentations_train": False,
         }
     )
 
@@ -624,7 +558,10 @@ def test_bottomuppipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -633,7 +570,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
     sample = next(iter(datapipe))
@@ -648,39 +584,13 @@ def test_bottomuppipeline(minimal_instance):
     # with scaling
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 0.5,
-            "is_rgb": False,
-            "preprocessing": {},
-            "augmentation_config": {
-                "random_crop": {"random_crop_p": 0.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": False,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
-                },
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 0.5,
+                "is_rgb": False,
             },
+            "use_augmentations_train": False,
         }
     )
 
@@ -692,7 +602,10 @@ def test_bottomuppipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -701,7 +614,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
     sample = next(iter(datapipe))
@@ -716,37 +628,45 @@ def test_bottomuppipeline(minimal_instance):
     # with padding
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (100, 100)},
-                "use_augmentations": False,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
+                "random_crop": {
+                    "random_crop_p": 1.0,
+                    "crop_height": 100,
+                    "crop_width": 100,
+                },
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
                 },
             },
         }
@@ -760,7 +680,10 @@ def test_bottomuppipeline(minimal_instance):
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -769,7 +692,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
 
@@ -785,37 +707,45 @@ def test_bottomuppipeline(minimal_instance):
     # with random crop
     base_bottom_config = OmegaConf.create(
         {
-            "max_height": None,
-            "max_width": None,
-            "scale": 1.0,
-            "is_rgb": False,
-            "preprocessing": {},
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {"random_crop_p": 1.0, "random_crop_hw": (160, 160)},
-                "use_augmentations": True,
-                "augmentations": {
-                    "intensity": {
-                        "uniform_noise": (0.0, 0.04),
-                        "uniform_noise_p": 0.5,
-                        "gaussian_noise_mean": 0.02,
-                        "gaussian_noise_std": 0.004,
-                        "gaussian_noise_p": 0.5,
-                        "contrast": (0.5, 2.0),
-                        "contrast_p": 0.5,
-                        "brightness": 0.0,
-                        "brightness_p": 0.5,
-                    },
-                    "geometric": {
-                        "rotation": 15.0,
-                        "scale": 0.05,
-                        "translate": (0.02, 0.02),
-                        "affine_p": 0.5,
-                        "erase_scale": (0.0001, 0.01),
-                        "erase_ratio": (1, 1),
-                        "erase_p": 0.5,
-                        "mixup_lambda": None,
-                        "mixup_p": 0.5,
-                    },
+                "random_crop": {
+                    "random_crop_p": 1.0,
+                    "crop_height": 160,
+                    "crop_width": 160,
+                },
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
                 },
             },
         }
@@ -829,7 +759,10 @@ def test_bottomuppipeline(minimal_instance):
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(data_provider=data_provider)
+    datapipe = pipeline.make_training_pipeline(
+        data_provider=data_provider,
+        use_augmentations=base_bottom_config.use_augmentations_train,
+    )
 
     gt_sample_keys = [
         "image",
@@ -838,7 +771,6 @@ def test_bottomuppipeline(minimal_instance):
         "confidence_maps",
         "orig_size",
         "num_instances",
-        "scale",
         "part_affinity_fields",
     ]
 

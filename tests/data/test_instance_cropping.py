@@ -35,7 +35,6 @@ def test_instance_cropper(minimal_instance):
     sample = next(iter(datapipe))
 
     gt_sample_keys = [
-        "image",
         "centroid",
         "instance",
         "instance_bbox",
@@ -44,7 +43,6 @@ def test_instance_cropper(minimal_instance):
         "frame_idx",
         "num_instances",
         "orig_size",
-        "scale",
     ]
 
     # Test shapes.

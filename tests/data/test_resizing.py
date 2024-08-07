@@ -47,7 +47,6 @@ def test_resizer(minimal_instance):
     sample = next(iter(pipe))
     image = sample["image"]
     assert image.shape == torch.Size([1, 1, 768, 768])
-    assert sample["scale"] == 2
     assert "original_image" not in sample.keys()
 
     pipe = Resizer(l, scale=2, keep_original=True)
