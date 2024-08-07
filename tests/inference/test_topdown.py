@@ -238,11 +238,8 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
     outputs = []
     for x in data_pipeline:
         outputs.append(find_peaks_layer(x))
-    print(f"outputs len: {len(outputs)}")
     for i in outputs:
         instance = i["pred_instance_peaks"].numpy()
-        print(f"imgs: {i['instance_image'].shape}")
-        print(f"pred vals: {i['pred_peak_values']}")
         assert np.all(np.isnan(instance))
 
     # check return confmaps
@@ -255,7 +252,6 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
     )
     outputs = []
     for x in data_pipeline:
-        x["image"] = resize_image(x["image"], 0.5)
         outputs.append(find_peaks_layer(x))
     assert "pred_confmaps" in outputs[0].keys()
     assert outputs[0]["pred_confmaps"].shape[-2:] == (40, 40)
