@@ -27,12 +27,12 @@ def test_fixed_window_candidates(minimal_instance_ckpt):
 
     pred_instances = get_pred_instances(minimal_instance_ckpt, 2)
     tracker = Tracker.from_config()
-    track_instances = tracker._get_features(pred_instances)
+    track_instances = tracker._get_features(pred_instances, 0)
 
     fixed_window_candidates = FixedWindowCandidates(3, 20)
     assert isinstance(fixed_window_candidates.tracker_queue, Deque)
     fixed_window_candidates.update_candidates(track_instances)
-    # track_id set as None
+    # track_id set as None (tracks are assigned only if track_id exists)
     assert not fixed_window_candidates.tracker_queue
 
     for t in track_instances:

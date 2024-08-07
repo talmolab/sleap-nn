@@ -36,7 +36,7 @@ def test_tracker(minimal_instance_ckpt):
     tracker = Tracker.from_config(instance_score_threshold=1.0)
     for p in pred_instances:
         assert p.track is None
-    tracked_instances = tracker.track(pred_instances)
+    tracked_instances = tracker.track(pred_instances, 0)
     for t in tracked_instances:
         assert t.track is None
 
@@ -47,12 +47,13 @@ def test_tracker(minimal_instance_ckpt):
     )
     for p in pred_instances:
         assert p.track is None
-    tracked_instances = tracker.track(pred_instances)  # 2 tracks are created
+    tracked_instances = tracker.track(pred_instances, 0)  # 2 tracks are created
     for t in tracked_instances:
         assert t.track is not None
+    assert len(tracker.candidates.tracker_queue) == 2
 
     # Test _get_features(): points as feature
-    track_instances = tracker._get_features(pred_instances)
+    track_instances = tracker._get_features(pred_instances, 0)
     for p, t in zip(pred_instances, track_instances):
         assert np.all(p.numpy() == t.feature)
 
@@ -60,7 +61,7 @@ def test_tracker(minimal_instance_ckpt):
     scores = tracker._get_scores(track_instances)
     assert np.all(scores == np.array([[1.0, 0], [0, 1.0]]))
 
-    # Test _assign_tracks() with existing tracks
+    # Test _assign_tracks() with existing 2 tracks
     cost = tracker._scores_to_cost_matrix(scores)
     track_instances = tracker._assign_tracks(track_instances, cost)
     assert track_instances[0].track_id == 0 and track_instances[1].track_id == 1
@@ -68,17 +69,22 @@ def test_tracker(minimal_instance_ckpt):
     assert len(tracker.candidates.current_tracks) == 2
 
     # Test track() with track_queue not empty
-    tracked_instances = tracker.track(pred_instances)
+    tracked_instances = tracker.track(pred_instances, 0)
     assert len(tracker.candidates.tracker_queue) == 4
     assert np.all(
         tracker.candidates.tracker_queue[0].feature
         == tracker.candidates.tracker_queue[2].feature
     )
+    assert (
+        tracker.candidates.tracker_queue[0].track_id
+        == tracker.candidates.tracker_queue[2].track_id
+    )
 
     # Test with NaNs
     tracker.candidates.tracker_queue[0].feature = np.full(
-        tracker.candidates.tracker_queue[2].feature.shape, np.NaN
+        tracker.candidates.tracker_queue[0].feature.shape, np.NaN
     )
+    track_instances = tracker._get_features(pred_instances, 0)
     scores = tracker._get_scores(track_instances)
     cost = tracker._scores_to_cost_matrix(scores)
     track_instances = tracker._assign_tracks(track_instances, cost)
@@ -93,12 +99,14 @@ def test_tracker(minimal_instance_ckpt):
     )
     for p in pred_instances:
         assert p.track is None
-    tracked_instances = tracker.track(pred_instances)  # 2 tracks are created
+    tracked_instances = tracker.track(pred_instances, 0)  # 2 tracks are created
     for t in tracked_instances:
         assert t.track is not None
+    assert len(tracker.candidates.tracker_queue[0]) == 1
+    assert len(tracker.candidates.tracker_queue[1]) == 1
 
     # Test _get_features(): points as feature
-    track_instances = tracker._get_features(pred_instances)
+    track_instances = tracker._get_features(pred_instances, 0)
     for p, t in zip(pred_instances, track_instances):
         assert np.all(p.numpy() == t.feature)
 
@@ -106,7 +114,7 @@ def test_tracker(minimal_instance_ckpt):
     scores = tracker._get_scores(track_instances)
     assert np.all(scores == np.array([[1.0, 0], [0, 1.0]]))
 
-    # Test _assign_tracks() with existing tracks
+    # Test _assign_tracks() with existing 2 tracks
     cost = tracker._scores_to_cost_matrix(scores)
     track_instances = tracker._assign_tracks(track_instances, cost)
     assert track_instances[0].track_id == 0 and track_instances[1].track_id == 1
@@ -114,7 +122,7 @@ def test_tracker(minimal_instance_ckpt):
     assert len(tracker.candidates.current_tracks) == 2
 
     # Test track() with track_queue not empty
-    tracked_instances = tracker.track(pred_instances)
+    tracked_instances = tracker.track(pred_instances, 0)
     assert len(tracker.candidates.tracker_queue) == 2
     assert (
         len(tracker.candidates.tracker_queue[0]) == 2
@@ -129,6 +137,7 @@ def test_tracker(minimal_instance_ckpt):
     tracker.candidates.tracker_queue[0][0].feature = np.full(
         tracker.candidates.tracker_queue[0][0].feature.shape, np.NaN
     )
+    track_instances = tracker._get_features(pred_instances, 0)
     scores = tracker._get_scores(track_instances)
     cost = tracker._scores_to_cost_matrix(scores)
     track_instances = tracker._assign_tracks(track_instances, cost)

@@ -69,16 +69,25 @@ class Tracker:
         )
         return tracker
 
-    def track(self, untracked_instances: List[sio.PredictedInstance]):
+    def track(
+        self,
+        untracked_instances: List[sio.PredictedInstance],
+        frame_idx: int,
+        image: np.array = None,
+    ):
         """Assign track IDs to the untracked list of `sio.PredictedInstance` objects.
 
         Args:
             untracked_instances: List of untracked `sio.PredictedInstance` objects.
+            frame_idx: Frame index of the Instances.
+            image: Source image if visual features are to be used.
 
         Returns:
             List of `sio.PredictedInstance` objects that have an assigned track ID.
         """
-        track_instances = self._get_features(untracked_instances)  # get features
+        track_instances = self._get_features(
+            untracked_instances, frame_idx
+        )  # get features
 
         if self.candidates.tracker_queue:
 
@@ -114,7 +123,7 @@ class Tracker:
         cost_matrix[np.isnan(cost_matrix)] = np.inf
         return cost_matrix
 
-    def _get_features(self, untracked_instances):
+    def _get_features(self, untracked_instances, frame_idx):
         """Get features for the current untracked instances.
 
         The feature can either be an embedding of cropped image around each instance (visual feature),
@@ -122,6 +131,7 @@ class Tracker:
 
         Args:
             untracked_instances: List of untracked `sio.PredictedInstance` objects.
+            frame_idx: Frame index of the Instances.
 
         Returns:
             List of `TrackInstance` objects with the features assigned to each object and
@@ -137,6 +147,7 @@ class Tracker:
                     track_id=None,
                     feature=pts,
                     instance_score=instance.score,
+                    frame_idx=frame_idx,
                 )
                 track_instances.append(track_instance)
 

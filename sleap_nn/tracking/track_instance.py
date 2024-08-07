@@ -15,3 +15,4 @@ class TrackInstance:
     instance_score: float = None
     track_id: Optional[int] = None
     tracking_score: Optional[float] = None
+    frame_idx: Optional[float] = None

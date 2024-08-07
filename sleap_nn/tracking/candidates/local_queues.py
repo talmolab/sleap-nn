@@ -59,16 +59,3 @@ class LocalQueueCandidates:
             if track_instance.track_id is not None:
                 self.tracker_queue[track_instance.track_id].append(track_instance)
                 tracks_ids.append(track_instance.track_id)
-
-        # Append NaNs for the tracks that don't have an instance at the current iteration.
-        unassigned_existing_tracks = [
-            x for x in self.current_tracks if x not in tracks_ids
-        ]
-        if unassigned_existing_tracks:
-            instance_shape = self.tracker_queue[self.current_tracks[0]][0].feature.shape
-            for t in unassigned_existing_tracks:
-                self.tracker_queue[t].append(
-                    TrackInstance(
-                        src_instance=None, feature=np.full(instance_shape, np.NaN)
-                    )
-                )
