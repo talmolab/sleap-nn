@@ -23,13 +23,13 @@ model_config:
     in_channels: 1
     kernel_size: 3
     filters: 16
-    filters_rate: 2
-    max_stride: 16
+    filters_rate: 1.5
+    max_stride: 8
     convs_per_block: 2
     stacks: 1
     stem_stride: null
     middle_block: true
-    up_interpolate: true
+    up_interpolate: false
   head_configs:
     single_instance: null
     centered_instance: null
@@ -59,8 +59,8 @@ trainer_config:
   trainer_devices: 1
   trainer_accelerator: cpu
   enable_progress_bar: false
-  steps_per_epoch: null
-  max_epochs: 50
+  steps_per_epoch: 100
+  max_epochs: 10
   seed: 1000
   use_wandb: false
   save_ckpt: true

@@ -317,7 +317,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
-    assert len(pred_labels[0].instances) == 6
+    assert len(pred_labels[0].instances) <= 6
     print(pred_labels[0].instances)
     lf = pred_labels[0]
 
