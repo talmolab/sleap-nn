@@ -14,9 +14,7 @@ from sleap_nn.inference.single_instance import (
 )
 
 
-def test_single_instance_inference_model(
-    minimal_instance, minimal_instance_ckpt
-):
+def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt):
     """Test SingleInstanceInferenceModel."""
     config = OmegaConf.load(f"{minimal_instance_ckpt}/initial_config.yaml")
     head_config = config.model_config.head_configs.centered_instance
@@ -24,12 +22,14 @@ def test_single_instance_inference_model(
     OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
     del config.model_config.head_configs.single_instance.confmaps.anchor_part
 
-    training_config =  OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    training_config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     head_config = training_config.model_config.head_configs.centered_instance
     del training_config.model_config.head_configs.centered_instance
-    OmegaConf.update(training_config, "model_config.head_configs.single_instance", head_config)
+    OmegaConf.update(
+        training_config, "model_config.head_configs.single_instance", head_config
+    )
     del training_config.model_config.head_configs.single_instance.confmaps.anchor_part
-    
+
     print(training_config.model_config.head_configs)
 
     torch_model = SingleInstanceModel.load_from_checkpoint(
@@ -54,7 +54,9 @@ def test_single_instance_inference_model(
     )
 
     pipeline = Resizer(pipeline, scale=config.data_config.preprocessing.scale)
-    pipeline = PadToStride(pipeline, max_stride=config.model_config.backbone_config.max_stride)
+    pipeline = PadToStride(
+        pipeline, max_stride=config.model_config.backbone_config.max_stride
+    )
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(

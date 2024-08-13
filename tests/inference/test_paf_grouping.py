@@ -47,7 +47,12 @@ def test_make_line_subs():
     edge_inds = torch.tensor([0], dtype=torch.int32)
 
     line_subs = make_line_subs(
-        peaks_sample, edge_peak_inds, edge_inds, n_line_points=3, pafs_stride=2
+        peaks_sample,
+        edge_peak_inds,
+        edge_inds,
+        n_line_points=3,
+        pafs_stride=2,
+        pafs_hw=(8, 8),
     )
 
     assert line_subs.numpy().tolist() == [
