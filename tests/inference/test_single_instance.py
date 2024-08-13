@@ -5,7 +5,7 @@ from torch.utils.data.dataloader import DataLoader
 from sleap_nn.data.resizing import resize_image
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.normalization import Normalizer
-from sleap_nn.data.resizing import SizeMatcher
+from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.training.model_trainer import (
     SingleInstanceModel,
 )
@@ -15,18 +15,27 @@ from sleap_nn.inference.single_instance import (
 
 
 def test_single_instance_inference_model(
-    config, minimal_instance, minimal_instance_ckpt
+    minimal_instance, minimal_instance_ckpt
 ):
     """Test SingleInstanceInferenceModel."""
+    config = OmegaConf.load(f"{minimal_instance_ckpt}/initial_config.yaml")
     head_config = config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centered_instance
     OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
     del config.model_config.head_configs.single_instance.confmaps.anchor_part
 
+    training_config =  OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    head_config = training_config.model_config.head_configs.centered_instance
+    del training_config.model_config.head_configs.centered_instance
+    OmegaConf.update(training_config, "model_config.head_configs.single_instance", head_config)
+    del training_config.model_config.head_configs.single_instance.confmaps.anchor_part
+    
+    print(training_config.model_config.head_configs)
+
     torch_model = SingleInstanceModel.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt",
-        config=config,
-        skeletons=None,
+        config=training_config,
+        skeletons=sio.load_slp(minimal_instance).skeletons,
         model_type="single_instance",
     )
 
@@ -43,6 +52,9 @@ def test_single_instance_inference_model(
         max_width=None,
         provider=provider_pipeline,
     )
+
+    pipeline = Resizer(pipeline, scale=config.data_config.preprocessing.scale)
+    pipeline = PadToStride(pipeline, max_stride=config.model_config.backbone_config.max_stride)
 
     pipeline = pipeline.sharding_filter()
     data_pipeline = DataLoader(
