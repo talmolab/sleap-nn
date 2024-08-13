@@ -3,6 +3,7 @@
 from typing import List, Optional, Union
 import attrs
 import numpy as np
+import cv2
 from scipy.optimize import linear_sum_assignment
 
 import sleap_io as sio
@@ -97,7 +98,7 @@ class Tracker:
             List of `sio.PredictedInstance` objects that have an assigned track ID.
         """
         track_instances = self._get_features(
-            untracked_instances, frame_idx
+            untracked_instances, frame_idx, image
         )  # get features
 
         if self.candidates.tracker_queue:
@@ -135,7 +136,10 @@ class Tracker:
         return cost_matrix
 
     def _get_features(
-        self, untracked_instances: List[sio.PredictedInstance], frame_idx: int
+        self,
+        untracked_instances: List[sio.PredictedInstance],
+        frame_idx: int,
+        image: np.array,
     ):
         """Get features for the current untracked instances.
 
@@ -145,6 +149,7 @@ class Tracker:
         Args:
             untracked_instances: List of untracked `sio.PredictedInstance` objects.
             frame_idx: Frame index of the Instances.
+            image: Source image if visual features are to be used.
 
         Returns:
             List of `TrackInstance` objects with the features assigned to each object and
@@ -187,6 +192,7 @@ class Tracker:
                 feature=feat,
                 instance_score=instance.score,
                 frame_idx=frame_idx,
+                image=image,
             )
             track_instances.append(track_instance)
 
@@ -277,3 +283,19 @@ class Tracker:
                     track_instances[ind].track_id = new_track_id
 
         return track_instances
+
+
+@attrs.define
+class FlowShiftTracker(Tracker):
+
+    def get_shifted_instances_for_earlier_frames(self):
+        shifted_instances_prv = []
+        for track in self.candidates.current_tracks:
+            for x in self.candidates.get_instances_from_track_id(track):
+                shifted_pts, status, errs = cv2.calcOpticalFlowPyrLK(
+                    x.image,
+                )
+
+    def get_shifted_instances(self, track_instances: List(TrackInstance)):
+        for idx, track_instance in enumerate(track_instances):
+            pass
