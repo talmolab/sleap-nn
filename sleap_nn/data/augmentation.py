@@ -101,32 +101,37 @@ class KorniaAugmenter(IterDataPipe):
         rotation: Angles in degrees as a scalar float of the amount of rotation. A
             random angle in `(-rotation, rotation)` will be sampled and applied to both
             images and keypoints. Set to 0 to disable rotation augmentation.
-        scale: A scaling factor as a scalar float specifying the amount of scaling. A
-            random factor between `(1 - scale, 1 + scale)` will be sampled and applied
-            to both images and keypoints. If `None`, no scaling augmentation will be
-            applied.
-        translate: tuple of maximum absolute fraction for horizontal
-            and vertical translations. For example translate=(a, b), then horizontal shift
-            is randomly sampled in the range -img_width * a < dx < img_width * a and vertical shift is
-            randomly sampled in the range -img_height * b < dy < img_height * b. Will not translate by default.
+        scale: scaling factor interval. If (a, b) represents isotropic scaling, the scale
+            is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale
+            is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d.
+            Default: None.
+        translate_width: Maximum absolute fraction for horizontal translation. For example,
+            if translate_width=a, then horizontal shift is randomly sampled in the range
+            -img_width * a < dx < img_width * a. Will not translate by default.
+        translate_height: Maximum absolute fraction for vertical translation. For example,
+            if translate_height=a, then vertical shift is randomly sampled in the range
+            -img_height * a < dy < img_height * a. Will not translate by default.
         affine_p: Probability of applying random affine transformations.
-        uniform_noise: tuple of uniform noise `(min_noise, max_noise)`.
-            Must satisfy 0. <= min_noise <= max_noise <= 1.
+        uniform_noise_min: Minimum value for uniform noise (uniform_noise_min >=0).
+        uniform_noise_max: Maximum value for uniform noise (uniform_noise_max <=1).
         uniform_noise_p: Probability of applying random uniform noise.
         gaussian_noise_mean: The mean of the gaussian distribution.
         gaussian_noise_std: The standard deviation of the gaussian distribution.
         gaussian_noise_p: Probability of applying random gaussian noise.
-        contrast: The contrast factor to apply. Default: `(1.0, 1.0)`.
+        contrast_min: Minimum contrast factor to apply. Default: 0.5.
+        contrast_max: Maximum contrast factor to apply. Default: 2.0.
         contrast_p: Probability of applying random contrast.
-        brightness: The brightness factor to apply Default: `(1.0, 1.0)`.
+        brightness: The brightness factor to apply Default: 0.0.
         brightness_p: Probability of applying random brightness.
-        erase_scale: Range of proportion of erased area against input image. Default: `(0.0001, 0.01)`.
-        erase_ratio: Range of aspect ratio of erased area. Default: `(1, 1)`.
+        erase_scale_min: Minimum value of range of proportion of erased area against input image. Default: 0.0001.
+        erase_scale_max: Maximum value of range of proportion of erased area against input image. Default: 0.01.
+        erase_ratio_min: Minimum value of range of aspect ratio of erased area. Default: 1.
+        erase_ratio_max: Maximum value of range of aspect ratio of erased area. Default: 1.
         erase_p: Probability of applying random erase.
         mixup_lambda: min-max value of mixup strength. Default is 0-1. Default: `None`.
         mixup_p: Probability of applying random mixup v2.
-        random_crop_hw: Desired output size (out_h, out_w) of the crop. Must be Tuple[int, int],
-            then out_h = size[0], out_w = size[1].
+        random_crop_height: Desired output height of the crop. Must be int.
+        random_crop_width: Desired output width of the crop. Must be int.
         random_crop_p: Probability of applying random crop.
         input_key: Can be `image` or `instance`. The input_key `instance` expects the
             the KorniaAugmenter to follow the InstanceCropper else `image` otherwise
@@ -149,24 +154,32 @@ class KorniaAugmenter(IterDataPipe):
         self,
         source_dp: IterDataPipe,
         rotation: Optional[float] = 15.0,
-        scale: Optional[float] = 0.05,
-        translate: Optional[Tuple[float, float]] = (0.02, 0.02),
+        scale: Union[
+            Optional[float], Tuple[float, float], Tuple[float, float, float, float]
+        ] = None,
+        translate_width: Optional[float] = 0.02,
+        translate_height: Optional[float] = 0.02,
         affine_p: float = 0.0,
-        uniform_noise: Optional[Tuple[float, float]] = (0.0, 0.04),
+        uniform_noise_min: Optional[float] = 0.0,
+        uniform_noise_max: Optional[float] = 0.04,
         uniform_noise_p: float = 0.0,
         gaussian_noise_mean: Optional[float] = 0.02,
         gaussian_noise_std: Optional[float] = 0.004,
         gaussian_noise_p: float = 0.0,
-        contrast: Optional[Tuple[float, float]] = (0.5, 2.0),
+        contrast_min: Optional[float] = 0.5,
+        contrast_max: Optional[float] = 2.0,
         contrast_p: float = 0.0,
         brightness: Optional[float] = 0.0,
         brightness_p: float = 0.0,
-        erase_scale: Optional[Tuple[float, float]] = (0.0001, 0.01),
-        erase_ratio: Optional[Tuple[float, float]] = (1, 1),
+        erase_scale_min: Optional[float] = 0.0001,
+        erase_scale_max: Optional[float] = 0.01,
+        erase_ratio_min: Optional[float] = 1,
+        erase_ratio_max: Optional[float] = 1,
         erase_p: float = 0.0,
         mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
         mixup_p: float = 0.0,
-        random_crop_hw: Tuple[int, int] = (0, 0),
+        random_crop_height: int = 0,
+        random_crop_width: int = 0,
         random_crop_p: float = 0.0,
         image_key: str = "image",
         instance_key: str = "instances",
@@ -174,24 +187,32 @@ class KorniaAugmenter(IterDataPipe):
         """Initialize the block and the augmentation pipeline."""
         self.source_dp = source_dp
         self.rotation = rotation
-        self.scale = (1 - scale, 1 + scale)
-        self.translate = translate
+        self.scale = scale
+        if isinstance(self.scale, float):
+            self.scale = (scale, scale)
+        self.translate_width = translate_width
+        self.translate_height = translate_height
         self.affine_p = affine_p
-        self.uniform_noise = uniform_noise
+        self.uniform_noise_min = uniform_noise_min
+        self.uniform_noise_max = uniform_noise_max
         self.uniform_noise_p = uniform_noise_p
         self.gaussian_noise_mean = gaussian_noise_mean
         self.gaussian_noise_std = gaussian_noise_std
         self.gaussian_noise_p = gaussian_noise_p
-        self.contrast = contrast
+        self.contrast_min = contrast_min
+        self.contrast_max = contrast_max
         self.contrast_p = contrast_p
         self.brightness = brightness
         self.brightness_p = brightness_p
-        self.erase_scale = erase_scale
-        self.erase_ratio = erase_ratio
+        self.erase_scale_min = erase_scale_min
+        self.erase_scale_max = erase_scale_max
+        self.erase_ratio_min = erase_ratio_min
+        self.erase_ratio_max = erase_ratio_max
         self.erase_p = erase_p
         self.mixup_lambda = mixup_lambda
         self.mixup_p = mixup_p
-        self.random_crop_hw = random_crop_hw
+        self.random_crop_height = random_crop_height
+        self.random_crop_width = random_crop_width
         self.random_crop_p = random_crop_p
         self.image_key = image_key
         self.instance_key = instance_key
@@ -201,7 +222,7 @@ class KorniaAugmenter(IterDataPipe):
             aug_stack.append(
                 K.augmentation.RandomAffine(
                     degrees=self.rotation,
-                    translate=self.translate,
+                    translate=(self.translate_width, self.translate_height),
                     scale=self.scale,
                     p=self.affine_p,
                     keepdim=True,
@@ -211,7 +232,7 @@ class KorniaAugmenter(IterDataPipe):
         if self.uniform_noise_p > 0:
             aug_stack.append(
                 RandomUniformNoise(
-                    noise=self.uniform_noise,
+                    noise=(self.uniform_noise_min, self.uniform_noise_max),
                     p=self.uniform_noise_p,
                     keepdim=True,
                     same_on_batch=True,
@@ -230,7 +251,7 @@ class KorniaAugmenter(IterDataPipe):
         if self.contrast_p > 0:
             aug_stack.append(
                 K.augmentation.RandomContrast(
-                    contrast=self.contrast,
+                    contrast=(self.contrast_min, self.contrast_max),
                     p=self.contrast_p,
                     keepdim=True,
                     same_on_batch=True,
@@ -248,8 +269,8 @@ class KorniaAugmenter(IterDataPipe):
         if self.erase_p > 0:
             aug_stack.append(
                 K.augmentation.RandomErasing(
-                    scale=self.erase_scale,
-                    ratio=self.erase_ratio,
+                    scale=(self.erase_scale_min, self.erase_scale_max),
+                    ratio=(self.erase_ratio_min, self.erase_ratio_max),
                     p=self.erase_p,
                     keepdim=True,
                     same_on_batch=True,
@@ -265,10 +286,10 @@ class KorniaAugmenter(IterDataPipe):
                 )
             )
         if self.random_crop_p > 0:
-            if self.random_crop_hw[0] > 0 and self.random_crop_hw[1] > 0:
+            if self.random_crop_height > 0 and self.random_crop_width > 0:
                 aug_stack.append(
                     K.augmentation.RandomCrop(
-                        size=self.random_crop_hw,
+                        size=(self.random_crop_height, self.random_crop_width),
                         pad_if_needed=True,
                         p=self.random_crop_p,
                         keepdim=True,

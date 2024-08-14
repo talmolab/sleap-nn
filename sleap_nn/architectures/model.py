@@ -61,86 +61,84 @@ def get_backbone(
     return backbone
 
 
-def get_head(head: str, head_config: DictConfig) -> Head:
+def get_head(model_type: str, head_config: DictConfig) -> Head:
     """Get a head `nn.Module` based on the provided name.
 
     This function returns an instance of a PyTorch `nn.Module`
     corresponding to the given head name.
 
     Args:
-        head (str): Name of the head. Supported values are
-            - 'SingleInstanceConfmapsHead'
-            - 'CentroidConfmapsHead'
-            - 'CenteredInstanceConfmapsHead'
-            - 'MultiInstanceConfmapsHead'
-            - 'PartAffinityFieldsHead'
-            - 'ClassMapsHead'
-            - 'ClassVectorsHead'
-            - 'OffsetRefinementHead'
+        model_type (str): Name of the head. Supported values are
+            - 'single_instance'
+            - 'centroid'
+            - 'centered_instance'
+            - 'bottomup'
         head_config (DictConfig): A config for the head.
 
     Returns:
         nn.Module: An instance of the requested head.
-
-    Raises:
-        KeyError: If the provided head name is not one of the supported values.
     """
-    heads = {
-        "SingleInstanceConfmapsHead": SingleInstanceConfmapsHead,
-        "CentroidConfmapsHead": CentroidConfmapsHead,
-        "CenteredInstanceConfmapsHead": CenteredInstanceConfmapsHead,
-        "MultiInstanceConfmapsHead": MultiInstanceConfmapsHead,
-        "PartAffinityFieldsHead": PartAffinityFieldsHead,
-        "ClassMapsHead": ClassMapsHead,
-        "ClassVectorsHead": ClassVectorsHead,
-        "OffsetRefinementHead": OffsetRefinementHead,
-    }
+    heads = []
+    if model_type == "single_instance":
+        heads.append(SingleInstanceConfmapsHead(**head_config.confmaps))
 
-    if head not in heads:
-        raise KeyError(
-            f"Unsupported head: {head}. Supported heads are: {', '.join(heads.keys())}"
+    elif model_type == "centered_instance":
+        heads.append(CenteredInstanceConfmapsHead(**head_config.confmaps))
+
+    elif model_type == "centroid":
+        heads.append(CentroidConfmapsHead(**head_config.confmaps))
+
+    elif model_type == "bottomup":
+        heads.append(MultiInstanceConfmapsHead(**head_config.confmaps))
+        heads.append(PartAffinityFieldsHead(**head_config.pafs))
+
+    else:
+        raise Exception(
+            f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
         )
 
-    head = heads[head](**head_config)
-
-    return head
+    return heads
 
 
 class Model(nn.Module):
     """Model creates a model consisting of a backbone and head.
 
     Attributes:
+        backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
         input_expand_channels: Integer representing the number of channels the image
                                 should be expanded to.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
     """
 
     def __init__(
         self,
+        backbone_type: str,
         backbone_config: DictConfig,
         head_configs: DictConfig,
         input_expand_channels: int,
+        model_type: str,
     ) -> None:
         """Initialize the backbone and head based on the backbone_config."""
         super().__init__()
+        self.backbone_type = backbone_type
         self.backbone_config = backbone_config
         self.head_configs = head_configs
         self.input_expand_channels = input_expand_channels
 
-        self.heads = []
+        self.heads = get_head(model_type, self.head_configs)
+
         output_strides = []
         for head_type in head_configs:
             head_config = head_configs[head_type]
-            head = get_head(head_config.head_type, head_config.head_config)
-            self.heads.append(head)
-            output_strides.append(head_config.head_config.output_stride)
+            output_strides.append(head_config.output_stride)
 
         min_output_stride = min(output_strides)
 
         self.backbone = get_backbone(
-            backbone_config.backbone_type,
-            backbone_config.backbone_config,
+            self.backbone_type,
+            backbone_config,
             min_output_stride,
         )
 
@@ -150,7 +148,7 @@ class Model(nn.Module):
             in_channels = int(
                 self.backbone.max_channels
                 / (
-                    self.backbone_config.backbone_config.filters_rate
+                    self.backbone_config.filters_rate
                     ** len(self.backbone.dec.decoder_stack)
                 )
             )
@@ -158,23 +156,25 @@ class Model(nn.Module):
                 factor = strides.index(min_output_stride) - strides.index(
                     head.output_stride
                 )
-                in_channels = in_channels * (
-                    self.backbone_config.backbone_config.filters_rate**factor
-                )
+                in_channels = in_channels * (self.backbone_config.filters_rate**factor)
             self.head_layers.append(head.make_head(x_in=int(in_channels)))
 
     @classmethod
     def from_config(
         cls,
+        backbone_type: str,
         backbone_config: DictConfig,
         head_configs: DictConfig,
         input_expand_channels: int,
+        model_type: str,
     ) -> "Model":
         """Create the model from a config dictionary."""
         return cls(
+            backbone_type=backbone_type,
             backbone_config=backbone_config,
             head_configs=head_configs,
             input_expand_channels=input_expand_channels,
+            model_type=model_type,
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

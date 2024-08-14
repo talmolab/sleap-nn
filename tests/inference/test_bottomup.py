@@ -14,12 +14,12 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
     )
     OmegaConf.update(
         train_config,
-        "data_config.train.labels_path",
+        "data_config.train_labels_path",
         "./tests/assets/minimal_instance.pkg.slp",
     )
     OmegaConf.update(
         train_config,
-        "data_config.val.labels_path",
+        "data_config.val_labels_path",
         "./tests/assets/minimal_instance.pkg.slp",
     )
     # get dataloader
@@ -28,7 +28,10 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
     loader = trainer.val_data_loader
 
     torch_model = BottomUpModel.load_from_checkpoint(
-        f"{minimal_instance_bottomup_ckpt}/best.ckpt", config=train_config
+        f"{minimal_instance_bottomup_ckpt}/best.ckpt",
+        config=train_config,
+        skeletons=None,
+        model_type="bottomup",
     )
 
     inference_layer = BottomUpInferenceModel(
@@ -36,10 +39,10 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         paf_scorer=PAFScorer.from_config(
             config=OmegaConf.create(
                 {
-                    "confmaps": train_config.model_config.head_configs[
+                    "confmaps": train_config.model_config.head_configs.bottomup[
                         "confmaps"
-                    ].head_config,
-                    "pafs": train_config.model_config.head_configs["pafs"].head_config,
+                    ],
+                    "pafs": train_config.model_config.head_configs.bottomup["pafs"],
                 }
             )
         ),
@@ -63,10 +66,10 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         paf_scorer=PAFScorer.from_config(
             config=OmegaConf.create(
                 {
-                    "confmaps": train_config.model_config.head_configs[
+                    "confmaps": train_config.model_config.head_configs.bottomup[
                         "confmaps"
-                    ].head_config,
-                    "pafs": train_config.model_config.head_configs["pafs"].head_config,
+                    ],
+                    "pafs": train_config.model_config.head_configs.bottomup["pafs"],
                 }
             )
         ),

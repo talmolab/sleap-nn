@@ -18,14 +18,16 @@ def test_single_instance_inference_model(
     config, minimal_instance, minimal_instance_ckpt
 ):
     """Test SingleInstanceInferenceModel."""
-    OmegaConf.update(config, "data_config.pipeline", "SingleInstanceConfmaps")
-    config.model_config.head_configs["confmaps"].head_type = (
-        "SingleInstanceConfmapsHead"
-    )
-    del config.model_config.head_configs["confmaps"].head_config.anchor_part
+    head_config = config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centered_instance
+    OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
+    del config.model_config.head_configs.single_instance.confmaps.anchor_part
 
     torch_model = SingleInstanceModel.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/best.ckpt", config=config
+        f"{minimal_instance_ckpt}/best.ckpt",
+        config=config,
+        skeletons=None,
+        model_type="single_instance",
     )
 
     labels = sio.load_slp(minimal_instance)
