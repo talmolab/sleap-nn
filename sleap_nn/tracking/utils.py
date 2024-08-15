@@ -1,6 +1,40 @@
 """Helper functions for Tracker module."""
 
+from typing import Union
 import numpy as np
+import sleap_io as sio
+
+
+def get_keypoints(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
+    """Return keypoints as np.array from the `PredictedInstance` object."""
+    if isinstance(pred_instance, np.ndarray):
+        return pred_instance
+    return pred_instance.numpy()
+
+
+def get_centroid(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
+    """Return the centroid of the `PredictedInstance` object."""
+    pts = pred_instance
+    if not isinstance(pred_instance, np.ndarray):
+        pts = pred_instance.numpy()
+    centroid = np.nanmedian(pts, axis=0)
+    return centroid
+
+
+def get_bbox(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
+    """Return the bounding box coordinates for the `PredictedInstance` object."""
+    points = (
+        pred_instance.numpy()
+        if not isinstance(pred_instance, np.ndarray)
+        else pred_instance
+    )
+    bbox = np.concatenate(
+        [
+            np.nanmin(points, axis=0),
+            np.nanmax(points, axis=0),
+        ]  # [xmin, ymin, xmax, ymax]
+    )
+    return bbox
 
 
 def compute_euclidean_distance(a, b):

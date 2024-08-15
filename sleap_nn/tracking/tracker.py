@@ -1,17 +1,25 @@
 """Module for tracking."""
 
-from typing import List, Optional, Union
-import attrs
-import numpy as np
-import cv2
+from typing import Any, Dict, List, Union
+from collections import defaultdict
 from scipy.optimize import linear_sum_assignment
+import attrs
+import cv2
+import numpy as np
 
 import sleap_io as sio
 from sleap_nn.evaluation import compute_oks
 from sleap_nn.tracking.candidates.fixed_window import FixedWindowCandidates
 from sleap_nn.tracking.candidates.local_queues import LocalQueueCandidates
-from sleap_nn.tracking.track_instance import TrackInstance
+from sleap_nn.tracking.track_instance import (
+    ShiftedInstance,
+    TrackInstances,
+    TrackInstanceLocalQueue,
+)
 from sleap_nn.tracking.utils import (
+    get_bbox,
+    get_centroid,
+    get_keypoints,
     compute_euclidean_distance,
     compute_iou,
     compute_cosine_sim,
@@ -27,8 +35,6 @@ class Tracker:
     initialized in the `Predictor` classes.
 
     Attributes:
-        instance_score_threshold: Instance score threshold for creating new tracks.
-            Default: 0.5.
         candidates: Either `FixedWindowCandidates` or `LocalQueueCandidates` object.
         features: One of [`keypoints`, `centroids`, `bboxes`, `image`].
             Default: `keypoints`.
@@ -38,14 +44,32 @@ class Tracker:
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
             `weighted`]. Default: `mean`.
+        use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
+            optical flow. Default: `False`.
+        is_local_queue: `True` if `LocalQueueCandidates` is used else `False`.
 
     """
 
-    candidates: Union[FixedWindowCandidates, LocalQueueCandidates]
-    instance_score_threshold: float = 0.0
+    candidates: Union[FixedWindowCandidates, LocalQueueCandidates] = (
+        FixedWindowCandidates()
+    )
     features: str = "keypoints"
     scoring_method: str = "oks"
     scoring_reduction: str = "mean"
+    use_flow: bool = False
+    is_local_queue: bool = False
+    _scoring_functions: Dict[str, Any] = {
+        "oks": compute_oks,
+        "iou": compute_iou,
+        "cosine_sim": compute_cosine_sim,
+        "euclidean_dist": compute_euclidean_distance,
+    }
+    _scoring_reduction_methods: Dict[str, Any] = {"mean": np.nanmean, "max": np.nanmax}
+    _feature_methods: Dict[str, Any] = {
+        "keypoints": get_keypoints,
+        "centroids": get_centroid,
+        "bboxes": get_bbox,
+    }
 
     @classmethod
     def from_config(
@@ -57,27 +81,50 @@ class Tracker:
         features: str = "keypoints",
         scoring_method: str = "oks",
         scoring_reduction: str = "mean",
+        use_flow: bool = False,
+        of_img_scale: float = 1.0,
+        of_window_size: int = 21,
+        of_max_levels: int = 3,
     ):
         """Create `Tracker` from config."""
         if candidates_method == "fixed_window":
             candidates = FixedWindowCandidates(
-                window_size=window_size, max_tracks=max_tracks
+                window_size=window_size,
+                instance_score_threshold=instance_score_threshold,
             )
+            is_local_queue = False
+
         elif candidates_method == "local_queues":
             candidates = LocalQueueCandidates(
-                window_size=window_size, max_tracks=max_tracks
+                window_size=window_size,
+                max_tracks=max_tracks,
+                instance_score_threshold=instance_score_threshold,
             )
+            is_local_queue = True
         else:
             raise ValueError(
                 f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
             )
 
+        if use_flow:
+            return FlowShiftTracker(
+                candidates=candidates,
+                features=features,
+                scoring_method=scoring_method,
+                scoring_reduction=scoring_reduction,
+                img_scale=of_img_scale,
+                of_window_size=of_window_size,
+                of_max_levels=of_max_levels,
+                is_local_queue=is_local_queue,
+            )
+
         tracker = cls(
-            instance_score_threshold=instance_score_threshold,
             candidates=candidates,
             features=features,
             scoring_method=scoring_method,
             scoring_reduction=scoring_reduction,
+            use_flow=use_flow,
+            is_local_queue=is_local_queue,
         )
         return tracker
 
@@ -86,7 +133,7 @@ class Tracker:
         untracked_instances: List[sio.PredictedInstance],
         frame_idx: int,
         image: np.array = None,
-    ):
+    ) -> List[sio.PredictedInstance]:
         """Assign track IDs to the untracked list of `sio.PredictedInstance` objects.
 
         Args:
@@ -97,6 +144,7 @@ class Tracker:
         Returns:
             List of `sio.PredictedInstance` objects that have an assigned track ID.
         """
+
         track_instances = self._get_features(
             untracked_instances, frame_idx, image
         )  # get features
@@ -110,37 +158,36 @@ class Tracker:
             cost_matrix = self._scores_to_cost_matrix(scores)
             track_instances = self._assign_tracks(track_instances, cost_matrix)
 
-        else:  # Initialization of tracker queue
-            for t in track_instances:
-                if t.instance_score > self.instance_score_threshold:
-                    new_tracks_id = self.candidates.get_new_track_id()
-                    t.track_id = new_tracks_id
-
-        # update the candidates tracker queue with the newly tracked instances.
-        self.candidates.update_candidates(track_instances)
+        else:
+            # Initialize the tracker queue if empty.
+            track_instances = self.candidates.add_new_tracks(track_instances)
 
         # convert the track_instances back to `List[sio.PredictedInstance]` objects.
-        new_pred_instances = []
-        for instance in track_instances:
-            if instance.track_id is not None:
-                instance.src_instance.track = sio.Track(instance.track_id)
-                instance.src_instance.tracking_score = None
-            new_pred_instances.append(instance.src_instance)
+        if self.is_local_queue:
+            new_pred_instances = []
+            for instance in track_instances:
+                if instance.track_id is not None:
+                    instance.src_instance.track = sio.Track(instance.track_id)
+                    instance.src_instance.tracking_score = None
+                new_pred_instances.append(instance.src_instance)
+
+        else:
+            new_pred_instances = []
+            for ind, inst in enumerate(track_instances.src_instances):
+                track_id = track_instances.track_ids[ind]
+                if track_id is not None:
+                    inst.track = sio.Track(track_id)
+                    inst.tracking_score = None
+                    new_pred_instances.append(inst)
 
         return new_pred_instances
-
-    def _scores_to_cost_matrix(self, scores: np.array):
-        """Converts `scores` matrix to cost matrix for track assignments."""
-        cost_matrix = -scores
-        cost_matrix[np.isnan(cost_matrix)] = np.inf
-        return cost_matrix
 
     def _get_features(
         self,
         untracked_instances: List[sio.PredictedInstance],
         frame_idx: int,
-        image: np.array,
-    ):
+        image: np.array = None,
+    ) -> Union[TrackInstances, List[TrackInstanceLocalQueue]]:
         """Get features for the current untracked instances.
 
         The feature can either be an embedding of cropped image around each instance (visual feature),
@@ -152,53 +199,36 @@ class Tracker:
             image: Source image if visual features are to be used.
 
         Returns:
-            List of `TrackInstance` objects with the features assigned to each object and
-            track_id set as `None`.
+            `TrackInstances` object or `List[TrackInstanceLocalQueue]` with the features
+            assigned to each object and track_id set as `None`.
         """
-        feature_list = []
-        if self.features == "keypoints":
-            for instance in untracked_instances:
-                pts = instance.numpy()
-                feature_list.append(pts)
-
-        elif self.features == "centroids":
-            for instance in untracked_instances:
-                centroid = np.nanmedian(instance.numpy(), axis=0)
-                feature_list.append(centroid)
-
-        elif self.features == "bboxes":
-            for instance in untracked_instances:
-                points = instance.numpy()
-                bbox = np.concatenate(
-                    [
-                        np.nanmin(points, axis=0),
-                        np.nanmax(points, axis=0),
-                    ]  # [xmin, ymin, xmax, ymax]
-                )
-                feature_list.append(bbox)
-
         # TODO: image embedding
 
-        else:
+        if self.features not in self._feature_methods:
             raise ValueError(
                 "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
             )
 
-        track_instances = []
-        for instance, feat in zip(untracked_instances, feature_list):
-            track_instance = TrackInstance(
-                src_instance=instance,
-                track_id=None,
-                feature=feat,
-                instance_score=instance.score,
-                frame_idx=frame_idx,
-                image=image,
-            )
-            track_instances.append(track_instance)
+        feature_method = self._feature_methods[self.features]
+        feature_list = []
+        for pred_instance in untracked_instances:
+            feature_list.append(feature_method(pred_instance))
+
+        track_instances = self.candidates.get_track_instances(
+            feature_list, untracked_instances, frame_idx=frame_idx, image=image
+        )
 
         return track_instances
 
-    def _get_scores(self, track_instances: List[TrackInstance]):
+    def _scores_to_cost_matrix(self, scores: np.array):
+        """Converts `scores` matrix to cost matrix for track assignments."""
+        cost_matrix = -scores
+        cost_matrix[np.isnan(cost_matrix)] = np.inf
+        return cost_matrix
+
+    def _get_scores(
+        self, track_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]]
+    ):
         """Compute association score between untracked and tracked instances.
 
         For visual feature vectors, this can be `cosine_sim`, for bounding boxes
@@ -206,81 +236,73 @@ class Tracker:
         could be `oks`.
 
         Args:
-            track_instances: List of `TrackInstance` objects with computed features.
+            track_instances: `TrackInstances` object or `List[TrackInstanceLocalQueue]`
+                with features.
 
         Returns:
-            scores: Score matrix of shape (len(track_instances), num_existing_tracks)
+            scores: Score matrix of shape (num_new_instances, num_existing_tracks)
         """
-        scores = np.zeros((len(track_instances), len(self.candidates.current_tracks)))
 
-        if self.scoring_method == "oks":
-            scoring_method = compute_oks
-
-        elif self.scoring_method == "euclidean_dist":
-            scoring_method = compute_euclidean_distance
-
-        elif self.scoring_method == "iou":
-            scoring_method = compute_iou
-
-        elif self.scoring_method == "cosine_sim":
-            scoring_method = compute_cosine_sim
-
-        else:
+        if self.scoring_method not in self._scoring_functions:
             raise ValueError(
                 "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
             )
 
-        for instance_idx, instance in enumerate(track_instances):
+        scoring_method = self._scoring_functions[self.scoring_method]
+
+        # Get list of features for the `track_instances`.
+        if isinstance(self.candidates, FixedWindowCandidates):
+            track_instances_features = [x for x in track_instances.features]
+        else:
+            track_instances_features = [x.feature for x in track_instances]
+
+        scores = np.zeros(
+            (len(track_instances_features), len(self.candidates.current_tracks))
+        )
+
+        for f_idx, f in enumerate(track_instances_features):
             for track in self.candidates.current_tracks:
                 oks = [
-                    scoring_method(x.feature, instance.feature)
-                    for x in self.candidates.get_instances_from_track_id(track)
+                    scoring_method(x, f)
+                    for x in self.candidates.get_features_from_track_id(track)
                 ]
 
-                if self.scoring_reduction == "mean":
-                    scoring_reduction = np.nanmean
-
-                elif self.scoring_reduction == "max":
-                    scoring_reduction = np.nanmax
-
-                elif self.scoring_reduction == "weighted":
-                    pass
-
-                else:
+                if self.scoring_reduction not in self._scoring_reduction_methods:
                     raise ValueError(
                         "Invalid `scoring_reduction` argument. Please provide one of `mean`, `max`, and `weighted`."
                     )
 
+                scoring_reduction = self._scoring_reduction_methods[
+                    self.scoring_reduction
+                ]
+
                 oks = scoring_reduction(oks)  # scoring reduction - Average
-                scores[instance_idx][track] = oks
+                scores[f_idx][track] = oks
 
         return scores
 
     def _assign_tracks(
-        self, track_instances: List[TrackInstance], cost_matrix: np.array
-    ):
+        self,
+        track_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]],
+        cost_matrix: np.array,
+    ) -> Union[TrackInstances, List[TrackInstanceLocalQueue]]:
         """Assign track IDs using Hungarian method.
 
         Args:
-            track_instances: List of `TrackInstance` objects with computed features.
-            cost_matrix: Cost matrix of shape (len(track_instances), num_existing_tracks).
+            track_instances: `TrackInstances` object or `List[TrackInstanceLocalQueue]`
+                with features.
+            cost_matrix: Cost matrix of shape (num_track_instances, num_existing_tracks).
 
         Returns:
-            `track_instances` which is a list of `TrackInstance` objects with track IDs assigned.
+            `TrackInstances` object or `List[TrackInstanceLocalQueue]`objects with
+                track IDs assigned.
         """
         row_inds, col_inds = linear_sum_assignment(cost_matrix)
-        for row, col in zip(row_inds, col_inds):
-            track_instances[row].track_id = col
 
-        # Create new tracks for instances with unassigned tracks from Hungarian matching
-        new_track_instances_inds = [
-            x for x in range(len(track_instances)) if x not in row_inds
-        ]
-        if new_track_instances_inds:
-            for ind in new_track_instances_inds:
-                if track_instances[ind].instance_score > self.instance_score_threshold:
-                    new_track_id = self.candidates.get_new_track_id()
-                    track_instances[ind].track_id = new_track_id
+        # update the candidates tracker queue with the newly tracked instances.
+        track_instances = self.candidates.update_candidates(
+            track_instances, row_inds, col_inds
+        )
 
         return track_instances
 
@@ -288,14 +310,195 @@ class Tracker:
 @attrs.define
 class FlowShiftTracker(Tracker):
 
-    def get_shifted_instances_for_earlier_frames(self):
-        shifted_instances_prv = []
-        for track in self.candidates.current_tracks:
-            for x in self.candidates.get_instances_from_track_id(track):
-                shifted_pts, status, errs = cv2.calcOpticalFlowPyrLK(
-                    x.image,
+    img_scale: float = 1.0
+    of_window_size: int = 21
+    of_max_levels: int = 3
+
+    def _compute_optical_flow(self, ref_pts, ref_img, new_img):
+        ref_img, new_img = self._preprocess_imgs(ref_img, new_img)
+        shifted_pts, status, errs = cv2.calcOpticalFlowPyrLK(
+            ref_img,
+            new_img,
+            (np.concatenate(ref_pts, axis=0)).astype("float32") * self.img_scale,
+            None,
+            winSize=(self.of_window_size, self.of_window_size),
+            maxLevel=self.of_max_levels,
+            criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01),
+        )
+        shifted_pts /= self.img_scale
+        return shifted_pts, status, errs
+
+    def _preprocess_imgs(self, ref_img, new_img):
+        """Pre-process images for optical flow."""
+        # Convert to uint8 for cv2.calcOpticalFlowPyrLK
+        if isinstance(ref_img, np.floating):
+            ref_img = ref_img.astype("uint8")
+        if isinstance(new_img, np.floating):
+            new_img = new_img.astype("uint8")
+
+        # Ensure images are rank 2 in case there is a singleton channel dimension.
+        if ref_img.ndim > 3:
+            ref_img = np.squeeze(ref_img)
+            new_img = np.squeeze(new_img)
+
+        # Convert RGB to grayscale.
+        if ref_img.ndim > 2 and ref_img.shape[0] == 3:
+            ref_img = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
+            new_img = cv2.cvtColor(new_img, cv2.COLOR_BGR2GRAY)
+
+        # Input image scaling.
+        if self.img_scale != 1:
+            ref_img = cv2.resize(ref_img, None, None, self.img_scale, self.img_scale)
+            new_img = cv2.resize(new_img, None, None, self.img_scale, self.img_scale)
+
+        return ref_img, new_img
+
+    def get_shifted_instances_from_prv_frames(self, new_img: np.array):
+
+        shifted_instances_prv_frames = defaultdict(list)
+
+        if self.is_local_queue:
+            # for local queue
+            ref_candidates = self.candidates.get_instances_groupby_frame_idx()
+            for _, ref_candidate_list in ref_candidates.items():
+                ref_pts = [x.src_instance.numpy() for x in ref_candidate_list]
+                shifted_pts, status, errs = self._compute_optical_flow(
+                    ref_pts=ref_pts,
+                    ref_img=ref_candidate_list[0].image,
+                    new_img=new_img,
                 )
 
-    def get_shifted_instances(self, track_instances: List(TrackInstance)):
-        for idx, track_instance in enumerate(track_instances):
-            pass
+                sections = np.cumsum([len(x) for x in ref_pts])[:-1]
+                shifted_pts = np.split(shifted_pts, sections, axis=0)
+                status = np.split(status, sections, axis=0)
+                errs = np.split(errs, sections, axis=0)
+
+                # Create shifted instances.
+                for idx, (ref_candidate, pts, found, err) in enumerate(
+                    zip(ref_candidate_list, shifted_pts, status, errs)
+                ):
+                    # Exclude points that weren't found by optical flow.
+                    found = found.squeeze().astype(bool)
+                    pts[~found] = np.nan
+
+                    # Create a shifted instance.
+                    shifted_instances_prv_frames[ref_candidate.track_id].append(
+                        ShiftedInstance(
+                            src_track_instance=ref_candidate,
+                            shifted_pts=pts,
+                            src_instance_idx=idx,
+                            track_id=ref_candidate.track_id,
+                            frame_idx=ref_candidate.frame_idx,
+                            shift_score=-np.mean(err[found]),
+                        )
+                    )
+
+        else:
+            # for fixed window
+            for ref_candidate in self.candidates.tracker_queue:
+                ref_pts = [x.numpy() for x in ref_candidate.src_instances]
+                shifted_pts, status, errs = self._compute_optical_flow(
+                    ref_pts=ref_pts, ref_img=ref_candidate.image, new_img=new_img
+                )
+
+                sections = np.cumsum([len(x) for x in ref_pts])[:-1]
+                shifted_pts = np.split(shifted_pts, sections, axis=0)
+                status = np.split(status, sections, axis=0)
+                errs = np.split(errs, sections, axis=0)
+
+                # Create shifted instances.
+                for idx, (pts, found, err) in enumerate(zip(shifted_pts, status, errs)):
+                    # Exclude points that weren't found by optical flow.
+                    found = found.squeeze().astype(bool)
+                    pts[~found] = np.nan
+
+                    # Create a shifted instance.
+                    shifted_instances_prv_frames[ref_candidate.track_ids[idx]].append(
+                        ShiftedInstance(
+                            src_track_instance=ref_candidate,
+                            shifted_pts=pts,
+                            src_instance_idx=idx,
+                            track_id=ref_candidate.track_ids[idx],
+                            frame_idx=ref_candidate.frame_idx,
+                            shift_score=-np.mean(err[found]),
+                        )
+                    )
+
+        return shifted_instances_prv_frames
+
+    def _get_scores(
+        self, track_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]]
+    ):
+        """Compute association score between untracked and tracked instances.
+
+        For visual feature vectors, this can be `cosine_sim`, for bounding boxes
+        it could be `iou`, for centroids it could be `euclidean_dist`, and for poses it
+        could be `oks`.
+
+        Args:
+            track_instances: `TrackInstances` object or `List[TrackInstanceLocalQueue]`
+                with features to be tracked.
+
+        Returns:
+            scores: Score matrix of shape (num_new_instances, num_existing_tracks)
+        """
+
+        if self.scoring_method not in self._scoring_functions:
+            raise ValueError(
+                "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
+            )
+
+        scoring_method = self._scoring_functions[self.scoring_method]
+
+        # get feature list for the untracked instances
+        if self.is_local_queue:
+            track_instances_features = [x.feature for x in track_instances]
+            new_img = track_instances[0].image
+
+        else:
+            track_instances_features = [x for x in track_instances.features]
+            new_img = track_instances.image
+
+        # get shifted instances from optical flow
+        shifted_instances_prv_frames = self.get_shifted_instances_from_prv_frames(
+            new_img
+        )
+        # get features for the shifted instances
+        if self.features not in self._feature_methods:
+            raise ValueError(
+                "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
+            )
+        feature_method = self._feature_methods[self.features]
+        shifted_instances_prv_frames_features = defaultdict(list)
+        for track_id, si in shifted_instances_prv_frames.items():
+            shifted_instances_prv_frames_features[track_id].extend(
+                [feature_method(x.shifted_pts) for x in si]
+            )
+
+        # Compute the score matrix
+        scores = np.zeros(
+            (len(track_instances_features), len(self.candidates.current_tracks))
+        )
+
+        for f_idx, f in enumerate(track_instances_features):
+            for track in self.candidates.current_tracks:
+                oks = [
+                    scoring_method(x, f)
+                    for x in shifted_instances_prv_frames_features[track]
+                ]
+
+                if self.scoring_reduction not in self._scoring_reduction_methods:
+                    raise ValueError(
+                        "Invalid `scoring_reduction` argument. Please provide one of `mean`, `max`, and `weighted`."
+                    )
+
+                scoring_reduction = self._scoring_reduction_methods[
+                    self.scoring_reduction
+                ]
+
+                oks = scoring_reduction(oks)  # scoring reduction - Average
+                scores[f_idx][track] = oks
+
+        del shifted_instances_prv_frames, shifted_instances_prv_frames_features
+
+        return scores

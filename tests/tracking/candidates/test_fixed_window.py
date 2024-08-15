@@ -1,5 +1,5 @@
 from typing import DefaultDict, Deque
-
+import numpy as np
 from sleap_nn.inference.predictors import main
 from sleap_nn.tracking.candidates.fixed_window import FixedWindowCandidates
 from sleap_nn.tracking.tracker import Tracker
@@ -29,17 +29,14 @@ def test_fixed_window_candidates(minimal_instance_ckpt):
     tracker = Tracker.from_config()
     track_instances = tracker._get_features(pred_instances, 0)
 
-    fixed_window_candidates = FixedWindowCandidates(3, 20)
+    fixed_window_candidates = FixedWindowCandidates(3)
     assert isinstance(fixed_window_candidates.tracker_queue, Deque)
-    fixed_window_candidates.update_candidates(track_instances)
-    # track_id set as None (tracks are assigned only if track_id exists)
+    fixed_window_candidates.update_candidates(track_instances, None, None)
+    # (tracks are assigned only if row/ col ids exists)
     assert not fixed_window_candidates.tracker_queue
 
-    for t in track_instances:
-        t.track_id = fixed_window_candidates.get_new_track_id()
-
-    fixed_window_candidates.update_candidates(track_instances)
-    assert len(fixed_window_candidates.tracker_queue) == 2
+    track_instances = fixed_window_candidates.add_new_tracks(track_instances)
+    assert len(fixed_window_candidates.tracker_queue) == 1
 
     new_track_id = fixed_window_candidates.get_new_track_id()
     assert new_track_id == 2
