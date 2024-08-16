@@ -11,12 +11,12 @@ class LocalQueueCandidates:
     """Track local queues method for candidate generation.
 
     This module handles `tracker_queue` using the local queues method, where track assignments
-    are determined based on the last `window_instances` instances for each track.
+    are determined based on the last `window_size` instances for each track.
 
     Attributes:
         window_size: Number of previous frames to compare the current predicted instance with.
-            Default: 8.
-        max_tracks: Maximum number of new tracks that can be created. Default: 10.
+            Default: 5.
+        max_tracks: Maximum number of new tracks that can be created. Default: None.
         instance_score_threshold: Instance score threshold for creating new tracks.
             Default: 0.0.
         tracker_queue: Dictionary that stores the past frames of all the tracks identified
@@ -26,8 +26,8 @@ class LocalQueueCandidates:
 
     def __init__(
         self,
-        window_size: int = 8,
-        max_tracks: int = 10,
+        window_size: int = 5,
+        max_tracks: Optional[int] = None,
         instance_score_threshold: float = 0.0,
     ):
         """Initialize class variables."""
@@ -45,7 +45,6 @@ class LocalQueueCandidates:
         image: np.array,
     ) -> List[TrackInstanceLocalQueue]:
         """Return a list of `TrackInstanceLocalQueue` instances from `untracked_instances`."""
-
         track_instances = []
         for ind, (feat, instance) in enumerate(zip(feature_list, untracked_instances)):
             track_instance = TrackInstanceLocalQueue(
@@ -70,7 +69,7 @@ class LocalQueueCandidates:
             new_track_id = 0
         else:
             new_track_id = max(self.current_tracks) + 1
-            if new_track_id > self.max_tracks:
+            if new_track_id > self.max_tracks:  # TODO
                 raise Exception("Exceeding max tracks")
         self.tracker_queue[new_track_id] = deque(maxlen=self.window_size)
         return new_track_id
@@ -79,7 +78,6 @@ class LocalQueueCandidates:
         self, new_track_instances: List[TrackInstanceLocalQueue]
     ) -> List[TrackInstanceLocalQueue]:
         """Add new track IDs to the `TrackInstanceLocalQueue` objects and to the tracker queue."""
-
         track_instances = []
         for t in new_track_instances:
             if t.instance_score > self.instance_score_threshold:
@@ -91,11 +89,12 @@ class LocalQueueCandidates:
 
         return track_instances
 
-    def update_candidates(
+    def update_tracks(
         self,
         track_instances: List[TrackInstanceLocalQueue],
         row_inds: np.array,
         col_inds: np.array,
+        tracking_scores: List[float],
     ) -> List[TrackInstanceLocalQueue]:
         """Assign tracks to `TrackInstanceLocalQueue` objects based on the output of track matching algorithm.
 
@@ -104,11 +103,13 @@ class LocalQueueCandidates:
             row_inds: List of indices for the  `track_instances` object that has an assigned
                 track.
             col_inds: List of track IDs that have been assigned a new instance.
+            tracking_scores: List of tracking scores from the cost matrix.
 
         """
         if np.any(row_inds) and np.any(col_inds):
-            for row, col in zip(row_inds, col_inds):
+            for idx, (row, col) in enumerate(zip(row_inds, col_inds)):
                 track_instances[row].track_id = col
+                track_instances[row].tracking_score = tracking_scores[idx]
 
             for track_instance in track_instances:
                 if track_instance.track_id is not None:

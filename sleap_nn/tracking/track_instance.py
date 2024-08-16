@@ -13,8 +13,8 @@ class TrackInstances:
     src_instances: List[sio.PredictedInstance]
     features: List[np.array]
     instance_scores: List[float] = None
-    track_ids: Optional[List[int]] = []
-    tracking_scores: Optional[List[float]] = None  # TODO
+    track_ids: Optional[List[int]] = None
+    tracking_scores: Optional[List[float]] = None
     frame_idx: Optional[float] = None
     image: Optional[np.array] = None
 
@@ -41,7 +41,7 @@ class ShiftedInstance:
         in the tracker queue (has an assigned track ID).
     """
 
-    src_track_instance: Union[TrackInstances, List[TrackInstanceLocalQueue]]
+    src_track_instance: Union[TrackInstances, TrackInstanceLocalQueue]
     shifted_pts: np.array
     src_instance_idx: int
     frame_idx: int
