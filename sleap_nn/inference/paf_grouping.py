@@ -31,6 +31,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 import networkx as nx
 from omegaconf import OmegaConf
+from sleap_nn.inference.utils import interp1d
 
 
 @attrs.define(auto_attribs=True, frozen=True)
@@ -177,17 +178,25 @@ def make_line_subs(
     dst_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 1])
     n_candidates = torch.tensor(src_peaks.shape[0], device=peaks_sample.device)
 
-    linspace_values = torch.linspace(0, 1, n_line_points, dtype=torch.float32).to(
-        device=peaks_sample.device
+    X = torch.cat(
+        (src_peaks[:, 0].unsqueeze(dim=-1), dst_peaks[:, 0].unsqueeze(dim=-1)), dim=-1
+    ).to(torch.float64)
+    Y = torch.cat(
+        (src_peaks[:, 1].unsqueeze(dim=-1), dst_peaks[:, 1].unsqueeze(dim=-1)), dim=-1
+    ).to(torch.float64)
+    samples = torch.Tensor([0, 1], device=X.device).repeat(n_candidates, 1)
+    samples_new = torch.linspace(0, 1, steps=n_line_points, device=X.device).repeat(
+        n_candidates, 1
     )
-    linspace_values = linspace_values.repeat(n_candidates, 1).view(
-        n_candidates, n_line_points, 1
-    )
-    XY = (
-        src_peaks.view(n_candidates, 1, 2)
-        + (dst_peaks - src_peaks).view(n_candidates, 1, 2) * linspace_values
-    )
-    XY = XY.transpose(1, 2)
+
+    X = interp1d(samples, X, samples_new).unsqueeze(
+        dim=1
+    )  # (n_candidates, 1, n_line_points)
+    Y = interp1d(samples, Y, samples_new).unsqueeze(
+        dim=1
+    )  # (n_candidates, 1, n_line_points)
+    XY = torch.concat([X, Y], dim=1)
+
     XY = (
         (XY / pafs_stride).round().int()
     )  # (n_candidates, 2, n_line_points)  # dim 1 is [x, y]
@@ -195,8 +204,8 @@ def make_line_subs(
 
     # clip coordinates for size of pafs tensor.
     height, width = pafs_hw
-    XY[:, 0, :][XY[:, 0, :] >= height] = height - 1
-    XY[:, 1, :][XY[:, 1, :] >= width] = width - 1
+    XY[:, 0] = torch.clip(XY[:, 0], min=0, max=height - 1)
+    XY[:, 1] = torch.clip(XY[:, 1], min=0, max=width - 1)
 
     edge_inds_expanded = (
         edge_inds.view(-1, 1, 1)
