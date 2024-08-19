@@ -3,10 +3,21 @@ data_config:
   train_labels_path: minimal_instance.pkg.slp
   val_labels_path: minimal_instance.pkg.slp
   preprocessing:
+  train_labels_path: minimal_instance.pkg.slp
+  val_labels_path: minimal_instance.pkg.slp
+  preprocessing:
     max_width: null
     max_height: null
     scale: 1.0
     is_rgb: false
+  use_augmentations_train: true
+  augmentation_config:
+    geometric:
+      rotation: 180.0
+      scale: null
+      translate_width: 0
+      translate_height: 0
+      affine_p: 0.5
   use_augmentations_train: true
   augmentation_config:
     geometric:
