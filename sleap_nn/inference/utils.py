@@ -69,7 +69,6 @@ def interp1d(x: torch.Tensor, y: torch.Tensor, xnew: torch.Tensor) -> torch.Tens
     Returns:
         (P, ) or (D, P) Tensor.
     """
-
     # making the vectors at least 2D
     is_flat = {}
     v = {}
@@ -152,7 +151,7 @@ def interp1d(x: torch.Tensor, y: torch.Tensor, xnew: torch.Tensor) -> torch.Tens
     # now build the linear interpolation
     ynew = sel("y") + sel("slopes") * (v["xnew"] - sel("x"))
 
-    if ynew.shape[0] == 1:
+    if len(y.shape) == 1:
         ynew = ynew.view(-1)
 
     return ynew
