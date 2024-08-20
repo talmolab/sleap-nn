@@ -28,12 +28,12 @@ def test_local_queues_candidates(minimal_instance_ckpt):
 
     pred_instances = get_pred_instances(minimal_instance_ckpt, 2)
     tracker = Tracker.from_config(candidates_method="local_queues")
-    track_instances = tracker._get_features(pred_instances, 0)
+    track_instances = tracker.get_features(pred_instances, 0)
 
     local_queues_candidates = LocalQueueCandidates(3, 20)
     assert isinstance(local_queues_candidates.tracker_queue, DefaultDict)
     assert isinstance(local_queues_candidates.tracker_queue[0], Deque)
-    local_queues_candidates.update_candidates(track_instances, None, None)
+    local_queues_candidates.update_tracks(track_instances, None, None, None)
     # (tracks are assigned only if row/ col ids exists)
     assert not local_queues_candidates.tracker_queue[0]
 
@@ -44,3 +44,12 @@ def test_local_queues_candidates(minimal_instance_ckpt):
 
     new_track_id = local_queues_candidates.get_new_track_id()
     assert new_track_id == 2
+
+    track_instances = tracker.get_features(pred_instances, 0)
+    tracked_instances = local_queues_candidates.add_new_tracks(track_instances)
+    assert tracked_instances[0].track_id == 2
+    assert tracked_instances[1].track_id == 3
+
+    features_track_id = local_queues_candidates.get_features_from_track_id(0)
+    assert isinstance(features_track_id, list)
+    assert len(features_track_id) == 1

@@ -2,7 +2,6 @@
 
 from typing import Any, Dict, List, Union, Deque, DefaultDict, Optional
 from collections import defaultdict
-from scipy.optimize import linear_sum_assignment
 import attrs
 import cv2
 import numpy as np
@@ -12,11 +11,13 @@ from sleap_nn.evaluation import compute_oks
 from sleap_nn.tracking.candidates.fixed_window import FixedWindowCandidates
 from sleap_nn.tracking.candidates.local_queues import LocalQueueCandidates
 from sleap_nn.tracking.track_instance import (
-    ShiftedInstance,
+    TrackedInstanceFeature,
     TrackInstances,
     TrackInstanceLocalQueue,
 )
 from sleap_nn.tracking.utils import (
+    hungarian_matching,
+    greedy_matching,
     get_bbox,
     get_centroid,
     get_keypoints,
@@ -45,6 +46,8 @@ class Tracker:
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
             `weighted`]. Default: `mean`.
+        track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
+                Default: `hungarian`.
         use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
             optical flow shifts. Default: `False`.
         is_local_queue: `True` if `LocalQueueCandidates` is used else `False`.
@@ -57,6 +60,7 @@ class Tracker:
     features: str = "keypoints"
     scoring_method: str = "oks"
     scoring_reduction: str = "mean"
+    track_matching_method: str = "hungarian"
     use_flow: bool = False
     is_local_queue: bool = False
     _scoring_functions: Dict[str, Any] = {
@@ -71,6 +75,10 @@ class Tracker:
         "centroids": get_centroid,
         "bboxes": get_bbox,
     }
+    _track_matching_methods: Dict[str, Any] = {
+        "hungarian": hungarian_matching,
+        "greedy": greedy_matching,
+    }
 
     @classmethod
     def from_config(
@@ -81,6 +89,7 @@ class Tracker:
         features: str = "keypoints",
         scoring_method: str = "oks",
         scoring_reduction: str = "mean",
+        track_matching_method: str = "hungarian",
         max_tracks: Optional[int] = None,
         use_flow: bool = False,
         of_img_scale: float = 1.0,
@@ -106,6 +115,8 @@ class Tracker:
             scoring_reduction: Method to aggregate and reduce multiple scores if there are
                 several detections associated with the same track. One of [`mean`, `max`,
                 `weighted`]. Default: `mean`.
+            track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
+                Default: `hungarian`.
             max_tracks: Meaximum number of new tracks to be created to avoid redundant tracks.
                 (only for local queues candidate) Default: None.
             use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
@@ -122,14 +133,14 @@ class Tracker:
 
         """
         if candidates_method == "fixed_window":
-            candidates = FixedWindowCandidates(
+            candidate = FixedWindowCandidates(
                 window_size=window_size,
                 instance_score_threshold=instance_score_threshold,
             )
             is_local_queue = False
 
         elif candidates_method == "local_queues":
-            candidates = LocalQueueCandidates(
+            candidate = LocalQueueCandidates(
                 window_size=window_size,
                 max_tracks=max_tracks,
                 instance_score_threshold=instance_score_threshold,
@@ -142,10 +153,11 @@ class Tracker:
 
         if use_flow:
             return FlowShiftTracker(
-                candidates=candidates,
+                candidate=candidate,
                 features=features,
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
+                track_matching_method=track_matching_method,
                 img_scale=of_img_scale,
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
@@ -153,10 +165,11 @@ class Tracker:
             )
 
         tracker = cls(
-            candidates=candidates,
+            candidate=candidate,
             features=features,
             scoring_method=scoring_method,
             scoring_reduction=scoring_reduction,
+            track_matching_method=track_matching_method,
             use_flow=use_flow,
             is_local_queue=is_local_queue,
         )
@@ -196,16 +209,18 @@ class Tracker:
             cost_matrix = self.scores_to_cost_matrix(scores)
 
             # track assignment
-            current_instances = self.assign_tracks(current_instances, cost_matrix)
+            current_tracked_instances = self.assign_tracks(
+                current_instances, cost_matrix
+            )
 
         else:
             # Initialize the tracker queue if empty.
-            current_instances = self.candidate.add_new_tracks(current_instances)
+            current_tracked_instances = self.candidate.add_new_tracks(current_instances)
 
         # convert the `current_instances` back to `List[sio.PredictedInstance]` objects.
         if self.is_local_queue:
             new_pred_instances = []
-            for instance in current_instances:
+            for instance in current_tracked_instances:
                 if instance.track_id is not None:
                     instance.src_instance.track = sio.Track(instance.track_id)
                     instance.src_instance.tracking_score = instance.tracking_score
@@ -213,37 +228,14 @@ class Tracker:
 
         else:
             new_pred_instances = []
-            for idx, inst in enumerate(current_instances.src_instances):
-                track_id = current_instances.track_ids[idx]
+            for idx, inst in enumerate(current_tracked_instances.src_instances):
+                track_id = current_tracked_instances.track_ids[idx]
                 if track_id is not None:
                     inst.track = sio.Track(track_id)
-                    inst.tracking_score = current_instances.tracking_scores[idx]
+                    inst.tracking_score = current_tracked_instances.tracking_scores[idx]
                     new_pred_instances.append(inst)
 
         return new_pred_instances
-
-    def generate_candidates(self):
-        """Get the tracked instances from tracker queue."""
-        # TODO: do we this function?
-        return self.candidate.tracker_queue
-
-    def update_candidates(
-        self, candidates_list: Union[Deque, DefaultDict[Deque]], image: np.ndarray
-    ) -> Dict[int, List]:
-        """Return dictionary with the features of tracked instances.
-
-        Args:
-            candidates_list: Tracker queue from the candidate class.
-            image: Image of the current untracked frame. (used for flow shift tracker)
-
-        Returns:
-            Dictionary with keys as track IDs and values as the list of features
-        """
-        candidates_feature_dict = defaultdict(list)
-        for track_id in self.candidate.current_tracks:
-            for x in self.candidate.get_features_from_track_id(track_id):
-                candidates_feature_dict[track_id].append(x)
-        return candidates_feature_dict
 
     def get_features(
         self,
@@ -283,16 +275,34 @@ class Tracker:
 
         return current_instances
 
-    def scores_to_cost_matrix(self, scores: np.ndarray):
-        """Converts `scores` matrix to cost matrix for track assignments."""
-        cost_matrix = -scores
-        cost_matrix[np.isnan(cost_matrix)] = np.inf
-        return cost_matrix
+    def generate_candidates(self):
+        """Get the tracked instances from tracker queue."""
+        return self.candidate.tracker_queue
+
+    def update_candidates(
+        self, candidates_list: Union[Deque, DefaultDict[int, Deque]], image: np.ndarray
+    ) -> Dict[int, TrackedInstanceFeature]:
+        """Return dictionary with the features of tracked instances.
+
+        Args:
+            candidates_list: List of tracked instances from tracker queue to consider.
+            image: Image of the current untracked frame. (used for flow shift tracker)
+
+        Returns:
+            Dictionary with keys as track IDs and values as the list of `TrackedInstanceFeature`.
+        """
+        candidates_feature_dict = defaultdict(list)
+        for track_id in self.candidate.current_tracks:
+            for x in self.candidate.get_features_from_track_id(
+                track_id, candidates_list
+            ):
+                candidates_feature_dict[track_id].append(x)
+        return candidates_feature_dict
 
     def get_scores(
         self,
         current_instances: Union[TrackInstances, List[TrackInstanceLocalQueue]],
-        candidates_feature_dict: Dict[int, List],
+        candidates_feature_dict: Dict[int, TrackedInstanceFeature],
     ):
         """Compute association score between untracked and tracked instances.
 
@@ -303,8 +313,8 @@ class Tracker:
         Args:
             current_instances: `TrackInstances` object or `List[TrackInstanceLocalQueue]`
                 with features and unassigned tracks.
-            candidates_feature_dict: Dictionary with list of features for tracked instances
-                in the tracker queue and keys as the track IDs.
+            candidates_feature_dict: Dictionary with keys as track IDs and values as the
+                list of `TrackedInstanceFeature`.
 
         Returns:
             scores: Score matrix of shape (num_new_instances, num_existing_tracks)
@@ -320,6 +330,7 @@ class Tracker:
             )
 
         scoring_method = self._scoring_functions[self.scoring_method]
+        scoring_reduction = self._scoring_reduction_methods[self.scoring_reduction]
 
         # Get list of features for the `current_instances`.
         if self.is_local_queue:
@@ -333,16 +344,20 @@ class Tracker:
 
         for f_idx, f in enumerate(current_instances_features):
             for track_id in self.candidate.current_tracks:
-                oks = [scoring_method(x, f) for x in candidates_feature_dict[track_id]]
-
-                scoring_reduction = self._scoring_reduction_methods[
-                    self.scoring_reduction
+                oks = [
+                    scoring_method(f, x.feature)
+                    for x in candidates_feature_dict[track_id]
                 ]
-
-                oks = scoring_reduction(oks)  # scoring reduction - Average
+                oks = scoring_reduction(oks)  # scoring reduction
                 scores[f_idx][track_id] = oks
 
         return scores
+
+    def scores_to_cost_matrix(self, scores: np.ndarray):
+        """Converts `scores` matrix to cost matrix for track assignments."""
+        cost_matrix = -scores
+        cost_matrix[np.isnan(cost_matrix)] = np.inf
+        return cost_matrix
 
     def assign_tracks(
         self,
@@ -360,17 +375,25 @@ class Tracker:
             `TrackInstances` object or `List[TrackInstanceLocalQueue]`objects with
                 track IDs assigned.
         """
-        row_inds, col_inds = linear_sum_assignment(cost_matrix)
+        if self.track_matching_method not in self._track_matching_methods:
+            raise ValueError(
+                "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
+            )
+
+        matching_method = self._track_matching_methods[self.track_matching_method]
+
+        row_inds, col_inds = matching_method(cost_matrix)
         tracking_scores = [
             -cost_matrix[row, col] for row, col in zip(row_inds, col_inds)
         ]
 
-        # update the candidates tracker queue with the newly tracked instances.
-        current_instances = self.candidate.update_tracks(
+        # update the candidates tracker queue with the newly tracked instances and assign
+        # track IDs to `current_instances`.
+        current_tracked_instances = self.candidate.update_tracks(
             current_instances, row_inds, col_inds, tracking_scores
         )
 
-        return current_instances
+        return current_tracked_instances
 
 
 @attrs.define
@@ -393,6 +416,8 @@ class FlowShiftTracker(Tracker):
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
             `weighted`]. Default: `mean`.
+        track_matching_method: track matching algorithm. One of `hungarian`, `greedy.
+                Default: `hungarian`.
         use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
             optical flow. Default: `False`.
         is_local_queue: `True` if `LocalQueueCandidates` is used else `False`.
@@ -432,9 +457,9 @@ class FlowShiftTracker(Tracker):
     def _preprocess_imgs(self, ref_img: np.ndarray, new_img: np.ndarray):
         """Pre-process images for optical flow."""
         # Convert to uint8 for cv2.calcOpticalFlowPyrLK
-        if isinstance(ref_img, np.floating):
+        if np.issubdtype(ref_img.dtype, np.floating):
             ref_img = ref_img.astype("uint8")
-        if isinstance(new_img, np.floating):
+        if np.issubdtype(new_img.dtype, np.floating):
             new_img = new_img.astype("uint8")
 
         # Ensure images are rank 2 in case there is a singleton channel dimension.
@@ -455,15 +480,19 @@ class FlowShiftTracker(Tracker):
         return ref_img, new_img
 
     def get_shifted_instances_from_prv_frames(
-        self, new_img: np.ndarray
-    ) -> Dict[int, List[ShiftedInstance]]:
+        self,
+        candidates_list: Union[Deque, DefaultDict[int, Deque]],
+        new_img: np.ndarray,
+        feature_method,
+    ) -> Dict[int, List[TrackedInstanceFeature]]:
         """Generate shifted instances onto the new frame by applying optical flow."""
-        # TODO: do we really the shiftedInstance object or just return the feature list?
         shifted_instances_prv_frames = defaultdict(list)
 
         if self.is_local_queue:
             # for local queue
-            ref_candidates = self.candidate.get_instances_groupby_frame_idx()
+            ref_candidates = self.candidate.get_instances_groupby_frame_idx(
+                candidates_list
+            )
             for _, ref_candidate_list in ref_candidates.items():
                 ref_pts = [x.src_instance.numpy() for x in ref_candidate_list]
                 shifted_pts, status, errs = self._compute_optical_flow(
@@ -478,8 +507,8 @@ class FlowShiftTracker(Tracker):
                 errs = np.split(errs, sections, axis=0)
 
                 # Create shifted instances.
-                for idx, (ref_candidate, pts, found, err) in enumerate(
-                    zip(ref_candidate_list, shifted_pts, status, errs)
+                for idx, (ref_candidate, pts, found) in enumerate(
+                    zip(ref_candidate_list, shifted_pts, status)
                 ):
                     # Exclude points that weren't found by optical flow.
                     found = found.squeeze().astype(bool)
@@ -487,19 +516,24 @@ class FlowShiftTracker(Tracker):
 
                     # Create a shifted instance.
                     shifted_instances_prv_frames[ref_candidate.track_id].append(
-                        ShiftedInstance(
-                            src_track_instance=ref_candidate,
-                            shifted_pts=pts,
-                            src_instance_idx=idx,
-                            track_id=ref_candidate.track_id,
+                        TrackedInstanceFeature(
+                            feature=feature_method(pts),
+                            src_predicted_instance=ref_candidate.src_instance,
                             frame_idx=ref_candidate.frame_idx,
-                            shift_score=-np.mean(err[found]),
+                            tracking_score=ref_candidate.tracking_score,
+                            instance_score=ref_candidate.instance_score,
+                            shifted_keypoints=pts,
                         )
                     )
 
         else:
             # for fixed window
-            for ref_candidate in self.candidate.tracker_queue:
+            candidates_list = (
+                candidates_list
+                if candidates_list is not None
+                else self.candidate.tracker_queue
+            )
+            for ref_candidate in candidates_list:
                 ref_pts = [x.numpy() for x in ref_candidate.src_instances]
                 shifted_pts, status, errs = self._compute_optical_flow(
                     ref_pts=ref_pts, ref_img=ref_candidate.image, new_img=new_img
@@ -511,28 +545,30 @@ class FlowShiftTracker(Tracker):
                 errs = np.split(errs, sections, axis=0)
 
                 # Create shifted instances.
-                for idx, (pts, found, err) in enumerate(zip(shifted_pts, status, errs)):
+                for idx, (pts, found) in enumerate(zip(shifted_pts, status)):
                     # Exclude points that weren't found by optical flow.
                     found = found.squeeze().astype(bool)
                     pts[~found] = np.nan
 
                     # Create a shifted instance.
                     shifted_instances_prv_frames[ref_candidate.track_ids[idx]].append(
-                        ShiftedInstance(
-                            src_track_instance=ref_candidate,
-                            shifted_pts=pts,
-                            src_instance_idx=idx,
-                            track_id=ref_candidate.track_ids[idx],
+                        TrackedInstanceFeature(
+                            feature=feature_method(pts),
+                            src_predicted_instance=ref_candidate.src_instances[idx],
                             frame_idx=ref_candidate.frame_idx,
-                            shift_score=-np.mean(err[found]),
+                            tracking_score=ref_candidate.tracking_scores[idx],
+                            instance_score=ref_candidate.instance_scores[idx],
+                            shifted_keypoints=pts,
                         )
                     )
 
         return shifted_instances_prv_frames
 
     def update_candidates(
-        self, candidates_list: Union[Deque, DefaultDict[Deque]], image: np.ndarray
-    ) -> Dict[int, List]:
+        self,
+        candidates_list: Union[Deque, DefaultDict[int, Deque]],
+        image: np.ndarray,
+    ) -> Dict[int, TrackedInstanceFeature]:
         """Return dictionary with the features of tracked instances.
 
         In this method, the tracked instances in the tracker queue are shifted on to the
@@ -544,13 +580,8 @@ class FlowShiftTracker(Tracker):
             image: Image of the current untracked frame. (used for flow shift tracker)
 
         Returns:
-            Dictionary with keys as track IDs and values as the list of features.
+            Dictionary with keys as track IDs and values as the list of `TrackedInstanceFeature`.
         """
-
-        # get shifted instances from optical flow
-        shifted_instances_prv_frames = self.get_shifted_instances_from_prv_frames(
-            new_img=image
-        )
 
         # get features for the shifted instances
         if self.features not in self._feature_methods:
@@ -558,10 +589,12 @@ class FlowShiftTracker(Tracker):
                 "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
             )
         feature_method = self._feature_methods[self.features]
-        shifted_instances_prv_frames_features = defaultdict(list)
-        for track_id, si in shifted_instances_prv_frames.items():
-            shifted_instances_prv_frames_features[track_id].extend(
-                [feature_method(x.shifted_pts) for x in si]
-            )
 
-        return shifted_instances_prv_frames_features
+        # get shifted instances from optical flow
+        shifted_instances_prv_frames = self.get_shifted_instances_from_prv_frames(
+            candidates_list=candidates_list,
+            new_img=image,
+            feature_method=feature_method,
+        )
+
+        return shifted_instances_prv_frames

@@ -2,10 +2,15 @@ import pytest
 import numpy as np
 from sleap_nn.inference.predictors import main
 from sleap_nn.tracking.tracker import Tracker, FlowShiftTracker
+from sleap_nn.tracking.track_instance import (
+    TrackedInstanceFeature,
+    TrackInstanceLocalQueue,
+    TrackInstances,
+)
 import math
 
 
-def get_pred_instances(minimal_instance_ckpt, n=2):
+def get_pred_instances(minimal_instance_ckpt):
     """Get `sio.PredictedInstance` objects from Predictor class."""
     result_labels = main(
         model_paths=[minimal_instance_ckpt],
@@ -18,25 +23,20 @@ def get_pred_instances(minimal_instance_ckpt, n=2):
     )
     pred_instances = []
     imgs = []
-    for idx, lf in enumerate(result_labels):
+    for lf in result_labels:
         pred_instances.extend(lf.instances)
         imgs.append(lf.image)
-        if idx == n:
-            break
     return pred_instances, imgs
 
 
 def test_tracker(minimal_instance_ckpt):
     """Test `Tracker` module."""
-    # Test for invalid candidates method
-    with pytest.raises(ValueError):
-        tracker = Tracker.from_config(
-            max_tracks=30, window_size=10, candidates_method="tracking"
-        )
-
     # Test for the first two instances (high instance threshold)
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt, 2)
+    # no new tracks should be created
+    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(instance_score_threshold=1.0)
+    assert isinstance(tracker, Tracker)
+    assert not isinstance(tracker, FlowShiftTracker)
     for p in pred_instances:
         assert p.track is None
     tracked_instances = tracker.track(pred_instances, 0)
@@ -44,8 +44,10 @@ def test_tracker(minimal_instance_ckpt):
         assert t.track is None
     assert len(tracker.candidate.current_tracks) == 0
 
-    # Test Fixed-window method: pose as feature, oks scoring method
+    # Test Fixed-window method
+    # pose as feature, oks scoring method, avg score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
+    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
         instance_score_threshold=0.0, candidates_method="fixed_window"
     )
@@ -54,53 +56,15 @@ def test_tracker(minimal_instance_ckpt):
     tracked_instances = tracker.track(pred_instances, 0)  # 2 tracks are created
     for t in tracked_instances:
         assert t.track is not None
+    assert tracked_instances[0].track.name == 0 and tracked_instances[1].track.name == 1
     assert len(tracker.candidate.tracker_queue) == 1
-    assert len(tracker.candidate.current_tracks) == 2
+    assert tracker.candidate.current_tracks == [0, 1]
+    assert tracker.candidate.tracker_queue[0].track_ids == [0, 1]
 
-    # Test _get_features(): points as feature
-    track_instances = tracker.get_features(pred_instances, 0, None)
-    for p, t in zip(pred_instances, track_instances.features):
-        assert np.all(p.numpy() == t)
-
-    # Test _get_scores()
-    scores = tracker._get_scores(track_instances)
-    assert np.all(scores == np.array([[1.0, 0], [0, 1.0]]))
-
-    # Test _assign_tracks() with existing 2 tracks
-    cost = tracker.scores_to_cost_matrix(scores)
-    track_instances = tracker.assign_tracks(track_instances, cost)
-    assert track_instances.track_ids[0] == 0 and track_instances.track_ids[1] == 1
-    assert np.all(track_instances.features[0] == pred_instances[0].numpy())
-    assert len(tracker.candidate.current_tracks) == 2
-    assert len(tracker.candidate.tracker_queue) == 2
-
-    # Test track() with track_queue not empty
-    tracked_instances = tracker.track(pred_instances, 0)
-    assert len(tracker.candidate.tracker_queue) == 3
-    assert len(tracker.candidate.current_tracks) == 2
-    assert np.all(
-        tracker.candidates.tracker_queue[0].features[0]
-        == tracker.candidates.tracker_queue[2].features[0]
-    )
-    assert (
-        tracker.candidates.tracker_queue[0].track_ids[1]
-        == tracker.candidates.tracker_queue[1].track_ids[1]
-    )
-
-    # Test with NaNs
-    tracker.candidate.tracker_queue[0].features[0] = np.full(
-        tracker.candidates.tracker_queue[0].features[0].shape, np.NaN
-    )
-    track_instances = tracker.get_features(pred_instances, 0, image=None)
-    scores = tracker.get_scores(track_instances)
-    cost = tracker.scores_to_cost_matrix(scores)
-    track_instances = tracker.assign_tracks(track_instances, cost)
-    assert len(tracker.candidate.current_tracks) == 2
-    assert track_instances.track_ids[0] == 0 and track_instances.track_ids[1] == 1
-
-    # Test Local queues method: pose as feature, oks scoring method
+    # Test local queue method
+    # pose as feature, oks scoring method, max score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt, 2)
+    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
         instance_score_threshold=0.0, candidates_method="local_queues"
     )
@@ -109,38 +73,84 @@ def test_tracker(minimal_instance_ckpt):
     tracked_instances = tracker.track(pred_instances, 0)  # 2 tracks are created
     for t in tracked_instances:
         assert t.track is not None
-    assert len(tracker.candidate.tracker_queue[0]) == 1
-    assert len(tracker.candidate.tracker_queue[1]) == 1
-    assert len(tracker.candidate.current_tracks) == 2
-
-    # Test _get_features(): points as feature
-    # track_instances = tracker._get_features(pred_instances, 0, None)
-
-    # Test track() with track_queue not empty
-    tracked_instances = tracker.track(pred_instances, 0)
     assert len(tracker.candidate.tracker_queue) == 2
-    assert (
-        len(tracker.candidates.tracker_queue[0]) == 2
-        and len(tracker.candidates.tracker_queue[1]) == 2
+    assert tracker.candidate.current_tracks == [0, 1]
+    assert tracked_instances[0].track.name == 0 and tracked_instances[1].track.name == 1
+
+    # Test indv. functions for fixed window
+    # with 2 existing tracks in the queue
+    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    tracker = Tracker.from_config(
+        instance_score_threshold=0.0,
+        candidates_method="fixed_window",
+        scoring_reduction="max",
+        track_matching_method="greedy",
     )
+    _ = tracker.track(pred_instances, 0)
+
+    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    # Test points as feature
+    track_instances = tracker.get_features(pred_instances, 0, None)
+    assert isinstance(track_instances, TrackInstances)
+    for p, t in zip(pred_instances, track_instances.features):
+        assert np.all(p.numpy() == t)
+
+    # Test get_scores(), oks as scoring
+    candidates_list = tracker.generate_candidates()
+    candidate_feature_dict = tracker.update_candidates(candidates_list, None)
+    scores = tracker.get_scores(track_instances, candidate_feature_dict)
+    assert np.all(scores == np.array([[1.0, 0], [0, 1.0]]))
+
+    # Test assign_tracks()
+    cost = tracker.scores_to_cost_matrix(scores)
+    track_instances = tracker.assign_tracks(track_instances, cost)
+    assert track_instances.track_ids[0] == 0 and track_instances.track_ids[1] == 1
+    assert np.all(track_instances.features[0] == pred_instances[0].numpy())
+    assert len(tracker.candidate.current_tracks) == 2
+    assert len(tracker.candidate.tracker_queue) == 2
+    assert track_instances.tracking_scores == [1.0, 1.0]
+
+    tracked_instances = tracker.track(pred_instances, 0)
+    assert len(tracker.candidate.tracker_queue) == 3
+    assert len(tracker.candidate.current_tracks) == 2
     assert np.all(
-        tracker.candidates.tracker_queue[0][0].feature
-        == tracker.candidates.tracker_queue[0][1].feature
+        tracker.candidate.tracker_queue[0].features[0]
+        == tracker.candidate.tracker_queue[2].features[0]
+    )
+    assert (
+        tracker.candidate.tracker_queue[0].track_ids[1]
+        == tracker.candidate.tracker_queue[2].track_ids[1]
     )
 
     # Test with NaNs
-    tracker.candidate.tracker_queue[0][0].feature = np.full(
-        tracker.candidates.tracker_queue[0][0].feature.shape, np.NaN
+    tracker.candidate.tracker_queue[0].features[0] = np.full(
+        tracker.candidate.tracker_queue[0].features[0].shape, np.NaN
     )
-    track_instances = tracker.get_features(pred_instances, 0, None)
-    scores = tracker.get_scores(track_instances)
-    cost = tracker.scores_to_cost_matrix(scores)
-    track_instances = tracker.assign_tracks(track_instances, cost)
+    tracked_instances = tracker.track(pred_instances, 0)
     assert len(tracker.candidate.current_tracks) == 2
-    assert track_instances[0].track_id == 0 and track_instances[1].track_id == 1
+    assert tracked_instances[0].track.name == 0 and tracked_instances[1].track.name == 1
+
+    # Test local queue tracker
+    # with existing tracks
+    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    tracker = Tracker.from_config(
+        instance_score_threshold=0.0,
+        candidates_method="local_queues",
+    )
+    _ = tracker.track(pred_instances, 0)
+
+    tracked_instances = tracker.track(pred_instances, 0)
+    assert len(tracker.candidate.tracker_queue) == 2
+    assert (
+        len(tracker.candidate.tracker_queue[0]) == 2
+        and len(tracker.candidate.tracker_queue[1]) == 2
+    )
+    assert np.all(
+        tracker.candidate.tracker_queue[0][0].feature
+        == tracker.candidate.tracker_queue[0][1].feature
+    )
 
     # test features - centroids + euclidean scoring
-    # TODO: test max!!
     tracker = Tracker.from_config(
         features="centroids", scoring_reduction="max", scoring_method="euclidean_dist"
     )
@@ -150,12 +160,14 @@ def test_tracker(minimal_instance_ckpt):
         pts = p.numpy()
         centroid = np.nanmean(pts[:, 0]), np.nanmean(pts[:, 1])
         assert np.all(centroid == t)
-    scores = tracker.get_scores(track_instances)
+    candidates_list = tracker.generate_candidates()
+    candidate_feature_dict = tracker.update_candidates(candidates_list, None)
+    scores = tracker.get_scores(track_instances, candidate_feature_dict)
     assert scores[0, 0] == 0 and scores[1, 1] == 0
     assert scores[1, 0] == scores[0, 1]
-    # assert math.isclose(scores[0, 1], -130.86877, rel_tol=1e-4)
+    assert math.isclose(scores[0, 1], -108.20057, rel_tol=1e-4)
 
-    # test featuires - bboxes + iou scoring
+    # test features - bboxes + iou scoring
     tracker = Tracker.from_config(features="bboxes", scoring_method="iou")
     tracked_instances = tracker.track(pred_instances, 0)  # add instances to queue
     track_instances = tracker.get_features(pred_instances, 0, None)
@@ -168,34 +180,54 @@ def test_tracker(minimal_instance_ckpt):
             np.nanmax(pts[:, 1]),
         )
         assert np.all(bbox == t)
-    scores = tracker.get_scores(track_instances)
+    candidates_list = tracker.generate_candidates()
+    candidate_feature_dict = tracker.update_candidates(candidates_list, None)
+    assert isinstance(candidate_feature_dict[0][0], TrackedInstanceFeature)
+    assert candidate_feature_dict[0][0].shifted_keypoints is None
+    scores = tracker.get_scores(track_instances, candidate_feature_dict)
     assert scores[0, 0] == 1 and scores[1, 1] == 1
     assert scores[1, 0] == scores[0, 1] == 0
 
-    # TODO max scoring reduction
+    # Test for invalid argumnets
+    # candidate method
+    with pytest.raises(ValueError):
+        tracker = Tracker.from_config(
+            max_tracks=30, window_size=10, candidates_method="tracking"
+        )
 
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(features="centered")
-        track_instances = tracker._get_features(pred_instances, 0)
+        track_instances = tracker.track(pred_instances, 0)
 
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(scoring_method="dist")
-        track_instances = tracker._get_features(pred_instances, 0)
-        scores = tracker._get_scores(track_instances)
+        track_instances = tracker.track(pred_instances, 0)
+
+        track_instances = tracker.track(pred_instances, 0)
 
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(scoring_reduction="min")
-        track_instances = tracker._get_features(pred_instances, 0)
-        tracker.candidates.current_tracks.append(1)
-        scores = tracker._get_scores(track_instances)
+        track_instances = tracker.track(pred_instances, 0)
+
+        track_instances = tracker.track(pred_instances, 0)
+
+    with pytest.raises(ValueError):
+        tracker = Tracker.from_config(track_matching_method="min")
+        track_instances = tracker.track(pred_instances, 0)
+
+        track_instances = tracker.track(pred_instances, 0)
 
 
 def test_flowshifttracker(minimal_instance_ckpt):
+    """Tests for `FlowShiftTracker` class."""
     # Test Fixed-window method: pose as feature, oks scoring method
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, imgs = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
-        instance_score_threshold=0.0, candidates_method="fixed_window", use_flow=True
+        instance_score_threshold=0.0,
+        candidates_method="fixed_window",
+        use_flow=True,
+        track_matching_method="greedy",
     )
     assert isinstance(tracker, FlowShiftTracker)
     for p in pred_instances:
@@ -208,7 +240,6 @@ def test_flowshifttracker(minimal_instance_ckpt):
     assert len(tracker.candidate.tracker_queue) == 1
     assert len(tracker.candidate.current_tracks) == 2
 
-    # TODO: add test for get scores function
     # Test track() with track_queue not empty
     tracked_instances = tracker.track(pred_instances, 0, imgs[0])
     assert len(tracker.candidate.tracker_queue) == 2
@@ -226,7 +257,10 @@ def test_flowshifttracker(minimal_instance_ckpt):
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, imgs = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
-        instance_score_threshold=0.0, candidates_method="local_queues", use_flow=True
+        instance_score_threshold=0.0,
+        candidates_method="local_queues",
+        use_flow=True,
+        of_img_scale=0.5,
     )
     assert isinstance(tracker, FlowShiftTracker)
     for p in pred_instances:
@@ -239,18 +273,34 @@ def test_flowshifttracker(minimal_instance_ckpt):
     assert len(tracker.candidate.tracker_queue[0]) == 1
     assert len(tracker.candidate.current_tracks) == 2
 
-    # TODO: add test for get scores function
     # Test track() with track_queue not empty
-    tracked_instances = tracker.track(pred_instances, 0, imgs[0])
+    tracked_instances = tracker.track(pred_instances, 0, imgs[0].astype("float32"))
     assert len(tracker.candidate.tracker_queue[0]) == 2
     assert len(tracker.candidate.current_tracks) == 2
     assert np.all(
         tracker.candidate.tracker_queue[0][0].feature
         == tracker.candidate.tracker_queue[0][1].feature
     )
+    assert np.any(
+        tracker.candidate.tracker_queue[0][0].feature
+        != tracker.candidate.tracker_queue[1][1].feature
+    )
+
+    # Test update_candidates()
+    candidates_list = tracker.generate_candidates()
+    candidate_feature_dict = tracker.update_candidates(candidates_list, imgs[0])
+    assert isinstance(candidate_feature_dict[0][0], TrackedInstanceFeature)
+    assert candidate_feature_dict[0][0].shifted_keypoints is not None
+    assert np.any(
+        candidate_feature_dict[0][0].src_predicted_instance.numpy()
+        == candidate_feature_dict[0][0].shifted_keypoints
+    )
 
     # Test `_preprocess_imgs`
-    ref, new = tracker._preprocess_imgs(imgs)
-    # test for tracking score
-
-    # more tests for adding/ updating tracks (test with float imgs)
+    ref, new = tracker._preprocess_imgs(
+        imgs[0].astype("float32"), imgs[0].astype("float32")
+    )
+    assert np.issubdtype(ref.dtype, np.integer)
+    assert np.issubdtype(new.dtype, np.integer)
+    assert imgs[0].shape == (384, 384, 1)
+    assert ref.shape == (192, 192) and new.shape == (192, 192)

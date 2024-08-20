@@ -1,6 +1,6 @@
 """TrackInstance Data structure for Tracker queue."""
 
-from typing import List, Optional, Union
+from typing import List, Optional
 import attrs
 import numpy as np
 import sleap_io as sio
@@ -34,16 +34,17 @@ class TrackInstanceLocalQueue:
 
 
 @attrs.define
-class ShiftedInstance:
-    """Data structure for `FlowShiftTracker`.
+class TrackedInstanceFeature:
+    """Data structure for tracked instances.
 
-    Note: This data structure is only used to get the shifted points for the instances
-        in the tracker queue (has an assigned track ID).
+    This data structure is used for updating the previous tracked instances and get the
+    features of the tracked instances. `shifted_keypoints` is used only for the `FlowShiftTracker`
+    to store the optical flow shifted instances.
     """
 
-    src_track_instance: Union[TrackInstances, TrackInstanceLocalQueue]
-    shifted_pts: np.array
-    src_instance_idx: int
+    feature: np.ndarray
+    src_predicted_instance: sio.PredictedInstance
     frame_idx: int
-    shift_score: float
-    track_id: int
+    tracking_score: float
+    instance_score: float
+    shifted_keypoints: np.ndarray = None

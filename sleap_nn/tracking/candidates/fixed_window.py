@@ -1,10 +1,9 @@
 """Module to generate Fixed window candidates."""
 
 from typing import Optional, List, Deque, Union
-from sleap_nn.tracking.track_instance import TrackInstances
+from sleap_nn.tracking.track_instance import TrackInstances, TrackedInstanceFeature
 import sleap_io as sio
-from collections import defaultdict, deque
-import attrs
+from collections import deque
 import numpy as np
 
 
@@ -49,12 +48,31 @@ class FixedWindowCandidates:
         )
         return track_instance
 
-    def get_features_from_track_id(self, track_id: int) -> List[np.array]:
-        """Return list of features for instances in queue with the given `track_id`."""
+    def get_features_from_track_id(
+        self, track_id: int, candidates_list: Optional[Deque] = None
+    ) -> List[TrackedInstanceFeature]:
+        """Return list of `TrackedInstanceFeature` objects for instances in queue with the given `track_id`.
+
+        Note: If `candidates_list` is `None`, then features of all the instances in the
+            tracker queue are returned by default. Else, only the features from the given
+            candidates_list are returned.
+        """
         output = []
-        for t in self.tracker_queue:
+        tracked_candidates = (
+            candidates_list if candidates_list is not None else self.tracker_queue
+        )
+        for t in tracked_candidates:
             if track_id in t.track_ids:
-                output.append(t.features[t.track_ids.index(track_id)])
+                track_idx = t.track_ids.index(track_id)
+                tracked_instance_feature = TrackedInstanceFeature(
+                    feature=t.features[track_idx],
+                    src_predicted_instance=t.src_instances[track_idx],
+                    frame_idx=t.frame_idx,
+                    tracking_score=t.tracking_scores[track_idx],
+                    instance_score=t.instance_scores[track_idx],
+                    shifted_keypoints=None,
+                )
+                output.append(tracked_instance_feature)
         return output
 
     def get_new_track_id(self) -> int:

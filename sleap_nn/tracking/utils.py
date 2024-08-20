@@ -1,8 +1,39 @@
 """Helper functions for Tracker module."""
 
-from typing import Union
+from typing import List, Tuple, Union
+from scipy.optimize import linear_sum_assignment
+
 import numpy as np
 import sleap_io as sio
+
+
+def hungarian_matching(cost_matrix: np.ndarray) -> List[Tuple[int, int]]:
+    """Match new instances to existing tracks using Hungarian matching."""
+    row_ids, col_ids = linear_sum_assignment(cost_matrix)
+    return row_ids, col_ids
+
+
+def greedy_matching(cost_matrix: np.ndarray) -> List[Tuple[int, int]]:
+    """Match new instances to existing tracks using greedy bipartite matching."""
+
+    # Sort edges by ascending cost.
+    rows, cols = np.unravel_index(np.argsort(cost_matrix, axis=None), cost_matrix.shape)
+    unassigned_edges = list(zip(rows, cols))
+
+    # Greedily assign edges.
+    row_inds, col_inds = [], []
+    while len(unassigned_edges) > 0:
+        # Assign the lowest cost edge.
+        row_ind, col_ind = unassigned_edges.pop(0)
+        row_inds.append(row_ind)
+        col_inds.append(col_ind)
+
+        # Remove all other edges that contain either node (in reverse order).
+        for i in range(len(unassigned_edges) - 1, -1, -1):
+            if unassigned_edges[i][0] == row_ind or unassigned_edges[i][1] == col_ind:
+                del unassigned_edges[i]
+
+    return row_inds, col_inds
 
 
 def get_keypoints(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
@@ -38,7 +69,6 @@ def get_bbox(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
 
 
 def compute_euclidean_distance(a, b):
-    # TODO cached?
     """Return the negative euclidean distance between a and b points."""
     return -np.linalg.norm(a - b)
 
