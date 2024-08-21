@@ -15,7 +15,6 @@ def hungarian_matching(cost_matrix: np.ndarray) -> List[Tuple[int, int]]:
 
 def greedy_matching(cost_matrix: np.ndarray) -> List[Tuple[int, int]]:
     """Match new instances to existing tracks using greedy bipartite matching."""
-
     # Sort edges by ascending cost.
     rows, cols = np.unravel_index(np.argsort(cost_matrix, axis=None), cost_matrix.shape)
     unassigned_edges = list(zip(rows, cols))

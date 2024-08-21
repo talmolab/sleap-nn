@@ -156,6 +156,26 @@ def test_topdown_predictor(
             peak_threshold=0.1,
         )
 
+    # test with tracking
+    pred_labels = main(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path="./tests/assets/centered_pair_small.mp4",
+        provider="VideoReader",
+        make_labels=True,
+        max_instances=2,
+        peak_threshold=0.1,
+        videoreader_start_idx=0,
+        videoreader_end_idx=20,
+        tracking=True,
+    )
+
+    assert len(pred_labels.tracks) <= 2  # should be less than max tracks
+
+    for lf in pred_labels:
+        for instance in lf.instances:
+            assert instance.track is not None
+            assert instance.tracking_score == 1
+
 
 def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     """Test SingleInstancePredictor module."""
@@ -404,3 +424,21 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
             max_instances=6,
             peak_threshold=0.03,
         )
+
+    # test with tracking
+    pred_labels = main(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        provider="LabelsReader",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=0.03,
+        tracking=True,
+    )
+
+    for lf in pred_labels:
+        for instance in lf.instances:
+            assert instance.track is not None
+            assert instance.tracking_score == 1
+
+    assert len(pred_labels.tracks) <= 6  # should be less than max tracks

@@ -582,7 +582,6 @@ class FlowShiftTracker(Tracker):
         Returns:
             Dictionary with keys as track IDs and values as the list of `TrackedInstanceFeature`.
         """
-
         # get features for the shifted instances
         if self.features not in self._feature_methods:
             raise ValueError(
