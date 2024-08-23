@@ -147,6 +147,7 @@ class Tracker:
                 instance_score_threshold=instance_score_threshold,
             )
             is_local_queue = True
+
         else:
             raise ValueError(
                 f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
@@ -224,10 +225,10 @@ class Tracker:
             for instance in current_tracked_instances:
                 if instance.track_id is not None:
                     if instance.track_id not in self._track_objects:
-                        track_object = sio.Track(instance.track_id)
-                    else:
-                        track_object = self._track_objects[instance.track_id]
-                    instance.src_instance.track = track_object
+                        self._track_objects[instance.track_id] = sio.Track(
+                            instance.track_id
+                        )
+                    instance.src_instance.track = self._track_objects[instance.track_id]
                     instance.src_instance.tracking_score = instance.tracking_score
                 new_pred_instances.append(instance.src_instance)
 
@@ -237,10 +238,8 @@ class Tracker:
                 track_id = current_tracked_instances.track_ids[idx]
                 if track_id is not None:
                     if track_id not in self._track_objects:
-                        track_object = sio.Track(track_id)
-                    else:
-                        track_object = self._track_objects[track_id]
-                    inst.track = sio.Track(track_id)
+                        self._track_objects[track_id] = sio.Track(track_id)
+                    inst.track = self._track_objects[track_id]
                     inst.tracking_score = current_tracked_instances.tracking_scores[idx]
                     new_pred_instances.append(inst)
 
@@ -266,8 +265,6 @@ class Tracker:
             `TrackInstances` object or `List[TrackInstanceLocalQueue]` with the features
             assigned for the untracked instances and track_id set as `None`.
         """
-        # TODO: image embedding
-
         if self.features not in self._feature_methods:
             raise ValueError(
                 "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
@@ -302,10 +299,9 @@ class Tracker:
         """
         candidates_feature_dict = defaultdict(list)
         for track_id in self.candidate.current_tracks:
-            for x in self.candidate.get_features_from_track_id(
-                track_id, candidates_list
-            ):
-                candidates_feature_dict[track_id].append(x)
+            candidates_feature_dict[track_id].extend(
+                self.candidate.get_features_from_track_id(track_id, candidates_list)
+            )
         return candidates_feature_dict
 
     def get_scores(
@@ -386,7 +382,7 @@ class Tracker:
         """
         if self.track_matching_method not in self._track_matching_methods:
             raise ValueError(
-                "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
+                "Invalid `track_matching_method` argument. Please provide one of `hungarian`, and `greedy`."
             )
 
         matching_method = self._track_matching_methods[self.track_matching_method]
@@ -502,7 +498,7 @@ class FlowShiftTracker(Tracker):
             ref_candidates = self.candidate.get_instances_groupby_frame_idx(
                 candidates_list
             )
-            for _, ref_candidate_list in ref_candidates.items():
+            for fidx, ref_candidate_list in ref_candidates.items():
                 ref_pts = [x.src_instance.numpy() for x in ref_candidate_list]
                 shifted_pts, status, errs = self._compute_optical_flow(
                     ref_pts=ref_pts,
@@ -528,7 +524,7 @@ class FlowShiftTracker(Tracker):
                         TrackedInstanceFeature(
                             feature=feature_method(pts),
                             src_predicted_instance=ref_candidate.src_instance,
-                            frame_idx=ref_candidate.frame_idx,
+                            frame_idx=fidx,
                             tracking_score=ref_candidate.tracking_score,
                             instance_score=ref_candidate.instance_score,
                             shifted_keypoints=pts,
@@ -591,7 +587,7 @@ class FlowShiftTracker(Tracker):
         Returns:
             Dictionary with keys as track IDs and values as the list of `TrackedInstanceFeature`.
         """
-        # get features for the shifted instances
+        # get feature method for the shifted instances
         if self.features not in self._feature_methods:
             raise ValueError(
                 "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"

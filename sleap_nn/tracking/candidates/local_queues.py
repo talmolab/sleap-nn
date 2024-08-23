@@ -65,7 +65,7 @@ class LocalQueueCandidates:
     def get_features_from_track_id(
         self, track_id: int, candidates_list: Optional[DefaultDict[int, Deque]] = None
     ) -> List[TrackedInstanceFeature]:
-        """Return list of `TrackedInstanceFeature` objects for instances in queue with the given `track_id`.
+        """Return list of `TrackedInstanceFeature` objects for instances in tracker queue with the given `track_id`.
 
         Note: If `candidates_list` is `None`, then features of all the instances in the
             tracker queue are returned by default. Else, only the features from the given
@@ -146,11 +146,7 @@ class LocalQueueCandidates:
             ]
             if new_current_instances_inds:
                 for ind in new_current_instances_inds:
-                    if (
-                        current_instances[ind].instance_score
-                        > self.instance_score_threshold
-                    ):
-                        self.add_new_tracks(current_instances[ind])
+                    self.add_new_tracks(current_instances[ind])
 
         return current_instances
 
@@ -162,7 +158,7 @@ class LocalQueueCandidates:
         tracked_instances = (
             candidates_list if candidates_list is not None else self.tracker_queue
         )
-        for track_id, instances in tracked_instances.items():
+        for _, instances in tracked_instances.items():
             for instance in instances:
-                instances_dict[track_id].append(instance)
+                instances_dict[instance.frame_idx].append(instance)
         return instances_dict

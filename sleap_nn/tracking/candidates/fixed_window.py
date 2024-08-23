@@ -51,7 +51,7 @@ class FixedWindowCandidates:
     def get_features_from_track_id(
         self, track_id: int, candidates_list: Optional[Deque] = None
     ) -> List[TrackedInstanceFeature]:
-        """Return list of `TrackedInstanceFeature` objects for instances in queue with the given `track_id`.
+        """Return list of `TrackedInstanceFeature` objects for instances in tracker queue with the given `track_id`.
 
         Note: If `candidates_list` is `None`, then features of all the instances in the
             tracker queue are returned by default. Else, only the features from the given
