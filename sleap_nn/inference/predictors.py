@@ -1471,9 +1471,9 @@ def main(
                 ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
                 Default: "cpu".
         tracking: (bool) If True, runs tracking on the predicted instances.
-        window_size: Number of frames to look for in the candidate instances to match
+        tracking_window_size: Number of frames to look for in the candidate instances to match
                 with the current detections. Default: 5.
-        instance_score_threshold: Instance score threshold for creating new tracks.
+        tracking_instance_score_threshold: Instance score threshold for creating new tracks.
             Default: 0.0.
         candidates_method: Either of `fixed_window` or `local_queues`. In fixed window
             method, candidates from the last `window_size` frames. In local queues,

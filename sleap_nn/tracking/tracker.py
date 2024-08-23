@@ -79,6 +79,7 @@ class Tracker:
         "hungarian": hungarian_matching,
         "greedy": greedy_matching,
     }
+    _track_objects: Dict[int, sio.Track] = {}
 
     @classmethod
     def from_config(
@@ -222,7 +223,11 @@ class Tracker:
             new_pred_instances = []
             for instance in current_tracked_instances:
                 if instance.track_id is not None:
-                    instance.src_instance.track = sio.Track(instance.track_id)
+                    if instance.track_id not in self._track_objects:
+                        track_object = sio.Track(instance.track_id)
+                    else:
+                        track_object = self._track_objects[instance.track_id]
+                    instance.src_instance.track = track_object
                     instance.src_instance.tracking_score = instance.tracking_score
                 new_pred_instances.append(instance.src_instance)
 
@@ -231,6 +236,10 @@ class Tracker:
             for idx, inst in enumerate(current_tracked_instances.src_instances):
                 track_id = current_tracked_instances.track_ids[idx]
                 if track_id is not None:
+                    if track_id not in self._track_objects:
+                        track_object = sio.Track(track_id)
+                    else:
+                        track_object = self._track_objects[track_id]
                     inst.track = sio.Track(track_id)
                     inst.tracking_score = current_tracked_instances.tracking_scores[idx]
                     new_pred_instances.append(inst)
