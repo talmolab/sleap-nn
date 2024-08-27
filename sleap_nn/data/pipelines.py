@@ -4,8 +4,12 @@ This allows for convenient ways to configure individual variants of common pipel
 well as to define training vs inference versions based on the same configurations.
 """
 
+from typing import Optional
 from omegaconf.omegaconf import DictConfig
+import math
+import numpy as np
 import torch
+import sleap_io as sio
 from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
@@ -18,6 +22,58 @@ from sleap_nn.data.confidence_maps import (
 )
 from sleap_nn.data.general import KeyFilter
 from torch.utils.data.datapipes.datapipe import IterDataPipe
+
+
+def find_instance_crop_size(
+    labels: sio.Labels,
+    padding: int = 0,
+    maximum_stride: int = 2,
+    input_scaling: float = 1.0,
+    min_crop_size: Optional[int] = None,
+) -> int:
+    """Compute the size of the largest instance bounding box from labels.
+
+    Args:
+        labels: A `sio.Labels` containing user-labeled instances.
+        padding: Integer number of pixels to add to the bounds as margin padding.
+        maximum_stride: Ensure that the returned crop size is divisible by this value.
+            Useful for ensuring that the crop size will not be truncated in a given
+            architecture.
+        input_scaling: Float factor indicating the scale of the input images if any
+            scaling will be done before cropping.
+        min_crop_size: The crop size set by the user.
+
+    Returns:
+        An integer crop size denoting the length of the side of the bounding boxes that
+        will contain the instances when cropped. The returned crop size will be larger
+        or equal to the input `crop_size`.
+
+        This accounts for stride, padding and scaling when ensuring divisibility.
+    """
+    # Check if user-specified crop size is divisible by max stride
+    min_crop_size = 0 if min_crop_size is None else min_crop_size
+    if (min_crop_size > 0) and (min_crop_size % maximum_stride == 0):
+        return min_crop_size
+
+    # Calculate crop size
+    min_crop_size_no_pad = min_crop_size - padding
+    max_length = 0.0
+    for lf in labels:
+        for inst in lf.instances:
+            pts = inst.numpy()
+            pts *= input_scaling
+            max_length = np.maximum(
+                max_length, np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
+            )
+            max_length = np.maximum(
+                max_length, np.nanmax(pts[:, 1]) - np.nanmin(pts[:, 1])
+            )
+            max_length = np.maximum(max_length, min_crop_size_no_pad)
+
+    max_length += float(padding)
+    crop_size = math.ceil(max_length / float(maximum_stride)) * maximum_stride
+
+    return int(crop_size)
 
 
 class TopdownConfmapsPipeline:
@@ -78,10 +134,25 @@ class TopdownConfmapsPipeline:
             datapipe, anchor_ind=self.confmap_head.anchor_part
         )
 
-        datapipe = InstanceCropper(
-            datapipe,
-            self.data_config.preprocessing.crop_hw,
-        )
+        crop_hw = self.data_config.preprocessing.crop_hw
+        use_auto_crop_size = False
+        if crop_hw is None:
+
+            min_crop_size = (
+                self.data_config.preprocessing.min_crop_size
+                if "min_crop_size" in self.data_config.preprocessing
+                else None
+            )
+            crop_size = find_instance_crop_size(
+                provider.labels,
+                maximum_stride=self.max_stride,
+                input_scaling=self.data_config.preprocessing.scale,
+                min_crop_size=min_crop_size,
+            )
+            crop_hw = [crop_size, crop_size]
+            use_auto_crop_size = True
+
+        datapipe = InstanceCropper(datapipe, crop_hw)
 
         if use_augmentations and "geometric" in self.data_config.augmentation_config:
             datapipe = KorniaAugmenter(
@@ -97,9 +168,10 @@ class TopdownConfmapsPipeline:
             image_key="instance_image",
             instances_key="instance",
         )
-        datapipe = PadToStride(
-            datapipe, max_stride=self.max_stride, image_key="instance_image"
-        )
+        if not use_auto_crop_size:
+            datapipe = PadToStride(
+                datapipe, max_stride=self.max_stride, image_key="instance_image"
+            )
 
         datapipe = ConfidenceMapGenerator(
             datapipe,
