@@ -270,7 +270,8 @@ class ModelTrainer:
                 symm = [list(s.nodes) for s in skl.symmetries]
             else:
                 symm = None
-            self.config["data_config"]["skeletons"][skl.name] = {
+            skl_name = skl.name if skl.name is not None else "skeleton-0"
+            self.config["data_config"]["skeletons"][skl_name] = {
                 "nodes": skl.nodes,
                 "edges": skl.edges,
                 "symmetries": symm,
