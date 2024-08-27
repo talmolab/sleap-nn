@@ -26,6 +26,7 @@ import shutil
 
 def test_create_data_loader(config, tmp_path: str):
     """Test _create_data_loader function of ModelTrainer class."""
+    # test centered-instance pipeline
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -39,6 +40,17 @@ def test_create_data_loader(config, tmp_path: str):
     )
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
+
+    # without explicitly providing crop_hw
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    model_trainer = ModelTrainer(config_copy)
+    model_trainer._create_data_loaders()
+    assert len(list(iter(model_trainer.train_data_loader))) == 2
+    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    sample = next(iter(model_trainer.train_data_loader))
+    assert sample["instance_image"].shape == (1, 1, 1, 112, 112)
 
     # test exception
     config_copy = config.copy()

@@ -22,6 +22,7 @@ from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
+from sleap_nn.data.instance_cropping import find_instance_crop_size
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -89,31 +90,54 @@ class ModelTrainer:
                 self.model_type = k
                 break
 
+        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        self.skeletons = train_labels.skeletons
+        max_stride = self.config.model_config.backbone_config.max_stride
+
         if self.model_type == "single_instance":
+
             data_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=max_stride,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
             )
 
         elif self.model_type == "centered_instance":
+            # compute crop size
+            crop_hw = self.config.data_config.preprocessing.crop_hw
+            if crop_hw is None:
+
+                min_crop_size = (
+                    self.config.data_config.preprocessing.min_crop_size
+                    if "min_crop_size" in self.config.data_config.preprocessing
+                    else None
+                )
+                crop_size = find_instance_crop_size(
+                    train_labels,
+                    maximum_stride=max_stride,
+                    input_scaling=self.config.data_config.preprocessing.scale,
+                    min_crop_size=min_crop_size,
+                )
+                crop_hw = (crop_size, crop_size)
+
             data_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=max_stride,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
+                crop_hw=crop_hw,
             )
 
         elif self.model_type == "centroid":
             data_pipeline = CentroidConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=max_stride,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
             )
 
         elif self.model_type == "bottomup":
             data_pipeline = BottomUpPipeline(
                 data_config=self.config.data_config,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=max_stride,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
             )
@@ -124,9 +148,6 @@ class ModelTrainer:
             )
 
         # train
-        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-        self.skeletons = train_labels.skeletons
-
         train_labels_reader = self.provider(train_labels)
 
         train_datapipe = data_pipeline.make_training_pipeline(

@@ -1,10 +1,28 @@
+import sleap_io as sio
 import torch
 
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
-from sleap_nn.data.instance_cropping import InstanceCropper, make_centered_bboxes
+from sleap_nn.data.instance_cropping import (
+    InstanceCropper,
+    find_instance_crop_size,
+    make_centered_bboxes,
+)
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.data.providers import LabelsReader
+
+
+def test_find_instance_crop_size(minimal_instance):
+    """Test `find_instance_crop_size` function."""
+    labels = sio.load_slp(minimal_instance)
+    crop_size = find_instance_crop_size(labels)
+    assert crop_size == 74
+
+    crop_size = find_instance_crop_size(labels, min_crop_size=100)
+    assert crop_size == 100
+
+    crop_size = find_instance_crop_size(labels, padding=10)
+    assert crop_size == 84
 
 
 def test_make_centered_bboxes():

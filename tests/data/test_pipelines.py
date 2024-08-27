@@ -10,26 +10,12 @@ from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer
 from sleap_nn.data.pipelines import (
-    find_instance_crop_size,
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
     CentroidConfmapsPipeline,
     BottomUpPipeline,
 )
 from sleap_nn.data.providers import LabelsReader
-
-
-def test_find_instance_crop_size(minimal_instance):
-    """Test `find_instance_crop_size` function."""
-    labels = sio.load_slp(minimal_instance)
-    crop_size = find_instance_crop_size(labels)
-    assert crop_size == 74
-
-    crop_size = find_instance_crop_size(labels, min_crop_size=100)
-    assert crop_size == 100
-
-    crop_size = find_instance_crop_size(labels, padding=10)
-    assert crop_size == 84
 
 
 def test_key_filter(minimal_instance):
@@ -106,6 +92,7 @@ def test_key_filter(minimal_instance):
 
 def test_topdownconfmapspipeline(minimal_instance):
     """Test the TopdownConfmapsPipeline."""
+    crop_hw = (160, 160)
     base_topdown_data_config = OmegaConf.create(
         {
             "preprocessing": {
@@ -113,7 +100,6 @@ def test_topdownconfmapspipeline(minimal_instance):
                 "max_width": None,
                 "scale": 1.0,
                 "is_rgb": False,
-                "crop_hw": (160, 160),
             },
             "use_augmentations_train": False,
         },
@@ -122,7 +108,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
+        data_config=base_topdown_data_config,
+        max_stride=16,
+        confmap_head=confmap_head,
+        crop_hw=crop_hw,
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
@@ -150,10 +139,6 @@ def test_topdownconfmapspipeline(minimal_instance):
     assert sample["instance_image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
 
-    # test crop size
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
-
     base_topdown_data_config = OmegaConf.create(
         {
             "preprocessing": {
@@ -161,54 +146,6 @@ def test_topdownconfmapspipeline(minimal_instance):
                 "max_width": None,
                 "scale": 1.0,
                 "is_rgb": False,
-                "crop_hw": None,
-            },
-            "use_augmentations_train": False,
-        },
-    )
-    pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
-    )
-
-    datapipe = pipeline.make_training_pipeline(
-        data_provider=data_provider,
-        use_augmentations=base_topdown_data_config.use_augmentations_train,
-    )
-    sample = next(iter(datapipe))
-    assert sample["instance_image"].shape == (1, 1, 80, 80)
-
-    base_topdown_data_config = OmegaConf.create(
-        {
-            "preprocessing": {
-                "max_height": None,
-                "max_width": None,
-                "scale": 1.0,
-                "is_rgb": False,
-                "crop_hw": None,
-                "min_crop_size": 100,
-            },
-            "use_augmentations_train": False,
-        },
-    )
-    pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
-    )
-
-    datapipe = pipeline.make_training_pipeline(
-        data_provider=data_provider,
-        use_augmentations=base_topdown_data_config.use_augmentations_train,
-    )
-    sample = next(iter(datapipe))
-    assert sample["instance_image"].shape == (1, 1, 112, 112)
-
-    base_topdown_data_config = OmegaConf.create(
-        {
-            "preprocessing": {
-                "max_height": None,
-                "max_width": None,
-                "scale": 1.0,
-                "is_rgb": False,
-                "crop_hw": (100, 100),
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -249,7 +186,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=8, confmap_head=confmap_head
+        data_config=base_topdown_data_config,
+        max_stride=8,
+        confmap_head=confmap_head,
+        crop_hw=(100, 100),
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
@@ -286,7 +226,6 @@ def test_topdownconfmapspipeline(minimal_instance):
                 "max_width": None,
                 "scale": 2.0,
                 "is_rgb": False,
-                "crop_hw": (100, 100),
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -327,7 +266,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
+        data_config=base_topdown_data_config,
+        max_stride=16,
+        confmap_head=confmap_head,
+        crop_hw=(100, 100),
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))

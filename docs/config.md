@@ -26,7 +26,7 @@ The config file has three main sections:
         - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
         original image size will be retained. Default: None.
         - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor. 
-        - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
+        - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
         - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`.
     - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. 
     - `augmentation_config`: (only if `use_augmentations` is `True`)
