@@ -115,6 +115,8 @@ def test_trainer(config, tmp_path: str):
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -146,6 +148,7 @@ def test_trainer(config, tmp_path: str):
     assert training_config.model_config.total_params is not None
     assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
+    assert training_config.data_config.preprocessing.crop_hw == (112, 112)
 
     # check if ckpt is created
     assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()

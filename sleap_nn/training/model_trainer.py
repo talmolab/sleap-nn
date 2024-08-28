@@ -119,6 +119,7 @@ class ModelTrainer:
                     min_crop_size=min_crop_size,
                 )
                 crop_hw = (crop_size, crop_size)
+            self.config.data_config.preprocessing.crop_hw = crop_hw
 
             data_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config,
