@@ -157,12 +157,13 @@ The config file has three main sections:
     - `use_wandb`: (bool) True to enable wandb logging.
     - `save_ckpt`: (bool) True to enable checkpointing. 
     - `save_ckpt_path`: (str) Directory path to save the training config and checkpoint files. *Default*: "./"
+    - `resume_ckpt_path`: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
     - `wandb`: (Only if `use_wandb` is `True`, else skip this)
-        - `entity`: (str) Entity of wandb project.
         - `project`: (str) Project name for the wandb project.
         - `name`: (str) Name of the current run.
         - `api_key`: (str) API key. The API key is masked when saved to config files.
         - `wandb_mode`: (str) "offline" if only local logging is required. Default: "None".
+        - `prv_runid`: (str) Previous run ID if training should be resumed from a previous ckpt. *Default*: `None`.
         - `log_params`: (List[str]) List of config parameters to save it in wandb logs. For example, to save learning rate from trainer config section, use "trainer_config.optimizer.lr" (provide the full path to the specific config parameter).
     - `optimizer_name`: (str) Optimizer to be used. One of ["Adam", "AdamW"].
     - `optimizer`

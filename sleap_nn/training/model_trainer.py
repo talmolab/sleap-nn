@@ -255,7 +255,10 @@ class ModelTrainer:
             else:
                 self._set_wandb()
             wandb_logger = WandbLogger(
-                project=wandb_config.project, name=wandb_config.name, save_dir=dir_path
+                project=wandb_config.project,
+                name=wandb_config.name,
+                save_dir=dir_path,
+                id=self.config.trainer_config.wandb.prv_runid,
             )
             logger.append(wandb_logger)
 
@@ -291,7 +294,12 @@ class ModelTrainer:
             limit_train_batches=self.steps_per_epoch,
         )
 
-        trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
+        trainer.fit(
+            self.model,
+            self.train_data_loader,
+            self.val_data_loader,
+            ckpt_path=self.config.trainer_config.resume_ckpt_path,
+        )
 
         total_params = self._get_param_count()
 
