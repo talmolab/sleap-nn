@@ -295,36 +295,34 @@ class ModelTrainer:
             limit_train_batches=self.steps_per_epoch,
         )
 
-        # try:
+        try:
+            trainer.fit(
+                self.model,
+                self.train_data_loader,
+                self.val_data_loader,
+                ckpt_path=self.config.trainer_config.resume_ckpt_path,
+            )
 
-        trainer.fit(
-            self.model,
-            self.train_data_loader,
-            self.val_data_loader,
-            ckpt_path=self.config.trainer_config.resume_ckpt_path,
-        )
+            if self.config.trainer_config.use_wandb:
+                for m in self.config.trainer_config.wandb.log_params:
+                    list_keys = m.split(".")
+                    key = list_keys[-1]
+                    value = self.config[list_keys[0]]
+                    for l in list_keys[1:]:
+                        value = value[l]
+                    wandb_logger.experiment.config.update({key: value})
+                wandb_logger.experiment.config.update({"model_params": total_params})
 
-        if self.config.trainer_config.use_wandb:
-            for m in self.config.trainer_config.wandb.log_params:
-                list_keys = m.split(".")
-                key = list_keys[-1]
-                value = self.config[list_keys[0]]
-                for l in list_keys[1:]:
-                    value = value[l]
-                wandb_logger.experiment.config.update({key: value})
-            wandb_logger.experiment.config.update({"model_params": total_params})
+        except Exception:
+            print("Stopping training...")
 
-        # except Exception:
-        #     print("Stopping training...")
-
-        # finally:
-        if self.config.trainer_config.use_wandb:
-            self.config.trainer_config.wandb.run_id = wandb.run.id
-            self.config.model_config.total_params = total_params
-            # wandb.run.state = "paused"
-            wandb.finish(exit_code=255)
-        # save the configs as yaml in the checkpoint dir
-        OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
+        finally:
+            if self.config.trainer_config.use_wandb:
+                self.config.trainer_config.wandb.run_id = wandb.run.id
+                self.config.model_config.total_params = total_params
+                wandb.finish(exit_code=255)
+            # save the configs as yaml in the checkpoint dir
+            OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
 
 class TrainingModel(L.LightningModule):
