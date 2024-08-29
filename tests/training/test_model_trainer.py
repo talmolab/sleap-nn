@@ -184,11 +184,38 @@ def test_trainer(config, tmp_path: str):
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
 
+    # check resume training
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+    OmegaConf.update(
+        config_copy,
+        "trainer_config.resume_ckpt_path",
+        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+    )
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    prv_runid = training_config.trainer_config.wandb.run_id
+    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+    trainer = ModelTrainer(config_copy)
+    trainer.train()
+
+    checkpoint = torch.load(
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 3
+
+    wandb_folders = os.listdir(f"{config_copy.trainer_config.save_ckpt_path}/wandb")
+    for f in wandb_folders:
+        assert prv_runid in f
+    shutil.rmtree(f"{config_copy.trainer_config.save_ckpt_path}")
+
     # check early stopping
     config_early_stopping = config.copy()
     OmegaConf.update(
-        config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-3
+        config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-1
     )
+    OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
     OmegaConf.update(
         config_early_stopping,

@@ -282,6 +282,7 @@ class ModelTrainer:
             }
 
         self._initialize_model()
+        total_params = self._get_param_count()
 
         trainer = L.Trainer(
             callbacks=callbacks,
@@ -294,6 +295,8 @@ class ModelTrainer:
             limit_train_batches=self.steps_per_epoch,
         )
 
+        # try:
+
         trainer.fit(
             self.model,
             self.train_data_loader,
@@ -301,11 +304,7 @@ class ModelTrainer:
             ckpt_path=self.config.trainer_config.resume_ckpt_path,
         )
 
-        total_params = self._get_param_count()
-
         if self.config.trainer_config.use_wandb:
-            self.config.trainer_config.wandb.run_id = wandb.run.id
-            self.config.model_config.total_params = total_params
             for m in self.config.trainer_config.wandb.log_params:
                 list_keys = m.split(".")
                 key = list_keys[-1]
@@ -314,8 +313,16 @@ class ModelTrainer:
                     value = value[l]
                 wandb_logger.experiment.config.update({key: value})
             wandb_logger.experiment.config.update({"model_params": total_params})
-            wandb.finish()
 
+        # except Exception:
+        #     print("Stopping training...")
+
+        # finally:
+        if self.config.trainer_config.use_wandb:
+            self.config.trainer_config.wandb.run_id = wandb.run.id
+            self.config.model_config.total_params = total_params
+            # wandb.run.state = "paused"
+            wandb.finish(exit_code=255)
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
