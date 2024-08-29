@@ -205,12 +205,10 @@ def test_trainer(config, tmp_path: str):
     )
     assert checkpoint["epoch"] == 3
 
-    wandb_folders = list(
-        Path(f"{config_copy.trainer_config.save_ckpt_path}/wandb").iterdir()
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
     )
-    for f in wandb_folders:
-        if f.is_dir():
-            assert prv_runid in str(f.stem)
+    assert training_config.trainer_config.wandb.run_id == prv_runid
     shutil.rmtree(f"{config_copy.trainer_config.save_ckpt_path}")
 
     # check early stopping
