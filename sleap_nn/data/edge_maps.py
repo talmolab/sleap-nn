@@ -247,6 +247,72 @@ def get_edge_points(
     return edge_sources, edge_destinations
 
 
+def generate_pafs(
+    instances: torch.Tensor,
+    img_hw: Tuple[int],
+    sigma: float = 1.5,
+    output_stride=2,
+    edge_inds: Optional[torch.Tensor] = attrs.field(
+        default=None, converter=attrs.converters.optional(ensure_list)
+    ),
+    flatten_channels: bool = False,
+) -> torch.Tensor:
+    """Generate part-affinity fields.
+
+    Args:
+        instances: Input instances.
+        img_hw: Image size as tuple (height, width).
+        sigma: The standard deviation of the Gaussian distribution that is used to
+            generate confidence maps. Default: 1.5.
+        output_stride: The relative stride to use when generating confidence maps.
+            A larger stride will generate smaller confidence maps. Default: 2.
+        edge_inds: `torch.Tensor` to use for looking up the index of the
+            edges.
+        flatten_channels: If False, the generated tensors are of shape
+            [height, width, n_edges, 2]. If True, generated tensors are of shape
+            [height, width, n_edges * 2] by flattening the last 2 axes.
+    """
+    image_height, image_width = img_hw
+
+    # Generate sampling grid vectors.
+    xv, yv = make_grid_vectors(
+        image_height=image_height,
+        image_width=image_width,
+        output_stride=output_stride,
+    )
+    grid_height = len(yv)
+    grid_width = len(xv)
+    n_edges = len(edge_inds)
+
+    instances = instances[0]  # n_samples=1
+    in_img = (instances > 0) & (instances < torch.stack([xv[-1], yv[-1]]).view(1, 1, 2))
+    in_img = in_img.all(dim=-1).any(dim=1)
+    assert len(in_img.shape) == 1
+    instances = instances[in_img]
+
+    edge_sources, edge_destinations = get_edge_points(instances, edge_inds)
+    assert len(edge_sources.shape) == 3
+    assert edge_sources.shape[1:] == (n_edges, 2)
+
+    assert len(edge_destinations.shape) == 3
+    assert edge_destinations.shape[1:] == (n_edges, 2)
+
+    pafs = make_multi_pafs(
+        xv=xv,
+        yv=yv,
+        edge_sources=edge_sources,
+        edge_destinations=edge_destinations,
+        sigma=sigma,
+    )
+    assert pafs.shape == (grid_height, grid_width, n_edges, 2)
+
+    if flatten_channels:
+        pafs = pafs.reshape(grid_height, grid_width, n_edges * 2)
+        assert pafs.shape == (grid_height, grid_width, n_edges * 2)
+
+    return pafs
+
+
 class PartAffinityFieldsGenerator(IterDataPipe):
     """Transformer to generate part affinity fields.
 

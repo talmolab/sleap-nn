@@ -1,11 +1,96 @@
 """Generate confidence maps."""
 
-from typing import Dict, Iterator
+from typing import Dict, Iterator, Tuple
 
 import torch
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 from sleap_nn.data.utils import make_grid_vectors
+
+
+def generate_confmaps(
+    instance: torch.Tensor,
+    img_hw: Tuple[int],
+    sigma: float = 1.5,
+    output_stride: int = 2,
+) -> torch.Tensor:
+    """
+    Generate Confidence maps.
+
+    Args:
+        instance: Input keypoints.
+        img_hw: Image size as tuple (height, width).
+        sigma: The standard deviation of the Gaussian distribution that is used to
+            generate confidence maps. Default: 1.5.
+        output_stride: The relative stride to use when generating confidence maps.
+            A larger stride will generate smaller confidence maps. Default: 2.
+
+    Returns:
+        Confidence maps for the input keypoints.
+    """
+    if instance.ndim != 3:
+        instance = instance.view(instance.shape[0], -1, 2)
+        # instances: (n_samples, n_nodes, 2)
+
+    height, width = img_hw
+
+    xv, yv = make_grid_vectors(height, width, output_stride)
+
+    confidence_maps = make_confmaps(
+        instance,
+        xv,
+        yv,
+        sigma * output_stride,
+    )  # (n_samples, n_nodes, height/ output_stride, width/ output_stride)
+
+    return confidence_maps
+
+
+def generate_multiconfmaps(
+    instances: torch.Tensor,
+    img_hw: Tuple[int],
+    num_instances: int,
+    sigma: float = 1.5,
+    output_stride: int = 2,
+    is_centroids: bool = False,
+) -> torch.Tensor:
+    """
+    Generate multi-instance confidence maps.
+
+    Args:
+        instance: Input keypoints.
+        img_hw: Image size as tuple (height, width).
+        sigma: The standard deviation of the Gaussian distribution that is used to
+            generate confidence maps. Default: 1.5.
+        output_stride: The relative stride to use when generating confidence maps.
+            A larger stride will generate smaller confidence maps. Default: 2.
+        is_centroids: True if confidence maps should be generates for centroids else False.
+            Default: False.
+
+    Returns:
+        Confidence maps for the input keypoints.
+    """
+    if is_centroids:
+        points = instances[:, :num_instances, :].unsqueeze(dim=-2)
+        # (n_samples, n_instances, 1, 2)
+    else:
+        points = instances[
+            :, :num_instances, :, :
+        ]  # (n_samples, n_instances, n_nodes, 2)
+
+    height, width = img_hw
+
+    xv, yv = make_grid_vectors(height, width, output_stride)
+
+    confidence_maps = make_multi_confmaps(
+        points,
+        xv,
+        yv,
+        sigma * output_stride,
+    )  # (n_samples, n_nodes, height/ output_stride, width/ output_stride).
+    # If `is_centroids`, (n_samples, 1, height/ output_stride, width/ output_stride).
+
+    return confidence_maps
 
 
 def make_confmaps(

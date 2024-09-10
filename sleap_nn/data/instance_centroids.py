@@ -60,7 +60,7 @@ def find_centroids(
     if missing_anchors.any():
         centroids[missing_anchors] = find_points_bbox_midpoint(points[missing_anchors])
 
-    return centroids
+    return centroids  # (n_samples, n_instances, 2)
 
 
 class InstanceCentroidFinder(IterDataPipe):

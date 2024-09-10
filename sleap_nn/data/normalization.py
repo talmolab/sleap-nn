@@ -41,6 +41,13 @@ def convert_to_rgb(image: torch.Tensor):
     return image
 
 
+def normalize_image(image: torch.Tensor):
+    """Normalize image tensor."""
+    if not torch.is_floating_point(image):
+        image = image.to(torch.float32) / 255.0
+    return image
+
+
 class Normalizer(IterDataPipe):
     """IterDataPipe for applying normalization.
 
