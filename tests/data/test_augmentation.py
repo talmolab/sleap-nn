@@ -93,7 +93,7 @@ def test_apply_geometric_augmentation(minimal_instance):
         ValueError, match="crop_hw height and width must be greater than 0."
     ):
         img, pts = apply_geometric_augmentation(
-            ex["image"], ex["instances"], random_crop_height=0
+            ex["image"], ex["instances"], random_crop_p=1.0, random_crop_height=0
         )
 
 
