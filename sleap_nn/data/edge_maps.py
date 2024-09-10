@@ -260,7 +260,7 @@ def generate_pafs(
     """Generate part-affinity fields.
 
     Args:
-        instances: Input instances.
+        instances: Input instances. (n_samples, n_instances, n_nodes, 2)
         img_hw: Image size as tuple (height, width).
         sigma: The standard deviation of the Gaussian distribution that is used to
             generate confidence maps. Default: 1.5.
@@ -271,6 +271,16 @@ def generate_pafs(
         flatten_channels: If False, the generated tensors are of shape
             [height, width, n_edges, 2]. If True, generated tensors are of shape
             [height, width, n_edges * 2] by flattening the last 2 axes.
+
+    Returns:
+        The "part_affinity_fields" key will be a tensor of shape
+        (grid_height, grid_width, n_edges, 2) containing the combined part affinity
+        fields of all instances in the frame.
+
+        If the `flatten_channels` attribute is set to True, the last 2 axes of the
+        "part_affinity_fields" are flattened to produce a tensor of shape
+        (grid_height, grid_width, n_edges * 2). This is a convenient form when
+        training models as a rank-4 (batched) tensor will generally be expected.
     """
     image_height, image_width = img_hw
 

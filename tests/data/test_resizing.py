@@ -1,7 +1,14 @@
 import torch
 
-from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
+from sleap_nn.data.providers import LabelsReader, process_lf
+from sleap_nn.data.resizing import (
+    SizeMatcher,
+    Resizer,
+    PadToStride,
+    apply_resizer,
+    apply_pad_to_stride,
+    apply_sizematcher,
+)
 import numpy as np
 import sleap_io as sio
 import pytest
@@ -69,12 +76,41 @@ def test_padtostride(minimal_instance):
     image = sample["image"]
     assert image.shape == torch.Size([1, 1, 384, 384])
 
-    pipe = PadToStride(l, max_stride=2)
-    sample = next(iter(pipe))
-    image = sample["image"]
-    assert image.shape == torch.Size([1, 1, 384, 384])
-
     pipe = PadToStride(l, max_stride=500)
     sample = next(iter(pipe))
     image = sample["image"]
+    assert image.shape == torch.Size([1, 1, 500, 500])
+
+
+def test_apply_resizer(minimal_instance):
+    """Test `apply_resizer` function."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(lf, 0, 2)
+
+    image, instances = apply_resizer(ex["image"], ex["instances"], scale=2.0)
+    assert image.shape == torch.Size([1, 1, 768, 768])
+    assert torch.all(instances == ex["instances"] * 2.0)
+
+
+def test_apply_pad_to_stride(minimal_instance):
+    """Test `apply_pad_to_stride` function."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(lf, 0, 2)
+
+    image = apply_pad_to_stride(ex["image"], max_stride=2)
+    assert image.shape == torch.Size([1, 1, 384, 384])
+
+    image = apply_pad_to_stride(ex["image"], max_stride=200)
+    assert image.shape == torch.Size([1, 1, 400, 400])
+
+
+def test_apply_sizematcher(minimal_instance):
+    """Test `apply_sizematcher` function."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(lf, 0, 2)
+
+    image = apply_sizematcher(ex["image"], 500, 500)
     assert image.shape == torch.Size([1, 1, 500, 500])

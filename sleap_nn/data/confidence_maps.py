@@ -18,7 +18,8 @@ def generate_confmaps(
     Generate Confidence maps.
 
     Args:
-        instance: Input keypoints.
+        instance: Input keypoints. (n_samples, n_instances, n_nodes, 2) or
+            (n_samples, n_nodes, 2).
         img_hw: Image size as tuple (height, width).
         sigma: The standard deviation of the Gaussian distribution that is used to
             generate confidence maps. Default: 1.5.
@@ -58,7 +59,8 @@ def generate_multiconfmaps(
     Generate multi-instance confidence maps.
 
     Args:
-        instance: Input keypoints.
+        instance: Input keypoints. (n_samples, n_instances, n_nodes, 2) or
+            for centroids - (n_samples, n_instances, 2)
         img_hw: Image size as tuple (height, width).
         sigma: The standard deviation of the Gaussian distribution that is used to
             generate confidence maps. Default: 1.5.

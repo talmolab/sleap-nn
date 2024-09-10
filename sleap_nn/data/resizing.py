@@ -33,7 +33,7 @@ def find_padding_for_stride(
     return pad_height, pad_width
 
 
-def pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
+def apply_pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
     """Pad an image to meet a max stride constraint.
 
     This is useful for ensuring there is no size mismatch between an image and the
@@ -204,7 +204,9 @@ class PadToStride(IterDataPipe):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the resized image and `orig_size` key to represent the original shape of the source image."""
         for ex in self.source_datapipe:
-            ex[self.image_key] = pad_to_stride(ex[self.image_key], self.max_stride)
+            ex[self.image_key] = apply_pad_to_stride(
+                ex[self.image_key], self.max_stride
+            )
             yield ex
 
 
