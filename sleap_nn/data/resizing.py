@@ -104,7 +104,9 @@ def apply_resizer(image: torch.Tensor, instances: torch.Tensor, scale: float = 1
 
 
 def apply_sizematcher(
-    image: torch.Tensor, max_height: Optional[int], max_width: Optional[int]
+    image: torch.Tensor,
+    max_height: Optional[int] = None,
+    max_width: Optional[int] = None,
 ):
     """Apply padding to smaller image to (max_height, max_width) shape."""
     img_height, img_width = image.shape[-2:]

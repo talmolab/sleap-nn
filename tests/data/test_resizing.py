@@ -114,3 +114,18 @@ def test_apply_sizematcher(minimal_instance):
 
     image = apply_sizematcher(ex["image"], 500, 500)
     assert image.shape == torch.Size([1, 1, 500, 500])
+
+    image = apply_sizematcher(ex["image"])
+    assert image.shape == torch.Size([1, 1, 384, 384])
+
+    with pytest.raises(
+        Exception,
+        match=f"Max height {100} should be greater than the current image height: {384}",
+    ):
+        image = apply_sizematcher(ex["image"], max_height=100, max_width=500)
+
+    with pytest.raises(
+        Exception,
+        match=f"Max width {100} should be greater than the current image width: {384}",
+    ):
+        image = apply_sizematcher(ex["image"], max_height=500, max_width=100)

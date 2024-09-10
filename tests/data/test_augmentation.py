@@ -54,6 +54,7 @@ def test_apply_intensity_augmentation(minimal_instance):
         uniform_noise_p=1.0,
         contrast_p=1.0,
         brightness_p=1.0,
+        gaussian_noise_p=1.0,
     )
     # Test all augmentations.
     assert torch.is_tensor(img)
@@ -73,10 +74,13 @@ def test_apply_geometric_augmentation(minimal_instance):
     img, pts = apply_geometric_augmentation(
         ex["image"],
         ex["instances"],
+        scale=0.5,
         affine_p=1.0,
         random_crop_height=100,
         random_crop_width=100,
         random_crop_p=1.0,
+        erase_p=1.0,
+        mixup_p=1.0,
     )
     # Test all augmentations.
     assert torch.is_tensor(img)
@@ -84,6 +88,13 @@ def test_apply_geometric_augmentation(minimal_instance):
     assert not torch.equal(img, ex["image"])
     assert img.shape == (1, 1, 100, 100)
     assert pts.shape == (1, 2, 2, 2)
+
+    with pytest.raises(
+        ValueError, match="crop_hw height and width must be greater than 0."
+    ):
+        img, pts = apply_geometric_augmentation(
+            ex["image"], ex["instances"], random_crop_height=0
+        )
 
 
 def test_kornia_augmentation(minimal_instance):
