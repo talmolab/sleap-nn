@@ -14,8 +14,7 @@ def generate_confmaps(
     sigma: float = 1.5,
     output_stride: int = 2,
 ) -> torch.Tensor:
-    """
-    Generate Confidence maps.
+    """Generate Confidence maps.
 
     Args:
         instance: Input keypoints. (n_samples, n_instances, n_nodes, 2) or
@@ -55,13 +54,13 @@ def generate_multiconfmaps(
     output_stride: int = 2,
     is_centroids: bool = False,
 ) -> torch.Tensor:
-    """
-    Generate multi-instance confidence maps.
+    """Generate multi-instance confidence maps.
 
     Args:
-        instance: Input keypoints. (n_samples, n_instances, n_nodes, 2) or
+        instances: Input keypoints. (n_samples, n_instances, n_nodes, 2) or
             for centroids - (n_samples, n_instances, 2)
         img_hw: Image size as tuple (height, width).
+        num_instances: Original number of instances in the frame.
         sigma: The standard deviation of the Gaussian distribution that is used to
             generate confidence maps. Default: 1.5.
         output_stride: The relative stride to use when generating confidence maps.
