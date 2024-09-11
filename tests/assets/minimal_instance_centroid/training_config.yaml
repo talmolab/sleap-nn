@@ -9,10 +9,6 @@ data_config:
     is_rgb: false
   use_augmentations_train: true
   augmentation_config:
-    random_crop:
-      random_crop_p: 0
-      crop_height: 160
-      crop_width: 160
     geometric:
       rotation: 180.0
       scale: null
@@ -86,6 +82,7 @@ trainer_config:
     - trainer_config.optimizer_name
     - trainer_config.optimizer.amsgrad
     - trainer_config.optimizer.lr
+    - model_config.backbone_type
     - model_config.backbone_type
     - model_config.init_weights
   optimizer_name: Adam

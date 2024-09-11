@@ -30,8 +30,6 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
     )
     del training_config.model_config.head_configs.single_instance.confmaps.anchor_part
 
-    print(training_config.model_config.head_configs)
-
     torch_model = SingleInstanceModel.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt",
         config=training_config,

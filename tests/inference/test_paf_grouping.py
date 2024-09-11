@@ -52,7 +52,7 @@ def test_make_line_subs():
         edge_inds,
         n_line_points=3,
         pafs_stride=2,
-        pafs_hw=(8, 8),
+        pafs_hw=(9, 9),
     )
 
     assert line_subs.numpy().tolist() == [
