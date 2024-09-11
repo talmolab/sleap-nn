@@ -1,29 +1,10 @@
-import sleap_io as sio
 import torch
 
-from sleap_nn.data.instance_centroids import InstanceCentroidFinder, generate_centroids
-from sleap_nn.data.instance_cropping import (
-    InstanceCropper,
-    find_instance_crop_size,
-    generate_crops,
-    make_centered_bboxes,
-)
+from sleap_nn.data.instance_centroids import InstanceCentroidFinder
+from sleap_nn.data.instance_cropping import InstanceCropper, make_centered_bboxes
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
-from sleap_nn.data.providers import LabelsReader, process_lf
-
-
-def test_find_instance_crop_size(minimal_instance):
-    """Test `find_instance_crop_size` function."""
-    labels = sio.load_slp(minimal_instance)
-    crop_size = find_instance_crop_size(labels)
-    assert crop_size == 74
-
-    crop_size = find_instance_crop_size(labels, min_crop_size=100)
-    assert crop_size == 100
-
-    crop_size = find_instance_crop_size(labels, padding=10)
-    assert crop_size == 84
+from sleap_nn.data.providers import LabelsReader
 
 
 def test_make_centered_bboxes():
@@ -84,20 +65,3 @@ def test_instance_cropper(minimal_instance):
     )
     centered_instance = sample["instance"]
     assert torch.equal(centered_instance, gt.unsqueeze(0))
-
-
-def test_generate_crops(minimal_instance):
-    """Test `generate_crops` function."""
-    labels = sio.load_slp(minimal_instance)
-    lf = labels[0]
-    ex = process_lf(lf, 0, 2)
-
-    centroids = generate_centroids(ex["instances"], 0)
-    cropped_ex = generate_crops(
-        ex["image"], ex["instances"][0, 0], centroids[0, 0], crop_size=(100, 100)
-    )
-
-    assert cropped_ex["instance"].shape == (1, 2, 2)
-    assert cropped_ex["centroid"].shape == (1, 2)
-    assert cropped_ex["instance_image"].shape == (1, 1, 100, 100)
-    assert cropped_ex["instance_bbox"].shape == (1, 4, 2)

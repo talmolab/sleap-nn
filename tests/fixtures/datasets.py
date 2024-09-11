@@ -130,14 +130,12 @@ def config(sleap_data_dir):
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",
-                "resume_ckpt_path": None,
                 "wandb": {
                     "entity": "team-ucsd",
                     "project": "test",
                     "name": "test_run",
                     "wandb_mode": "offline",
                     "api_key": "",
-                    "prv_runid": None,
                     "log_params": [
                         "trainer_config.optimizer_name",
                         "trainer_config.optimizer.amsgrad",

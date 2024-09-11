@@ -22,7 +22,6 @@ from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
-from sleap_nn.data.instance_cropping import find_instance_crop_size
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -90,55 +89,31 @@ class ModelTrainer:
                 self.model_type = k
                 break
 
-        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-        self.skeletons = train_labels.skeletons
-        max_stride = self.config.model_config.backbone_config.max_stride
-
         if self.model_type == "single_instance":
-
             data_pipeline = SingleInstanceConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
             )
 
         elif self.model_type == "centered_instance":
-            # compute crop size
-            crop_hw = self.config.data_config.preprocessing.crop_hw
-            if crop_hw is None:
-
-                min_crop_size = (
-                    self.config.data_config.preprocessing.min_crop_size
-                    if "min_crop_size" in self.config.data_config.preprocessing
-                    else None
-                )
-                crop_size = find_instance_crop_size(
-                    train_labels,
-                    maximum_stride=max_stride,
-                    input_scaling=self.config.data_config.preprocessing.scale,
-                    min_crop_size=min_crop_size,
-                )
-                crop_hw = (crop_size, crop_size)
-            self.config.data_config.preprocessing.crop_hw = crop_hw
-
             data_pipeline = TopdownConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
-                crop_hw=crop_hw,
             )
 
         elif self.model_type == "centroid":
             data_pipeline = CentroidConfmapsPipeline(
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
             )
 
         elif self.model_type == "bottomup":
             data_pipeline = BottomUpPipeline(
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_stride=self.config.model_config.backbone_config.max_stride,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
             )
@@ -149,6 +124,9 @@ class ModelTrainer:
             )
 
         # train
+        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        self.skeletons = train_labels.skeletons
+
         train_labels_reader = self.provider(train_labels)
 
         train_datapipe = data_pipeline.make_training_pipeline(
@@ -255,10 +233,7 @@ class ModelTrainer:
             else:
                 self._set_wandb()
             wandb_logger = WandbLogger(
-                project=wandb_config.project,
-                name=wandb_config.name,
-                save_dir=dir_path,
-                id=self.config.trainer_config.wandb.prv_runid,
+                project=wandb_config.project, name=wandb_config.name, save_dir=dir_path
             )
             logger.append(wandb_logger)
 
@@ -274,15 +249,13 @@ class ModelTrainer:
                 symm = [list(s.nodes) for s in skl.symmetries]
             else:
                 symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"][skl_name] = {
+            self.config["data_config"]["skeletons"][skl.name] = {
                 "nodes": skl.nodes,
                 "edges": skl.edges,
                 "symmetries": symm,
             }
 
         self._initialize_model()
-        total_params = self._get_param_count()
 
         trainer = L.Trainer(
             callbacks=callbacks,
@@ -295,34 +268,25 @@ class ModelTrainer:
             limit_train_batches=self.steps_per_epoch,
         )
 
-        try:
-            trainer.fit(
-                self.model,
-                self.train_data_loader,
-                self.val_data_loader,
-                ckpt_path=self.config.trainer_config.resume_ckpt_path,
-            )
+        trainer.fit(self.model, self.train_data_loader, self.val_data_loader)
 
-            if self.config.trainer_config.use_wandb:
-                for m in self.config.trainer_config.wandb.log_params:
-                    list_keys = m.split(".")
-                    key = list_keys[-1]
-                    value = self.config[list_keys[0]]
-                    for l in list_keys[1:]:
-                        value = value[l]
-                    wandb_logger.experiment.config.update({key: value})
-                wandb_logger.experiment.config.update({"model_params": total_params})
+        total_params = self._get_param_count()
 
-        except Exception:
-            print("Stopping training...")
+        if self.config.trainer_config.use_wandb:
+            self.config.trainer_config.wandb.run_id = wandb.run.id
+            self.config.model_config.total_params = total_params
+            for m in self.config.trainer_config.wandb.log_params:
+                list_keys = m.split(".")
+                key = list_keys[-1]
+                value = self.config[list_keys[0]]
+                for l in list_keys[1:]:
+                    value = value[l]
+                wandb_logger.experiment.config.update({key: value})
+            wandb_logger.experiment.config.update({"model_params": total_params})
+            wandb.finish()
 
-        finally:
-            if self.config.trainer_config.use_wandb:
-                self.config.trainer_config.wandb.run_id = wandb.run.id
-                self.config.model_config.total_params = total_params
-                wandb.finish(exit_code=255)
-            # save the configs as yaml in the checkpoint dir
-            OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
+        # save the configs as yaml in the checkpoint dir
+        OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
 
 
 class TrainingModel(L.LightningModule):

@@ -6,7 +6,7 @@ import lightning as L
 import numpy as np
 from sleap_nn.data.resizing import (
     resize_image,
-    apply_pad_to_stride,
+    pad_to_stride,
 )
 from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_cropping import make_centered_bboxes
@@ -156,7 +156,7 @@ class CentroidCrop(L.LightningModule):
         orig_image = inputs["image"]
         scaled_image = resize_image(orig_image, self.input_scale)
         if self.max_stride != 1:
-            scaled_image = apply_pad_to_stride(scaled_image, self.max_stride)
+            scaled_image = pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
 
@@ -395,7 +395,7 @@ class FindInstancePeaks(L.LightningModule):
         orig_image = inputs["instance_image"]
         scaled_image = resize_image(orig_image, self.input_scale)
         if self.max_stride != 1:
-            scaled_image = apply_pad_to_stride(scaled_image, self.max_stride)
+            scaled_image = pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
 

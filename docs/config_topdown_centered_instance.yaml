@@ -94,7 +94,6 @@ trainer_config:
   use_wandb: false
   save_ckpt: true
   save_ckpt_path: 'min_inst_centered'
-  resume_ckpt_path:
   optimizer_name: Adam
   optimizer:
     lr: 0.0001

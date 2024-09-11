@@ -33,7 +33,7 @@ def find_padding_for_stride(
     return pad_height, pad_width
 
 
-def apply_pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
+def pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
     """Pad an image to meet a max stride constraint.
 
     This is useful for ensuring there is no size mismatch between an image and the
@@ -51,20 +51,19 @@ def apply_pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
         The input image with 0-padding applied to the bottom and/or right such that the
         new shape's height and width are both divisible by `max_stride`.
     """
-    if max_stride > 1:
-        image_height, image_width = image.shape[-2:]
-        pad_height, pad_width = find_padding_for_stride(
-            image_height=image_height,
-            image_width=image_width,
-            max_stride=max_stride,
-        )
+    image_height, image_width = image.shape[-2:]
+    pad_height, pad_width = find_padding_for_stride(
+        image_height=image_height,
+        image_width=image_width,
+        max_stride=max_stride,
+    )
 
-        if pad_height > 0 or pad_width > 0:
-            image = F.pad(
-                image,
-                (0, pad_width, 0, pad_height),
-                mode="constant",
-            ).to(torch.float32)
+    if pad_height > 0 or pad_width > 0:
+        image = F.pad(
+            image,
+            (0, pad_width, 0, pad_height),
+            mode="constant",
+        ).to(torch.float32)
     return image
 
 
@@ -82,55 +81,6 @@ def resize_image(image: torch.Tensor, scale: float):
     img_height, img_width = image.shape[-2:]
     new_size = [int(img_height * scale), int(img_width * scale)]
     image = tvf.resize(image, size=new_size)
-    return image
-
-
-def apply_resizer(image: torch.Tensor, instances: torch.Tensor, scale: float = 1.0):
-    """Rescale image and keypoints by a scale factor.
-
-    Args:
-        image: Image tensor of shape (..., channels, height, width)
-        instances: Keypoints tensor.
-        scale: Factor to resize the image dimensions by, specified as a float
-            scalar. Default: 1.0.
-
-    Returns:
-        Tuple with resized image and corresponding keypoints.
-    """
-    if scale != 1.0:
-        image = resize_image(image, scale)
-        instances = instances * scale
-    return image, instances
-
-
-def apply_sizematcher(
-    image: torch.Tensor,
-    max_height: Optional[int] = None,
-    max_width: Optional[int] = None,
-):
-    """Apply padding to smaller image to (max_height, max_width) shape."""
-    img_height, img_width = image.shape[-2:]
-    # pad images to max_height and max_width
-    if max_height is None:
-        max_height = img_height
-    if max_width is None:
-        max_width = img_width
-    pad_height = max_height - img_height
-    pad_width = max_width - img_width
-    if pad_height < 0:
-        raise ValueError(
-            f"Max height {max_height} should be greater than the current image height: {img_height}"
-        )
-    if pad_width < 0:
-        raise ValueError(
-            f"Max width {max_width} should be greater than the current image width: {img_width}"
-        )
-    image = F.pad(
-        image,
-        (0, pad_width, 0, pad_height),
-        mode="constant",
-    ).to(torch.float32)
-
     return image
 
 
@@ -206,9 +156,8 @@ class PadToStride(IterDataPipe):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the resized image and `orig_size` key to represent the original shape of the source image."""
         for ex in self.source_datapipe:
-            ex[self.image_key] = apply_pad_to_stride(
-                ex[self.image_key], self.max_stride
-            )
+            if self.max_stride > 1:
+                ex[self.image_key] = pad_to_stride(ex[self.image_key], self.max_stride)
             yield ex
 
 
