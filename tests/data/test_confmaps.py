@@ -1,16 +1,18 @@
 import torch
-
+import sleap_io as sio
 from sleap_nn.data.confidence_maps import (
     ConfidenceMapGenerator,
     MultiConfidenceMapGenerator,
     make_multi_confmaps,
     make_confmaps,
+    generate_confmaps,
+    generate_multiconfmaps,
 )
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
 from sleap_nn.data.normalization import Normalizer
 from sleap_nn.data.resizing import Resizer
-from sleap_nn.data.providers import LabelsReader
+from sleap_nn.data.providers import LabelsReader, process_lf
 from sleap_nn.data.utils import make_grid_vectors
 import numpy as np
 
@@ -121,3 +123,35 @@ def test_multi_confmaps(minimal_instance):
 
     assert sample["confidence_maps"].shape == (1, 2, 768, 768)
     assert torch.sum(sample["confidence_maps"] > 0.93) == 4
+
+
+def test_generate_confmaps(minimal_instance):
+    """Test `generate_confmaps` function."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(lf, 0, 2)
+
+    confmaps = generate_confmaps(
+        ex["instances"][:, 0].unsqueeze(dim=1), img_hw=(384, 384)
+    )
+    assert confmaps.shape == (1, 2, 192, 192)
+
+
+def test_generate_multiconfmaps(minimal_instance):
+    """Test `generate_multiconfmaps` function."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(lf, 0, 2)
+
+    confmaps = generate_multiconfmaps(
+        ex["instances"], img_hw=(384, 384), num_instances=ex["num_instances"]
+    )
+    assert confmaps.shape == (1, 2, 192, 192)
+
+    confmaps = generate_multiconfmaps(
+        ex["instances"][:, :, 0, :],
+        img_hw=(384, 384),
+        num_instances=ex["num_instances"],
+        is_centroids=True,
+    )
+    assert confmaps.shape == (1, 1, 192, 192)

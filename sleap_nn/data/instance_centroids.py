@@ -35,13 +35,13 @@ def find_points_bbox_midpoint(points: torch.Tensor) -> torch.Tensor:
     return (pts_max + pts_min) * 0.5
 
 
-def find_centroids(
+def generate_centroids(
     points: torch.Tensor, anchor_ind: Optional[int] = None
 ) -> torch.Tensor:
     """Return centroids, falling back to bounding box midpoints.
 
     Args:
-        points: A torch.Tensor of dtype torch.float32 and of shape (..., n_points, 2),
+        points: A torch.Tensor of dtype torch.float32 and of shape (..., n_nodes, 2),
             i.e., rank >= 2.
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the midpoint of the bounding box
@@ -60,7 +60,7 @@ def find_centroids(
     if missing_anchors.any():
         centroids[missing_anchors] = find_points_bbox_midpoint(points[missing_anchors])
 
-    return centroids
+    return centroids  # (..., n_instances, 2)
 
 
 class InstanceCentroidFinder(IterDataPipe):
@@ -88,7 +88,7 @@ class InstanceCentroidFinder(IterDataPipe):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Add `"centroids"` key to example."""
         for ex in self.source_dp:
-            ex["centroids"] = find_centroids(
+            ex["centroids"] = generate_centroids(
                 ex["instances"], anchor_ind=self.anchor_ind
             )  # (n_samples, n_instances, 2)
             yield ex
