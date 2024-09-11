@@ -1,7 +1,7 @@
 """Handles generating data chunks for training."""
 
-from omegaconf import DictConfig
 from typing import Dict, Optional, Tuple, Union
+from omegaconf import DictConfig
 import numpy as np
 import torch
 
@@ -14,14 +14,13 @@ from sleap_nn.data.normalization import (
     convert_to_rgb,
 )
 from sleap_nn.data.providers import process_lf
-from sleap_nn.data.resizing import apply_pad_to_stride, apply_resizer, apply_sizematcher
+from sleap_nn.data.resizing import apply_sizematcher
 
 
 def bottomup_data_chunks(
     x: Tuple[Union[sio.LabeledFrame, int]],
     data_config: DictConfig,
     max_instances: int,
-    max_stride: int,
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
@@ -36,8 +35,6 @@ def bottomup_data_chunks(
             index of lf.video in the source sio.labels.videos.
         data_config: Data-related configuration. (`data_config` section in the config file)
         max_instances: Maximum number of instances that could occur in a single LabeledFrame.
-        max_stride: Scalar integer specifying the maximum stride that the image must be
-            divisible by.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -65,14 +62,6 @@ def bottomup_data_chunks(
         max_width=data_config.preprocessing.max_width,
     )
 
-    # resize the image
-    sample["image"], sample["instances"] = apply_resizer(
-        sample["image"], sample["instances"], scale=data_config.preprocessing.scale
-    )
-
-    # Pad the image (if needed) according max stride
-    sample["image"] = apply_pad_to_stride(sample["image"], max_stride=max_stride)
-
     return sample
 
 
@@ -82,7 +71,6 @@ def centered_instance_data_chunks(
     max_instances: int,
     crop_size: Tuple[int],
     anchor_ind: Optional[int],
-    max_stride: int,
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
@@ -101,8 +89,6 @@ def centered_instance_data_chunks(
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the midpoint of the bounding box
             is used instead.
-        max_stride: Scalar integer specifying the maximum stride that the image must be
-            divisible by.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -144,18 +130,6 @@ def centered_instance_data_chunks(
 
         res = generate_crops(sample["image"], instance, centroid, crop_size)
 
-        # resize the image
-        res["instance_image"], res["instance"] = apply_resizer(
-            res["instance_image"],
-            res["instance"],
-            scale=data_config.preprocessing.scale,
-        )
-
-        # Pad the image (if needed) according max stride
-        res["instance_image"] = apply_pad_to_stride(
-            res["instance_image"], max_stride=max_stride
-        )
-
         res["frame_idx"] = sample["frame_idx"]
         res["video_idx"] = sample["video_idx"]
         res["num_instances"] = sample["num_instances"]
@@ -169,7 +143,6 @@ def centroid_data_chunks(
     data_config: DictConfig,
     max_instances: int,
     anchor_ind: Optional[int],
-    max_stride: int,
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
@@ -187,8 +160,6 @@ def centroid_data_chunks(
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the midpoint of the bounding box
             is used instead.
-        max_stride: Scalar integer specifying the maximum stride that the image must be
-            divisible by.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -216,14 +187,6 @@ def centroid_data_chunks(
         max_width=data_config.preprocessing.max_width,
     )
 
-    # resize the image
-    sample["image"], sample["instances"] = apply_resizer(
-        sample["image"], sample["instances"], scale=data_config.preprocessing.scale
-    )
-
-    # Pad the image (if needed) according max stride
-    sample["image"] = apply_pad_to_stride(sample["image"], max_stride=max_stride)
-
     # get the centroids based on the anchor idx
     centroids = generate_centroids(sample["instances"], anchor_ind=anchor_ind)
 
@@ -235,7 +198,6 @@ def centroid_data_chunks(
 def single_instance_data_chunks(
     x: Tuple[Union[sio.LabeledFrame, int]],
     data_config: DictConfig,
-    max_stride: int,
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
@@ -249,8 +211,6 @@ def single_instance_data_chunks(
         x: Tuple (lf, video_idx) where lf is a `sio.LabeledFrame` and video_idx is the
             index of lf.video in the source sio.labels.videos.
         data_config: Data-related configuration. (`data_config` section in the config file)
-        max_stride: Scalar integer specifying the maximum stride that the image must be
-            divisible by.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -279,13 +239,5 @@ def single_instance_data_chunks(
         max_height=data_config.preprocessing.max_height,
         max_width=data_config.preprocessing.max_width,
     )
-
-    # resize the image
-    sample["image"], sample["instances"] = apply_resizer(
-        sample["image"], sample["instances"], scale=data_config.preprocessing.scale
-    )
-
-    # Pad the image (if needed) according max stride
-    sample["image"] = apply_pad_to_stride(sample["image"], max_stride=max_stride)
 
     return sample
