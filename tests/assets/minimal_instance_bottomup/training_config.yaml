@@ -80,12 +80,14 @@ trainer_config:
   use_wandb: false
   save_ckpt: true
   save_ckpt_path: min_inst_bottomup
+  resume_ckpt_path:
   wandb:
     entity: team-ucsd
     project: test_centroid_centered
     name: fly_unet_centered
     wandb_mode: ''
     api_key: ''
+    prv_runid:
     log_params:
     - trainer_config.optimizer_name
     - trainer_config.optimizer.amsgrad

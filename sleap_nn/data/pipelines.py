@@ -4,8 +4,10 @@ This allows for convenient ways to configure individual variants of common pipel
 well as to define training vs inference versions based on the same configurations.
 """
 
+from typing import Optional, Tuple
 from omegaconf.omegaconf import DictConfig
 import torch
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 from sleap_nn.data.augmentation import KorniaAugmenter
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
 from sleap_nn.data.instance_cropping import InstanceCropper
@@ -17,7 +19,6 @@ from sleap_nn.data.confidence_maps import (
     MultiConfidenceMapGenerator,
 )
 from sleap_nn.data.general import KeyFilter
-from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 class TopdownConfmapsPipeline:
@@ -29,6 +30,7 @@ class TopdownConfmapsPipeline:
             divisible by.
         confmap_head: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        crop_hw: Height and width of the crop in pixels.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     of original image according to given crop height and width and then the cropped
@@ -36,12 +38,17 @@ class TopdownConfmapsPipeline:
     """
 
     def __init__(
-        self, data_config: DictConfig, max_stride: int, confmap_head: DictConfig
+        self,
+        data_config: DictConfig,
+        max_stride: int,
+        confmap_head: DictConfig,
+        crop_hw: Tuple[int],
     ) -> None:
         """Initialize the data config."""
         self.data_config = data_config
         self.max_stride = max_stride
         self.confmap_head = confmap_head
+        self.crop_hw = crop_hw
 
     def make_training_pipeline(
         self, data_provider: IterDataPipe, use_augmentations: bool = False
@@ -86,10 +93,7 @@ class TopdownConfmapsPipeline:
             datapipe, anchor_ind=self.confmap_head.anchor_part
         )
 
-        datapipe = InstanceCropper(
-            datapipe,
-            self.data_config.preprocessing.crop_hw,
-        )
+        datapipe = InstanceCropper(datapipe, self.crop_hw)
 
         datapipe = Resizer(
             datapipe,
