@@ -219,7 +219,7 @@ def compute_oks(
 
     # Compute the OKS.
     n_visible_gt = np.sum(
-        (~missing_gt).astype("float64"), axis=-1, keepdims=True
+        (~missing_gt).astype("float32"), axis=-1, keepdims=True
     )  # (n_gt, 1)
     oks = np.sum(ks, axis=-1) / n_visible_gt
     assert oks.shape == (n_gt, n_pr)
