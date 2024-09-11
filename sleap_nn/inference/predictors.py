@@ -18,7 +18,7 @@ from sleap_nn.data.resizing import (
     Resizer,
     PadToStride,
     resize_image,
-    apply_pad_to_stride,
+    pad_to_stride,
 )
 from sleap_nn.data.normalization import Normalizer, convert_to_grayscale, convert_to_rgb
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder
@@ -51,7 +51,7 @@ class Predictor(ABC):
 
     Attributes:
         preprocess: Only for VideoReader provider. True if preprocessing (reszizing and
-            apply_pad_to_stride) should be applied on the frames read in the video reader.
+            pad_to_stride) should be applied on the frames read in the video reader.
             Default: True.
         video_preprocess_config: Preprocessing config for VideoReader with keys: [`batch_size`,
             `scale`, `is_rgb`, `max_stride`]. Default: {"batch_size": 4, "scale": 1.0,
@@ -277,7 +277,7 @@ class Predictor(ABC):
                         scale = self.video_preprocess_config["scale"]
                         if scale != 1.0:
                             ex["image"] = resize_image(ex["image"], scale)
-                        ex["image"] = apply_pad_to_stride(
+                        ex["image"] = pad_to_stride(
                             ex["image"], self.video_preprocess_config["max_stride"]
                         )
                     outputs_list = self.inference_model(ex)

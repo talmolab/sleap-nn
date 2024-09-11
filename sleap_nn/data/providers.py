@@ -1,6 +1,6 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Dict, Iterator, Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -26,69 +26,6 @@ def get_max_instances(labels: sio.Labels):
         if num_inst > max_instances:
             max_instances = num_inst
     return max_instances
-
-
-def process_lf(
-    lf: sio.LabeledFrame,
-    video_idx: int,
-    max_instances: int,
-    user_instances_only: bool = True,
-) -> Dict[str, Any]:
-    """Get sample dict from `sio.LabeledFrame`.
-
-    Args:
-        lf: Input `sio.LabeledFrame`.
-        video_idx: Video index of the given lf.
-        max_instances: Maximum number of instances that could occur in a single LabeledFrame.
-        user_instances_only: True if filter labels only to user instances else False.
-            Default: True.
-
-    Returns:
-        Dict with image, instancs, frame index, video index, original image size and
-        number of instances.
-
-    """
-    # Filter to user instances
-    if user_instances_only:
-        if lf.user_instances is not None and len(lf.user_instances) > 0:
-            lf.instances = lf.user_instances
-
-    image = np.transpose(lf.image, (2, 0, 1))  # HWC -> CHW
-
-    instances = []
-    for inst in lf:
-        if not inst.is_empty:
-            instances.append(inst.numpy())
-    instances = np.stack(instances, axis=0)
-
-    # Add singleton time dimension for single frames.
-    image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
-    instances = np.expand_dims(
-        instances, axis=0
-    )  # (n_samples=1, num_instances, num_nodes, 2)
-
-    image = torch.from_numpy(image.astype("float32"))
-    instances = torch.from_numpy(instances.astype("float32"))
-
-    num_instances, nodes = instances.shape[1:3]
-    img_height, img_width = image.shape[-2:]
-
-    # append with nans for broadcasting
-    nans = torch.full((1, np.abs(max_instances - num_instances), nodes, 2), torch.nan)
-    instances = torch.cat(
-        [instances, nans], dim=1
-    )  # (n_samples, max_instances, num_nodes, 2)
-
-    ex = {
-        "image": image,
-        "instances": instances,
-        "video_idx": torch.tensor(video_idx, dtype=torch.int32),
-        "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
-        "orig_size": torch.Tensor([img_height, img_width]),
-        "num_instances": num_instances,
-    }
-
-    return ex
 
 
 class LabelsReader(IterDataPipe):

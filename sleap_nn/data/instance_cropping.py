@@ -7,6 +7,7 @@ import sleap_io as sio
 import torch
 from kornia.geometry.transform import crop_and_resize
 from torch.utils.data.datapipes.datapipe import IterDataPipe
+from sleap_nn.data.resizing import find_padding_for_stride
 
 
 def find_instance_crop_size(
@@ -104,54 +105,6 @@ def make_centered_bboxes(
     )
 
     return corners + offset
-
-
-def generate_crops(
-    image: torch.Tensor,
-    instance: torch.Tensor,
-    centroid: torch.Tensor,
-    crop_size: Tuple[int],
-) -> Dict[str, torch.Tensor]:
-    """Generate cropped image for the given centroid.
-
-    Args:
-        image: Input source image. (n_samples, C, H, W)
-        instance: Keypoints for the instance to be cropped. (n_nodes, 2)
-        centroid: Centroid of the instance to be cropped. (2)
-        crop_size: (height, width) of the crop to be generated.
-
-    Returns:
-        A dictionary with cropped images, bounding box for the cropped instance, keypoints and
-        centroids adjusted to the crop.
-    """
-    box_size = crop_size
-
-    # Generate bounding boxes from centroid.
-    instance_bbox = torch.unsqueeze(
-        make_centered_bboxes(centroid, box_size[0], box_size[1]), 0
-    )  # (n_samples=1, 4, 2)
-
-    # Generate cropped image of shape (n_samples, C, crop_H, crop_W)
-    instance_image = crop_and_resize(
-        image,
-        boxes=instance_bbox,
-        size=box_size,
-    )
-
-    # Access top left point (x,y) of bounding box and subtract this offset from
-    # position of nodes.
-    point = instance_bbox[0][0]
-    center_instance = (instance - point).unsqueeze(0)  # (n_samples=1, n_nodes, 2)
-    centered_centroid = (centroid - point).unsqueeze(0)  # (n_samples=1, 2)
-
-    cropped_sample = {
-        "instance_image": instance_image,
-        "instance_bbox": instance_bbox,
-        "instance": center_instance,
-        "centroid": centered_centroid,
-    }
-
-    return cropped_sample
 
 
 class InstanceCropper(IterDataPipe):
