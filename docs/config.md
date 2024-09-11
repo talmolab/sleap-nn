@@ -29,8 +29,7 @@ The config file has three main sections:
         - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
         - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`.
     - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. 
-    - `augmentation_config`: (only if `use_augmentations` is `True`)
-        - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop. 
+    - `augmentation_config`: (only if `use_augmentations` is `True`) 
         - `intensity`: (Optional)
             - `uniform_noise_min`: (float) Minimum value for uniform noise (uniform_noise_min >=0).
             - `uniform_noise_max`: (float) Maximum value for uniform noise (uniform_noise_max <>=1).
@@ -57,6 +56,7 @@ The config file has three main sections:
             - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `None`.
             - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
             - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
+            - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop.
 
 - `model_config`: 
     - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
