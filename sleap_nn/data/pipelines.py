@@ -66,13 +66,21 @@ class TopdownConfmapsPipeline:
             provider=provider,
         )
 
-        if use_augmentations and "intensity" in self.data_config.augmentation_config:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.intensity),
-                image_key="image",
-                instance_key="instances",
-            )
+        if use_augmentations:
+            if "intensity" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.intensity),
+                    image_key="image",
+                    instance_key="instances",
+                )
+            if "geometric" in self.data_config.augmentation_config:
+                datapipe = KorniaAugmenter(
+                    datapipe,
+                    **dict(self.data_config.augmentation_config.geometric),
+                    image_key="image",
+                    instance_key="instances",
+                )
 
         datapipe = InstanceCentroidFinder(
             datapipe, anchor_ind=self.confmap_head.anchor_part
@@ -82,14 +90,6 @@ class TopdownConfmapsPipeline:
             datapipe,
             self.data_config.preprocessing.crop_hw,
         )
-
-        if use_augmentations and "geometric" in self.data_config.augmentation_config:
-            datapipe = KorniaAugmenter(
-                datapipe,
-                **dict(self.data_config.augmentation_config.geometric),
-                image_key="instance_image",
-                instance_key="instance",
-            )
 
         datapipe = Resizer(
             datapipe,
