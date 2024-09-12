@@ -1,11 +1,66 @@
 """Handle cropping of instances."""
 
-from typing import Iterator, Tuple, Dict
+from typing import Iterator, Tuple, Dict, Optional
+
+import math
+import numpy as np
+import sleap_io as sio
 
 import torch
 from kornia.geometry.transform import crop_and_resize
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 from sleap_nn.data.resizing import find_padding_for_stride
+
+
+def find_instance_crop_size(
+    labels: sio.Labels,
+    padding: int = 0,
+    maximum_stride: int = 2,
+    input_scaling: float = 1.0,
+    min_crop_size: Optional[int] = None,
+) -> int:
+    """Compute the size of the largest instance bounding box from labels.
+
+    Args:
+        labels: A `sio.Labels` containing user-labeled instances.
+        padding: Integer number of pixels to add to the bounds as margin padding.
+        maximum_stride: Ensure that the returned crop size is divisible by this value.
+            Useful for ensuring that the crop size will not be truncated in a given
+            architecture.
+        input_scaling: Float factor indicating the scale of the input images if any
+            scaling will be done before cropping.
+        min_crop_size: The crop size set by the user.
+
+    Returns:
+        An integer crop size denoting the length of the side of the bounding boxes that
+        will contain the instances when cropped. The returned crop size will be larger
+        or equal to the input `min_crop_size`.
+        This accounts for stride, padding and scaling when ensuring divisibility.
+    """
+    # Check if user-specified crop size is divisible by max stride
+    min_crop_size = 0 if min_crop_size is None else min_crop_size
+    if (min_crop_size > 0) and (min_crop_size % maximum_stride == 0):
+        return min_crop_size
+
+    # Calculate crop size
+    min_crop_size_no_pad = min_crop_size - padding
+    max_length = 0.0
+    for lf in labels:
+        for inst in lf.instances:
+            pts = inst.numpy()
+            pts *= input_scaling
+            max_length = np.maximum(
+                max_length, np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
+            )
+            max_length = np.maximum(
+                max_length, np.nanmax(pts[:, 1]) - np.nanmin(pts[:, 1])
+            )
+            max_length = np.maximum(max_length, min_crop_size_no_pad)
+
+    max_length += float(padding)
+    crop_size = math.ceil(max_length / float(maximum_stride)) * maximum_stride
+
+    return int(crop_size)
 
 
 def make_centered_bboxes(
@@ -60,7 +115,7 @@ class InstanceCropper(IterDataPipe):
 
     Attributes:
         source_dp: The previous `IterDataPipe` with samples that contain an `instances` key.
-        crop_hw: Minimum height and width of the crop in pixels.
+        crop_hw: Height and width of the crop in pixels.
 
     """
 
