@@ -30,7 +30,6 @@ The config file has three main sections:
         - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`.
     - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. 
     - `augmentation_config`: (only if `use_augmentations` is `True`)
-        - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop. 
         - `intensity`: (Optional)
             - `uniform_noise_min`: (float) Minimum value for uniform noise (uniform_noise_min >=0).
             - `uniform_noise_max`: (float) Maximum value for uniform noise (uniform_noise_max <>=1).
@@ -57,7 +56,8 @@ The config file has three main sections:
             - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `None`.
             - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
             - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
-
+            - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop.
+            # TODO: change doc for random crop
 - `model_config`: 
     - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
     - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
