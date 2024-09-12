@@ -26,7 +26,8 @@ The config file has three main sections:
         - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
         original image size will be retained. Default: None.
         - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor. 
-        - `crop_hw`: (List[int]) Crop height and width of each instance (h, w) for centered-instance model.
+        - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
+        - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`.
     - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. 
     - `augmentation_config`: (only if `use_augmentations` is `True`)
         - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop. 
@@ -156,12 +157,14 @@ The config file has three main sections:
     - `use_wandb`: (bool) True to enable wandb logging.
     - `save_ckpt`: (bool) True to enable checkpointing. 
     - `save_ckpt_path`: (str) Directory path to save the training config and checkpoint files. *Default*: "./"
+    - `resume_ckpt_path`: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
     - `wandb`: (Only if `use_wandb` is `True`, else skip this)
         - `entity`: (str) Entity of wandb project.
         - `project`: (str) Project name for the wandb project.
         - `name`: (str) Name of the current run.
         - `api_key`: (str) API key. The API key is masked when saved to config files.
         - `wandb_mode`: (str) "offline" if only local logging is required. Default: "None".
+        - `prv_runid`: (str) Previous run ID if training should be resumed from a previous ckpt. *Default*: `None`.
         - `log_params`: (List[str]) List of config parameters to save it in wandb logs. For example, to save learning rate from trainer config section, use "trainer_config.optimizer.lr" (provide the full path to the specific config parameter).
     - `optimizer_name`: (str) Optimizer to be used. One of ["Adam", "AdamW"].
     - `optimizer`

@@ -92,6 +92,7 @@ def test_key_filter(minimal_instance):
 
 def test_topdownconfmapspipeline(minimal_instance):
     """Test the TopdownConfmapsPipeline."""
+    crop_hw = (160, 160)
     base_topdown_data_config = OmegaConf.create(
         {
             "preprocessing": {
@@ -99,7 +100,6 @@ def test_topdownconfmapspipeline(minimal_instance):
                 "max_width": None,
                 "scale": 1.0,
                 "is_rgb": False,
-                "crop_hw": (160, 160),
             },
             "use_augmentations_train": False,
         },
@@ -108,7 +108,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
+        data_config=base_topdown_data_config,
+        max_stride=16,
+        confmap_head=confmap_head,
+        crop_hw=crop_hw,
     )
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
 
@@ -143,7 +146,6 @@ def test_topdownconfmapspipeline(minimal_instance):
                 "max_width": None,
                 "scale": 1.0,
                 "is_rgb": False,
-                "crop_hw": (100, 100),
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -184,7 +186,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=8, confmap_head=confmap_head
+        data_config=base_topdown_data_config,
+        max_stride=8,
+        confmap_head=confmap_head,
+        crop_hw=(100, 100),
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
@@ -221,7 +226,6 @@ def test_topdownconfmapspipeline(minimal_instance):
                 "max_width": None,
                 "scale": 2.0,
                 "is_rgb": False,
-                "crop_hw": (100, 100),
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -262,7 +266,10 @@ def test_topdownconfmapspipeline(minimal_instance):
     )
 
     pipeline = TopdownConfmapsPipeline(
-        data_config=base_topdown_data_config, max_stride=16, confmap_head=confmap_head
+        data_config=base_topdown_data_config,
+        max_stride=16,
+        confmap_head=confmap_head,
+        crop_hw=(100, 100),
     )
 
     data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
