@@ -1,13 +1,15 @@
 import numpy as np
 import torch
+import sleap_io as sio
 from sleap_nn.data.utils import make_grid_vectors
-from sleap_nn.data.providers import LabelsReader
+from sleap_nn.data.providers import LabelsReader, process_lf
 from sleap_nn.data.edge_maps import (
     distance_to_edge,
     make_edge_maps,
     make_pafs,
     make_multi_pafs,
     get_edge_points,
+    generate_pafs,
     PartAffinityFieldsGenerator,
 )
 
@@ -171,6 +173,20 @@ def test_get_edge_points():
             [[20, 21], [22, 23], [22, 23]],
         ],
     )
+
+
+def test_generate_pafs(minimal_instance):
+    """Test `generate_pafs` function."""
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(lf, 0, 2)
+
+    pafs = generate_pafs(
+        ex["instances"],
+        img_hw=(384, 384),
+        edge_inds=torch.Tensor(labels.skeletons[0].edge_inds),
+    )
+    assert pafs.shape == (192, 192, 1, 2)
 
 
 def test_part_affinity_fields_generator(minimal_instance):
