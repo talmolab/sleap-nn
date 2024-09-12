@@ -1,6 +1,7 @@
 """Custom `litdata.StreamingDataset`s for different models."""
 
 from kornia.geometry.transform import crop_and_resize
+from litdata.streaming.sampler import ChunkedIndex
 from omegaconf import DictConfig
 from typing import List, Optional, Tuple
 import litdata as ld
@@ -49,6 +50,7 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
         *args,
         **kwargs,
     ):
+        """Constructs a BottomUpStreamingDataset."""
         super().__init__(*args, **kwargs)
         self.aug_config = augmentation_config
         self.confmap_head = confmap_head
@@ -58,6 +60,7 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
         self.scale = scale
 
     def __getitem__(self, index):
+        """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation
@@ -140,6 +143,7 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         *args,
         **kwargs,
     ):
+        """Construct a CenteredInstanceStreamingDataset."""
         super().__init__(*args, **kwargs)
         self.aug_config = augmentation_config
         self.confmap_head = confmap_head
@@ -148,6 +152,7 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         self.max_stride = max_stride
 
     def __getitem__(self, index):
+        """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation
@@ -229,6 +234,7 @@ class CentroidStreamingDataset(ld.StreamingDataset):
         *args,
         **kwargs,
     ):
+        """Construct a CentroidStreamingDataset."""
         super().__init__(*args, **kwargs)
         self.aug_config = augmentation_config
         self.confmap_head = confmap_head
@@ -236,6 +242,7 @@ class CentroidStreamingDataset(ld.StreamingDataset):
         self.scale = scale
 
     def __getitem__(self, index):
+        """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation
@@ -304,6 +311,7 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
         *args,
         **kwargs,
     ):
+        """Construct a SingleInstanceStreamingDataset."""
         super().__init__(*args, **kwargs)
         self.aug_config = augmentation_config
         self.confmap_head = confmap_head
@@ -311,6 +319,7 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
         self.scale = scale
 
     def __getitem__(self, index):
+        """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation

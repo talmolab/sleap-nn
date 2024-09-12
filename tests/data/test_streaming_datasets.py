@@ -28,7 +28,6 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
     partial_func = functools.partial(
         bottomup_data_chunks, data_config=config.data_config, max_instances=2
     )
-    shutil.rmtree(dir_path)
     ld.optimize(
         fn=partial_func,
         inputs=[(x, labels.videos.index(x.video)) for x in labels],
@@ -36,49 +35,50 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
         chunk_size=4,
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
-    pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
+    try:
+        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+        pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
 
-    dataset = BottomUpStreamingDataset(
-        augmentation_config=config.data_config.augmentation_config,
-        confmap_head=confmap_head,
-        pafs_head=pafs_head,
-        edge_inds=edge_inds,
-        max_stride=100,
-        scale=0.5,
-        input_dir=str(dir_path),
-    )
+        dataset = BottomUpStreamingDataset(
+            augmentation_config=config.data_config.augmentation_config,
+            confmap_head=confmap_head,
+            pafs_head=pafs_head,
+            edge_inds=edge_inds,
+            max_stride=100,
+            scale=0.5,
+            input_dir=str(dir_path),
+        )
 
-    samples = list(iter(dataset))
-    assert len(samples) == 1
+        samples = list(iter(dataset))
+        assert len(samples) == 1
 
-    assert samples[0]["image"].shape == (1, 1, 200, 200)
-    assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
-    assert samples[0]["part_affinity_fields"].shape == (50, 50, 2)
+        assert samples[0]["image"].shape == (1, 1, 200, 200)
+        assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
+        assert samples[0]["part_affinity_fields"].shape == (50, 50, 2)
 
-    # test with random crop
-    config.data_config.augmentation_config.geometric["random_crop_p"] = 1.0
-    config.data_config.augmentation_config.geometric["random_crop_height"] = 300
-    config.data_config.augmentation_config.geometric["random_crop_width"] = 300
-    dataset = BottomUpStreamingDataset(
-        augmentation_config=config.data_config.augmentation_config,
-        confmap_head=confmap_head,
-        pafs_head=pafs_head,
-        edge_inds=edge_inds,
-        max_stride=2,
-        scale=1.0,
-        input_dir=str(dir_path),
-    )
+        # test with random crop
+        config.data_config.augmentation_config.geometric["random_crop_p"] = 1.0
+        config.data_config.augmentation_config.geometric["random_crop_height"] = 300
+        config.data_config.augmentation_config.geometric["random_crop_width"] = 300
+        dataset = BottomUpStreamingDataset(
+            augmentation_config=config.data_config.augmentation_config,
+            confmap_head=confmap_head,
+            pafs_head=pafs_head,
+            edge_inds=edge_inds,
+            max_stride=2,
+            scale=1.0,
+            input_dir=str(dir_path),
+        )
 
-    samples = list(iter(dataset))
-    assert len(samples) == 1
-    print(samples)
+        samples = list(iter(dataset))
+        assert len(samples) == 1
 
-    assert samples[0]["image"].shape == (1, 1, 300, 300)
-    assert samples[0]["confidence_maps"].shape == (1, 2, 150, 150)
-    assert samples[0]["part_affinity_fields"].shape == (75, 75, 2)
+        assert samples[0]["image"].shape == (1, 1, 300, 300)
+        assert samples[0]["confidence_maps"].shape == (1, 2, 150, 150)
+        assert samples[0]["part_affinity_fields"].shape == (75, 75, 2)
 
-    shutil.rmtree(dir_path)
+    finally:
+        shutil.rmtree(dir_path)
 
 
 def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, config):
@@ -101,24 +101,26 @@ def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, c
         chunk_size=4,
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    try:
+        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
-    dataset = CenteredInstanceStreamingDataset(
-        augmentation_config=config.data_config.augmentation_config,
-        confmap_head=confmap_head,
-        crop_hw=(160, 160),
-        max_stride=100,
-        scale=0.5,
-        input_dir=str(dir_path),
-    )
+        dataset = CenteredInstanceStreamingDataset(
+            augmentation_config=config.data_config.augmentation_config,
+            confmap_head=confmap_head,
+            crop_hw=(160, 160),
+            max_stride=100,
+            scale=0.5,
+            input_dir=str(dir_path),
+        )
 
-    samples = list(iter(dataset))
-    assert len(samples) == 2
+        samples = list(iter(dataset))
+        assert len(samples) == 2
 
-    assert samples[0]["instance_image"].shape == (1, 1, 100, 100)
-    assert samples[0]["confidence_maps"].shape == (1, 2, 50, 50)
+        assert samples[0]["instance_image"].shape == (1, 1, 100, 100)
+        assert samples[0]["confidence_maps"].shape == (1, 2, 50, 50)
 
-    shutil.rmtree(dir_path)
+    finally:
+        shutil.rmtree(dir_path)
 
 
 def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
@@ -133,7 +135,7 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
         max_instances=2,
         anchor_ind=0,
     )
-    # shutil.rmtree(dir_path)
+
     ld.optimize(
         fn=partial_func,
         inputs=[(x, labels.videos.index(x.video)) for x in labels],
@@ -141,42 +143,44 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
         chunk_size=4,
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    try:
 
-    dataset = CentroidStreamingDataset(
-        augmentation_config=config.data_config.augmentation_config,
-        confmap_head=confmap_head,
-        max_stride=100,
-        scale=0.5,
-        input_dir=str(dir_path),
-    )
+        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
-    samples = list(iter(dataset))
-    assert len(samples) == 1
+        dataset = CentroidStreamingDataset(
+            augmentation_config=config.data_config.augmentation_config,
+            confmap_head=confmap_head,
+            max_stride=100,
+            scale=0.5,
+            input_dir=str(dir_path),
+        )
 
-    assert samples[0]["image"].shape == (1, 1, 200, 200)
-    assert samples[0]["confidence_maps"].shape == (1, 1, 100, 100)
+        samples = list(iter(dataset))
+        assert len(samples) == 1
 
-    # test with random crop
-    config.data_config.augmentation_config.geometric["random_crop_p"] = 1.0
-    config.data_config.augmentation_config.geometric["random_crop_height"] = 300
-    config.data_config.augmentation_config.geometric["random_crop_width"] = 300
-    dataset = CentroidStreamingDataset(
-        augmentation_config=config.data_config.augmentation_config,
-        confmap_head=confmap_head,
-        max_stride=2,
-        scale=1.0,
-        input_dir=str(dir_path),
-    )
+        assert samples[0]["image"].shape == (1, 1, 200, 200)
+        assert samples[0]["confidence_maps"].shape == (1, 1, 100, 100)
 
-    samples = list(iter(dataset))
-    assert len(samples) == 1
-    print(samples)
+        # test with random crop
+        config.data_config.augmentation_config.geometric["random_crop_p"] = 1.0
+        config.data_config.augmentation_config.geometric["random_crop_height"] = 300
+        config.data_config.augmentation_config.geometric["random_crop_width"] = 300
+        dataset = CentroidStreamingDataset(
+            augmentation_config=config.data_config.augmentation_config,
+            confmap_head=confmap_head,
+            max_stride=2,
+            scale=1.0,
+            input_dir=str(dir_path),
+        )
 
-    assert samples[0]["image"].shape == (1, 1, 300, 300)
-    assert samples[0]["confidence_maps"].shape == (1, 1, 150, 150)
+        samples = list(iter(dataset))
+        assert len(samples) == 1
 
-    shutil.rmtree(dir_path)
+        assert samples[0]["image"].shape == (1, 1, 300, 300)
+        assert samples[0]["confidence_maps"].shape == (1, 1, 150, 150)
+
+    finally:
+        shutil.rmtree(dir_path)
 
 
 def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, config):
@@ -189,7 +193,7 @@ def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, con
         single_instance_data_chunks,
         data_config=config.data_config,
     )
-    # shutil.rmtree(dir_path)
+
     for lf in labels:
         lf.instances = lf.instances[:1]
     ld.optimize(
@@ -199,39 +203,41 @@ def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, con
         chunk_size=4,
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    try:
 
-    dataset = SingleInstanceStreamingDataset(
-        augmentation_config=config.data_config.augmentation_config,
-        confmap_head=confmap_head,
-        max_stride=100,
-        scale=0.5,
-        input_dir=str(dir_path),
-    )
+        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
-    samples = list(iter(dataset))
-    assert len(samples) == 1
+        dataset = SingleInstanceStreamingDataset(
+            augmentation_config=config.data_config.augmentation_config,
+            confmap_head=confmap_head,
+            max_stride=100,
+            scale=0.5,
+            input_dir=str(dir_path),
+        )
 
-    assert samples[0]["image"].shape == (1, 1, 200, 200)
-    assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
+        samples = list(iter(dataset))
+        assert len(samples) == 1
 
-    # test with random crop
-    config.data_config.augmentation_config.geometric["random_crop_p"] = 1.0
-    config.data_config.augmentation_config.geometric["random_crop_height"] = 300
-    config.data_config.augmentation_config.geometric["random_crop_width"] = 300
-    dataset = SingleInstanceStreamingDataset(
-        augmentation_config=config.data_config.augmentation_config,
-        confmap_head=confmap_head,
-        max_stride=2,
-        scale=1.0,
-        input_dir=str(dir_path),
-    )
+        assert samples[0]["image"].shape == (1, 1, 200, 200)
+        assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
 
-    samples = list(iter(dataset))
-    assert len(samples) == 1
-    print(samples)
+        # test with random crop
+        config.data_config.augmentation_config.geometric["random_crop_p"] = 1.0
+        config.data_config.augmentation_config.geometric["random_crop_height"] = 300
+        config.data_config.augmentation_config.geometric["random_crop_width"] = 300
+        dataset = SingleInstanceStreamingDataset(
+            augmentation_config=config.data_config.augmentation_config,
+            confmap_head=confmap_head,
+            max_stride=2,
+            scale=1.0,
+            input_dir=str(dir_path),
+        )
 
-    assert samples[0]["image"].shape == (1, 1, 300, 300)
-    assert samples[0]["confidence_maps"].shape == (1, 2, 150, 150)
+        samples = list(iter(dataset))
+        assert len(samples) == 1
 
-    shutil.rmtree(dir_path)
+        assert samples[0]["image"].shape == (1, 1, 300, 300)
+        assert samples[0]["confidence_maps"].shape == (1, 2, 150, 150)
+
+    finally:
+        shutil.rmtree(dir_path)
