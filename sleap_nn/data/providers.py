@@ -74,10 +74,13 @@ def process_lf(
     img_height, img_width = image.shape[-2:]
 
     # append with nans for broadcasting
-    nans = torch.full((1, np.abs(max_instances - num_instances), nodes, 2), torch.nan)
-    instances = torch.cat(
-        [instances, nans], dim=1
-    )  # (n_samples, max_instances, num_nodes, 2)
+    if max_instances != 1:
+        nans = torch.full(
+            (1, np.abs(max_instances - num_instances), nodes, 2), torch.nan
+        )
+        instances = torch.cat(
+            [instances, nans], dim=1
+        )  # (n_samples, max_instances, num_nodes, 2)
 
     ex = {
         "image": image,
