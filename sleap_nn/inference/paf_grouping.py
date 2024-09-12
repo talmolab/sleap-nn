@@ -31,6 +31,7 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 import networkx as nx
 from omegaconf import OmegaConf
+from sleap_nn.inference.utils import interp1d
 
 
 @attrs.define(auto_attribs=True, frozen=True)
@@ -135,6 +136,7 @@ def make_line_subs(
     edge_inds: torch.Tensor,
     n_line_points: int,
     pafs_stride: int,
+    pafs_hw: tuple,
 ) -> torch.Tensor:
     """Create the lines between candidate connections for evaluating the PAFs.
 
@@ -155,6 +157,7 @@ def make_line_subs(
         pafs_stride: The stride (1/scale) of the PAFs that these lines will need to
             index into relative to the image. Coordinates in `peaks_sample` will be
             divided by this value to adjust the indexing into the PAFs tensor.
+        pafs_hw: Tuple (height, width) with the dimension of PAFs tensor.
 
     Returns:
         The line subscripts as a `torch.Tensor` of shape
@@ -175,21 +178,34 @@ def make_line_subs(
     dst_peaks = torch.index_select(peaks_sample, 0, edge_peak_inds[:, 1])
     n_candidates = torch.tensor(src_peaks.shape[0], device=peaks_sample.device)
 
-    linspace_values = torch.linspace(0, 1, n_line_points, dtype=torch.float32).to(
-        device=peaks_sample.device
+    X = torch.cat(
+        (src_peaks[:, 0].unsqueeze(dim=-1), dst_peaks[:, 0].unsqueeze(dim=-1)), dim=-1
+    ).to(torch.float64)
+    Y = torch.cat(
+        (src_peaks[:, 1].unsqueeze(dim=-1), dst_peaks[:, 1].unsqueeze(dim=-1)), dim=-1
+    ).to(torch.float64)
+    samples = torch.Tensor([0, 1], device=X.device).repeat(n_candidates, 1)
+    samples_new = torch.linspace(0, 1, steps=n_line_points, device=X.device).repeat(
+        n_candidates, 1
     )
-    linspace_values = linspace_values.repeat(n_candidates, 1).view(
-        n_candidates, n_line_points, 1
-    )
-    XY = (
-        src_peaks.view(n_candidates, 1, 2)
-        + (dst_peaks - src_peaks).view(n_candidates, 1, 2) * linspace_values
-    )
-    XY = XY.transpose(1, 2)
+
+    X = interp1d(samples, X, samples_new).unsqueeze(
+        dim=1
+    )  # (n_candidates, 1, n_line_points)
+    Y = interp1d(samples, Y, samples_new).unsqueeze(
+        dim=1
+    )  # (n_candidates, 1, n_line_points)
+    XY = torch.concat([X, Y], dim=1)
+
     XY = (
         (XY / pafs_stride).round().int()
     )  # (n_candidates, 2, n_line_points)  # dim 1 is [x, y]
     XY = XY[:, [1, 0], :]  # dim 1 is [row, col]
+
+    # clip coordinates for size of pafs tensor.
+    height, width = pafs_hw
+    XY[:, 0] = torch.clip(XY[:, 0], min=0, max=height - 1)
+    XY[:, 1] = torch.clip(XY[:, 1], min=0, max=width - 1)
 
     edge_inds_expanded = (
         edge_inds.view(-1, 1, 1)
@@ -263,8 +279,9 @@ def get_paf_lines(
 
     See also: get_connection_candidates, make_line_subs, score_paf_lines
     """
+    pafs_hw = pafs_sample.shape[:2]
     line_subs = make_line_subs(
-        peaks_sample, edge_peak_inds, edge_inds, n_line_points, pafs_stride
+        peaks_sample, edge_peak_inds, edge_inds, n_line_points, pafs_stride, pafs_hw
     )
     lines = pafs_sample[line_subs[..., 0], line_subs[..., 1], line_subs[..., 2]]
     return lines
@@ -565,6 +582,7 @@ def match_candidates_sample(
 
         # Convert cost matrix to numpy for use with scipy's linear_sum_assignment.
         cost_matrix_np = cost_matrix.numpy()
+        cost_matrix_np[np.isnan(cost_matrix_np)] = np.inf
 
         # Match.
         match_src_inds, match_dst_inds = linear_sum_assignment(cost_matrix_np)

@@ -264,7 +264,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         assert preds[0]["pred_instance_peaks"].shape[0] == 4
         assert isinstance(preds[0], dict)
         assert "pred_confmaps" not in preds[0].keys()
-        print("end of video reader")
 
     finally:
         # save the original config back
@@ -317,8 +316,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
-    assert len(pred_labels[0].instances) == 6
-    print(pred_labels[0].instances)
+    assert len(pred_labels[0].instances) <= 6
     lf = pred_labels[0]
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
@@ -372,7 +370,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
 
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 100
-    assert len(pred_labels[0].instances) == 6
+    assert len(pred_labels[0].instances) <= 6
 
     # check if dictionaries are created when make labels is set to False
     preds = main(

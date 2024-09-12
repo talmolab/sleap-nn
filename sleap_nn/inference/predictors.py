@@ -254,57 +254,55 @@ class Predictor(ABC):
                     yield output
 
         elif self.provider == "VideoReader":
-            try:
-                self.pipeline.start()
-                batch_size = self.video_preprocess_config["batch_size"]
-                done = False
-                while not done:
-                    imgs = []
-                    fidxs = []
-                    org_szs = []
-                    for _ in range(batch_size):
-                        frame = self.pipeline.frame_buffer.get()
-                        if frame[0] is None:
-                            done = True
-                            break
-                        imgs.append(frame[0].unsqueeze(dim=0))
-                        fidxs.append(frame[1])
-                        org_szs.append(frame[2].unsqueeze(dim=0))
-                    if imgs:
-                        imgs = torch.concatenate(imgs, dim=0)
-                        fidxs = torch.tensor(fidxs, dtype=torch.int32)
-                        org_szs = torch.concatenate(org_szs, dim=0)
-                        ex = {
-                            "image": imgs,
-                            "frame_idx": fidxs,
-                            "video_idx": torch.tensor(
-                                [0] * batch_size, dtype=torch.int32
-                            ),
-                            "orig_size": org_szs,
-                        }
-                        if not torch.is_floating_point(ex["image"]):  # normalization
-                            ex["image"] = ex["image"].to(torch.float32) / 255.0
-                        if self.video_preprocess_config["is_rgb"]:
-                            ex["image"] = convert_to_rgb(ex["image"])
-                        else:
-                            ex["image"] = convert_to_grayscale(ex["image"])
-                        if self.preprocess:
-                            scale = self.video_preprocess_config["scale"]
-                            if scale != 1.0:
-                                ex["image"] = resize_image(ex["image"], scale)
-                            ex["image"] = pad_to_stride(
-                                ex["image"], self.video_preprocess_config["max_stride"]
-                            )
-                        outputs_list = self.inference_model(ex)
-                        for output in outputs_list:
-                            output = self._convert_tensors_to_numpy(output)
-                            yield output
+            # try:
+            self.pipeline.start()
+            batch_size = self.video_preprocess_config["batch_size"]
+            done = False
+            while not done:
+                imgs = []
+                fidxs = []
+                org_szs = []
+                for _ in range(batch_size):
+                    frame = self.pipeline.frame_buffer.get()
+                    if frame[0] is None:
+                        done = True
+                        break
+                    imgs.append(frame[0].unsqueeze(dim=0))
+                    fidxs.append(frame[1])
+                    org_szs.append(frame[2].unsqueeze(dim=0))
+                if imgs:
+                    imgs = torch.concatenate(imgs, dim=0)
+                    fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                    org_szs = torch.concatenate(org_szs, dim=0)
+                    ex = {
+                        "image": imgs,
+                        "frame_idx": fidxs,
+                        "video_idx": torch.tensor([0] * batch_size, dtype=torch.int32),
+                        "orig_size": org_szs,
+                    }
+                    if not torch.is_floating_point(ex["image"]):  # normalization
+                        ex["image"] = ex["image"].to(torch.float32) / 255.0
+                    if self.video_preprocess_config["is_rgb"]:
+                        ex["image"] = convert_to_rgb(ex["image"])
+                    else:
+                        ex["image"] = convert_to_grayscale(ex["image"])
+                    if self.preprocess:
+                        scale = self.video_preprocess_config["scale"]
+                        if scale != 1.0:
+                            ex["image"] = resize_image(ex["image"], scale)
+                        ex["image"] = pad_to_stride(
+                            ex["image"], self.video_preprocess_config["max_stride"]
+                        )
+                    outputs_list = self.inference_model(ex)
+                    for output in outputs_list:
+                        output = self._convert_tensors_to_numpy(output)
+                        yield output
 
-            except Exception as e:
-                raise Exception(f"Error in VideoReader during data processing: {e}")
+            # except Exception as e:
+            #     raise Exception(f"Error in VideoReader during data processing: {e}")
 
-            finally:
-                self.pipeline.join()
+            # finally:
+            self.pipeline.join()
 
     def predict(
         self,
