@@ -26,6 +26,7 @@ import shutil
 
 def test_create_data_loader(config, tmp_path: str):
     """Test _create_data_loader function of ModelTrainer class."""
+    # test centered-instance pipeline
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -39,6 +40,17 @@ def test_create_data_loader(config, tmp_path: str):
     )
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
+
+    # without explicitly providing crop_hw
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    model_trainer = ModelTrainer(config_copy)
+    model_trainer._create_data_loaders()
+    assert len(list(iter(model_trainer.train_data_loader))) == 2
+    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    sample = next(iter(model_trainer.train_data_loader))
+    assert sample["instance_image"].shape == (1, 1, 1, 112, 112)
 
     # test exception
     config_copy = config.copy()
@@ -103,6 +115,8 @@ def test_trainer(config, tmp_path: str):
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -134,6 +148,7 @@ def test_trainer(config, tmp_path: str):
     assert training_config.model_config.total_params is not None
     assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
+    assert training_config.data_config.preprocessing.crop_hw == (112, 112)
 
     # check if ckpt is created
     assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
@@ -169,11 +184,39 @@ def test_trainer(config, tmp_path: str):
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
 
+    # check resume training
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+    OmegaConf.update(
+        config_copy,
+        "trainer_config.resume_ckpt_path",
+        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+    )
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    prv_runid = training_config.trainer_config.wandb.run_id
+    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+    trainer = ModelTrainer(config_copy)
+    trainer.train()
+
+    checkpoint = torch.load(
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 3
+
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    assert training_config.trainer_config.wandb.run_id == prv_runid
+    shutil.rmtree(f"{config_copy.trainer_config.save_ckpt_path}")
+
     # check early stopping
     config_early_stopping = config.copy()
     OmegaConf.update(
-        config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-3
+        config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-1
     )
+    OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
     OmegaConf.update(
         config_early_stopping,
