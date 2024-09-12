@@ -57,6 +57,7 @@ The config file has three main sections:
             - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
             - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
             - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop.
+            # TODO: change doc for random crop
 
 - `model_config`: 
     - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
