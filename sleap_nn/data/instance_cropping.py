@@ -20,6 +20,7 @@ def find_instance_crop_size(
     min_crop_size: Optional[int] = None,
 ) -> int:
     """Compute the size of the largest instance bounding box from labels.
+
     Args:
         labels: A `sio.Labels` containing user-labeled instances.
         padding: Integer number of pixels to add to the bounds as margin padding.
@@ -29,6 +30,7 @@ def find_instance_crop_size(
         input_scaling: Float factor indicating the scale of the input images if any
             scaling will be done before cropping.
         min_crop_size: The crop size set by the user.
+
     Returns:
         An integer crop size denoting the length of the side of the bounding boxes that
         will contain the instances when cropped. The returned crop size will be larger
