@@ -40,6 +40,7 @@ from sleap_nn.inference.topdown import (
     TopDownInferenceModel,
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
+from sleap_nn.tracking.tracker import Tracker
 
 
 @attrs.define
@@ -88,8 +89,6 @@ class Predictor(ABC):
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
-        output_stride: int = 2,
-        pafs_output_stride: int = 4,
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
@@ -111,14 +110,6 @@ class Predictor(ABC):
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
             max_instances: (int) Max number of instances to consider from the predictions.
-            output_stride: (int) Stride of the output confidence maps relative to the input
-                image. This is the reciprocal of the resolution, e.g., an output stride
-                of 2 results in confidence maps that are 0.5x the size of the input.
-                Increasing this value can considerably speed up model performance and
-                decrease memory requirements, at the cost of decreased spatial resolution.
-                Default: 2
-            pafs_output_stride: (int) Stride of the output part affinity fields relative
-                to the input image. Default: 4.
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
@@ -151,7 +142,6 @@ class Predictor(ABC):
                 integral_refinement=integral_refinement,
                 integral_patch_size=integral_patch_size,
                 batch_size=batch_size,
-                output_stride=output_stride,
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
@@ -174,7 +164,6 @@ class Predictor(ABC):
                 integral_patch_size=integral_patch_size,
                 batch_size=batch_size,
                 max_instances=max_instances,
-                output_stride=output_stride,
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
@@ -189,8 +178,6 @@ class Predictor(ABC):
                 integral_patch_size=integral_patch_size,
                 batch_size=batch_size,
                 max_instances=max_instances,
-                output_stride=output_stride,
-                pafs_output_stride=pafs_output_stride,
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
@@ -373,12 +360,6 @@ class TopDownPredictor(Predictor):
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
         max_instances: (int) Max number of instances to consider from the predictions.
-        output_stride: (int) Stride of the output confidence maps relative to the input
-            image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
-            Default: 2
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
@@ -386,25 +367,27 @@ class TopDownPredictor(Predictor):
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
             in the `data_config.preprocessing` section.
-
+        tracker: A `sleap_nn.tracking.Tracker` that will be called to associate
+            detections over time. Predicted instances will not be assigned to tracks if
+            if this is `None`.
 
     """
 
-    centroid_config: Optional[OmegaConf] = attrs.field(default=None)
-    confmap_config: Optional[OmegaConf] = attrs.field(default=None)
-    centroid_model: Optional[L.LightningModule] = attrs.field(default=None)
-    confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
-    videos: Optional[List[sio.Video]] = attrs.field(default=None)
-    skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    centroid_config: Optional[OmegaConf] = None
+    confmap_config: Optional[OmegaConf] = None
+    centroid_model: Optional[L.LightningModule] = None
+    confmap_model: Optional[L.LightningModule] = None
+    videos: Optional[List[sio.Video]] = None
+    skeletons: Optional[List[sio.Skeleton]] = None
     peak_threshold: Union[float, List[float]] = 0.2
     integral_refinement: str = None
     integral_patch_size: int = 5
     batch_size: int = 4
     max_instances: Optional[int] = None
-    output_stride: int = 2
     return_confmaps: bool = False
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
+    tracker: Optional[Tracker] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -430,7 +413,7 @@ class TopDownPredictor(Predictor):
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=centroid_peak_threshold,
-                output_stride=self.output_stride,
+                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
@@ -450,7 +433,7 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=centered_instance_peak_threshold,
-                output_stride=self.output_stride,
+                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
@@ -484,7 +467,6 @@ class TopDownPredictor(Predictor):
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
-        output_stride: int = 2,
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
@@ -503,12 +485,6 @@ class TopDownPredictor(Predictor):
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
             max_instances: (int) Max number of instances to consider from the predictions.
-            output_stride: (int) Stride of the output confidence maps relative to the input
-                image. This is the reciprocal of the resolution, e.g., an output stride
-                of 2 results in confidence maps that are 0.5x the size of the input.
-                Increasing this value can considerably speed up model performance and
-                decrease memory requirements, at the cost of decreased spatial resolution.
-                Default: 2.
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
@@ -531,7 +507,7 @@ class TopDownPredictor(Predictor):
             )
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
             centroid_model = CentroidModel.load_from_checkpoint(
-                f"{centroid_ckpt_path}/best.ckpt",
+                checkpoint_path=f"{centroid_ckpt_path}/best.ckpt",
                 config=centroid_config,
                 skeletons=skeletons,
                 model_type="centroid",
@@ -547,7 +523,7 @@ class TopDownPredictor(Predictor):
             confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
             confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-                f"{confmap_ckpt_path}/best.ckpt",
+                checkpoint_path=f"{confmap_ckpt_path}/best.ckpt",
                 config=confmap_config,
                 skeletons=skeletons,
                 model_type="centered_instance",
@@ -570,7 +546,6 @@ class TopDownPredictor(Predictor):
             integral_patch_size=integral_patch_size,
             batch_size=batch_size,
             max_instances=max_instances,
-            output_stride=output_stride,
             return_confmaps=return_confmaps,
             device=device,
             preprocess_config=preprocess_config,
@@ -701,7 +676,8 @@ class TopDownPredictor(Predictor):
     ) -> sio.Labels:
         """Create labeled frames from a generator that yields inference results.
 
-        This method converts pure arrays into SLEAP-specific data structures.
+        This method converts pure arrays into SLEAP-specific data structures and assigns
+        tracks to the predicted instances if tracker is specified.
 
         Args:
             generator: A generator that returns dictionaries with inference results.
@@ -749,13 +725,18 @@ class TopDownPredictor(Predictor):
         for key, inst in preds.items():
             # Create list of LabeledFrames.
             video_idx, frame_idx = key
-            predicted_frames.append(
-                sio.LabeledFrame(
-                    video=self.videos[video_idx],
-                    frame_idx=frame_idx,
-                    instances=inst,
-                )
+            lf = sio.LabeledFrame(
+                video=self.videos[video_idx],
+                frame_idx=frame_idx,
+                instances=inst,
             )
+
+            if self.tracker:
+                lf.instances = self.tracker.track(
+                    untracked_instances=inst, frame_idx=frame_idx, image=lf.image
+                )
+
+            predicted_frames.append(lf)
 
         pred_labels = sio.Labels(
             videos=self.videos,
@@ -791,12 +772,6 @@ class SingleInstancePredictor(Predictor):
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
-        output_stride: (int) Stride of the output confidence maps relative to the input
-            image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
-            Default: 2
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
@@ -815,7 +790,6 @@ class SingleInstancePredictor(Predictor):
     integral_refinement: str = None
     integral_patch_size: int = 5
     batch_size: int = 4
-    output_stride: int = 2
     return_confmaps: bool = False
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
@@ -825,7 +799,7 @@ class SingleInstancePredictor(Predictor):
         self.inference_model = SingleInstanceInferenceModel(
             torch_model=self.confmap_model,
             peak_threshold=self.peak_threshold,
-            output_stride=self.output_stride,
+            output_stride=self.confmap_config.model_config.head_configs.single_instance.confmaps.output_stride,
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
@@ -848,7 +822,6 @@ class SingleInstancePredictor(Predictor):
         integral_refinement: str = None,
         integral_patch_size: int = 5,
         batch_size: int = 4,
-        output_stride: int = 2,
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
@@ -865,12 +838,6 @@ class SingleInstancePredictor(Predictor):
             integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
-            output_stride: (int) Stride of the output confidence maps relative to the input
-                image. This is the reciprocal of the resolution, e.g., an output stride
-                of 2 results in confidence maps that are 0.5x the size of the input.
-                Increasing this value can considerably speed up model performance and
-                decrease memory requirements, at the cost of decreased spatial resolution.
-                Default: 2
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
@@ -886,7 +853,7 @@ class SingleInstancePredictor(Predictor):
         confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
         confmap_model = SingleInstanceModel.load_from_checkpoint(
-            f"{confmap_ckpt_path}/best.ckpt",
+            checkpoint_path=f"{confmap_ckpt_path}/best.ckpt",
             config=confmap_config,
             skeletons=skeletons,
             model_type="single_instance",
@@ -902,7 +869,6 @@ class SingleInstancePredictor(Predictor):
             integral_refinement=integral_refinement,
             integral_patch_size=integral_patch_size,
             batch_size=batch_size,
-            output_stride=output_stride,
             return_confmaps=return_confmaps,
             device=device,
             preprocess_config=preprocess_config,
@@ -1088,14 +1054,6 @@ class BottomUpPredictor(Predictor):
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
         max_instances: (int) Max number of instances to consider from the predictions.
-        output_stride: (int) Stride of the output confidence maps relative to the input
-            image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
-            Default: 2
-        pafs_output_stride: (int) Stride of the output part affinity fields relative
-            to the input image. Default: 4.
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
@@ -1103,6 +1061,9 @@ class BottomUpPredictor(Predictor):
             Default: "cpu".
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
+        tracker: A `sleap.nn.tracking.Tracker` that will be called to associate
+            detections over time. Predicted instances will not be assigned to tracks if
+            if this is `None`.
 
     """
 
@@ -1120,11 +1081,10 @@ class BottomUpPredictor(Predictor):
     integral_patch_size: int = 5
     batch_size: int = 4
     max_instances: Optional[int] = None
-    output_stride: int = 2
-    pafs_output_stride: int = 4
     return_confmaps: bool = False
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
+    tracker: Optional[Tracker] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -1152,8 +1112,8 @@ class BottomUpPredictor(Predictor):
             torch_model=self.bottomup_model,
             paf_scorer=paf_scorer,
             peak_threshold=self.peak_threshold,
-            cms_output_stride=self.output_stride,
-            pafs_output_stride=self.pafs_output_stride,
+            cms_output_stride=self.bottomup_config.model_config.head_configs.bottomup.confmaps.output_stride,
+            pafs_output_stride=self.bottomup_config.model_config.head_configs.bottomup.pafs.output_stride,
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
@@ -1177,8 +1137,6 @@ class BottomUpPredictor(Predictor):
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
-        output_stride: int = 2,
-        pafs_output_stride: int = 4,
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
@@ -1196,14 +1154,6 @@ class BottomUpPredictor(Predictor):
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
             max_instances: (int) Max number of instances to consider from the predictions.
-            output_stride: (int) Stride of the output confidence maps relative to the input
-                image. This is the reciprocal of the resolution, e.g., an output stride
-                of 2 results in confidence maps that are 0.5x the size of the input.
-                Increasing this value can considerably speed up model performance and
-                decrease memory requirements, at the cost of decreased spatial resolution.
-                Default: 2
-            pafs_output_stride: (int) Stride of the output part affinity fields relative
-                to the input image. Default: 4.
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
@@ -1236,8 +1186,6 @@ class BottomUpPredictor(Predictor):
             integral_patch_size=integral_patch_size,
             batch_size=batch_size,
             max_instances=max_instances,
-            output_stride=output_stride,
-            pafs_output_stride=pafs_output_stride,
             return_confmaps=return_confmaps,
             preprocess_config=preprocess_config,
         )
@@ -1327,7 +1275,8 @@ class BottomUpPredictor(Predictor):
     ) -> sio.Labels:
         """Create labeled frames from a generator that yields inference results.
 
-        This method converts pure arrays into SLEAP-specific data structures.
+        This method converts pure arrays into SLEAP-specific data structures and assigns
+        tracks to the predicted instances if tracker is specified.
 
         Args:
             generator: A generator that returns dictionaries with inference results.
@@ -1388,13 +1337,20 @@ class BottomUpPredictor(Predictor):
                         : min(max_instances, len(predicted_instances))
                     ]
 
-                predicted_frames.append(
-                    sio.LabeledFrame(
-                        video=self.videos[video_idx],
-                        frame_idx=frame_idx,
-                        instances=predicted_instances,
-                    )
+                lf = sio.LabeledFrame(
+                    video=self.videos[video_idx],
+                    frame_idx=frame_idx,
+                    instances=predicted_instances,
                 )
+
+                if self.tracker:
+                    lf.instances = self.tracker.track(
+                        untracked_instances=predicted_instances,
+                        frame_idx=frame_idx,
+                        image=lf.image,
+                    )
+
+                predicted_frames.append(lf)
 
         pred_labels = sio.Labels(
             videos=self.videos,
@@ -1418,8 +1374,6 @@ def main(
     videoreader_start_idx: int = 0,
     videoreader_end_idx: int = 100,
     crop_hw: List[int] = (160, 160),
-    output_stride: int = 2,
-    pafs_output_stride: int = 4,
     peak_threshold: Union[float, List[float]] = 0.2,
     integral_refinement: str = None,
     integral_patch_size: int = 5,
@@ -1434,6 +1388,19 @@ def main(
     make_labels: bool = True,
     save_path: str = "",
     device: str = "cpu",
+    tracking: bool = False,
+    tracking_window_size: int = 5,
+    tracking_instance_score_threshold: float = 0.0,
+    candidates_method: str = "fixed_window",
+    features: str = "keypoints",
+    scoring_method: str = "oks",
+    scoring_reduction: str = "mean",
+    track_matching_method: str = "hungarian",
+    max_tracks: Optional[int] = None,
+    use_flow: bool = False,
+    of_img_scale: float = 1.0,
+    of_window_size: int = 21,
+    of_max_levels: int = 3,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
@@ -1460,14 +1427,6 @@ def main(
         videoreader_start_idx: (int) Start index of the frames to read. Default: 0.
         videoreader_end_idx: (int) End index of the frames to read. Default: 100.
         crop_hw: List[int] Minimum height and width of the crop in pixels. Default: (160, 160).
-        output_stride: (int) Stride of the output confidence maps relative to the input
-                image. This is the reciprocal of the resolution, e.g., an output stride
-                of 2 results in confidence maps that are 0.5x the size of the input.
-                Increasing this value can considerably speed up model performance and
-                decrease memory requirements, at the cost of decreased spatial resolution.
-                Default: 2
-        pafs_output_stride: (int) Stride of the output part affinity fields relative
-                to the input image. Default: 4.
         peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
                 centroid and centered-instance model, where the first element corresponds
@@ -1511,6 +1470,38 @@ def main(
         device: (str) Device on which torch.Tensor will be allocated. One of the
                 ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
                 Default: "cpu".
+        tracking: (bool) If True, runs tracking on the predicted instances.
+        tracking_window_size: Number of frames to look for in the candidate instances to match
+                with the current detections. Default: 5.
+        tracking_instance_score_threshold: Instance score threshold for creating new tracks.
+            Default: 0.0.
+        candidates_method: Either of `fixed_window` or `local_queues`. In fixed window
+            method, candidates from the last `window_size` frames. In local queues,
+            last `window_size` instances for each track ID is considered for matching
+            against the current detection. Default: `fixed_window`.
+        features: Feature representation for the candidates to update current detections.
+            One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
+        scoring_method: Method to compute association score between features from the
+            current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`,
+            `euclidean_dist`]. Default: `oks`.
+        scoring_reduction: Method to aggregate and reduce multiple scores if there are
+            several detections associated with the same track. One of [`mean`, `max`,
+            `weighted`]. Default: `mean`.
+        track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
+            Default: `hungarian`.
+        max_tracks: Meaximum number of new tracks to be created to avoid redundant tracks.
+            (only for local queues candidate) Default: None.
+        use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
+        optical flow shifts. Default: `False`.
+        of_img_scale: Factor to scale the images by when computing optical flow. Decrease
+            this to increase performance at the cost of finer accuracy. Sometimes
+            decreasing the image scale can improve performance with fast movements.
+            Default: 1.0. (only if `use_flow` is True)
+        of_window_size: Optical flow window size to consider at each pyramid scale
+            level. Default: 21. (only if `use_flow` is True)
+        of_max_levels: Number of pyramid scale levels to consider. This is different
+            from the scale parameter, which determines the initial image scaling.
+            Default: 3. (only if `use_flow` is True)
 
     Returns:
         Returns `sio.Labels` object if `make_labels` is True. Else this function returns
@@ -1537,12 +1528,26 @@ def main(
         integral_patch_size=integral_patch_size,
         batch_size=batch_size,
         max_instances=max_instances,
-        output_stride=output_stride,
-        pafs_output_stride=pafs_output_stride,
         return_confmaps=return_confmaps,
         device=device,
         preprocess_config=OmegaConf.create(preprocess_config),
     )
+
+    if tracking:
+        predictor.tracker = Tracker.from_config(
+            candidates_method=candidates_method,
+            window_size=tracking_window_size,
+            instance_score_threshold=tracking_instance_score_threshold,
+            features=features,
+            scoring_method=scoring_method,
+            scoring_reduction=scoring_reduction,
+            track_matching_method=track_matching_method,
+            max_tracks=max_tracks,
+            use_flow=use_flow,
+            of_img_scale=of_img_scale,
+            of_window_size=of_window_size,
+            of_max_levels=of_max_levels,
+        )
 
     if isinstance(predictor, BottomUpPredictor):
         predictor.inference_model.paf_scorer.max_edge_length_ratio = (
