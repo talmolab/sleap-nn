@@ -12,6 +12,19 @@ from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.data.providers import LabelsReader
 
 
+def test_find_instance_crop_size(minimal_instance):
+    """Test `find_instance_crop_size` function."""
+    labels = sio.load_slp(minimal_instance)
+    crop_size = find_instance_crop_size(labels)
+    assert crop_size == 74
+
+    crop_size = find_instance_crop_size(labels, min_crop_size=100)
+    assert crop_size == 100
+
+    crop_size = find_instance_crop_size(labels, padding=10)
+    assert crop_size == 84
+
+
 def test_make_centered_bboxes():
     # Test bounding box calculation.
     gt = torch.Tensor(
