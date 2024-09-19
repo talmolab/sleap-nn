@@ -28,10 +28,10 @@ def test_create_data_loader(config, tmp_path: str):
     """Test _create_data_loader function of ModelTrainer class."""
     # test centered-instance pipeline
 
-    model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
+    model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     assert isinstance(
         model_trainer.train_data_loader, torch.utils.data.dataloader.DataLoader
