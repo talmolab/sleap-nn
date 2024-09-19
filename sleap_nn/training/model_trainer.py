@@ -116,7 +116,12 @@ class ModelTrainer:
             inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
             output_dir=str(Path(self.dir_path) / "train_chunks"),
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
-            chunk_size=100,
+            chunk_size=(
+                self.config.data_config.chunk_size
+                if "chunk_size" in self.config.data_config
+                and self.config.data_config.chunk_size is not None
+                else 100
+            ),
         )
 
         ld.optimize(
@@ -124,7 +129,12 @@ class ModelTrainer:
             inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
             output_dir=str(Path(self.dir_path) / "val_chunks"),
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
-            chunk_size=100,
+            chunk_size=(
+                self.config.data_config.chunk_size
+                if "chunk_size" in self.config.data_config
+                and self.config.data_config.chunk_size is not None
+                else 100
+            ),
         )
 
     def _create_data_loaders(self):
@@ -141,6 +151,12 @@ class ModelTrainer:
 
         train_labels = sio.load_slp(self.config.data_config.train_labels_path)
         val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+        user_instances_only = (
+            self.config.data_config.user_instances_only
+            if "user_instances_only" in self.config.data_config
+            and self.config.data_config.user_instances_only is not None
+            else True
+        )
         self.skeletons = train_labels.skeletons
         max_stride = self.config.model_config.backbone_config.max_stride
         max_instances = get_max_instances(train_labels)
@@ -149,7 +165,9 @@ class ModelTrainer:
         if self.model_type == "single_instance":
 
             factory_get_chunks = functools.partial(
-                single_instance_data_chunks, data_config=self.config.data_config
+                single_instance_data_chunks,
+                data_config=self.config.data_config,
+                user_instances_only=user_instances_only,
             )
 
             self._get_data_chunks(
@@ -202,6 +220,7 @@ class ModelTrainer:
                 max_instances=max_instances,
                 crop_size=crop_hw,
                 anchor_ind=self.config.model_config.head_configs.centered_instance.confmaps.anchor_part,
+                user_instances_only=user_instances_only,
             )
 
             self._get_data_chunks(
@@ -237,6 +256,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 max_instances=max_instances,
                 anchor_ind=self.config.model_config.head_configs.centroid.confmaps.anchor_part,
+                user_instances_only=user_instances_only,
             )
 
             self._get_data_chunks(
@@ -269,6 +289,7 @@ class ModelTrainer:
                 bottomup_data_chunks,
                 data_config=self.config.data_config,
                 max_instances=max_instances,
+                user_instances_only=user_instances_only,
             )
 
             self._get_data_chunks(
@@ -311,7 +332,6 @@ class ModelTrainer:
             train_dataset,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
-            profile_batches=2,
         )
 
         # val

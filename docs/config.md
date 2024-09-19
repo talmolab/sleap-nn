@@ -15,6 +15,9 @@ The config file has three main sections:
     - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
     - `train_labels_path`: (str) Path to training data (`.slp` file)
     - `val_labels_path`: (str) Path to validation data (`.slp` file)
+    - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
+    - `chunk_size`: (int) Size of each chunk (in MB). *Default*: "100". 
+    #TODO: change in inference ckpts
     - `preprocessing`:
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
         channel when this is set to `True`, then the images from single-channel

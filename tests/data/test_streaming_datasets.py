@@ -68,7 +68,7 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
             max_stride=2,
             scale=1.0,
             input_dir=str(dir_path),
-            apply_aug=True
+            apply_aug=True,
         )
 
         samples = list(iter(dataset))
@@ -172,7 +172,7 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
             max_stride=2,
             scale=1.0,
             input_dir=str(dir_path),
-            apply_aug=True
+            apply_aug=True,
         )
 
         samples = list(iter(dataset))
