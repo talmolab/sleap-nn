@@ -25,8 +25,6 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
     data sample stored in `.bin` files.
 
     Args:
-        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
-            section in the config file.)
         confmap_head: DictConfig object with all the keys in the `head_config` section.
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         pafs_head: DictConfig object with all the keys in the `head_config` section
@@ -37,42 +35,50 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
         scale: Factor to resize the image dimensions by, specified as either a float scalar
             or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
             are resized by the same factor. Default: 1.0.
+        apply_aug: `True` if augmentations should be applied to the data pipeline,
+            else `False`. Default: `False`.
+        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
+            section in the config file.)
     """
 
     def __init__(
         self,
-        augmentation_config: DictConfig,
         confmap_head: DictConfig,
         pafs_head: DictConfig,
         edge_inds: list,
         max_stride: int,
         scale: float = 1.0,
+        apply_aug: bool = False,
+        augmentation_config: DictConfig = None,
         *args,
         **kwargs,
     ):
         """Constructs a BottomUpStreamingDataset."""
         super().__init__(*args, **kwargs)
-        self.aug_config = augmentation_config
+
         self.confmap_head = confmap_head
         self.pafs_head = pafs_head
         self.edge_inds = edge_inds
         self.max_stride = max_stride
         self.scale = scale
+        self.apply_aug = apply_aug
+        self.aug_config = augmentation_config
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation
-        if "intensity" in self.aug_config:
-            ex["image"], ex["instances"] = apply_intensity_augmentation(
-                ex["image"], ex["instances"], **self.aug_config.intensity
-            )
+        if self.apply_aug:
+            if "intensity" in self.aug_config:
+                ex["image"], ex["instances"] = apply_intensity_augmentation(
+                    ex["image"], ex["instances"], **self.aug_config.intensity
+                )
 
-        if "geometric" in self.aug_config:
-            ex["image"], ex["instances"] = apply_geometric_augmentation(
-                ex["image"], ex["instances"], **self.aug_config.geometric
-            )
+            if "geometric" in self.aug_config:
+                ex["image"], ex["instances"] = apply_geometric_augmentation(
+                    ex["image"], ex["instances"], **self.aug_config.geometric
+                )
 
         # resize the image
         ex["image"], ex["instances"] = apply_resizer(
@@ -106,7 +112,6 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
             flatten_channels=True,
         )
 
-        del ex["instances"]
         ex["confidence_maps"] = confidence_maps
         ex["part_affinity_fields"] = pafs
 
@@ -121,8 +126,6 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
     for every data sample stored in `.bin` files.
 
     Args:
-        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
-            section in the config file.)
         confmap_head: DictConfig object with all the keys in the `head_config` section.
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         crop_hw: Height and width of the crop in pixels.
@@ -131,42 +134,51 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         scale: Factor to resize the image dimensions by, specified as either a float scalar
             or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
             are resized by the same factor. Default: 1.0.
+        apply_aug: `True` if augmentations should be applied to the data pipeline,
+            else `False`. Default: `False`.
+        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
+            section in the config file.)
     """
 
     def __init__(
         self,
-        augmentation_config: DictConfig,
         confmap_head: DictConfig,
         crop_hw: Tuple[int],
         max_stride: int,
         scale: float = 1.0,
+        apply_aug: bool = False,
+        augmentation_config: DictConfig = None,
         *args,
         **kwargs,
     ):
         """Construct a CenteredInstanceStreamingDataset."""
         super().__init__(*args, **kwargs)
-        self.aug_config = augmentation_config
+
         self.confmap_head = confmap_head
         self.crop_hw = crop_hw
         self.scale = scale
         self.max_stride = max_stride
+        self.apply_aug = apply_aug
+        self.aug_config = augmentation_config
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation
-        if "intensity" in self.aug_config:
-            ex["instance_image"], ex["instance"] = apply_intensity_augmentation(
-                ex["instance_image"], ex["instance"], **self.aug_config.intensity
-            )
+        if self.apply_aug:
+            if "intensity" in self.aug_config:
+                ex["instance_image"], ex["instance"] = apply_intensity_augmentation(
+                    ex["instance_image"], ex["instance"], **self.aug_config.intensity
+                )
 
-        if "geometric" in self.aug_config:
-            ex["instance_image"], ex["instance"] = apply_geometric_augmentation(
-                ex["instance_image"], ex["instance"], **self.aug_config.geometric
-            )
+            if "geometric" in self.aug_config:
+                ex["instance_image"], ex["instance"] = apply_geometric_augmentation(
+                    ex["instance_image"], ex["instance"], **self.aug_config.geometric
+                )
 
         # Re-crop to original crop size
+        self.crop_hw = list(self.crop_hw)
         ex["instance_bbox"] = torch.unsqueeze(
             make_centered_bboxes(ex["centroid"][0], self.crop_hw[0], self.crop_hw[1]), 0
         )
@@ -214,8 +226,6 @@ class CentroidStreamingDataset(ld.StreamingDataset):
     given max_stride), and generates confidence maps for every data sample stored in `.bin` files.
 
     Args:
-        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
-            section in the config file.)
         confmap_head: DictConfig object with all the keys in the `head_config` section.
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         max_stride: Scalar integer specifying the maximum stride that the image must be
@@ -223,38 +233,46 @@ class CentroidStreamingDataset(ld.StreamingDataset):
         scale: Factor to resize the image dimensions by, specified as either a float scalar
             or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
             are resized by the same factor. Default: 1.0.
+        apply_aug: `True` if augmentations should be applied to the data pipeline,
+            else `False`. Default: `False`.
+        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
+            section in the config file.)
     """
 
     def __init__(
         self,
-        augmentation_config: DictConfig,
         confmap_head: DictConfig,
         max_stride: int,
         scale: float = 1.0,
+        apply_aug: bool = False,
+        augmentation_config: DictConfig = None,
         *args,
         **kwargs,
     ):
         """Construct a CentroidStreamingDataset."""
         super().__init__(*args, **kwargs)
-        self.aug_config = augmentation_config
+
         self.confmap_head = confmap_head
         self.max_stride = max_stride
         self.scale = scale
+        self.apply_aug = apply_aug
+        self.aug_config = augmentation_config
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation
-        if "intensity" in self.aug_config:
-            ex["image"], ex["centroids"] = apply_intensity_augmentation(
-                ex["image"], ex["centroids"], **self.aug_config.intensity
-            )
+        if self.apply_aug:
+            if "intensity" in self.aug_config:
+                ex["image"], ex["centroids"] = apply_intensity_augmentation(
+                    ex["image"], ex["centroids"], **self.aug_config.intensity
+                )
 
-        if "geometric" in self.aug_config:
-            ex["image"], ex["centroids"] = apply_geometric_augmentation(
-                ex["image"], ex["centroids"], **self.aug_config.geometric
-            )
+            if "geometric" in self.aug_config:
+                ex["image"], ex["centroids"] = apply_geometric_augmentation(
+                    ex["image"], ex["centroids"], **self.aug_config.geometric
+                )
 
         # resize the image
         ex["image"], ex["centroids"] = apply_resizer(
@@ -278,8 +296,7 @@ class CentroidStreamingDataset(ld.StreamingDataset):
             is_centroids=True,
         )
 
-        del ex["centroids"]
-        ex["confidence_maps"] = confidence_maps
+        ex["centroids_confidence_maps"] = confidence_maps
 
         return ex
 
@@ -291,8 +308,6 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
     given max_stride), and generates confidence maps for every data sample stored in `.bin` files.
 
     Args:
-        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
-            section in the config file.)
         confmap_head: DictConfig object with all the keys in the `head_config` section.
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         max_stride: Scalar integer specifying the maximum stride that the image must be
@@ -300,38 +315,46 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
         scale: Factor to resize the image dimensions by, specified as either a float scalar
             or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
             are resized by the same factor. Default: 1.0.
+        apply_aug: `True` if augmentations should be applied to the data pipeline,
+            else `False`. Default: `False`.
+        augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
+            section in the config file.)
     """
 
     def __init__(
         self,
-        augmentation_config: DictConfig,
         confmap_head: DictConfig,
         max_stride: int,
         scale: float = 1.0,
+        apply_aug: bool = False,
+        augmentation_config: DictConfig = None,
         *args,
         **kwargs,
     ):
         """Construct a SingleInstanceStreamingDataset."""
         super().__init__(*args, **kwargs)
-        self.aug_config = augmentation_config
+
         self.confmap_head = confmap_head
         self.max_stride = max_stride
         self.scale = scale
+        self.apply_aug = apply_aug
+        self.aug_config = augmentation_config
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
 
         # Augmentation
-        if "intensity" in self.aug_config:
-            ex["image"], ex["instances"] = apply_intensity_augmentation(
-                ex["image"], ex["instances"], **self.aug_config.intensity
-            )
+        if self.apply_aug:
+            if "intensity" in self.aug_config:
+                ex["image"], ex["instances"] = apply_intensity_augmentation(
+                    ex["image"], ex["instances"], **self.aug_config.intensity
+                )
 
-        if "geometric" in self.aug_config:
-            ex["image"], ex["instances"] = apply_geometric_augmentation(
-                ex["image"], ex["instances"], **self.aug_config.geometric
-            )
+            if "geometric" in self.aug_config:
+                ex["image"], ex["instances"] = apply_geometric_augmentation(
+                    ex["image"], ex["instances"], **self.aug_config.geometric
+                )
 
         # resize the image
         ex["image"], ex["instances"] = apply_resizer(
@@ -353,7 +376,6 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
             output_stride=self.confmap_head.output_stride,
         )
 
-        del ex["instances"]
         ex["confidence_maps"] = confidence_maps
 
         return ex

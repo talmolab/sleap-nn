@@ -27,6 +27,7 @@ import shutil
 def test_create_data_loader(config, tmp_path: str):
     """Test _create_data_loader function of ModelTrainer class."""
     # test centered-instance pipeline
+    
     model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -41,6 +42,9 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
 
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+
     # without explicitly providing crop_hw
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
@@ -51,6 +55,9 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.val_data_loader))) == 2
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 112, 112)
+
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
 
     # test exception
     config_copy = config.copy()
@@ -72,6 +79,9 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 1
     assert len(list(iter(model_trainer.val_data_loader))) == 1
 
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+
     # test centroid pipeline
     config_copy = config.copy()
     del config_copy.model_config.head_configs.centered_instance
@@ -82,6 +92,9 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.val_data_loader))) == 1
     ex = next(iter(model_trainer.train_data_loader))
     assert ex["centroids_confidence_maps"].shape == (1, 1, 1, 192, 192)
+
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
 
 
 def test_wandb():
@@ -102,14 +115,14 @@ def test_trainer(config, tmp_path: str):
     model_trainer.train()
 
     # disable ckpt, check if ckpt is created
-    folder_created = Path(config.trainer_config.save_ckpt_path).exists()
+    folder_created = Path(model_trainer.dir_path).exists()
     assert (
-        Path(config.trainer_config.save_ckpt_path)
+        Path(model_trainer.dir_path)
         .joinpath("training_config.yaml")
         .exists()
     )
     assert not (
-        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+        Path(model_trainer.dir_path).joinpath("best.ckpt").exists()
     )
 
     # update save_ckpt to True
@@ -184,33 +197,6 @@ def test_trainer(config, tmp_path: str):
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
 
-    # check resume training
-    config_copy = config.copy()
-    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
-    OmegaConf.update(
-        config_copy,
-        "trainer_config.resume_ckpt_path",
-        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
-    )
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    prv_runid = training_config.trainer_config.wandb.run_id
-    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
-    trainer = ModelTrainer(config_copy)
-    trainer.train()
-
-    checkpoint = torch.load(
-        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 3
-
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    assert training_config.trainer_config.wandb.run_id == prv_runid
-    shutil.rmtree(f"{config_copy.trainer_config.save_ckpt_path}")
-
     # check early stopping
     config_early_stopping = config.copy()
     OmegaConf.update(
@@ -247,6 +233,8 @@ def test_trainer(config, tmp_path: str):
     trainer._create_data_loaders()
     trainer._initialize_model()
     assert isinstance(trainer.model, SingleInstanceModel)
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
 
     # Centroid model
     centroid_config = config.copy()
@@ -254,26 +242,19 @@ def test_trainer(config, tmp_path: str):
     del centroid_config.model_config.head_configs.centered_instance
     del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
-    if Path(centroid_config.trainer_config.save_ckpt_path).exists():
-        shutil.rmtree(centroid_config.trainer_config.save_ckpt_path)
-
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(centroid_config)
-    trainer._create_data_loaders()
-
-    trainer._initialize_model()
-    assert isinstance(trainer.model, CentroidModel)
-
+    
     trainer.train()
-
+    assert isinstance(trainer.model, CentroidModel)
     checkpoint = torch.load(
         Path(centroid_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
     )
-    assert checkpoint["epoch"] == 0
+    assert checkpoint["epoch"] == 1
     assert checkpoint["global_step"] == 10
 
     # bottom up model
@@ -299,18 +280,41 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(bottomup_config)
-    trainer._create_data_loaders()
-
-    trainer._initialize_model()
-    assert isinstance(trainer.model, BottomUpModel)
-
     trainer.train()
+    assert isinstance(trainer.model, BottomUpModel)
 
     checkpoint = torch.load(
         Path(bottomup_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
     )
     assert checkpoint["epoch"] == 0
     assert checkpoint["global_step"] == 10
+
+    # check resume training
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+    OmegaConf.update(
+        config_copy,
+        "trainer_config.resume_ckpt_path",
+        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+    )
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    prv_runid = training_config.trainer_config.wandb.run_id
+    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+    trainer = ModelTrainer(config_copy)
+    trainer.train()
+
+    checkpoint = torch.load(
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 3
+
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    assert training_config.trainer_config.wandb.run_id == prv_runid
+    shutil.rmtree(f"{config_copy.trainer_config.save_ckpt_path}")
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
@@ -332,6 +336,9 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
 
     # convnext with pretrained weights
     OmegaConf.update(
@@ -374,6 +381,9 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         < 1e-4
     )
 
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+
 
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
@@ -402,6 +412,9 @@ def test_centroid_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
+
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
 
 
 def test_single_instance_model(config, tmp_path: str):
@@ -444,9 +457,15 @@ def test_single_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+
 
 def test_bottomup_model(config, tmp_path: str):
     """Test BottomUp model training."""
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
     config_copy = config.copy()
 
     head_config = config.model_config.head_configs.centered_instance
@@ -477,6 +496,8 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
 
     # with edges as None
     config = config_copy
@@ -509,3 +530,5 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
+    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
