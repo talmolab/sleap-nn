@@ -360,10 +360,11 @@ class ModelTrainer:
 
     def train(self):
         """Initiate the training by calling the fit method of Trainer."""
-        self._create_data_loaders()
-        logger = []
 
         if self.config.trainer_config.save_ckpt:
+
+            self._create_data_loaders()
+            logger = []
 
             # create checkpoint callback
             checkpoint_callback = ModelCheckpoint(
