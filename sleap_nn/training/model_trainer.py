@@ -360,87 +360,86 @@ class ModelTrainer:
 
     def train(self):
         """Initiate the training by calling the fit method of Trainer."""
-        if self.config.trainer_config.save_ckpt:
-
+        try:
             self._create_data_loaders()
             logger = []
+            if self.config.trainer_config.save_ckpt:
 
-            # create checkpoint callback
-            checkpoint_callback = ModelCheckpoint(
-                save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
-                save_last=self.config.trainer_config.model_ckpt.save_last,
-                dirpath=self.dir_path,
-                filename="best",
-                monitor="val_loss",
-                mode="min",
-            )
-            callbacks = [checkpoint_callback]
-            # logger to create csv with metrics values over the epochs
-            csv_logger = CSVLogger(self.dir_path)
-            logger.append(csv_logger)
-
-        else:
-            callbacks = []
-
-        if self.config.trainer_config.early_stopping.stop_training_on_plateau:
-            callbacks.append(
-                EarlyStopping(
+                # create checkpoint callback
+                checkpoint_callback = ModelCheckpoint(
+                    save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
+                    save_last=self.config.trainer_config.model_ckpt.save_last,
+                    dirpath=self.dir_path,
+                    filename="best",
                     monitor="val_loss",
                     mode="min",
-                    verbose=False,
-                    min_delta=self.config.trainer_config.early_stopping.min_delta,
-                    patience=self.config.trainer_config.early_stopping.patience,
                 )
+                callbacks = [checkpoint_callback]
+                # logger to create csv with metrics values over the epochs
+                csv_logger = CSVLogger(self.dir_path)
+                logger.append(csv_logger)
+
+            else:
+                callbacks = []
+
+            if self.config.trainer_config.early_stopping.stop_training_on_plateau:
+                callbacks.append(
+                    EarlyStopping(
+                        monitor="val_loss",
+                        mode="min",
+                        verbose=False,
+                        min_delta=self.config.trainer_config.early_stopping.min_delta,
+                        patience=self.config.trainer_config.early_stopping.patience,
+                    )
+                )
+
+            if self.config.trainer_config.use_wandb:
+                wandb_config = self.config.trainer_config.wandb
+                if wandb_config.wandb_mode == "offline":
+                    os.environ["WANDB_MODE"] = "offline"
+                else:
+                    self._set_wandb()
+                wandb_logger = WandbLogger(
+                    project=wandb_config.project,
+                    name=wandb_config.name,
+                    save_dir=self.dir_path,
+                    id=self.config.trainer_config.wandb.prv_runid,
+                )
+                logger.append(wandb_logger)
+
+                # save the configs as yaml in the checkpoint dir
+                self.config.trainer_config.wandb.api_key = ""
+
+            OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
+
+            # save the skeleton in the config
+            self.config["data_config"]["skeletons"] = {}
+            for skl in self.skeletons:
+                if skl.symmetries:
+                    symm = [list(s.nodes) for s in skl.symmetries]
+                else:
+                    symm = None
+                skl_name = skl.name if skl.name is not None else "skeleton-0"
+                self.config["data_config"]["skeletons"][skl_name] = {
+                    "nodes": skl.nodes,
+                    "edges": skl.edges,
+                    "symmetries": symm,
+                }
+
+            self._initialize_model()
+            total_params = self._get_param_count()
+
+            trainer = L.Trainer(
+                callbacks=callbacks,
+                logger=logger,
+                enable_checkpointing=self.config.trainer_config.save_ckpt,
+                devices=self.config.trainer_config.trainer_devices,
+                max_epochs=self.config.trainer_config.max_epochs,
+                accelerator=self.config.trainer_config.trainer_accelerator,
+                enable_progress_bar=self.config.trainer_config.enable_progress_bar,
+                limit_train_batches=self.steps_per_epoch,
             )
 
-        if self.config.trainer_config.use_wandb:
-            wandb_config = self.config.trainer_config.wandb
-            if wandb_config.wandb_mode == "offline":
-                os.environ["WANDB_MODE"] = "offline"
-            else:
-                self._set_wandb()
-            wandb_logger = WandbLogger(
-                project=wandb_config.project,
-                name=wandb_config.name,
-                save_dir=self.dir_path,
-                id=self.config.trainer_config.wandb.prv_runid,
-            )
-            logger.append(wandb_logger)
-
-            # save the configs as yaml in the checkpoint dir
-            self.config.trainer_config.wandb.api_key = ""
-
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
-
-        # save the skeleton in the config
-        self.config["data_config"]["skeletons"] = {}
-        for skl in self.skeletons:
-            if skl.symmetries:
-                symm = [list(s.nodes) for s in skl.symmetries]
-            else:
-                symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"][skl_name] = {
-                "nodes": skl.nodes,
-                "edges": skl.edges,
-                "symmetries": symm,
-            }
-
-        self._initialize_model()
-        total_params = self._get_param_count()
-
-        trainer = L.Trainer(
-            callbacks=callbacks,
-            logger=logger,
-            enable_checkpointing=self.config.trainer_config.save_ckpt,
-            devices=self.config.trainer_config.trainer_devices,
-            max_epochs=self.config.trainer_config.max_epochs,
-            accelerator=self.config.trainer_config.trainer_accelerator,
-            enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-            limit_train_batches=self.steps_per_epoch,
-        )
-
-        try:
             trainer.fit(
                 self.model,
                 self.train_data_loader,

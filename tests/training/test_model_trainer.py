@@ -230,12 +230,12 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
     # OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
-    trainer = ModelTrainer(bottomup_config)
+    trainer = ModelTrainer(single_instance_config)
 
     trainer.train()
     assert isinstance(trainer.model, SingleInstanceModel)
     checkpoint = torch.load(
-        Path(bottomup_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(single_instance_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
     )
     assert checkpoint["epoch"] == 1
 
