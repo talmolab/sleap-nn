@@ -328,18 +328,18 @@ class ModelTrainer:
 
         # train
         # TODO: cycler - to ensure minimum steps per epoch
-        self.train_data_loader = ld.StreamingDataLoader(
-            train_dataset,
-            batch_size=self.config.trainer_config.train_data_loader.batch_size,
-            num_workers=self.config.trainer_config.train_data_loader.num_workers,
-        )
+        # self.train_data_loader = ld.StreamingDataLoader(
+        #     train_dataset,
+        #     batch_size=self.config.trainer_config.train_data_loader.batch_size,
+        #     num_workers=self.config.trainer_config.train_data_loader.num_workers,
+        # )
 
-        # val
-        self.val_data_loader = ld.StreamingDataLoader(
-            val_dataset,
-            batch_size=self.config.trainer_config.val_data_loader.batch_size,
-            num_workers=self.config.trainer_config.val_data_loader.num_workers,
-        )
+        # # val
+        # self.val_data_loader = ld.StreamingDataLoader(
+        #     val_dataset,
+        #     batch_size=self.config.trainer_config.val_data_loader.batch_size,
+        #     num_workers=self.config.trainer_config.val_data_loader.num_workers,
+        # )
 
     def _set_wandb(self):
         wandb.login(key=self.config.trainer_config.wandb.api_key)
