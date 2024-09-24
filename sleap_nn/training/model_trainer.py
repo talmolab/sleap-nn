@@ -30,12 +30,6 @@ from torchvision.models.convnext import (
 
 import sleap_io as sio
 from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.pipelines import (
-    TopdownConfmapsPipeline,
-    SingleInstanceConfmapsPipeline,
-    CentroidConfmapsPipeline,
-    BottomUpPipeline,
-)
 import wandb
 from sleap_nn.architectures.model import Model
 from sleap_nn.data.providers import get_max_instances
@@ -409,7 +403,10 @@ class ModelTrainer:
                 # save the configs as yaml in the checkpoint dir
                 self.config.trainer_config.wandb.api_key = ""
 
-            OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
+            OmegaConf.save(
+                config=self.config,
+                f=(Path(self.dir_path) / "initial_config.yaml").as_posix(),
+            )
 
             # save the skeleton in the config
             self.config["data_config"]["skeletons"] = {}
@@ -436,7 +433,7 @@ class ModelTrainer:
                 max_epochs=self.config.trainer_config.max_epochs,
                 accelerator=self.config.trainer_config.trainer_accelerator,
                 enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-                limit_train_batches=self.steps_per_epoch,
+                # limit_train_batches=self.steps_per_epoch,
             )
 
             trainer.fit(
@@ -464,9 +461,11 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb:
                 self.config.trainer_config.wandb.run_id = wandb.run.id
                 self.config.model_config.total_params = total_params
+            wandb.finish()
             # save the configs as yaml in the checkpoint dir
             OmegaConf.save(
-                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+                config=self.config,
+                f=(Path(self.dir_path) / "training_config.yaml").as_posix(),
             )
             shutil.rmtree((Path(self.dir_path) / "train_chunks").as_posix())
             shutil.rmtree((Path(self.dir_path) / "val_chunks").as_posix())
