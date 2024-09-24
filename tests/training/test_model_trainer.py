@@ -42,8 +42,8 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # without explicitly providing crop_hw
     config_copy = config.copy()
@@ -56,8 +56,8 @@ def test_create_data_loader(config, tmp_path: str):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 112, 112)
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # test exception
     config_copy = config.copy()
@@ -79,8 +79,8 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 1
     assert len(list(iter(model_trainer.val_data_loader))) == 1
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # test centroid pipeline
     config_copy = config.copy()
@@ -93,8 +93,8 @@ def test_create_data_loader(config, tmp_path: str):
     ex = next(iter(model_trainer.train_data_loader))
     assert ex["centroids_confidence_maps"].shape == (1, 1, 1, 192, 192)
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
 
 def test_wandb():
@@ -133,7 +133,7 @@ def test_trainer(config, tmp_path: str):
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert folder_created
     files = [
-        str(x)
+        x.as_posix()
         for x in Path(config.trainer_config.save_ckpt_path).iterdir()
         if x.is_file()
     ]
@@ -174,7 +174,7 @@ def test_trainer(config, tmp_path: str):
     path = Path(config.trainer_config.save_ckpt_path).joinpath(
         "lightning_logs/version_0/"
     )
-    files = [str(x) for x in Path(path).iterdir() if x.is_file()]
+    files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
     metrics = False
     for i in files:
         if "metrics.csv" in i:
@@ -340,8 +340,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # convnext with pretrained weights
     OmegaConf.update(
@@ -384,8 +384,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         < 1e-4
     )
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
 
 def test_centroid_model(config, tmp_path: str):
@@ -416,8 +416,8 @@ def test_centroid_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
 
 def test_single_instance_model(config, tmp_path: str):
@@ -460,8 +460,8 @@ def test_single_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
 
 def test_bottomup_model(config, tmp_path: str):
@@ -499,8 +499,8 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # with edges as None
     config = config_copy
@@ -533,5 +533,5 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "train_chunks"))
-    shutil.rmtree(str(Path(model_trainer.dir_path) / "val_chunks"))
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())

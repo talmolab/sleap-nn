@@ -114,7 +114,7 @@ class ModelTrainer:
         ld.optimize(
             fn=func,
             inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
-            output_dir=str(Path(self.dir_path) / "train_chunks"),
+            output_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
             chunk_size=(
                 self.config.data_config.chunk_size
@@ -127,7 +127,7 @@ class ModelTrainer:
         ld.optimize(
             fn=func,
             inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
-            output_dir=str(Path(self.dir_path) / "val_chunks"),
+            output_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
             chunk_size=(
                 self.config.data_config.chunk_size
@@ -177,7 +177,7 @@ class ModelTrainer:
             )
 
             train_dataset = SingleInstanceStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "train_chunks"),
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -187,7 +187,7 @@ class ModelTrainer:
             )
 
             val_dataset = SingleInstanceStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "val_chunks"),
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
@@ -230,7 +230,7 @@ class ModelTrainer:
             )
 
             train_dataset = CenteredInstanceStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "train_chunks"),
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -241,7 +241,7 @@ class ModelTrainer:
             )
 
             val_dataset = CenteredInstanceStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "val_chunks"),
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
@@ -266,7 +266,7 @@ class ModelTrainer:
             )
 
             train_dataset = CentroidStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "train_chunks"),
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -276,7 +276,7 @@ class ModelTrainer:
             )
 
             val_dataset = CentroidStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "val_chunks"),
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
@@ -299,7 +299,7 @@ class ModelTrainer:
             )
 
             train_dataset = BottomUpStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "train_chunks"),
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -311,7 +311,7 @@ class ModelTrainer:
             )
 
             val_dataset = BottomUpStreamingDataset(
-                input_dir=str(Path(self.dir_path) / "val_chunks"),
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
@@ -328,18 +328,18 @@ class ModelTrainer:
 
         # train
         # TODO: cycler - to ensure minimum steps per epoch
-        # self.train_data_loader = ld.StreamingDataLoader(
-        #     train_dataset,
-        #     batch_size=self.config.trainer_config.train_data_loader.batch_size,
-        #     num_workers=self.config.trainer_config.train_data_loader.num_workers,
-        # )
+        self.train_data_loader = ld.StreamingDataLoader(
+            train_dataset,
+            batch_size=self.config.trainer_config.train_data_loader.batch_size,
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
+        )
 
-        # # val
-        # self.val_data_loader = ld.StreamingDataLoader(
-        #     val_dataset,
-        #     batch_size=self.config.trainer_config.val_data_loader.batch_size,
-        #     num_workers=self.config.trainer_config.val_data_loader.num_workers,
-        # )
+        # val
+        self.val_data_loader = ld.StreamingDataLoader(
+            val_dataset,
+            batch_size=self.config.trainer_config.val_data_loader.batch_size,
+            num_workers=self.config.trainer_config.val_data_loader.num_workers,
+        )
 
     def _set_wandb(self):
         wandb.login(key=self.config.trainer_config.wandb.api_key)
