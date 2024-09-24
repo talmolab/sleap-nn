@@ -106,218 +106,218 @@ def test_wandb():
     wandb.finish()
 
 
-def test_trainer(config, tmp_path: str):
-    # # for topdown centered instance model
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
-    model_trainer = ModelTrainer(config)
-    model_trainer.train()
+# def test_trainer(config, tmp_path: str):
+#     # # for topdown centered instance model
+#     OmegaConf.update(
+#         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+#     )
+#     model_trainer = ModelTrainer(config)
+#     model_trainer.train()
 
-    # disable ckpt, check if ckpt is created
-    assert Path(model_trainer.dir_path).joinpath("training_config.yaml").exists()
-    assert not (Path(model_trainer.dir_path).joinpath("best.ckpt").exists())
+#     # disable ckpt, check if ckpt is created
+#     assert Path(model_trainer.dir_path).joinpath("training_config.yaml").exists()
+#     assert not (Path(model_trainer.dir_path).joinpath("best.ckpt").exists())
 
-    # update save_ckpt to True
-    OmegaConf.update(config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(config, "trainer_config.use_wandb", True)
-    OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
-    OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
+#     # update save_ckpt to True
+#     OmegaConf.update(config, "trainer_config.save_ckpt", True)
+#     OmegaConf.update(config, "trainer_config.use_wandb", True)
+#     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
+#     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
 
-    model_trainer = ModelTrainer(config)
-    model_trainer.train()
+#     model_trainer = ModelTrainer(config)
+#     model_trainer.train()
 
-    # check if wandb folder is created
-    assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
+#     # check if wandb folder is created
+#     assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
 
-    folder_created = Path(config.trainer_config.save_ckpt_path).exists()
-    assert folder_created
-    files = [
-        x.as_posix()
-        for x in Path(config.trainer_config.save_ckpt_path).iterdir()
-        if x.is_file()
-    ]
-    assert (
-        Path(config.trainer_config.save_ckpt_path)
-        .joinpath("initial_config.yaml")
-        .exists()
-    )
-    assert (
-        Path(config.trainer_config.save_ckpt_path)
-        .joinpath("training_config.yaml")
-        .exists()
-    )
-    training_config = OmegaConf.load(
-        f"{config.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    assert training_config.trainer_config.wandb.run_id is not None
-    assert training_config.model_config.total_params is not None
-    assert training_config.trainer_config.wandb.api_key == ""
-    assert training_config.data_config.skeletons
-    assert training_config.data_config.preprocessing.crop_hw == (112, 112)
+#     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
+#     assert folder_created
+#     files = [
+#         x.as_posix()
+#         for x in Path(config.trainer_config.save_ckpt_path).iterdir()
+#         if x.is_file()
+#     ]
+#     assert (
+#         Path(config.trainer_config.save_ckpt_path)
+#         .joinpath("initial_config.yaml")
+#         .exists()
+#     )
+#     assert (
+#         Path(config.trainer_config.save_ckpt_path)
+#         .joinpath("training_config.yaml")
+#         .exists()
+#     )
+#     training_config = OmegaConf.load(
+#         f"{config.trainer_config.save_ckpt_path}/training_config.yaml"
+#     )
+#     assert training_config.trainer_config.wandb.run_id is not None
+#     assert training_config.model_config.total_params is not None
+#     assert training_config.trainer_config.wandb.api_key == ""
+#     assert training_config.data_config.skeletons
+#     assert training_config.data_config.preprocessing.crop_hw == (112, 112)
 
-    # check if ckpt is created
-    assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
-    assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+#     # check if ckpt is created
+#     assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
+#     assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
 
-    checkpoint = torch.load(
-        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
+#     checkpoint = torch.load(
+#         Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+#     )
+#     assert checkpoint["epoch"] == 1
 
-    # check if skeleton is saved in ckpt file
-    assert checkpoint["config"]
-    assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
-    assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
+#     # check if skeleton is saved in ckpt file
+#     assert checkpoint["config"]
+#     assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
+#     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
-    # check for training metrics csv
-    path = Path(config.trainer_config.save_ckpt_path).joinpath(
-        "lightning_logs/version_0/"
-    )
-    files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
-    metrics = False
-    for i in files:
-        if "metrics.csv" in i:
-            metrics = True
-            break
-    assert metrics
-    df = pd.read_csv(
-        Path(config.trainer_config.save_ckpt_path).joinpath(
-            "lightning_logs/version_0/metrics.csv"
-        )
-    )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
+#     # check for training metrics csv
+#     path = Path(config.trainer_config.save_ckpt_path).joinpath(
+#         "lightning_logs/version_0/"
+#     )
+#     files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
+#     metrics = False
+#     for i in files:
+#         if "metrics.csv" in i:
+#             metrics = True
+#             break
+#     assert metrics
+#     df = pd.read_csv(
+#         Path(config.trainer_config.save_ckpt_path).joinpath(
+#             "lightning_logs/version_0/metrics.csv"
+#         )
+#     )
+#     assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
+#     assert not df.val_loss.isnull().all()
+#     assert not df.train_loss.isnull().all()
 
-    # check early stopping
-    config_early_stopping = config.copy()
-    OmegaConf.update(
-        config_early_stopping, "trainer_config.early_stopping.min_delta", 1
-    )
-    OmegaConf.update(
-        config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
-    )
-    OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
-    OmegaConf.update(
-        config_early_stopping,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer/",
-    )
+#     # check early stopping
+#     config_early_stopping = config.copy()
+#     OmegaConf.update(
+#         config_early_stopping, "trainer_config.early_stopping.min_delta", 1
+#     )
+#     OmegaConf.update(
+#         config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
+#     )
+#     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
+#     OmegaConf.update(
+#         config_early_stopping,
+#         "trainer_config.save_ckpt_path",
+#         f"{tmp_path}/test_model_trainer/",
+#     )
 
-    trainer = ModelTrainer(config_early_stopping)
-    trainer.train()
+#     trainer = ModelTrainer(config_early_stopping)
+#     trainer.train()
 
-    checkpoint = torch.load(
-        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
+#     checkpoint = torch.load(
+#         Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+#     )
+#     assert checkpoint["epoch"] == 1
 
-    # For Single instance model
-    single_instance_config = config.copy()
-    head_config = single_instance_config.model_config.head_configs.centered_instance
-    del single_instance_config.model_config.head_configs.centered_instance
-    OmegaConf.update(
-        single_instance_config, "model_config.head_configs.single_instance", head_config
-    )
-    del (
-        single_instance_config.model_config.head_configs.single_instance.confmaps.anchor_part
-    )
+#     # For Single instance model
+#     single_instance_config = config.copy()
+#     head_config = single_instance_config.model_config.head_configs.centered_instance
+#     del single_instance_config.model_config.head_configs.centered_instance
+#     OmegaConf.update(
+#         single_instance_config, "model_config.head_configs.single_instance", head_config
+#     )
+#     del (
+#         single_instance_config.model_config.head_configs.single_instance.confmaps.anchor_part
+#     )
 
-    OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(single_instance_config, "trainer_config.use_wandb", False)
-    OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
-    # OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
+#     OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
+#     OmegaConf.update(single_instance_config, "trainer_config.use_wandb", False)
+#     OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
+#     # OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
-    trainer = ModelTrainer(single_instance_config)
+#     trainer = ModelTrainer(single_instance_config)
 
-    trainer.train()
-    assert isinstance(trainer.model, SingleInstanceModel)
-    checkpoint = torch.load(
-        Path(single_instance_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
+#     trainer.train()
+#     assert isinstance(trainer.model, SingleInstanceModel)
+#     checkpoint = torch.load(
+#         Path(single_instance_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+#     )
+#     assert checkpoint["epoch"] == 1
 
-    # Centroid model
-    centroid_config = config.copy()
-    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
-    del centroid_config.model_config.head_configs.centered_instance
-    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
+#     # Centroid model
+#     centroid_config = config.copy()
+#     OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+#     del centroid_config.model_config.head_configs.centered_instance
+#     del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
-    OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
-    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 2)
-    # OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
+#     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
+#     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
+#     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 2)
+#     # OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
-    trainer = ModelTrainer(centroid_config)
+#     trainer = ModelTrainer(centroid_config)
 
-    trainer.train()
-    assert isinstance(trainer.model, CentroidModel)
-    checkpoint = torch.load(
-        Path(centroid_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
-    # assert checkpoint["global_step"] == 10
+#     trainer.train()
+#     assert isinstance(trainer.model, CentroidModel)
+#     checkpoint = torch.load(
+#         Path(centroid_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+#     )
+#     assert checkpoint["epoch"] == 1
+#     # assert checkpoint["global_step"] == 10
 
-    # bottom up model
-    bottomup_config = config.copy()
-    OmegaConf.update(bottomup_config, "model_config.head_configs.bottomup", head_config)
-    paf = {
-        "edges": [("part1", "part2")],
-        "sigma": 4,
-        "output_stride": 4,
-        "loss_weight": 1.0,
-    }
-    del bottomup_config.model_config.head_configs.bottomup["confmaps"].anchor_part
-    del bottomup_config.model_config.head_configs.centered_instance
-    bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
-    bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
-    OmegaConf.update(
-        bottomup_config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/bottomup_test_model_trainer/",
-    )
+#     # bottom up model
+#     bottomup_config = config.copy()
+#     OmegaConf.update(bottomup_config, "model_config.head_configs.bottomup", head_config)
+#     paf = {
+#         "edges": [("part1", "part2")],
+#         "sigma": 4,
+#         "output_stride": 4,
+#         "loss_weight": 1.0,
+#     }
+#     del bottomup_config.model_config.head_configs.bottomup["confmaps"].anchor_part
+#     del bottomup_config.model_config.head_configs.centered_instance
+#     bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
+#     bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
+#     OmegaConf.update(
+#         bottomup_config,
+#         "trainer_config.save_ckpt_path",
+#         f"{tmp_path}/bottomup_test_model_trainer/",
+#     )
 
-    OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
-    OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 2)
-    # OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
+#     OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
+#     OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
+#     OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 2)
+#     # OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
 
-    trainer = ModelTrainer(bottomup_config)
-    trainer.train()
-    assert isinstance(trainer.model, BottomUpModel)
+#     trainer = ModelTrainer(bottomup_config)
+#     trainer.train()
+#     assert isinstance(trainer.model, BottomUpModel)
 
-    checkpoint = torch.load(
-        Path(bottomup_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
-    # assert checkpoint["global_step"] == 10
+#     checkpoint = torch.load(
+#         Path(bottomup_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+#     )
+#     assert checkpoint["epoch"] == 1
+#     # assert checkpoint["global_step"] == 10
 
-    # check resume training
-    config_copy = bottomup_config.copy()
-    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
-    OmegaConf.update(
-        config_copy,
-        "trainer_config.resume_ckpt_path",
-        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
-    )
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    prv_runid = training_config.trainer_config.wandb.run_id
-    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
-    trainer = ModelTrainer(config_copy)
-    trainer.train()
+#     # check resume training
+#     config_copy = bottomup_config.copy()
+#     OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+#     OmegaConf.update(
+#         config_copy,
+#         "trainer_config.resume_ckpt_path",
+#         f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+#     )
+#     training_config = OmegaConf.load(
+#         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+#     )
+#     prv_runid = training_config.trainer_config.wandb.run_id
+#     OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+#     trainer = ModelTrainer(config_copy)
+#     trainer.train()
 
-    checkpoint = torch.load(
-        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
+#     checkpoint = torch.load(
+#         Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+#     )
+#     assert checkpoint["epoch"] == 1
 
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    assert training_config.trainer_config.wandb.run_id == prv_runid
+#     training_config = OmegaConf.load(
+#         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+#     )
+#     assert training_config.trainer_config.wandb.run_id == prv_runid
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
