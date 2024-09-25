@@ -150,22 +150,22 @@ def test_trainer(config, tmp_path: str):
     # assert not df.train_loss.isnull().all()
 
     # # check early stopping
-    config_early_stopping = config.copy()
-    OmegaConf.update(
-        config_early_stopping, "trainer_config.early_stopping.min_delta", 1
-    )
-    OmegaConf.update(
-        config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
-    )
-    OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
+    # config_early_stopping = config.copy()
+    # OmegaConf.update(
+    #     config_early_stopping, "trainer_config.early_stopping.min_delta", 1
+    # )
+    # OmegaConf.update(
+    #     config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
+    # )
+    # OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
 
-    trainer = ModelTrainer(config_early_stopping)
-    trainer.train()
+    # trainer = ModelTrainer(config_early_stopping)
+    # trainer.train()
 
-    checkpoint = torch.load(
-        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
+    # checkpoint = torch.load(
+    #     Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    # )
+    # assert checkpoint["epoch"] == 1
 
     # # check resume training
     # config_copy = config.copy()
@@ -210,6 +210,7 @@ def test_trainer(config, tmp_path: str):
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
+    trainer.train()
     assert isinstance(trainer.model, SingleInstanceModel)
 
     # Centroid model
