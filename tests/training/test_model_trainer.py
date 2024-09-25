@@ -205,7 +205,7 @@ def test_trainer(config, tmp_path: str):
     )
 
     OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(single_instance_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(single_instance_config, "trainer_config.use_wandb", True)
     OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
 
     trainer = ModelTrainer(single_instance_config)
