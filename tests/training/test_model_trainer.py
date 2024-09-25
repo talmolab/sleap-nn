@@ -140,7 +140,7 @@ def test_trainer(config, tmp_path: str):
     #         break
     # assert metrics
     # print(f"list fo files: {Path(config.trainer_config.save_ckpt_path)}")
-    print(f"{os.listdir(f'{tmp_path}/test_model_trainer/')}")
+    # print(f"{os.listdir(f'{tmp_path}/test_model_trainer/')}")
     # print(f"{os.listdir(f'{tmp_path}/test_model_trainer/lightning_logs')}")
     # df = pd.read_csv(
     #     f"{tmp_path}/test_model_trainer/lightning_logs/version_0/metrics.csv"
