@@ -129,69 +129,69 @@ def test_trainer(config, tmp_path: str):
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # check for training metrics csv
-    # path = Path(config.trainer_config.save_ckpt_path) / "lightning_logs"
-    # folders = [x.as_posix() for x in Path(path).iterdir() if x.is_dir()]
-    # path = folders[-1]
-    # files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
-    # metrics = False
-    # for i in files:
-    #     if "metrics.csv" in i:
-    #         metrics = True
-    #         break
-    # assert metrics
-    # print(f"list fo files: {Path(config.trainer_config.save_ckpt_path)}")
-    # print(f"{os.listdir(f'{tmp_path}/test_model_trainer/')}")
-    # print(f"{os.listdir(f'{tmp_path}/test_model_trainer/lightning_logs')}")
-    # df = pd.read_csv(
-    #     f"{tmp_path}/test_model_trainer/lightning_logs/version_0/metrics.csv"
-    # )
-    # assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    # assert not df.val_loss.isnull().all()
-    # assert not df.train_loss.isnull().all()
+    path = Path(config.trainer_config.save_ckpt_path) / "lightning_logs"
+    folders = [x.as_posix() for x in Path(path).iterdir() if x.is_dir()]
+    path = folders[-1]
+    files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
+    metrics = False
+    for i in files:
+        if "metrics.csv" in i:
+            metrics = True
+            break
+    assert metrics
+    print(f"list fo files: {Path(config.trainer_config.save_ckpt_path)}")
+    print(f"{os.listdir(f'{tmp_path}/test_model_trainer/')}")
+    print(f"{os.listdir(f'{tmp_path}/test_model_trainer/lightning_logs')}")
+    df = pd.read_csv(
+        f"{tmp_path}/test_model_trainer/lightning_logs/version_0/metrics.csv"
+    )
+    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
+    assert not df.val_loss.isnull().all()
+    assert not df.train_loss.isnull().all()
 
     # # check early stopping
-    # config_early_stopping = config.copy()
-    # OmegaConf.update(
-    #     config_early_stopping, "trainer_config.early_stopping.min_delta", 1
-    # )
-    # OmegaConf.update(
-    #     config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
-    # )
-    # OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
+    config_early_stopping = config.copy()
+    OmegaConf.update(
+        config_early_stopping, "trainer_config.early_stopping.min_delta", 1
+    )
+    OmegaConf.update(
+        config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
+    )
+    OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
 
-    # trainer = ModelTrainer(config_early_stopping)
-    # trainer.train()
+    trainer = ModelTrainer(config_early_stopping)
+    trainer.train()
 
-    # checkpoint = torch.load(
-    #     Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    # )
-    # assert checkpoint["epoch"] == 1
+    checkpoint = torch.load(
+        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 1
 
     # # check resume training
-    # config_copy = config.copy()
-    # OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
-    # OmegaConf.update(
-    #     config_copy,
-    #     "trainer_config.resume_ckpt_path",
-    #     f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
-    # )
-    # training_config = OmegaConf.load(
-    #     f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    # )
-    # prv_runid = training_config.trainer_config.wandb.run_id
-    # OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
-    # trainer = ModelTrainer(config_copy)
-    # trainer.train()
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+    OmegaConf.update(
+        config_copy,
+        "trainer_config.resume_ckpt_path",
+        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+    )
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    prv_runid = training_config.trainer_config.wandb.run_id
+    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+    trainer = ModelTrainer(config_copy)
+    trainer.train()
 
-    # checkpoint = torch.load(
-    #     Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    # )
-    # assert checkpoint["epoch"] == 3
+    checkpoint = torch.load(
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 3
 
-    # training_config = OmegaConf.load(
-    #     f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    # )
-    # assert training_config.trainer_config.wandb.run_id == prv_runid
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    assert training_config.trainer_config.wandb.run_id == prv_runid
 
     # For Single instance model
     single_instance_config = config.copy()
