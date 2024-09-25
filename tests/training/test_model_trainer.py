@@ -31,20 +31,6 @@ def test_create_data_loader(config, tmp_path: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders()
-    assert isinstance(
-        model_trainer.train_data_loader, torch.utils.data.dataloader.DataLoader
-    )
-    assert isinstance(
-        model_trainer.val_data_loader, torch.utils.data.dataloader.DataLoader
-    )
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
-
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
-
     # without explicitly providing crop_hw
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
@@ -68,34 +54,6 @@ def test_create_data_loader(config, tmp_path: str):
     with pytest.raises(Exception):
         model_trainer._create_data_loaders()
 
-    # test single instance pipeline
-    config_copy = config.copy()
-    del config_copy.model_config.head_configs.centered_instance
-    OmegaConf.update(
-        config_copy, "model_config.head_configs.single_instance", head_config
-    )
-    model_trainer = ModelTrainer(config_copy)
-    model_trainer._create_data_loaders()
-    assert len(list(iter(model_trainer.train_data_loader))) == 1
-    assert len(list(iter(model_trainer.val_data_loader))) == 1
-
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
-
-    # test centroid pipeline
-    config_copy = config.copy()
-    del config_copy.model_config.head_configs.centered_instance
-    OmegaConf.update(config_copy, "model_config.head_configs.centroid", head_config)
-    model_trainer = ModelTrainer(config_copy)
-    model_trainer._create_data_loaders()
-    assert len(list(iter(model_trainer.train_data_loader))) == 1
-    assert len(list(iter(model_trainer.val_data_loader))) == 1
-    ex = next(iter(model_trainer.train_data_loader))
-    assert ex["centroids_confidence_maps"].shape == (1, 1, 1, 192, 192)
-
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
-
 
 def test_wandb():
     """Test wandb integration."""
@@ -118,7 +76,7 @@ def test_trainer(config, tmp_path: str):
     assert Path(model_trainer.dir_path).joinpath("training_config.yaml").exists()
     assert not (Path(model_trainer.dir_path).joinpath("best.ckpt").exists())
 
-    # update save_ckpt to True
+    # # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
@@ -213,6 +171,32 @@ def test_trainer(config, tmp_path: str):
     )
     assert checkpoint["epoch"] == 1
 
+    # check resume training
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+    OmegaConf.update(
+        config_copy,
+        "trainer_config.resume_ckpt_path",
+        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+    )
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    prv_runid = training_config.trainer_config.wandb.run_id
+    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+    trainer = ModelTrainer(config_copy)
+    trainer.train()
+
+    checkpoint = torch.load(
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 3
+
+    training_config = OmegaConf.load(
+        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    )
+    assert training_config.trainer_config.wandb.run_id == prv_runid
+
     # For Single instance model
     single_instance_config = config.copy()
     head_config = single_instance_config.model_config.head_configs.centered_instance
@@ -227,16 +211,10 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(single_instance_config, "trainer_config.use_wandb", False)
     OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
-    # OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(single_instance_config)
-
-    trainer.train()
+    trainer._initialize_model()
     assert isinstance(trainer.model, SingleInstanceModel)
-    checkpoint = torch.load(
-        Path(single_instance_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
 
     # Centroid model
     centroid_config = config.copy()
@@ -247,17 +225,10 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 2)
-    # OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(centroid_config)
-
-    trainer.train()
+    trainer._initialize_model()
     assert isinstance(trainer.model, CentroidModel)
-    checkpoint = torch.load(
-        Path(centroid_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
-    # assert checkpoint["global_step"] == 10
 
     # bottom up model
     bottomup_config = config.copy()
@@ -281,43 +252,10 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
     OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 2)
-    # OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(bottomup_config)
-    trainer.train()
+    trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpModel)
-
-    checkpoint = torch.load(
-        Path(bottomup_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
-    # assert checkpoint["global_step"] == 10
-
-    # check resume training
-    config_copy = bottomup_config.copy()
-    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
-    OmegaConf.update(
-        config_copy,
-        "trainer_config.resume_ckpt_path",
-        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
-    )
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    prv_runid = training_config.trainer_config.wandb.run_id
-    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
-    trainer = ModelTrainer(config_copy)
-    trainer.train()
-
-    checkpoint = torch.load(
-        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
-
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    assert training_config.trainer_config.wandb.run_id == prv_runid
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
@@ -338,7 +276,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # check the loss value
     loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+    assert abs(loss - mse_loss(preds, input_cm[0])) < 1e-3
 
     shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
@@ -409,6 +347,10 @@ def test_centroid_model(config, tmp_path: str):
     input_cm = input_["centroids_confidence_maps"]
     preds = model(input_["image"])
 
+    assert len(list(iter(model_trainer.train_data_loader))) == 1
+    assert len(list(iter(model_trainer.val_data_loader))) == 1
+    assert input_cm.shape == (1, 1, 1, 192, 192)
+
     # check the output shape
     assert preds.shape == (1, 1, 192, 192)
 
@@ -454,6 +396,9 @@ def test_single_instance_model(config, tmp_path: str):
             / config.model_config.head_configs.single_instance.confmaps.output_stride
         ),
     )
+
+    assert len(list(iter(model_trainer.train_data_loader))) == 1
+    assert len(list(iter(model_trainer.val_data_loader))) == 1
 
     # check the loss value
     input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]

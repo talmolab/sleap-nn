@@ -78,7 +78,6 @@ class ModelTrainer:
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
         # initialize attributes
-        self.model_type = None
         self.model = None
         self.provider = None
         self.skeletons = None
@@ -87,6 +86,12 @@ class ModelTrainer:
 
         # set seed
         torch.manual_seed(self.seed)
+
+        # check which head type to choose the model
+        for k, v in self.config.model_config.head_configs.items():
+            if v is not None:
+                self.model_type = k
+                break
 
         # set ckpt path
         if not self.config.trainer_config.save_ckpt_path:
@@ -135,12 +140,6 @@ class ModelTrainer:
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
-
-        # check which head type to choose the model
-        for k, v in self.config.model_config.head_configs.items():
-            if v is not None:
-                self.model_type = k
-                break
 
         train_labels = sio.load_slp(self.config.data_config.train_labels_path)
         val_labels = sio.load_slp(self.config.data_config.val_labels_path)
