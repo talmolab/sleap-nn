@@ -460,7 +460,7 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb:
                 self.config.trainer_config.wandb.run_id = wandb.run.id
                 self.config.model_config.total_params = total_params
-            wandb.finish()
+                wandb.finish()
             # save the configs as yaml in the checkpoint dir
             OmegaConf.save(
                 config=self.config,
