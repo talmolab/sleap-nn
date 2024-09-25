@@ -128,17 +128,17 @@ def test_trainer(config, tmp_path: str):
     assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
-    # # check for training metrics csv
-    # path = Path(config.trainer_config.save_ckpt_path).joinpath(
-    #     "lightning_logs/version_0/"
-    # )
-    # files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
-    # metrics = False
-    # for i in files:
-    #     if "metrics.csv" in i:
-    #         metrics = True
-    #         break
-    # assert metrics
+    # check for training metrics csv
+    path = Path(config.trainer_config.save_ckpt_path).joinpath(
+        "lightning_logs/version_0/"
+    )
+    files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
+    metrics = False
+    for i in files:
+        if "metrics.csv" in i:
+            metrics = True
+            break
+    assert metrics
     # df = pd.read_csv(
     #     Path(config.trainer_config.save_ckpt_path).joinpath(
     #         "lightning_logs/version_0/metrics.csv"
