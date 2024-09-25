@@ -198,65 +198,65 @@ def test_trainer(config, tmp_path: str):
     # )
     # assert training_config.trainer_config.wandb.run_id == prv_runid
 
-    # # For Single instance model
-    # single_instance_config = config.copy()
-    # head_config = single_instance_config.model_config.head_configs.centered_instance
-    # del single_instance_config.model_config.head_configs.centered_instance
-    # OmegaConf.update(
-    #     single_instance_config, "model_config.head_configs.single_instance", head_config
-    # )
-    # del (
-    #     single_instance_config.model_config.head_configs.single_instance.confmaps.anchor_part
-    # )
+    # For Single instance model
+    single_instance_config = config.copy()
+    head_config = single_instance_config.model_config.head_configs.centered_instance
+    del single_instance_config.model_config.head_configs.centered_instance
+    OmegaConf.update(
+        single_instance_config, "model_config.head_configs.single_instance", head_config
+    )
+    del (
+        single_instance_config.model_config.head_configs.single_instance.confmaps.anchor_part
+    )
 
-    # OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
-    # OmegaConf.update(single_instance_config, "trainer_config.use_wandb", False)
-    # OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(single_instance_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
 
-    # trainer = ModelTrainer(single_instance_config)
-    # trainer._initialize_model()
-    # assert isinstance(trainer.model, SingleInstanceModel)
+    trainer = ModelTrainer(single_instance_config)
+    trainer._initialize_model()
+    assert isinstance(trainer.model, SingleInstanceModel)
 
-    # # Centroid model
-    # centroid_config = config.copy()
-    # OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
-    # del centroid_config.model_config.head_configs.centered_instance
-    # del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
+    # Centroid model
+    centroid_config = config.copy()
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
-    # OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
-    # OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
-    # OmegaConf.update(centroid_config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 2)
 
-    # trainer = ModelTrainer(centroid_config)
-    # trainer._initialize_model()
-    # assert isinstance(trainer.model, CentroidModel)
+    trainer = ModelTrainer(centroid_config)
+    trainer._initialize_model()
+    assert isinstance(trainer.model, CentroidModel)
 
-    # # bottom up model
-    # bottomup_config = config.copy()
-    # OmegaConf.update(bottomup_config, "model_config.head_configs.bottomup", head_config)
-    # paf = {
-    #     "edges": [("part1", "part2")],
-    #     "sigma": 4,
-    #     "output_stride": 4,
-    #     "loss_weight": 1.0,
-    # }
-    # del bottomup_config.model_config.head_configs.bottomup["confmaps"].anchor_part
-    # del bottomup_config.model_config.head_configs.centered_instance
-    # bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
-    # bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
-    # OmegaConf.update(
-    #     bottomup_config,
-    #     "trainer_config.save_ckpt_path",
-    #     f"{tmp_path}/bottomup_test_model_trainer/",
-    # )
+    # bottom up model
+    bottomup_config = config.copy()
+    OmegaConf.update(bottomup_config, "model_config.head_configs.bottomup", head_config)
+    paf = {
+        "edges": [("part1", "part2")],
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
+    }
+    del bottomup_config.model_config.head_configs.bottomup["confmaps"].anchor_part
+    del bottomup_config.model_config.head_configs.centered_instance
+    bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
+    bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
+    OmegaConf.update(
+        bottomup_config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/bottomup_test_model_trainer/",
+    )
 
-    # OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
-    # OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
-    # OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 2)
 
-    # trainer = ModelTrainer(bottomup_config)
-    # trainer._initialize_model()
-    # assert isinstance(trainer.model, BottomUpModel)
+    trainer = ModelTrainer(bottomup_config)
+    trainer._initialize_model()
+    assert isinstance(trainer.model, BottomUpModel)
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
