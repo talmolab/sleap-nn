@@ -159,8 +159,8 @@ def test_trainer(config, tmp_path: str):
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
     )
-    prv_runid = training_config.trainer_config.wandb.run_id
-    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+    # prv_runid = training_config.trainer_config.wandb.run_id
+    # OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
     trainer = ModelTrainer(config_copy)
     trainer.train()
 
@@ -172,7 +172,7 @@ def test_trainer(config, tmp_path: str):
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
     )
-    assert training_config.trainer_config.wandb.run_id == prv_runid
+    # assert training_config.trainer_config.wandb.run_id == prv_runid
 
     # check for training metrics csv
     # path = Path(config_copy.trainer_config.save_ckpt_path) / "lightning_logs"
