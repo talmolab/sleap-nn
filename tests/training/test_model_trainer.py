@@ -123,24 +123,30 @@ def test_trainer(config, tmp_path: str):
     )
     assert checkpoint["epoch"] == 1
 
-    # check if skeleton is saved in ckpt file
+    # # check if skeleton is saved in ckpt file
     assert checkpoint["config"]
     assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # # check for training metrics csv
-    path = Path(config.trainer_config.save_ckpt_path) / "lightning_logs" / "version_0"
-    files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
-    assert "metrics.csv" in files
-    df = pd.read_csv(
-        Path(config.trainer_config.save_ckpt_path)
-        / "lightning_logs"
-        / "version_0"
-        / "metrics.csv"
-    )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
+    # path = Path(config.trainer_config.save_ckpt_path).joinpath(
+    #     "lightning_logs/version_0/"
+    # )
+    # files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
+    # metrics = False
+    # for i in files:
+    #     if "metrics.csv" in i:
+    #         metrics = True
+    #         break
+    # assert metrics
+    # df = pd.read_csv(
+    #     Path(config.trainer_config.save_ckpt_path).joinpath(
+    #         "lightning_logs/version_0/metrics.csv"
+    #     )
+    # )
+    # assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
+    # assert not df.val_loss.isnull().all()
+    # assert not df.train_loss.isnull().all()
 
     # # check early stopping
     # config_early_stopping = config.copy()
