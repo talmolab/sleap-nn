@@ -115,18 +115,18 @@ def test_trainer(config, tmp_path: str):
     assert training_config.data_config.preprocessing.crop_hw == (112, 112)
 
     # check if ckpt is created
-    # assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
-    # assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+    assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
+    assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
 
-    # checkpoint = torch.load(
-    #     Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    # )
-    # assert checkpoint["epoch"] == 1
+    checkpoint = torch.load(
+        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    )
+    assert checkpoint["epoch"] == 1
 
     # # check if skeleton is saved in ckpt file
-    # assert checkpoint["config"]
-    # assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
-    # assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
+    assert checkpoint["config"]
+    assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
+    assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # # check for training metrics csv
     # path = Path(config.trainer_config.save_ckpt_path).joinpath(
