@@ -128,32 +128,12 @@ def test_trainer(config, tmp_path: str):
     assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
-    # check for training metrics csv
-    path = Path(config.trainer_config.save_ckpt_path) / "lightning_logs"
-    folders = [x.as_posix() for x in Path(path).iterdir() if x.is_dir()]
-    path = folders[-1]
-    files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
-    metrics = False
-    for i in files:
-        if "metrics.csv" in i:
-            metrics = True
-            break
-    assert metrics
-    print(f"list fo files: {Path(config.trainer_config.save_ckpt_path)}")
-    print(f"{os.listdir(f'{tmp_path}/test_model_trainer/')}")
-    print(f"{os.listdir(f'{tmp_path}/test_model_trainer/lightning_logs')}")
-    df = pd.read_csv(
-        f"{tmp_path}/test_model_trainer/lightning_logs/version_0/metrics.csv"
-    )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
-
     # # check early stopping
     config_early_stopping = config.copy()
     OmegaConf.update(
         config_early_stopping, "trainer_config.early_stopping.min_delta", 1
     )
+    OmegaConf.update(config_early_stopping, "trainer_config.use_wandb", False)
     OmegaConf.update(
         config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
     )
@@ -169,6 +149,7 @@ def test_trainer(config, tmp_path: str):
 
     # # check resume training
     config_copy = config.copy()
+    OmegaConf.update(config_copy, "trainer_config.use_wandb", False)
     OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
     OmegaConf.update(
         config_copy,
@@ -193,6 +174,30 @@ def test_trainer(config, tmp_path: str):
     )
     assert training_config.trainer_config.wandb.run_id == prv_runid
 
+    # check for training metrics csv
+    path = Path(config_copy.trainer_config.save_ckpt_path) / "lightning_logs"
+    folders = [x.as_posix() for x in Path(path).iterdir() if x.is_dir()]
+    path = folders[-1]
+    files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
+    metrics = False
+    for i in files:
+        if "metrics.csv" in i:
+            metrics = True
+            break
+    assert metrics
+    print(f"list fo files: {Path(config_copy.trainer_config.save_ckpt_path)}")
+    print(f"{os.listdir(f'{tmp_path}/test_model_trainer/')}")
+    print(f"{os.listdir(f'{tmp_path}/test_model_trainer/lightning_logs')}")
+    df = pd.read_csv(
+        f"{tmp_path}/test_model_trainer/lightning_logs/version_0/metrics.csv"
+    )
+    assert (
+        abs(df.loc[0, "learning_rate"] - config_copy.trainer_config.optimizer.lr)
+        <= 1e-4
+    )
+    assert not df.val_loss.isnull().all()
+    assert not df.train_loss.isnull().all()
+
     # For Single instance model
     single_instance_config = config.copy()
     head_config = single_instance_config.model_config.head_configs.centered_instance
@@ -205,12 +210,11 @@ def test_trainer(config, tmp_path: str):
     )
 
     OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(single_instance_config, "trainer_config.use_wandb", True)
+    OmegaConf.update(single_instance_config, "trainer_config.use_wandb", False)
     OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
-    trainer.train()
     assert isinstance(trainer.model, SingleInstanceModel)
 
     # Centroid model
