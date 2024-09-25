@@ -23,7 +23,7 @@ dependencies:
   - imageio-ffmpeg
   - av
   - omegaconf
-  - wandb
+  - wandb=0.16.6
   - ffmpeg
   - kornia
   - matplotlib
