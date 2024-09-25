@@ -150,53 +150,48 @@ def test_trainer(config, tmp_path: str):
     # assert not df.train_loss.isnull().all()
 
     # # check early stopping
-    # config_early_stopping = config.copy()
-    # OmegaConf.update(
-    #     config_early_stopping, "trainer_config.early_stopping.min_delta", 1
-    # )
-    # OmegaConf.update(
-    #     config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
-    # )
-    # OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
-    # OmegaConf.update(
-    #     config_early_stopping,
-    #     "trainer_config.save_ckpt_path",
-    #     f"{tmp_path}/test_model_trainer/",
-    # )
-
-    # trainer = ModelTrainer(config_early_stopping)
-    # trainer.train()
-
-    # checkpoint = torch.load(
-    #     Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    # )
-    # assert checkpoint["epoch"] == 1
-
-    # # check resume training
-    config_copy = config.copy()
-    OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+    config_early_stopping = config.copy()
     OmegaConf.update(
-        config_copy,
-        "trainer_config.resume_ckpt_path",
-        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+        config_early_stopping, "trainer_config.early_stopping.min_delta", 1
     )
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    OmegaConf.update(
+        config_early_stopping, "trainer_config.early_stopping.patience", 1e-1
     )
-    prv_runid = training_config.trainer_config.wandb.run_id
-    OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
-    trainer = ModelTrainer(config_copy)
+    OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
+
+    trainer = ModelTrainer(config_early_stopping)
     trainer.train()
 
     checkpoint = torch.load(
-        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
     )
-    assert checkpoint["epoch"] == 3
+    assert checkpoint["epoch"] == 1
 
-    training_config = OmegaConf.load(
-        f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
-    )
-    assert training_config.trainer_config.wandb.run_id == prv_runid
+    # # check resume training
+    # config_copy = config.copy()
+    # OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
+    # OmegaConf.update(
+    #     config_copy,
+    #     "trainer_config.resume_ckpt_path",
+    #     f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+    # )
+    # training_config = OmegaConf.load(
+    #     f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    # )
+    # prv_runid = training_config.trainer_config.wandb.run_id
+    # OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
+    # trainer = ModelTrainer(config_copy)
+    # trainer.train()
+
+    # checkpoint = torch.load(
+    #     Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+    # )
+    # assert checkpoint["epoch"] == 3
+
+    # training_config = OmegaConf.load(
+    #     f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
+    # )
+    # assert training_config.trainer_config.wandb.run_id == prv_runid
 
     # For Single instance model
     single_instance_config = config.copy()
