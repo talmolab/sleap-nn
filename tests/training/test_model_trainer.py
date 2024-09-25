@@ -129,9 +129,9 @@ def test_trainer(config, tmp_path: str):
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # check for training metrics csv
-    path = Path(config.trainer_config.save_ckpt_path).joinpath(
-        "lightning_logs/version_0/"
-    )
+    path = Path(config.trainer_config.save_ckpt_path) / "lightning_logs"
+    folders = [x.as_posix() for x in Path(path).iterdir() if x.is_dir()]
+    path = folders[-1]
     files = [x.as_posix() for x in Path(path).iterdir() if x.is_file()]
     metrics = False
     for i in files:
