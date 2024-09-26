@@ -469,10 +469,9 @@ class ModelTrainer:
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
-            time.sleep(10)
 
-            shutil.rmtree((Path(self.dir_path) / "train_chunks").as_posix())
-            shutil.rmtree((Path(self.dir_path) / "val_chunks").as_posix())
+            # shutil.rmtree((Path(self.dir_path) / "train_chunks").as_posix())
+            # shutil.rmtree((Path(self.dir_path) / "val_chunks").as_posix())
 
 
 class TrainingModel(L.LightningModule):
