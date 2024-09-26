@@ -469,7 +469,7 @@ class ModelTrainer:
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
-            # TODO:
+            # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
             # print("Deleting training and validation files...")
             # if (Path(self.dir_path) / "train_chunks").exists():
             #     shutil.rmtree(
