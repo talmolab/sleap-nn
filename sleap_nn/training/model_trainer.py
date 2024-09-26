@@ -351,7 +351,10 @@ class ModelTrainer:
             "bottomup": BottomUpModel,
         }
         self.model = models[self.model_type](
-            self.config, self.skeletons, self.model_type, trained_ckpts_path
+            self.config,
+            self.skeletons,
+            self.model_type,
+            trained_ckpts_path=trained_ckpts_path,
         )
 
     def _get_param_count(self):
