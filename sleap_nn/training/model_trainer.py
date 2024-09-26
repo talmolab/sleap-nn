@@ -2,14 +2,17 @@
 
 from pathlib import Path
 from typing import Optional, List
+import functools
 import time
 from torch import nn
 import os
+import shutil
 import torch
 import sleap_io as sio
 from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
 import lightning as L
+import litdata as ld
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
@@ -19,10 +22,7 @@ from sleap_nn.data.pipelines import (
 )
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
-from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
-from sleap_nn.data.instance_cropping import find_instance_crop_size
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -36,6 +36,24 @@ from torchvision.models.convnext import (
     ConvNeXt_Tiny_Weights,
     ConvNeXt_Small_Weights,
     ConvNeXt_Large_Weights,
+)
+
+import sleap_io as sio
+from sleap_nn.architectures.model import Model
+from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
+from sleap_nn.data.instance_cropping import find_instance_crop_size
+from sleap_nn.data.providers import get_max_instances
+from sleap_nn.data.get_data_chunks import (
+    bottomup_data_chunks,
+    centered_instance_data_chunks,
+    centroid_data_chunks,
+    single_instance_data_chunks,
+)
+from sleap_nn.data.streaming_datasets import (
+    BottomUpStreamingDataset,
+    CenteredInstanceStreamingDataset,
+    CentroidStreamingDataset,
+    SingleInstanceStreamingDataset,
 )
 
 
@@ -74,6 +92,19 @@ class ModelTrainer:
         self.skeletons = None
         self.train_data_loader = None
         self.val_data_loader = None
+
+        if not self.config.trainer_config.save_ckpt_path:
+            self.dir_path = "."
+        else:
+            self.dir_path = self.config.trainer_config.save_ckpt_path
+
+        if not Path(self.dir_path).exists():
+            try:
+                Path(self.dir_path).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                print(
+                    f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
+                )
 
         # set seed
         torch.manual_seed(self.seed)
@@ -205,18 +236,6 @@ class ModelTrainer:
         """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         logger = []
-        if not self.config.trainer_config.save_ckpt_path:
-            dir_path = "."
-        else:
-            dir_path = self.config.trainer_config.save_ckpt_path
-
-        if not Path(dir_path).exists():
-            try:
-                Path(dir_path).mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                print(
-                    f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
-                )
 
         if self.config.trainer_config.save_ckpt:
 
@@ -224,14 +243,14 @@ class ModelTrainer:
             checkpoint_callback = ModelCheckpoint(
                 save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
                 save_last=self.config.trainer_config.model_ckpt.save_last,
-                dirpath=dir_path,
+                dirpath=self.dir_path,
                 filename="best",
                 monitor="val_loss",
                 mode="min",
             )
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs
-            csv_logger = CSVLogger(dir_path)
+            csv_logger = CSVLogger(self.dir_path)
             logger.append(csv_logger)
 
         else:
@@ -257,7 +276,7 @@ class ModelTrainer:
             wandb_logger = WandbLogger(
                 project=wandb_config.project,
                 name=wandb_config.name,
-                save_dir=dir_path,
+                save_dir=self.dir_path,
                 id=self.config.trainer_config.wandb.prv_runid,
             )
             logger.append(wandb_logger)
@@ -265,7 +284,7 @@ class ModelTrainer:
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
 
-        OmegaConf.save(config=self.config, f=f"{dir_path}/initial_config.yaml")
+        OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
         # save the skeleton in the config
         self.config["data_config"]["skeletons"] = {}
@@ -313,16 +332,18 @@ class ModelTrainer:
                     wandb_logger.experiment.config.update({key: value})
                 wandb_logger.experiment.config.update({"model_params": total_params})
 
-        except Exception:
+        except KeyboardInterrupt:
             print("Stopping training...")
 
         finally:
             if self.config.trainer_config.use_wandb:
                 self.config.trainer_config.wandb.run_id = wandb.run.id
-                self.config.model_config.total_params = total_params
-                wandb.finish(exit_code=255)
+                wandb.finish()
+            self.config.model_config.total_params = total_params
             # save the configs as yaml in the checkpoint dir
-            OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
 
 
 class TrainingModel(L.LightningModule):
