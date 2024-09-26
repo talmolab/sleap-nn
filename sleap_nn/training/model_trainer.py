@@ -477,7 +477,7 @@ class ModelTrainer:
                 )
             if (Path(self.dir_path) / "val_chunks").exists():
                 shutil.rmtree(
-                    (Path(self.dir_path) / "train_chunks").as_posix(),
+                    (Path(self.dir_path) / "val_chunks").as_posix(),
                     ignore_errors=True,
                 )
 
