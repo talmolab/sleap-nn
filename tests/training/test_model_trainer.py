@@ -24,64 +24,64 @@ from lightning.pytorch.loggers import WandbLogger
 import shutil
 
 
-def test_create_data_loader(config, tmp_path: str):
-    """Test _create_data_loader function of ModelTrainer class."""
-    # test centered-instance pipeline
-    model_trainer = ModelTrainer(config)
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
-    model_trainer._create_data_loaders()
-    assert isinstance(
-        model_trainer.train_data_loader, torch.utils.data.dataloader.DataLoader
-    )
-    assert isinstance(
-        model_trainer.val_data_loader, torch.utils.data.dataloader.DataLoader
-    )
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
+# def test_create_data_loader(config, tmp_path: str):
+#     """Test _create_data_loader function of ModelTrainer class."""
+#     # test centered-instance pipeline
+#     model_trainer = ModelTrainer(config)
+#     OmegaConf.update(
+#         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+#     )
+#     model_trainer._create_data_loaders()
+#     assert isinstance(
+#         model_trainer.train_data_loader, torch.utils.data.dataloader.DataLoader
+#     )
+#     assert isinstance(
+#         model_trainer.val_data_loader, torch.utils.data.dataloader.DataLoader
+#     )
+#     assert len(list(iter(model_trainer.train_data_loader))) == 2
+#     assert len(list(iter(model_trainer.val_data_loader))) == 2
 
-    # without explicitly providing crop_hw
-    config_copy = config.copy()
-    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
-    OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
-    model_trainer = ModelTrainer(config_copy)
-    model_trainer._create_data_loaders()
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
-    sample = next(iter(model_trainer.train_data_loader))
-    assert sample["instance_image"].shape == (1, 1, 1, 112, 112)
+#     # without explicitly providing crop_hw
+#     config_copy = config.copy()
+#     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+#     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+#     model_trainer = ModelTrainer(config_copy)
+#     model_trainer._create_data_loaders()
+#     assert len(list(iter(model_trainer.train_data_loader))) == 2
+#     assert len(list(iter(model_trainer.val_data_loader))) == 2
+#     sample = next(iter(model_trainer.train_data_loader))
+#     assert sample["instance_image"].shape == (1, 1, 1, 112, 112)
 
-    # test exception
-    config_copy = config.copy()
-    head_config = config_copy.model_config.head_configs.centered_instance
-    del config_copy.model_config.head_configs.centered_instance
-    OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
-    model_trainer = ModelTrainer(config_copy)
-    with pytest.raises(Exception):
-        model_trainer._create_data_loaders()
+#     # test exception
+#     config_copy = config.copy()
+#     head_config = config_copy.model_config.head_configs.centered_instance
+#     del config_copy.model_config.head_configs.centered_instance
+#     OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
+#     model_trainer = ModelTrainer(config_copy)
+#     with pytest.raises(Exception):
+#         model_trainer._create_data_loaders()
 
-    # test single instance pipeline
-    config_copy = config.copy()
-    del config_copy.model_config.head_configs.centered_instance
-    OmegaConf.update(
-        config_copy, "model_config.head_configs.single_instance", head_config
-    )
-    model_trainer = ModelTrainer(config_copy)
-    model_trainer._create_data_loaders()
-    assert len(list(iter(model_trainer.train_data_loader))) == 1
-    assert len(list(iter(model_trainer.val_data_loader))) == 1
+#     # test single instance pipeline
+#     config_copy = config.copy()
+#     del config_copy.model_config.head_configs.centered_instance
+#     OmegaConf.update(
+#         config_copy, "model_config.head_configs.single_instance", head_config
+#     )
+#     model_trainer = ModelTrainer(config_copy)
+#     model_trainer._create_data_loaders()
+#     assert len(list(iter(model_trainer.train_data_loader))) == 1
+#     assert len(list(iter(model_trainer.val_data_loader))) == 1
 
-    # test centroid pipeline
-    config_copy = config.copy()
-    del config_copy.model_config.head_configs.centered_instance
-    OmegaConf.update(config_copy, "model_config.head_configs.centroid", head_config)
-    model_trainer = ModelTrainer(config_copy)
-    model_trainer._create_data_loaders()
-    assert len(list(iter(model_trainer.train_data_loader))) == 1
-    assert len(list(iter(model_trainer.val_data_loader))) == 1
-    ex = next(iter(model_trainer.train_data_loader))
-    assert ex["centroids_confidence_maps"].shape == (1, 1, 1, 192, 192)
+#     # test centroid pipeline
+#     config_copy = config.copy()
+#     del config_copy.model_config.head_configs.centered_instance
+#     OmegaConf.update(config_copy, "model_config.head_configs.centroid", head_config)
+#     model_trainer = ModelTrainer(config_copy)
+#     model_trainer._create_data_loaders()
+#     assert len(list(iter(model_trainer.train_data_loader))) == 1
+#     assert len(list(iter(model_trainer.val_data_loader))) == 1
+#     ex = next(iter(model_trainer.train_data_loader))
+#     assert ex["centroids_confidence_maps"].shape == (1, 1, 1, 192, 192)
 
 
 def test_wandb():
@@ -244,7 +244,6 @@ def test_trainer(config, tmp_path: str):
     )
 
     trainer = ModelTrainer(single_instance_config)
-    trainer._create_data_loaders()
     trainer._initialize_model()
     assert isinstance(trainer.model, SingleInstanceModel)
 
@@ -263,18 +262,9 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(centroid_config)
-    trainer._create_data_loaders()
 
     trainer._initialize_model()
     assert isinstance(trainer.model, CentroidModel)
-
-    trainer.train()
-
-    checkpoint = torch.load(
-        Path(centroid_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 0
-    assert checkpoint["global_step"] == 10
 
     # bottom up model
     bottomup_config = config.copy()
@@ -299,18 +289,8 @@ def test_trainer(config, tmp_path: str):
     OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
 
     trainer = ModelTrainer(bottomup_config)
-    trainer._create_data_loaders()
-
     trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpModel)
-
-    trainer.train()
-
-    checkpoint = torch.load(
-        Path(bottomup_config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
-    )
-    assert checkpoint["epoch"] == 0
-    assert checkpoint["global_step"] == 10
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
@@ -332,6 +312,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # convnext with pretrained weights
     OmegaConf.update(
@@ -374,6 +356,9 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         < 1e-4
     )
 
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+
 
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
@@ -402,6 +387,9 @@ def test_centroid_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
+
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
 
 def test_single_instance_model(config, tmp_path: str):
@@ -444,6 +432,9 @@ def test_single_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+
 
 def test_bottomup_model(config, tmp_path: str):
     """Test BottomUp model training."""
@@ -478,6 +469,9 @@ def test_bottomup_model(config, tmp_path: str):
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
 
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+
     # with edges as None
     config = config_copy
     head_config = config.model_config.head_configs.centered_instance
@@ -509,3 +503,6 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())

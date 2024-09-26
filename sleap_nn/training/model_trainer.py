@@ -86,12 +86,17 @@ class ModelTrainer:
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
         # initialize attributes
-        self.model_type = None
         self.model = None
         self.provider = None
         self.skeletons = None
         self.train_data_loader = None
         self.val_data_loader = None
+
+        # check which head type to choose the model
+        for k, v in self.config.model_config.head_configs.items():
+            if v is not None:
+                self.model_type = k
+                break
 
         if not self.config.trainer_config.save_ckpt_path:
             self.dir_path = "."
@@ -109,28 +114,84 @@ class ModelTrainer:
         # set seed
         torch.manual_seed(self.seed)
 
+    def _get_data_chunks(self, func, train_labels, val_labels):
+        """Create a new folder with pre-processed data stored as `.bin` files."""
+        ld.optimize(
+            fn=func,
+            inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
+            output_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
+            chunk_size=(
+                self.config.data_config.chunk_size
+                if "chunk_size" in self.config.data_config
+                and self.config.data_config.chunk_size is not None
+                else 100
+            ),
+        )
+
+        ld.optimize(
+            fn=func,
+            inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
+            output_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
+            chunk_size=(
+                self.config.data_config.chunk_size
+                if "chunk_size" in self.config.data_config
+                and self.config.data_config.chunk_size is not None
+                else 100
+            ),
+        )
+
     def _create_data_loaders(self):
         """Create a DataLoader for train, validation and test sets using the data_config."""
         self.provider = self.config.data_config.provider
         if self.provider == "LabelsReader":
             self.provider = LabelsReader
 
-        # check which head type to choose the model
-        for k, v in self.config.model_config.head_configs.items():
-            if v is not None:
-                self.model_type = k
-                break
-
         train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+        user_instances_only = (
+            self.config.data_config.user_instances_only
+            if "user_instances_only" in self.config.data_config
+            and self.config.data_config.user_instances_only is not None
+            else True
+        )
         self.skeletons = train_labels.skeletons
         max_stride = self.config.model_config.backbone_config.max_stride
+        max_instances = get_max_instances(train_labels)
+        edge_inds = train_labels.skeletons[0].edge_inds
 
         if self.model_type == "single_instance":
 
-            data_pipeline = SingleInstanceConfmapsPipeline(
+            factory_get_chunks = functools.partial(
+                single_instance_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = SingleInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = SingleInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "centered_instance":
@@ -152,26 +213,111 @@ class ModelTrainer:
                 crop_hw = (crop_size, crop_size)
             self.config.data_config.preprocessing.crop_hw = crop_hw
 
-            data_pipeline = TopdownConfmapsPipeline(
+            factory_get_chunks = functools.partial(
+                centered_instance_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_instances=max_instances,
+                crop_size=crop_hw,
+                anchor_ind=self.config.model_config.head_configs.centered_instance.confmaps.anchor_part,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = CenteredInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
+                max_stride=max_stride,
                 crop_hw=crop_hw,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = CenteredInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
+                max_stride=max_stride,
+                crop_hw=crop_hw,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "centroid":
-            data_pipeline = CentroidConfmapsPipeline(
+            factory_get_chunks = functools.partial(
+                centroid_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_instances=max_instances,
+                anchor_ind=self.config.model_config.head_configs.centroid.confmaps.anchor_part,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = CentroidStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = CentroidStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.centroid.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "bottomup":
-            data_pipeline = BottomUpPipeline(
+            factory_get_chunks = functools.partial(
+                bottomup_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_instances=max_instances,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = BottomUpStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
+                edge_inds=edge_inds,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = BottomUpStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
+                pafs_head=self.config.model_config.head_configs.bottomup.pafs,
+                edge_inds=edge_inds,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         else:
@@ -180,38 +326,17 @@ class ModelTrainer:
             )
 
         # train
-        train_labels_reader = self.provider(train_labels)
-
-        train_datapipe = data_pipeline.make_training_pipeline(
-            data_provider=train_labels_reader,
-            use_augmentations=self.config.data_config.use_augmentations_train,
-        )
-
-        # Make sure an epoch runs for `steps_per_epoch` iterations
-        if self.steps_per_epoch is not None:
-            train_datapipe = Cycler(train_datapipe)
-
-        # to remove duplicates when multiprocessing is used
-        train_datapipe = train_datapipe.sharding_filter()
-        self.train_data_loader = DataLoader(
-            train_datapipe,
+        # TODO: cycler - to ensure minimum steps per epoch
+        self.train_data_loader = ld.StreamingDataLoader(
+            train_dataset,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
-            shuffle=self.config.trainer_config.train_data_loader.shuffle,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
         )
 
         # val
-        val_labels_reader = self.provider.from_filename(
-            self.config.data_config.val_labels_path,
-        )
-        val_datapipe = data_pipeline.make_training_pipeline(
-            data_provider=val_labels_reader, use_augmentations=False
-        )
-        val_datapipe = val_datapipe.sharding_filter()
-        self.val_data_loader = DataLoader(
-            val_datapipe,
+        self.val_data_loader = ld.StreamingDataLoader(
+            val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
-            shuffle=False,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
         )
 
@@ -344,6 +469,8 @@ class ModelTrainer:
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
+            shutil.rmtree((Path(self.dir_path) / "train_chunks").as_posix())
+            shutil.rmtree((Path(self.dir_path) / "val_chunks").as_posix())
 
 
 class TrainingModel(L.LightningModule):
