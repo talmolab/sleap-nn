@@ -576,13 +576,14 @@ class TrainingModel(L.LightningModule):
 
         # Initializing model (encoder + decoder) with trained ckpts
         if trained_ckpts_path is not None:
+            print(f"Loading wieghts from `{trained_ckpts_path}` ...")
             ckpt = torch.load(trained_ckpts_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
                 for k in ckpt["state_dict"].keys()
                 if ".head" not in k
             }
-            self.model.load_state_dict(ckpt["state_dict"], strict=False)
+            self.load_state_dict(ckpt["state_dict"], strict=False)
 
     def forward(self, img):
         """Forward pass of the model."""

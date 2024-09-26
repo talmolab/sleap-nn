@@ -40,7 +40,7 @@ def test_create_data_loader(config, tmp_path: str):
     assert len(list(iter(model_trainer.train_data_loader))) == 2
     assert len(list(iter(model_trainer.val_data_loader))) == 2
     sample = next(iter(model_trainer.train_data_loader))
-    assert sample["instance_image"].shape == (1, 1, 1, 112, 112)
+    assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
     shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
@@ -64,7 +64,7 @@ def test_wandb():
     wandb.finish()
 
 
-def test_trainer(config, tmp_path: str):
+def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     # # for topdown centered instance model
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -121,7 +121,7 @@ def test_trainer(config, tmp_path: str):
     assert training_config.model_config.total_params is not None
     assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
-    assert training_config.data_config.preprocessing.crop_hw == (112, 112)
+    assert training_config.data_config.preprocessing.crop_hw == (104, 104)
 
     # check if ckpt is created
     assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
@@ -270,6 +270,25 @@ def test_trainer(config, tmp_path: str):
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpModel)
+
+    # check loading trained weights
+    load_weights_config = config.copy()
+    ckpt = torch.load((Path(minimal_instance_bottomup_ckpt) / "best.ckpt").as_posix())
+    first_layer_ckpt = ckpt["state_dict"][
+        "model.backbone.enc.encoder_stack.0.blocks.0.weight"
+    ][0, 0, :].numpy()
+
+    trainer = ModelTrainer(load_weights_config)
+    trainer._create_data_loaders()
+    trainer._initialize_model(
+        (Path(minimal_instance_bottomup_ckpt) / "best.ckpt").as_posix()
+    )
+    model_ckpt = next(trainer.model.parameters())[0, 0, :].detach().numpy()
+
+    assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-3)
+
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
