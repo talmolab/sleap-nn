@@ -517,6 +517,7 @@ class TrainingModel(L.LightningModule):
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
         self.model_type = model_type
+        self.trained_ckpts_path = trained_ckpts_path
         self.input_expand_channels = self.model_config.backbone_config.in_channels
         if self.model_config.pre_trained_weights:  # only for swint and convnext
             ckpt = eval(self.model_config.pre_trained_weights).DEFAULT.get_state_dict(
@@ -677,6 +678,7 @@ class SingleInstanceModel(TrainingModel):
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        trained_ckpts_path: Path to trained ckpts.
 
     """
 
@@ -685,9 +687,10 @@ class SingleInstanceModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
+        trained_ckpts_path: str = None,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons, model_type)
+        super().__init__(config, skeletons, model_type, trained_ckpts_path)
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -748,6 +751,7 @@ class TopDownCenteredInstanceModel(TrainingModel):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        trained_ckpts_path: Path to trained ckpts.
 
     """
 
@@ -756,9 +760,10 @@ class TopDownCenteredInstanceModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
+        trained_ckpts_path: str = None,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons, model_type)
+        super().__init__(config, skeletons, model_type, trained_ckpts_path)
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -819,6 +824,7 @@ class CentroidModel(TrainingModel):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        trained_ckpts_path: Path to trained ckpts.
 
     """
 
@@ -827,9 +833,10 @@ class CentroidModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
+        trained_ckpts_path: str = None,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons, model_type)
+        super().__init__(config, skeletons, model_type, trained_ckpts_path)
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -890,6 +897,7 @@ class BottomUpModel(TrainingModel):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        trained_ckpts_path: Path to trained ckpts.
 
     """
 
@@ -898,9 +906,10 @@ class BottomUpModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
+        trained_ckpts_path: str = None,
     ):
         """Initialise the configs and the model."""
-        super().__init__(config, skeletons, model_type)
+        super().__init__(config, skeletons, model_type, trained_ckpts_path)
 
     def forward(self, img):
         """Forward pass of the model."""
