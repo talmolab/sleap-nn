@@ -95,10 +95,10 @@ def test_wandb():
 
 def test_trainer(config, tmp_path: str):
     # # for topdown centered instance model
-    model_trainer = ModelTrainer(config)
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
+    model_trainer = ModelTrainer(config)
     model_trainer.train()
 
     # disable ckpt, check if ckpt is created
