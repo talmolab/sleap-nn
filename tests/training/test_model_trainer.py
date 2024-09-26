@@ -91,8 +91,8 @@ def test_trainer(config, tmp_path: str):
     assert not (
         Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
     )
-    # shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    # shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
@@ -165,8 +165,8 @@ def test_trainer(config, tmp_path: str):
     assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
-    # shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    # shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # check resume training
     config_copy = config.copy()
@@ -188,8 +188,8 @@ def test_trainer(config, tmp_path: str):
         Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
     )
     assert checkpoint["epoch"] == 3
-    # shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    # shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
@@ -217,8 +217,8 @@ def test_trainer(config, tmp_path: str):
         Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
     )
     assert checkpoint["epoch"] == 1
-    # shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    # shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
     # For Single instance model
     single_instance_config = config.copy()
