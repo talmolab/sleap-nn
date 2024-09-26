@@ -68,6 +68,7 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
             max_stride=2,
             scale=1.0,
             input_dir=str(dir_path),
+            apply_aug=True,
         )
 
         samples = list(iter(dataset))
@@ -159,7 +160,7 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
         assert len(samples) == 1
 
         assert samples[0]["image"].shape == (1, 1, 200, 200)
-        assert samples[0]["confidence_maps"].shape == (1, 1, 100, 100)
+        assert samples[0]["centroids_confidence_maps"].shape == (1, 1, 100, 100)
 
         # test with random crop
         config.data_config.augmentation_config.geometric["random_crop_p"] = 1.0
@@ -171,13 +172,14 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
             max_stride=2,
             scale=1.0,
             input_dir=str(dir_path),
+            apply_aug=True,
         )
 
         samples = list(iter(dataset))
         assert len(samples) == 1
 
         assert samples[0]["image"].shape == (1, 1, 300, 300)
-        assert samples[0]["confidence_maps"].shape == (1, 1, 150, 150)
+        assert samples[0]["centroids_confidence_maps"].shape == (1, 1, 150, 150)
 
     finally:
         shutil.rmtree(dir_path)
@@ -227,6 +229,7 @@ def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, con
         config.data_config.augmentation_config.geometric["random_crop_width"] = 300
         dataset = SingleInstanceStreamingDataset(
             augmentation_config=config.data_config.augmentation_config,
+            apply_aug=True,
             confmap_head=confmap_head,
             max_stride=2,
             scale=1.0,
