@@ -469,17 +469,18 @@ class ModelTrainer:
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
-            print("Deleting training and validation files...")
-            if (Path(self.dir_path) / "train_chunks").exists():
-                shutil.rmtree(
-                    (Path(self.dir_path) / "train_chunks").as_posix(),
-                    ignore_errors=True,
-                )
-            if (Path(self.dir_path) / "val_chunks").exists():
-                shutil.rmtree(
-                    (Path(self.dir_path) / "val_chunks").as_posix(),
-                    ignore_errors=True,
-                )
+            # TODO:
+            # print("Deleting training and validation files...")
+            # if (Path(self.dir_path) / "train_chunks").exists():
+            #     shutil.rmtree(
+            #         (Path(self.dir_path) / "train_chunks").as_posix(),
+            #         ignore_errors=True,
+            #     )
+            # if (Path(self.dir_path) / "val_chunks").exists():
+            #     shutil.rmtree(
+            #         (Path(self.dir_path) / "val_chunks").as_posix(),
+            #         ignore_errors=True,
+            #     )
 
 
 class TrainingModel(L.LightningModule):
