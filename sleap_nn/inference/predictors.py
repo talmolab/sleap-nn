@@ -10,20 +10,17 @@ import sleap_io as sio
 import torch
 import attrs
 import lightning as L
-from torch.utils.data.dataloader import DataLoader
+import litdata as ld
 from omegaconf import OmegaConf
 from sleap_nn.data.providers import LabelsReader, VideoReader
-from sleap_nn.data.resizing import (
-    SizeMatcher,
-    Resizer,
-    PadToStride,
-    resize_image,
-    apply_pad_to_stride,
+from sleap_nn.data.resizing import resize_image, apply_pad_to_stride, apply_sizematcher
+from sleap_nn.data.normalization import (
+    apply_normalization,
+    convert_to_grayscale,
+    convert_to_rgb,
 )
-from sleap_nn.data.normalization import Normalizer, convert_to_grayscale, convert_to_rgb
-from sleap_nn.data.instance_centroids import InstanceCentroidFinder
-from sleap_nn.data.instance_cropping import InstanceCropper
-from sleap_nn.data.general import KeyFilter
+from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.training.model_trainer import (
     TopDownCenteredInstanceModel,
@@ -53,7 +50,7 @@ class Predictor(ABC):
         preprocess: Only for VideoReader provider. True if preprocessing (reszizing and
             apply_pad_to_stride) should be applied on the frames read in the video reader.
             Default: True.
-        video_preprocess_config: Preprocessing config for VideoReader with keys: [`batch_size`,
+        preprocess_config: Preprocessing config with keys: [`batch_size`,
             `scale`, `is_rgb`, `max_stride`]. Default: {"batch_size": 4, "scale": 1.0,
             "is_rgb": False, "max_stride": 1}
         provider: Provider for inference pipeline. One of ["LabelsReader", "VideoReader"].
@@ -66,14 +63,14 @@ class Predictor(ABC):
     """
 
     preprocess: bool = True
-    video_preprocess_config: dict = {
+    preprocess_config: dict = {
         "batch_size": 4,
         "scale": 1.0,
         "is_rgb": False,
         "max_stride": 1,
     }
     provider: Union[LabelsReader, VideoReader] = LabelsReader
-    pipeline: Optional[Union[DataLoader, VideoReader]] = None
+    pipeline: Optional[Union[LabelsReader, VideoReader]] = None
     inference_model: Optional[
         Union[
             TopDownInferenceModel, SingleInstanceInferenceModel, BottomUpInferenceModel
@@ -199,7 +196,14 @@ class Predictor(ABC):
         """Get the data parameters from the config."""
 
     @abstractmethod
-    def make_pipeline(self, provider: str, data_path: str):
+    def make_pipeline(
+        self,
+        provider: str,
+        data_path: str,
+        queue_maxsize: int = 8,
+        video_start_idx=None,
+        video_end_idx=None,
+    ):
         """Create the data pipeline."""
 
     @abstractmethod
@@ -233,63 +237,52 @@ class Predictor(ABC):
             self._initialize_inference_model()
 
         # Loop over data batches.
-        if self.provider == "LabelsReader":
-            for ex in self.pipeline:
+        self.pipeline.start()
+        batch_size = self.preprocess_config["batch_size"]
+        done = False
+        while not done:
+            imgs = []
+            fidxs = []
+            vidxs = []
+            org_szs = []
+            for _ in range(batch_size):
+                frame = self.pipeline.frame_buffer.get()
+                if frame[0] is None:
+                    done = True
+                    break
+                imgs.append(frame[0].unsqueeze(dim=0))
+                fidxs.append(frame[1])
+                vidxs.append(frame[2])
+                org_szs.append(frame[3].unsqueeze(dim=0))
+            if imgs:
+                imgs = torch.concatenate(imgs, dim=0)
+                fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                vidxs = torch.tensor(vidxs, dtype=torch.int32)
+                org_szs = torch.concatenate(org_szs, dim=0)
+                ex = {
+                    "image": imgs,
+                    "frame_idx": fidxs,
+                    "video_idx": vidxs,
+                    "orig_size": org_szs,
+                }
+                ex["image"] = apply_normalization(ex["image"])
+                if self.preprocess_config["is_rgb"]:
+                    ex["image"] = convert_to_rgb(ex["image"])
+                else:
+                    ex["image"] = convert_to_grayscale(ex["image"])
+                if self.preprocess:
+                    scale = self.preprocess_config["scale"]
+                    if scale != 1.0:
+                        ex["image"] = resize_image(ex["image"], scale)
+                    ex["image"] = apply_pad_to_stride(
+                        ex["image"], self.preprocess_config["max_stride"]
+                    )
                 outputs_list = self.inference_model(ex)
                 for output in outputs_list:
                     output = self._convert_tensors_to_numpy(output)
                     yield output
 
-        elif self.provider == "VideoReader":
-            # try:
-            self.pipeline.start()
-            batch_size = self.video_preprocess_config["batch_size"]
-            done = False
-            while not done:
-                imgs = []
-                fidxs = []
-                org_szs = []
-                for _ in range(batch_size):
-                    frame = self.pipeline.frame_buffer.get()
-                    if frame[0] is None:
-                        done = True
-                        break
-                    imgs.append(frame[0].unsqueeze(dim=0))
-                    fidxs.append(frame[1])
-                    org_szs.append(frame[2].unsqueeze(dim=0))
-                if imgs:
-                    imgs = torch.concatenate(imgs, dim=0)
-                    fidxs = torch.tensor(fidxs, dtype=torch.int32)
-                    org_szs = torch.concatenate(org_szs, dim=0)
-                    ex = {
-                        "image": imgs,
-                        "frame_idx": fidxs,
-                        "video_idx": torch.tensor([0] * batch_size, dtype=torch.int32),
-                        "orig_size": org_szs,
-                    }
-                    if not torch.is_floating_point(ex["image"]):  # normalization
-                        ex["image"] = ex["image"].to(torch.float32) / 255.0
-                    if self.video_preprocess_config["is_rgb"]:
-                        ex["image"] = convert_to_rgb(ex["image"])
-                    else:
-                        ex["image"] = convert_to_grayscale(ex["image"])
-                    if self.preprocess:
-                        scale = self.video_preprocess_config["scale"]
-                        if scale != 1.0:
-                            ex["image"] = resize_image(ex["image"], scale)
-                        ex["image"] = apply_pad_to_stride(
-                            ex["image"], self.video_preprocess_config["max_stride"]
-                        )
-                    outputs_list = self.inference_model(ex)
-                    for output in outputs_list:
-                        output = self._convert_tensors_to_numpy(output)
-                        yield output
-
-            # except Exception as e:
-            #     raise Exception(f"Error in VideoReader during data processing: {e}")
-
-            # finally:
-            self.pipeline.join()
+        self.pipeline.join()
 
     def predict(
         self,
@@ -554,86 +547,53 @@ class TopDownPredictor(Predictor):
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self, provider: str, data_path: str, num_workers: int = 0):
+    def make_pipeline(
+        self,
+        provider: str,
+        data_path: str,
+        queue_maxsize: int = 8,
+        video_start_idx=None,
+        video_end_idx=None,
+    ):
         """Make a data loading pipeline.
 
         Args:
             provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
-            num_workers: (int) Number of subprocesses to use for data loading. 0 means
-                that the data will be loaded in the main process. *Default*: 0.
+            #TODO:
 
         Returns:
-            Torch DataLoader where each item is a dictionary with key `image` if provider
-            is LabelsReader. If provider is VideoReader, this method initiates the reader
-            class (doesn't return a pipeline) and the Thread is started in
-            Predictor._predict_generator() method.
-
-        Notes:
-            This method creates the class attribute `pipeline` and will be
-            called automatically when predicting on data from a new source only when the
-            provider is LabelsReader.
+            This method initiates the reader class (doesn't return a pipeline) and the
+            Thread is started in Predictor._predict_generator() method.
         """
         self.provider = provider
 
         # LabelsReader provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            instances_key = True
 
-            # no need of `instances` key for Centered-instance model
-            if self.centroid_config and self.confmap_config:
-                instances_key = False
-
-            data_provider = provider.from_filename(
-                data_path, instances_key=instances_key
-            )
-
-            self.videos = data_provider.labels.videos
-
-            pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
-            pipeline = SizeMatcher(
-                pipeline,
-                max_height=self.data_config.max_height,
-                max_width=self.data_config.max_width,
-                provider=data_provider,
-            )
-
-            if not self.centroid_model:
-                pipeline = InstanceCentroidFinder(
-                    pipeline,
-                    anchor_ind=self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part,
+            max_stride = self.confmap_config.model_config.backbone_config.max_stride
+            scale = self.confmap_config.data_config.preprocessing.scale
+            if self.centroid_config is not None:
+                max_stride = (
+                    self.centroid_config.model_config.backbone_config.max_stride
                 )
-                pipeline = InstanceCropper(
-                    pipeline,
-                    crop_hw=self.data_config.crop_hw,
-                )
+                scale = self.centroid_config.data_config.preprocessing.scale
 
-                pipeline = KeyFilter(
-                    pipeline,
-                    keep_keys=[
-                        "image",
-                        "video_idx",
-                        "frame_idx",
-                        "centroid",
-                        "instance",
-                        "instance_bbox",
-                        "instance_image",
-                        "confidence_maps",
-                        "num_instances",
-                        "orig_size",
-                    ],
-                )
+            self.preprocess = False
+            self.preprocess_config = {
+                "batch_size": self.batch_size,
+                "scale": scale,
+                "is_rgb": self.data_config.is_rgb,
+                "max_stride": max_stride,
+            }
 
-            # Remove duplicates.
-            self.pipeline = pipeline.sharding_filter()
-
-            self.pipeline = DataLoader(
-                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
+            self.pipeline = provider.from_filename(
+                filename=data_path,
+                queue_maxsize=queue_maxsize,
             )
-
-            return self.pipeline
+            self.videos = self.pipeline.labels.videos
 
         # VideoReader provider
         elif self.provider == "VideoReader":
@@ -645,7 +605,7 @@ class TopDownPredictor(Predictor):
 
             provider = VideoReader
             self.preprocess = False
-            self.video_preprocess_config = {
+            self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.centroid_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
@@ -654,14 +614,11 @@ class TopDownPredictor(Predictor):
                 ),
             }
 
-            frame_queue = Queue(
-                maxsize=self.data_config.video_queue_maxsize if not None else 16
-            )
             self.pipeline = provider.from_filename(
                 filename=data_path,
-                frame_buffer=frame_queue,
-                start_idx=self.data_config.videoreader_start_idx,
-                end_idx=self.data_config.videoreader_end_idx,
+                queue_maxsize=queue_maxsize,
+                start_idx=video_start_idx,
+                end_idx=video_end_idx,
             )
             self.videos = [self.pipeline.video]
 
@@ -744,6 +701,70 @@ class TopDownPredictor(Predictor):
             labeled_frames=predicted_frames,
         )
         return pred_labels
+
+    def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
+        """Create a generator that yields batches of inference results.
+
+        This method handles creating a pipeline object depending on the model type and
+        provider for loading the data, as well as looping over the batches and
+        running inference.
+
+        Returns:
+            A generator yielding batches predicted results as dictionaries of numpy
+            arrays.
+        """
+        # Initialize inference model if needed.
+
+        if self.inference_model is None:
+            self._initialize_inference_model()
+
+        # Loop over data batches.
+        self.pipeline.start()
+        batch_size = self.preprocess_config["batch_size"]
+        done = False
+        while not done:
+            imgs = []
+            fidxs = []
+            vidxs = []
+            org_szs = []
+            for _ in range(batch_size):
+                frame = self.pipeline.frame_buffer.get()
+                if frame[0] is None:
+                    done = True
+                    break
+                imgs.append(frame[0].unsqueeze(dim=0))
+                fidxs.append(frame[1])
+                vidxs.append(frame[2])
+                org_szs.append(frame[3].unsqueeze(dim=0))
+            if imgs:
+                imgs = torch.concatenate(imgs, dim=0)
+                fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                vidxs = torch.tensor(vidxs, dtype=torch.int32)
+                org_szs = torch.concatenate(org_szs, dim=0)
+                ex = {
+                    "image": imgs,
+                    "frame_idx": fidxs,
+                    "video_idx": vidxs,
+                    "orig_size": org_szs,
+                }
+                ex["image"] = apply_normalization(ex["image"])
+                if self.preprocess_config["is_rgb"]:
+                    ex["image"] = convert_to_rgb(ex["image"])
+                else:
+                    ex["image"] = convert_to_grayscale(ex["image"])
+                if self.preprocess:
+                    scale = self.preprocess_config["scale"]
+                    if scale != 1.0:
+                        ex["image"] = resize_image(ex["image"], scale)
+                    ex["image"] = apply_pad_to_stride(
+                        ex["image"], self.preprocess_config["max_stride"]
+                    )
+                outputs_list = self.inference_model(ex)
+                for output in outputs_list:
+                    output = self._convert_tensors_to_numpy(output)
+                    yield output
+
+        self.pipeline.join()
 
 
 @attrs.define
@@ -877,60 +898,53 @@ class SingleInstancePredictor(Predictor):
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self, provider: str, data_path: str, num_workers: int = 0):
+    def make_pipeline(
+        self,
+        provider: str,
+        data_path: str,
+        queue_maxsize: int = 8,
+        video_start_idx=None,
+        video_end_idx=None,
+    ):
         """Make a data loading pipeline.
 
         Args:
             provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
-            num_workers: (int) Number of subprocesses to use for data loading. 0 means
-                that the data will be loaded in the main process. *Default*: 0.
+            #TODO
 
         Returns:
-            Torch DataLoader where each item is a dictionary with key `image` if provider
-            is LabelsReader. If provider is VideoReader, this method initiates the reader
-            class (doesn't return a pipeline) and the Thread is started in
-            Predictor._predict_generator() method.
+            This method initiates the reader class (doesn't return a pipeline) and the
+            Thread is started in Predictor._predict_generator() method.
 
-        Notes:
-            This method creates the class attribute `pipeline` and will be
-            called automatically when predicting on data from a new source only when the
-            provider is LabelsReader.
         """
         self.provider = provider
+
+        # LabelsReader provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            data_provider = provider.from_filename(data_path)
-            self.videos = data_provider.labels.videos
-            pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
-            pipeline = SizeMatcher(
-                pipeline,
-                max_height=self.data_config.max_height,
-                max_width=self.data_config.max_width,
-                provider=data_provider,
-            )
-            pipeline = Resizer(
-                pipeline, scale=self.confmap_config.data_config.preprocessing.scale
-            )
-            pipeline = PadToStride(
-                pipeline,
-                max_stride=self.confmap_config.model_config.backbone_config.max_stride,
-            )
 
-            # Remove duplicates.
-            self.pipeline = pipeline.sharding_filter()
+            max_stride = self.confmap_config.model_config.backbone_config.max_stride
 
-            self.pipeline = DataLoader(
-                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
+            self.preprocess = False
+            self.preprocess_config = {
+                "batch_size": self.batch_size,
+                "scale": self.confmap_config.data_config.preprocessing.scale,
+                "is_rgb": self.data_config.is_rgb,
+                "max_stride": max_stride,
+            }
+
+            self.pipeline = provider.from_filename(
+                filename=data_path,
+                queue_maxsize=queue_maxsize,
             )
-
-            return self.pipeline
+            self.videos = self.pipeline.labels.videos
 
         elif self.provider == "VideoReader":
             provider = VideoReader
             self.preprocess = True
-            self.video_preprocess_config = {
+            self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.confmap_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
@@ -938,14 +952,12 @@ class SingleInstancePredictor(Predictor):
                     self.confmap_config.model_config.backbone_config.max_stride
                 ),
             }
-            frame_queue = Queue(
-                maxsize=self.data_config.video_queue_maxsize if not None else 16
-            )
+
             self.pipeline = provider.from_filename(
                 filename=data_path,
-                frame_buffer=frame_queue,
-                start_idx=self.data_config.videoreader_start_idx,
-                end_idx=self.data_config.videoreader_end_idx,
+                queue_maxsize=queue_maxsize,
+                start_idx=video_start_idx,
+                end_idx=video_end_idx,
             )
 
             self.videos = [self.pipeline.video]
@@ -1193,58 +1205,51 @@ class BottomUpPredictor(Predictor):
         obj._initialize_inference_model()
         return obj
 
-    def make_pipeline(self, provider: str, data_path: str, num_workers: int = 0):
+    def make_pipeline(
+        self,
+        provider: str,
+        data_path: str,
+        queue_maxsize: int = 8,
+        video_start_idx=None,
+        video_end_idx=None,
+    ):
         """Make a data loading pipeline.
 
         Args:
             provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
-            num_workers: (int) Number of subprocesses to use for data loading. 0 means
-                that the data will be loaded in the main process. *Default*: 0.
+            #TODO
 
         Returns:
-            Torch DataLoader where each item is a dictionary with key `image` if provider
-            is LabelsReader. If provider is VideoReader, this method initiates the reader
-            class (doesn't return a pipeline) and the Thread is started in
-            Predictor._predict_generator() method.
-
-        Notes:
-            This method creates the class attribute `pipeline` and will be
-            called automatically when predicting on data from a new source only when the
-            provider is LabelsReader.
+            This method initiates the reader class (doesn't return a pipeline) and the
+            Thread is started in Predictor._predict_generator() method.
         """
         self.provider = provider
+        # LabelsReader provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-            data_provider = provider.from_filename(data_path)
-            self.videos = data_provider.labels.videos
-            pipeline = Normalizer(data_provider, is_rgb=self.data_config.is_rgb)
-            pipeline = SizeMatcher(
-                pipeline,
-                max_height=self.data_config.max_height,
-                max_width=self.data_config.max_width,
-                provider=data_provider,
-            )
-            pipeline = Resizer(
-                pipeline, scale=self.bottomup_config.data_config.preprocessing.scale
-            )
+
             max_stride = self.bottomup_config.model_config.backbone_config.max_stride
-            pipeline = PadToStride(pipeline, max_stride=max_stride)
 
-            # Remove duplicates.
-            self.pipeline = pipeline.sharding_filter()
+            self.preprocess = False
+            self.preprocess_config = {
+                "batch_size": self.batch_size,
+                "scale": self.bottomup_config.data_config.preprocessing.scale,
+                "is_rgb": self.data_config.is_rgb,
+                "max_stride": max_stride,
+            }
 
-            self.pipeline = DataLoader(
-                self.pipeline, batch_size=self.batch_size, num_workers=num_workers
+            self.pipeline = provider.from_filename(
+                filename=data_path,
+                queue_maxsize=queue_maxsize,
             )
-
-            return self.pipeline
+            self.videos = self.pipeline.labels.videos
 
         elif self.provider == "VideoReader":
             provider = VideoReader
             self.preprocess = True
-            self.video_preprocess_config = {
+            self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.bottomup_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
@@ -1252,14 +1257,12 @@ class BottomUpPredictor(Predictor):
                     self.bottomup_config.model_config.backbone_config.max_stride
                 ),
             }
-            frame_queue = Queue(
-                maxsize=self.data_config.video_queue_maxsize if not None else 16
-            )
+
             self.pipeline = provider.from_filename(
                 filename=data_path,
-                frame_buffer=frame_queue,
-                start_idx=self.data_config.videoreader_start_idx,
-                end_idx=self.data_config.videoreader_end_idx,
+                queue_maxsize=queue_maxsize,
+                start_idx=video_start_idx,
+                end_idx=video_end_idx,
             )
 
             self.videos = [self.pipeline.video]
@@ -1369,10 +1372,9 @@ def main(
     is_rgb: bool = False,
     provider: str = "LabelsReader",
     batch_size: int = 4,
-    num_workers: int = 0,
-    video_queue_maxsize: int = 8,
-    videoreader_start_idx: int = 0,
-    videoreader_end_idx: int = 100,
+    queue_maxsize: int = 8,
+    videoreader_start_idx: Optional[int] = None,
+    videoreader_end_idx: Optional[int] = None,
     crop_hw: List[int] = (160, 160),
     peak_threshold: Union[float, List[float]] = 0.2,
     integral_refinement: str = None,
@@ -1421,9 +1423,7 @@ def main(
         provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader". Default: LabelsReader.
         batch_size: (int) Number of samples per batch. Default: 4.
-        num_workers: (int) Number of subprocesses to use for data loading. 0 means
-                that the data will be loaded in the main process. *Default*: 0.
-        video_queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+        queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
         videoreader_start_idx: (int) Start index of the frames to read. Default: 0.
         videoreader_end_idx: (int) End index of the frames to read. Default: 100.
         crop_hw: List[int] Minimum height and width of the crop in pixels. Default: (160, 160).
@@ -1516,7 +1516,7 @@ def main(
     }
 
     if provider == "VideoReader":
-        preprocess_config["video_queue_maxsize"] = video_queue_maxsize
+        preprocess_config["video_queue_maxsize"] = queue_maxsize
         preprocess_config["videoreader_start_idx"] = videoreader_start_idx
         preprocess_config["videoreader_end_idx"] = videoreader_end_idx
 
@@ -1565,7 +1565,9 @@ def main(
 
     # initialize make_pipeline function
 
-    predictor.make_pipeline(provider, data_path, num_workers)
+    predictor.make_pipeline(
+        provider, data_path, queue_maxsize, videoreader_start_idx, videoreader_end_idx
+    )
 
     # run predict
     output = predictor.predict(

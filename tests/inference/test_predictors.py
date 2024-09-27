@@ -262,7 +262,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             peak_threshold=0.3,
         )
         assert isinstance(pred_labels, sio.Labels)
-        assert len(pred_labels) == 100
+        assert len(pred_labels) == 1100
         assert len(pred_labels[0].instances) == 1
         lf = pred_labels[0]
 
@@ -278,6 +278,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             provider="VideoReader",
             make_labels=False,
             peak_threshold=0.3,
+            videoreader_end_idx=100,
         )
         assert isinstance(preds, list)
         assert len(preds) == 25
