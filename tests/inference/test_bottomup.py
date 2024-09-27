@@ -1,16 +1,26 @@
 from omegaconf import OmegaConf
 import numpy as np
-from sleap_nn.training.model_trainer import BottomUpModel, ModelTrainer
+from pathlib import Path
+import shutil
+import sleap_io as sio
+from sleap_nn.data.providers import process_lf
+from sleap_nn.data.normalization import apply_normalization
+from sleap_nn.training.model_trainer import BottomUpModel
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.inference.bottomup import (
     BottomUpInferenceModel,
 )
 
 
-def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
+def test_bottomup_inference_model(
+    minimal_instance, minimal_instance_bottomup_ckpt, tmp_path: str
+):
     """Test BottomUpInferenceModel."""
     train_config = OmegaConf.load(
         f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
+    )
+    OmegaConf.update(
+        train_config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
     OmegaConf.update(
         train_config,
@@ -22,10 +32,10 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         "data_config.val_labels_path",
         "./tests/assets/minimal_instance.pkg.slp",
     )
-    # get dataloader
-    trainer = ModelTrainer(train_config)
-    trainer._create_data_loaders()
-    loader = trainer.val_data_loader
+
+    labels = sio.load_slp(minimal_instance)
+    ex = process_lf(labels[0], 0, 2)
+    ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
 
     torch_model = BottomUpModel.load_from_checkpoint(
         f"{minimal_instance_bottomup_ckpt}/best.ckpt",
@@ -54,7 +64,7 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         return_confmaps=False,
     )
 
-    output = inference_layer(next(iter(loader)))[0]
+    output = inference_layer(ex)[0]
     assert "confmaps" not in output.keys()
     assert output["pred_instance_peaks"].is_nested
     assert tuple(output["pred_instance_peaks"][0].shape)[1:] == (2, 2)
@@ -83,7 +93,7 @@ def test_bottomup_inference_model(minimal_instance_bottomup_ckpt):
         return_paf_graph=True,
     )
 
-    output = inference_layer(next(iter(loader)))[0]
+    output = inference_layer(ex)[0]
     assert tuple(output["confmaps"].shape) == (1, 2, 192, 192)
     assert tuple(output["part_affinity_fields"].shape) == (1, 96, 96, 2)
     assert output["pred_instance_peaks"].is_nested
