@@ -15,7 +15,7 @@ def get_pred_instances(minimal_instance_ckpt):
     result_labels = main(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
+        provider="LabelReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=0.0,
