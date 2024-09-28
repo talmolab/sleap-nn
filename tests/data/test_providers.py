@@ -1,6 +1,6 @@
 import torch
 
-from sleap_nn.data.providers import LabelsReader, VideoReader, process_lf
+from sleap_nn.data.providers import LabelsReader, LabelReader, VideoReader, process_lf
 from queue import Queue
 import sleap_io as sio
 import numpy as np
@@ -36,11 +36,11 @@ def test_videoreader_provider(centered_instance_video):
         data = []
         for i in range(batch_size):
             frame = reader.frame_buffer.get()
-            if frame[0] is None:
+            if frame["image"] is None:
                 break
             data.append(frame)
         assert len(data) == batch_size
-        assert data[0][0].shape == (1, 1, 384, 384)
+        assert data[0]["image"].shape == (1, 1, 384, 384)
     except:
         raise
     finally:
@@ -48,10 +48,9 @@ def test_videoreader_provider(centered_instance_video):
     assert reader.total_len() == 4
 
     # check graceful stop (video has 1100 frames)
-    queue = Queue(maxsize=4)
     reader = VideoReader.from_filename(
         filename=centered_instance_video,
-        frame_buffer=queue,
+        queue_maxsize=4,
         start_idx=1099,
         end_idx=1104,
     )
@@ -61,11 +60,11 @@ def test_videoreader_provider(centered_instance_video):
         data = []
         for i in range(batch_size):
             frame = reader.frame_buffer.get()
-            if frame[0] is None:
+            if frame["image"] is None:
                 break
             data.append(frame)
         assert len(data) == 1
-        assert data[0][0].shape == (1, 1, 384, 384)
+        assert data[0]["image"].shape == (1, 1, 384, 384)
     except:
         raise
     finally:
@@ -81,16 +80,64 @@ def test_videoreader_provider(centered_instance_video):
         data = []
         for i in range(batch_size):
             frame = reader.frame_buffer.get()
-            if frame[0] is None:
+            if frame["image"] is None:
                 break
             data.append(frame)
         assert len(data) == batch_size
-        assert data[0][0].shape == (1, 1, 384, 384)
+        assert data[0]["image"].shape == (1, 1, 384, 384)
     except:
         raise
     finally:
         reader.join()
     assert reader.total_len() == 6
+
+
+def test_labelreader_provider(minimal_instance):
+    """Test LabelReader class."""
+    labels = sio.load_slp(minimal_instance)
+    queue = Queue(maxsize=4)
+    reader = LabelReader(labels=labels, frame_buffer=queue, instances_key=False)
+    assert reader.max_height_and_width == (384, 384)
+    reader.start()
+    batch_size = 1
+    try:
+        data = []
+        for i in range(batch_size):
+            frame = reader.frame_buffer.get()
+            if frame["image"] is None:
+                break
+            data.append(frame)
+        assert len(data) == batch_size
+        assert data[0]["image"].shape == (1, 1, 384, 384)
+        assert "instances" not in data[0]
+    except:
+        raise
+    finally:
+        reader.join()
+    assert reader.total_len() == 1
+
+    # with instances key
+    reader = LabelReader.from_filename(
+        minimal_instance, queue_maxsize=4, instances_key=True
+    )
+    assert reader.max_height_and_width == (384, 384)
+    reader.start()
+    batch_size = 1
+    try:
+        data = []
+        for i in range(batch_size):
+            frame = reader.frame_buffer.get()
+            if frame["image"] is None:
+                break
+            data.append(frame)
+        assert len(data) == batch_size
+        assert data[0]["image"].shape == (1, 1, 384, 384)
+        assert "instances" in data[0]
+    except:
+        raise
+    finally:
+        reader.join()
+    assert reader.total_len() == 1
 
 
 def test_process_lf(minimal_instance):
