@@ -343,7 +343,7 @@ class LabelReader(Thread):
 
                 sample = {
                     "image": torch.from_numpy(img),
-                    "frame_idx": torch.tensor(idx, dtype=torch.int32),
+                    "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                     "video_idx": torch.tensor(
                         self.labels.videos.index(lf.video), dtype=torch.int32
                     ),
