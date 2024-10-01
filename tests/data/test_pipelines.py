@@ -15,12 +15,12 @@ from sleap_nn.data.pipelines import (
     CentroidConfmapsPipeline,
     BottomUpPipeline,
 )
-from sleap_nn.data.providers import LabelsReader
+from sleap_nn.data.providers import LabelsReaderDP
 
 
 def test_key_filter(minimal_instance):
     """Test KeyFilter module."""
-    datapipe = LabelsReader.from_filename(filename=minimal_instance)
+    datapipe = LabelsReaderDP.from_filename(filename=minimal_instance)
     datapipe = Normalizer(datapipe)
     datapipe = SizeMatcher(datapipe)
     datapipe = Resizer(datapipe)
@@ -58,7 +58,7 @@ def test_key_filter(minimal_instance):
     assert sample["video_idx"] == 0
     assert sample["num_instances"] == 2
 
-    datapipe = LabelsReader.from_filename(filename=minimal_instance)
+    datapipe = LabelsReaderDP.from_filename(filename=minimal_instance)
     datapipe = Normalizer(datapipe)
     datapipe = SizeMatcher(datapipe)
     datapipe = Resizer(datapipe, keep_original=True)
@@ -113,7 +113,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         confmap_head=confmap_head,
         crop_hw=crop_hw,
     )
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
@@ -192,7 +192,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         crop_hw=(100, 100),
     )
 
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
         use_augmentations=base_topdown_data_config.use_augmentations_train,
@@ -272,7 +272,7 @@ def test_topdownconfmapspipeline(minimal_instance):
         crop_hw=(100, 100),
     )
 
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
         use_augmentations=base_topdown_data_config.use_augmentations_train,
@@ -326,7 +326,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         max_stride=8,
         confmap_head=confmap_head,
     )
-    data_provider = LabelsReader(labels=labels)
+    data_provider = LabelsReaderDP(labels=labels)
 
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
@@ -401,7 +401,7 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
         confmap_head=confmap_head,
     )
 
-    data_provider = LabelsReader(labels=labels)
+    data_provider = LabelsReaderDP(labels=labels)
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
         use_augmentations=base_singleinstance_data_config.use_augmentations_train,
@@ -443,7 +443,7 @@ def test_centroidconfmapspipeline(minimal_instance):
     pipeline = CentroidConfmapsPipeline(
         data_config=base_centroid_data_config, max_stride=32, confmap_head=confmap_head
     )
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
@@ -516,7 +516,7 @@ def test_centroidconfmapspipeline(minimal_instance):
         data_config=base_centroid_data_config, max_stride=32, confmap_head=confmap_head
     )
 
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
         use_augmentations=base_centroid_data_config.use_augmentations_train,
@@ -563,7 +563,7 @@ def test_bottomuppipeline(minimal_instance):
         confmap_head=confmap_head,
         pafs_head=pafs_head,
     )
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
@@ -607,7 +607,7 @@ def test_bottomuppipeline(minimal_instance):
         confmap_head=confmap_head,
         pafs_head=pafs_head,
     )
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
@@ -685,7 +685,7 @@ def test_bottomuppipeline(minimal_instance):
         confmap_head=confmap_head,
         pafs_head=pafs_head,
     )
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
 
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
@@ -765,7 +765,7 @@ def test_bottomuppipeline(minimal_instance):
         pafs_head=pafs_head,
     )
 
-    data_provider = LabelsReader(labels=sio.load_slp(minimal_instance))
+    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
     datapipe = pipeline.make_training_pipeline(
         data_provider=data_provider,
         use_augmentations=base_bottom_config.use_augmentations_train,

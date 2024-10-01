@@ -17,7 +17,7 @@ def test_topdown_predictor(
     pred_labels = main(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         return_confmaps=False,
         make_labels=True,
         peak_threshold=0.0,
@@ -40,7 +40,7 @@ def test_topdown_predictor(
     preds = main(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         make_labels=False,
         peak_threshold=0.0,
         integral_refinement="integral",
@@ -63,7 +63,7 @@ def test_topdown_predictor(
         preds = main(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
-            provider="LabelReader",
+            provider="LabelsReader",
             make_labels=False,
         )
 
@@ -73,7 +73,7 @@ def test_topdown_predictor(
     pred_labels = main(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=[0.0, 0.0],
@@ -88,7 +88,7 @@ def test_topdown_predictor(
     pred_labels = main(
         model_paths=[minimal_instance_centroid_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         make_labels=False,
         max_instances=max_instances,
         peak_threshold=0.1,
@@ -119,7 +119,7 @@ def test_topdown_predictor(
     # Unrecognized provider
     with pytest.raises(
         Exception,
-        match="Provider not recognised. Please use either `LabelReader` or `VideoReader` as provider",
+        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
     ):
         pred_labels = main(
             model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
@@ -184,7 +184,7 @@ def test_topdown_predictor(
 
 def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
     """Test SingleInstancePredictor module."""
-    # provider as LabelReader
+    # provider as LabelsReader
     _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
 
     config = _config.copy()
@@ -204,7 +204,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         pred_labels = main(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
-            provider="LabelReader",
+            provider="LabelsReader",
             make_labels=True,
             max_instances=6,
             peak_threshold=0.1,
@@ -227,7 +227,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         preds = main(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
-            provider="LabelReader",
+            provider="LabelsReader",
             make_labels=False,
             peak_threshold=0.3,
             max_height=500,
@@ -312,7 +312,7 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
         # check if labels are created from ckpt
         with pytest.raises(
             Exception,
-            match="Provider not recognised. Please use either `LabelReader` or `VideoReader` as provider",
+            match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
         ):
             preds = main(
                 model_paths=[minimal_instance_ckpt],
@@ -329,13 +329,13 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
 
 def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     """Test BottomUpPredictor module."""
-    # provider as LabelReader
+    # provider as LabelsReader
 
     # check if labels are created from ckpt
     pred_labels = main(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=0.03,
@@ -356,7 +356,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     preds = main(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         make_labels=False,
         max_instances=6,
         peak_threshold=0.03,
@@ -373,7 +373,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     pred_labels = main(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=1.0,
@@ -420,7 +420,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     # unrecognized provider
     with pytest.raises(
         Exception,
-        match="Provider not recognised. Please use either `LabelReader` or `VideoReader` as provider",
+        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
     ):
         preds = main(
             model_paths=[minimal_instance_bottomup_ckpt],
@@ -435,7 +435,7 @@ def test_bottomup_predictor(minimal_instance, minimal_instance_bottomup_ckpt):
     pred_labels = main(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelReader",
+        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=0.03,

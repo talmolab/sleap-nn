@@ -1,6 +1,6 @@
 import torch
 
-from sleap_nn.data.providers import LabelsReader, process_lf
+from sleap_nn.data.providers import LabelsReaderDP, process_lf
 from sleap_nn.data.resizing import (
     SizeMatcher,
     Resizer,
@@ -16,7 +16,7 @@ import pytest
 
 def test_sizematcher(minimal_instance):
     """Test SizeMatcher module for pad images to specified dimensions."""
-    l = LabelsReader.from_filename(minimal_instance)
+    l = LabelsReaderDP.from_filename(minimal_instance)
     pipe = SizeMatcher(l, provider=l)
     sample = next(iter(pipe))
     instances, image = sample["instances"], sample["image"]
@@ -49,7 +49,7 @@ def test_sizematcher(minimal_instance):
 
 def test_resizer(minimal_instance):
     """Test Resizer module for resizing images based on given scale."""
-    l = LabelsReader.from_filename(minimal_instance)
+    l = LabelsReaderDP.from_filename(minimal_instance)
     pipe = Resizer(l, scale=2, keep_original=False)
     sample = next(iter(pipe))
     image = sample["image"]
@@ -65,7 +65,7 @@ def test_resizer(minimal_instance):
 
 def test_padtostride(minimal_instance):
     """Test PadToStride module to pad images based on max stride."""
-    l = LabelsReader.from_filename(minimal_instance)
+    l = LabelsReaderDP.from_filename(minimal_instance)
     pipe = PadToStride(l, max_stride=200)
     sample = next(iter(pipe))
     image = sample["image"]

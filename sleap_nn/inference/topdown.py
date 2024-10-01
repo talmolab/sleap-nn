@@ -58,7 +58,7 @@ class CentroidCrop(L.LightningModule):
 
     def __init__(
         self,
-        torch_model: L.LightningModule = None,
+        torch_model: Optional[L.LightningModule] = None,
         output_stride: int = 1,
         peak_threshold: float = 0.0,
         max_instances: Optional[int] = None,
@@ -70,7 +70,7 @@ class CentroidCrop(L.LightningModule):
         input_scale: float = 1.0,
         max_stride: int = 1,
         use_gt_centroids: bool = False,
-        anchor_ind: int = None,
+        anchor_ind: Optional[int] = None,
         **kwargs,
     ):
         """Initialise the model attributes."""

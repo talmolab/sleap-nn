@@ -4,7 +4,7 @@ from sleap_nn.data.instance_centroids import (
     InstanceCentroidFinder,
     generate_centroids,
 )
-from sleap_nn.data.providers import LabelsReader, process_lf
+from sleap_nn.data.providers import LabelsReaderDP, process_lf
 
 
 def test_generate_centroids(minimal_instance):
@@ -38,7 +38,7 @@ def test_generate_centroids(minimal_instance):
 def test_instance_centroids(minimal_instance):
     """Test InstanceCentroidFinder and generate_centroids functions."""
     # Undefined anchor_ind.
-    datapipe = LabelsReader.from_filename(minimal_instance)
+    datapipe = LabelsReaderDP.from_filename(minimal_instance)
     datapipe = InstanceCentroidFinder(datapipe)
     sample = next(iter(datapipe))
     instances = sample["instances"]

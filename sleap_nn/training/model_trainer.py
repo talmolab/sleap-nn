@@ -9,11 +9,9 @@ import os
 import shutil
 import torch
 import sleap_io as sio
-from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
 import lightning as L
 import litdata as ld
-from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,
@@ -145,8 +143,6 @@ class ModelTrainer:
     def _create_data_loaders(self):
         """Create a DataLoader for train, validation and test sets using the data_config."""
         self.provider = self.config.data_config.provider
-        if self.provider == "LabelsReader":
-            self.provider = LabelsReader
 
         train_labels = sio.load_slp(self.config.data_config.train_labels_path)
         val_labels = sio.load_slp(self.config.data_config.val_labels_path)

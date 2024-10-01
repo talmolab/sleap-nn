@@ -252,7 +252,7 @@ class CentroidConfmapsPipeline:
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
-                `LabelsReader` instance.
+                `LabelsReaderDP` instance.
             use_augmentations: `True` if augmentations should be applied to the training
                 pipeline, else `False`. Default: `False`.
 
@@ -353,7 +353,7 @@ class BottomUpPipeline:
 
         Args:
             data_provider: A `Provider` that generates data examples, typically a
-                `LabelsReader` instance.
+                `LabelsReaderDP` instance.
             use_augmentations: `True` if augmentations should be applied to the training
                 pipeline, else `False`. Default: `False`.
 

@@ -93,7 +93,7 @@ def process_lf(
     return ex
 
 
-class LabelsReader(IterDataPipe):
+class LabelsReaderDP(IterDataPipe):
     """IterDataPipe for reading frames from Labels object.
 
     This IterDataPipe will produce examples containing a frame and an sleap_io.Instance
@@ -152,7 +152,7 @@ class LabelsReader(IterDataPipe):
         user_instances_only: bool = True,
         instances_key: bool = True,
     ):
-        """Create LabelsReader from a .slp filename."""
+        """Create LabelsReaderDP from a .slp filename."""
         labels = sio.load_slp(filename)
         return cls(labels, user_instances_only, instances_key)
 
@@ -252,7 +252,7 @@ class VideoReader(Thread):
         start_idx: Optional[int] = None,
         end_idx: Optional[int] = None,
     ):
-        """Create LabelsReader from a .slp filename."""
+        """Create VideoReader from a .slp filename."""
         video = sio.load_video(filename)
         frame_buffer = Queue(maxsize=queue_maxsize)
         return cls(video, frame_buffer, start_idx, end_idx)
@@ -288,7 +288,7 @@ class VideoReader(Thread):
             )
 
 
-class LabelReader(Thread):
+class LabelsReader(Thread):
     """Thread module for reading images from sleap-io Labels object.
 
     This module will load the images from `.slp` files and pushes them as Tensors into a
