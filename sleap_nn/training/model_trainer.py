@@ -343,7 +343,7 @@ class ModelTrainer:
     def _set_wandb(self):
         wandb.login(key=self.config.trainer_config.wandb.api_key)
 
-    def _initialize_model(self, trained_ckpts_path: str = None):
+    def _initialize_model(self, trained_ckpts_path: str | None = None):
         models = {
             "single_instance": SingleInstanceModel,
             "centered_instance": TopDownCenteredInstanceModel,
@@ -360,7 +360,7 @@ class ModelTrainer:
     def _get_param_count(self):
         return sum(p.numel() for p in self.model.parameters())
 
-    def train(self, trained_ckpts_path: str = None):
+    def train(self, trained_ckpts_path: str | None = None):
         """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         logger = []
@@ -579,8 +579,9 @@ class TrainingModel(L.LightningModule):
             self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
         # Initializing model (encoder + decoder) with trained ckpts
+        # TODO: Handling different input channels
         if trained_ckpts_path is not None:
-            print(f"Loading wieghts from `{trained_ckpts_path}` ...")
+            print(f"Loading weights from `{trained_ckpts_path}` ...")
             ckpt = torch.load(trained_ckpts_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
