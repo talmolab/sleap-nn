@@ -107,7 +107,7 @@ class ModelTrainer:
             try:
                 Path(self.dir_path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                print(
+                raise OSError(
                     f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
                 )
 
@@ -126,7 +126,7 @@ class ModelTrainer:
                 if "chunk_size" in self.config.data_config
                 and self.config.data_config.chunk_size is not None
                 else 100
-            ),
+            ),  # TODO: defaults should be handles in config validation.
         )
 
         ld.optimize(
@@ -139,7 +139,7 @@ class ModelTrainer:
                 if "chunk_size" in self.config.data_config
                 and self.config.data_config.chunk_size is not None
                 else 100
-            ),
+            ),  # TODO: defaults should be handles in config validation.
         )
 
     def _create_data_loaders(self):
@@ -155,7 +155,7 @@ class ModelTrainer:
             if "user_instances_only" in self.config.data_config
             and self.config.data_config.user_instances_only is not None
             else True
-        )
+        )  # TODO: defaults should be handles in config validation.
         self.skeletons = train_labels.skeletons
         max_stride = self.config.model_config.backbone_config.max_stride
         max_instances = get_max_instances(train_labels)
@@ -427,6 +427,7 @@ class ModelTrainer:
 
         self._initialize_model()
         total_params = self._get_param_count()
+        self.config.model_config.total_params = total_params
 
         trainer = L.Trainer(
             callbacks=callbacks,
@@ -464,7 +465,7 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb:
                 self.config.trainer_config.wandb.run_id = wandb.run.id
                 wandb.finish()
-            self.config.model_config.total_params = total_params
+
             # save the configs as yaml in the checkpoint dir
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
