@@ -48,7 +48,7 @@ def config(sleap_data_dir):
     init_config = OmegaConf.create(
         {
             "data_config": {
-                "provider": "LabelsReader",
+                "provider": "LabelsReaderDP",
                 "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "preprocessing": {

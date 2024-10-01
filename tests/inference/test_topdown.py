@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data.dataloader import DataLoader
 import sleap_io as sio
-from sleap_nn.data.providers import process_lf, LabelsReader
+from sleap_nn.data.providers import process_lf, LabelsReaderDP
 from sleap_nn.data.resizing import resize_image
 from sleap_nn.data.instance_centroids import InstanceCentroidFinder, generate_centroids
 from sleap_nn.data.normalization import apply_normalization, Normalizer
@@ -136,7 +136,7 @@ def test_find_instance_peaks_groundtruth(
 
     # with centroid crop class
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
+    data_provider = LabelsReaderDP.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,
         max_height=None,

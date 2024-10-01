@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import sleap_io as sio
 from sleap_nn.data.utils import make_grid_vectors
-from sleap_nn.data.providers import LabelsReader, process_lf
+from sleap_nn.data.providers import LabelsReaderDP, process_lf
 from sleap_nn.data.edge_maps import (
     distance_to_edge,
     make_edge_maps,
@@ -190,7 +190,7 @@ def test_generate_pafs(minimal_instance):
 
 
 def test_part_affinity_fields_generator(minimal_instance):
-    provider = LabelsReader.from_filename(minimal_instance)
+    provider = LabelsReaderDP.from_filename(minimal_instance)
     paf_generator = PartAffinityFieldsGenerator(
         provider,
         sigma=8,

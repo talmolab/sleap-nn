@@ -10,7 +10,7 @@ from sleap_nn.data.instance_cropping import (
 )
 from sleap_nn.data.normalization import Normalizer, apply_normalization
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
-from sleap_nn.data.providers import LabelsReader, process_lf
+from sleap_nn.data.providers import LabelsReaderDP, process_lf
 
 
 def test_find_instance_crop_size(minimal_instance):
@@ -44,7 +44,7 @@ def test_make_centered_bboxes():
 
 def test_instance_cropper(minimal_instance):
     """Test InstanceCropper module."""
-    provider = LabelsReader.from_filename(minimal_instance)
+    provider = LabelsReaderDP.from_filename(minimal_instance)
     provider.max_instances = 3
     datapipe = Normalizer(provider)
     datapipe = SizeMatcher(datapipe, provider)

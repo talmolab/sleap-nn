@@ -1,6 +1,11 @@
 import torch
 
-from sleap_nn.data.providers import LabelsReader, LabelReader, VideoReader, process_lf
+from sleap_nn.data.providers import (
+    LabelsReaderDP,
+    LabelsReader,
+    VideoReader,
+    process_lf,
+)
 from queue import Queue
 import sleap_io as sio
 import numpy as np
@@ -9,8 +14,8 @@ import pytest
 
 
 def test_providers(minimal_instance):
-    """Test LabelsReader module."""
-    l = LabelsReader.from_filename(minimal_instance)
+    """Test LabelsReaderDP module."""
+    l = LabelsReaderDP.from_filename(minimal_instance)
     sample = next(iter(l))
     instances, image = sample["instances"], sample["image"]
     assert image.shape == torch.Size([1, 1, 384, 384])
@@ -92,11 +97,11 @@ def test_videoreader_provider(centered_instance_video):
     assert reader.total_len() == 6
 
 
-def test_labelreader_provider(minimal_instance):
-    """Test LabelReader class."""
+def test_labelsreader_provider(minimal_instance):
+    """Test LabelsReader class."""
     labels = sio.load_slp(minimal_instance)
     queue = Queue(maxsize=4)
-    reader = LabelReader(labels=labels, frame_buffer=queue, instances_key=False)
+    reader = LabelsReader(labels=labels, frame_buffer=queue, instances_key=False)
     assert reader.max_height_and_width == (384, 384)
     reader.start()
     batch_size = 1
@@ -117,7 +122,7 @@ def test_labelreader_provider(minimal_instance):
     assert reader.total_len() == 1
 
     # with instances key
-    reader = LabelReader.from_filename(
+    reader = LabelsReader.from_filename(
         minimal_instance, queue_maxsize=4, instances_key=True
     )
     assert reader.max_height_and_width == (384, 384)

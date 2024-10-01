@@ -12,7 +12,7 @@ import attrs
 import lightning as L
 import litdata as ld
 from omegaconf import OmegaConf
-from sleap_nn.data.providers import LabelReader, VideoReader
+from sleap_nn.data.providers import LabelsReader, VideoReader
 from sleap_nn.data.resizing import (
     resize_image,
     apply_pad_to_stride,
@@ -58,9 +58,9 @@ class Predictor(ABC):
         preprocess_config: Preprocessing config with keys: [`batch_size`,
             `scale`, `is_rgb`, `max_stride`]. Default: {"batch_size": 4, "scale": 1.0,
             "is_rgb": False, "max_stride": 1}
-        provider: Provider for inference pipeline. One of ["LabelReader", "VideoReader"].
-            Default: LabelReader.
-        pipeline: If provider is LabelReader, pipeline is a `DataLoader` object. If provider
+        provider: Provider for inference pipeline. One of ["LabelsReader", "VideoReader"].
+            Default: LabelsReader.
+        pipeline: If provider is LabelsReader, pipeline is a `DataLoader` object. If provider
             is VideoReader, pipeline is an instance of `sleap_nn.data.providers.VideoReader`
             class. Default: None.
         inference_model: Instance of one of the inference models ["TopDownInferenceModel",
@@ -75,8 +75,8 @@ class Predictor(ABC):
         "is_rgb": False,
         "max_stride": 1,
     }
-    provider: Union[LabelReader, VideoReader] = LabelReader
-    pipeline: Optional[Union[LabelReader, VideoReader]] = None
+    provider: Union[LabelsReader, VideoReader] = LabelsReader
+    pipeline: Optional[Union[LabelsReader, VideoReader]] = None
     inference_model: Optional[
         Union[
             TopDownInferenceModel, SingleInstanceInferenceModel, BottomUpInferenceModel
@@ -265,6 +265,7 @@ class Predictor(ABC):
                 if self.instances_key:
                     instances.append(frame["instances"].unsqueeze(dim=0))
             if imgs:
+                # TODO: all preprocessing should be moved into InferenceModels to be exportable.
                 imgs = torch.concatenate(imgs, dim=0)
                 fidxs = torch.tensor(fidxs, dtype=torch.int32)
                 vidxs = torch.tensor(vidxs, dtype=torch.int32)
@@ -522,7 +523,7 @@ class TopDownPredictor(Predictor):
             An instance of `TopDownPredictor` with the loaded models.
 
             One of the two models can be left as `None` to perform inference with ground
-            truth data. This will only work with `LabelReader` as the provider.
+            truth data. This will only work with `LabelsReader` as the provider.
 
         """
         if centroid_ckpt_path is not None:
@@ -591,7 +592,7 @@ class TopDownPredictor(Predictor):
 
         Args:
             provider: (str) Provider class to read the input sleap files.
-                Either "LabelReader" or "VideoReader".
+                Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             video_start_idx: (int) Start index of the frames to read. Default: None.
@@ -603,9 +604,9 @@ class TopDownPredictor(Predictor):
         """
         self.provider = provider
 
-        # LabelReader provider
-        if self.provider == "LabelReader":
-            provider = LabelReader
+        # LabelsReader provider
+        if self.provider == "LabelsReader":
+            provider = LabelsReader
 
             if self.centroid_config is not None:
                 max_stride = (
@@ -660,7 +661,7 @@ class TopDownPredictor(Predictor):
 
         else:
             raise Exception(
-                "Provider not recognised. Please use either `LabelReader` or `VideoReader` as provider"
+                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
 
     def _make_labeled_frames_from_generator(
@@ -882,7 +883,7 @@ class SingleInstancePredictor(Predictor):
 
         Args:
             provider: (str) Provider class to read the input sleap files.
-                Either "LabelReader" or "VideoReader".
+                Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             video_start_idx: (int) Start index of the frames to read. Default: None.
@@ -895,9 +896,9 @@ class SingleInstancePredictor(Predictor):
         """
         self.provider = provider
 
-        # LabelReader provider
-        if self.provider == "LabelReader":
-            provider = LabelReader
+        # LabelsReader provider
+        if self.provider == "LabelsReader":
+            provider = LabelsReader
 
             max_stride = self.confmap_config.model_config.backbone_config.max_stride
 
@@ -938,7 +939,7 @@ class SingleInstancePredictor(Predictor):
 
         else:
             raise Exception(
-                "Provider not recognised. Please use either `LabelReader` or `VideoReader` as provider"
+                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
 
     def _make_labeled_frames_from_generator(
@@ -1191,7 +1192,7 @@ class BottomUpPredictor(Predictor):
 
         Args:
             provider: (str) Provider class to read the input sleap files.
-                Either "LabelReader" or "VideoReader".
+                Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             video_start_idx: (int) Start index of the frames to read. Default: None.
@@ -1202,9 +1203,9 @@ class BottomUpPredictor(Predictor):
             Thread is started in Predictor._predict_generator() method.
         """
         self.provider = provider
-        # LabelReader provider
-        if self.provider == "LabelReader":
-            provider = LabelReader
+        # LabelsReader provider
+        if self.provider == "LabelsReader":
+            provider = LabelsReader
 
             max_stride = self.bottomup_config.model_config.backbone_config.max_stride
 
@@ -1245,7 +1246,7 @@ class BottomUpPredictor(Predictor):
 
         else:
             raise Exception(
-                "Provider not recognised. Please use either `LabelReader` or `VideoReader` as provider"
+                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
 
     def _make_labeled_frames_from_generator(
@@ -1346,7 +1347,7 @@ def main(
     max_width: int = None,
     max_height: int = None,
     is_rgb: bool = False,
-    provider: str = "LabelReader",
+    provider: str = "LabelsReader",
     batch_size: int = 4,
     queue_maxsize: int = 8,
     videoreader_start_idx: Optional[int] = None,
@@ -1397,7 +1398,7 @@ def main(
                 is set to False, then we convert the image to grayscale (single-channel)
                 image. Default: False.
         provider: (str) Provider class to read the input sleap files.
-                Either "LabelReader" or "VideoReader". Default: LabelReader.
+                Either "LabelsReader" or "VideoReader". Default: LabelsReader.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
         videoreader_start_idx: (int) Start index of the frames to read. Default: None.

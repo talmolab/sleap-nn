@@ -4,7 +4,7 @@ from typing import Dict, Iterator, Optional, Tuple, List, Union
 
 import torch
 import torch.nn.functional as F
-from sleap_nn.data.providers import LabelsReader, VideoReader
+from sleap_nn.data.providers import LabelsReaderDP, VideoReader
 import torchvision.transforms.v2.functional as tvf
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 
@@ -230,7 +230,7 @@ class SizeMatcher(IterDataPipe):
     def __init__(
         self,
         source_datapipe: IterDataPipe,
-        provider: Optional[Union[LabelsReader, VideoReader]] = None,
+        provider: Optional[Union[LabelsReaderDP, VideoReader]] = None,
         max_height: Optional[int] = None,
         max_width: Optional[int] = None,
     ):
