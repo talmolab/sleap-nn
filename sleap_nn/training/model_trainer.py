@@ -339,7 +339,7 @@ class ModelTrainer:
     def _set_wandb(self):
         wandb.login(key=self.config.trainer_config.wandb.api_key)
 
-    def _initialize_model(self, trained_ckpts_path: str = None):
+    def _initialize_model(self, trained_ckpts_path: Optional[str] = None):
         models = {
             "single_instance": SingleInstanceModel,
             "centered_instance": TopDownCenteredInstanceModel,
@@ -356,7 +356,7 @@ class ModelTrainer:
     def _get_param_count(self):
         return sum(p.numel() for p in self.model.parameters())
 
-    def train(self, trained_ckpts_path: str = None):
+    def train(self, trained_ckpts_path: Optional[str] = None):
         """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         logger = []
