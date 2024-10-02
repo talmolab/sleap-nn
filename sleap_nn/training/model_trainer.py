@@ -429,6 +429,9 @@ class ModelTrainer:
         total_params = self._get_param_count()
         self.config.model_config.total_params = total_params
 
+        # save the configs as yaml in the checkpoint dir
+        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+
         trainer = L.Trainer(
             callbacks=callbacks,
             logger=logger,
@@ -466,7 +469,7 @@ class ModelTrainer:
                 self.config.trainer_config.wandb.run_id = wandb.run.id
                 wandb.finish()
 
-            # save the configs as yaml in the checkpoint dir
+            # save the config with wandb runid
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
