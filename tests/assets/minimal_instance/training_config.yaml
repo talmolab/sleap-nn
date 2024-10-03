@@ -83,7 +83,7 @@ trainer_config:
     name: fly_unet_centered
     wandb_mode: ''
     api_key: ''
-    prv_runid:
+    prv_runid: null
     log_params:
     - trainer_config.optimizer_name
     - trainer_config.optimizer.amsgrad

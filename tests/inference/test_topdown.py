@@ -3,13 +3,13 @@ from omegaconf import OmegaConf
 import numpy as np
 import torch
 from torch.utils.data.dataloader import DataLoader
-from sleap_nn.data.providers import LabelsReader
+import sleap_io as sio
+from sleap_nn.data.providers import process_lf, LabelsReaderDP
 from sleap_nn.data.resizing import resize_image
-from sleap_nn.data.instance_centroids import InstanceCentroidFinder
-from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.instance_centroids import InstanceCentroidFinder, generate_centroids
+from sleap_nn.data.normalization import apply_normalization, Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
-from sleap_nn.data.instance_centroids import InstanceCentroidFinder
-from sleap_nn.data.instance_cropping import InstanceCropper
+from sleap_nn.data.instance_cropping import InstanceCropper, generate_crops
 from sleap_nn.training.model_trainer import (
     CentroidModel,
     ModelTrainer,
@@ -24,7 +24,7 @@ from sleap_nn.inference.topdown import (
 
 
 def initialize_model(config, minimal_instance, minimal_instance_ckpt):
-    """Returns data loader, trained torch model and FindInstancePeaks layer to test InferenceModels."""
+    """Returns trained torch model and FindInstancePeaks layer to test InferenceModels."""
     # for centered instance model
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
@@ -34,42 +34,16 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
         model_type="centered_instance",
     )
 
-    data_provider = LabelsReader.from_filename(minimal_instance)
-    pipeline = Normalizer(data_provider, is_rgb=False)
-    pipeline = SizeMatcher(
-        pipeline,
-        provider=data_provider,
-        max_height=None,
-        max_width=None,
-    )
-    pipeline = InstanceCentroidFinder(
-        pipeline,
-        anchor_ind=0,
-    )
-    pipeline = InstanceCropper(
-        pipeline,
-        crop_hw=(160, 160),
-    )
-    pipeline = Resizer(
-        pipeline, scale=1.0, image_key="instance_image", instances_key="instance"
-    )
-    pipeline = PadToStride(pipeline, max_stride=16, image_key="instance_image")
-
-    pipeline = pipeline.sharding_filter()
-    data_pipeline = DataLoader(
-        pipeline,
-        batch_size=4,
-    )
     find_peaks_layer = FindInstancePeaks(
         torch_model=torch_model,
         output_stride=2,
         peak_threshold=0.0,
         return_confmaps=False,
     )
-    return data_pipeline, torch_model, find_peaks_layer
+    return torch_model, find_peaks_layer
 
 
-def test_centroid_inference_model(config):
+def test_centroid_inference_model(config, minimal_instance):
     """Test CentroidCrop class to run inference on centroid models."""
 
     OmegaConf.update(
@@ -81,8 +55,14 @@ def test_centroid_inference_model(config):
     del config.model_config.head_configs.centroid["confmaps"].part_names
 
     trainer = ModelTrainer(config)
-    trainer._create_data_loaders()
-    loader = next(iter(trainer.val_data_loader))
+    labels = sio.load_slp(minimal_instance)
+    ex = process_lf(labels[0], 0, 2)
+    ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
+    ex["instances"] = ex["instances"].unsqueeze(dim=0)
+    ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
+    ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
+    ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
+
     trainer._initialize_model()
     model = trainer.model
 
@@ -99,12 +79,12 @@ def test_centroid_inference_model(config):
         crop_hw=(160, 160),
     )
 
-    out = layer(loader)
+    out = layer(ex)
     assert tuple(out["centroids"].shape) == (1, 1, 6, 2)
     assert tuple(out["centroid_vals"].shape) == (1, 6)
     assert "instance_image" not in out.keys()
 
-    # return crops = False
+    # return crops = True
     layer = CentroidCrop(
         torch_model=model,
         peak_threshold=0.0,
@@ -116,7 +96,7 @@ def test_centroid_inference_model(config):
         return_crops=True,
         crop_hw=(160, 160),
     )
-    out = layer(loader)
+    out = layer(ex)
     assert len(out) == 1
     out = out[0]
     assert tuple(out["centroid"].shape) == (2, 2)
@@ -129,28 +109,21 @@ def test_find_instance_peaks_groundtruth(
     config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
 ):
     """Test FindInstancePeaksGroundTruth class for running inference on centroid model without centered instance model."""
-    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
-    pipeline = SizeMatcher(
-        data_provider,
-        max_height=None,
-        max_width=None,
-    )
-    pipeline = Normalizer(pipeline, is_rgb=False)
-    pipeline = InstanceCentroidFinder(
-        pipeline,
-        anchor_ind=0,
-    )
+    labels = sio.load_slp(minimal_instance)
+    ex = process_lf(labels[0], 0, 2)
+    ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
+    ex["instances"] = ex["instances"].unsqueeze(dim=0)
+    ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
+    ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
+    ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
+    # ex["centroids"] = generate_centroids(ex["instances"], 0)
 
-    pipeline = pipeline.sharding_filter()
-    data_pipeline = DataLoader(
-        pipeline,
-        batch_size=4,
-    )
-
-    p = iter(data_pipeline)
-    example = next(p)
+    example = ex
     topdown_inf_layer = TopDownInferenceModel(
-        centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
+        centroid_crop=CentroidCrop(
+            use_gt_centroids=True, anchor_ind=0, crop_hw=(160, 160)
+        ),
+        instance_peaks=FindInstancePeaksGroundTruth(),
     )
     output = topdown_inf_layer(example)[0]
     assert torch.isclose(
@@ -163,7 +136,7 @@ def test_find_instance_peaks_groundtruth(
 
     # with centroid crop class
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
+    data_provider = LabelsReaderDP.from_filename(minimal_instance, instances_key=True)
     pipeline = SizeMatcher(
         data_provider,
         max_height=None,
@@ -215,12 +188,38 @@ def test_find_instance_peaks_groundtruth(
 
 def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
     """Test FindInstancePeaks class to run inference on the Centered instance model."""
-    data_pipeline, torch_model, find_peaks_layer = initialize_model(
+    torch_model, find_peaks_layer = initialize_model(
         config, minimal_instance, minimal_instance_ckpt
     )
+    labels = sio.load_slp(minimal_instance)
+    ex = process_lf(labels[0], 0, 2)
+    ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
+    ex["instances"] = ex["instances"].unsqueeze(dim=0)
+    ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
+    ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
+    ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
+    ex["centroids"] = generate_centroids(ex["instances"], 0)
+    ex["instances"], centroids = (
+        ex["instances"][0, 0],
+        ex["centroids"][0, 0],
+    )  # n_samples=1
+
+    for cnt, (instance, centroid) in enumerate(zip(ex["instances"], centroids)):
+        if cnt == ex["num_instances"]:
+            break
+
+        res = generate_crops(ex["image"][0], instance, centroid, (160, 160))
+
+        res["frame_idx"] = ex["frame_idx"]
+        res["video_idx"] = ex["video_idx"]
+        res["num_instances"] = ex["num_instances"]
+        res["orig_size"] = ex["orig_size"]
+        res["instance_image"] = res["instance_image"].unsqueeze(dim=0)
+
+        break
+
     outputs = []
-    for x in data_pipeline:
-        outputs.append(find_peaks_layer(x))
+    outputs.append(find_peaks_layer(res))
     keys = outputs[0].keys()
     assert "pred_instance_peaks" in keys and "pred_peak_values" in keys
     assert "pred_confmaps" not in keys
@@ -236,8 +235,7 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
         return_confmaps=False,
     )
     outputs = []
-    for x in data_pipeline:
-        outputs.append(find_peaks_layer(x))
+    outputs.append(find_peaks_layer(res))
     for i in outputs:
         instance = i["pred_instance_peaks"].numpy()
         assert np.all(np.isnan(instance))
@@ -251,8 +249,7 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
         input_scale=0.5,
     )
     outputs = []
-    for x in data_pipeline:
-        outputs.append(find_peaks_layer(x))
+    outputs.append(find_peaks_layer(res))
     assert "pred_confmaps" in outputs[0].keys()
     assert outputs[0]["pred_confmaps"].shape[-2:] == (40, 40)
 
@@ -262,44 +259,39 @@ def test_topdown_inference_model(
 ):
     """Test TopDownInferenceModel class for centroid and cenetered model inferences."""
     # for centered instance model
-    loader, _, find_peaks_layer = initialize_model(
+    _, find_peaks_layer = initialize_model(
         config, minimal_instance, minimal_instance_ckpt
     )
 
-    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
-    pipeline = SizeMatcher(
-        data_provider,
-        max_height=None,
-        max_width=None,
-    )
-    pipeline = Normalizer(pipeline, is_rgb=False)
-    pipeline = InstanceCentroidFinder(
-        pipeline,
-        anchor_ind=0,
-    )
+    labels = sio.load_slp(minimal_instance)
+    ex = process_lf(labels[0], 0, 2)
+    ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
+    ex["instances"] = ex["instances"].unsqueeze(dim=0)
+    ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
+    ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
+    ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
 
-    pipeline = pipeline.sharding_filter()
-    data_pipeline = DataLoader(
-        pipeline,
-        batch_size=4,
-    )
-
-    # if centroid layer is none and centered-instance model.
+    # if gt centroids and centered-instance model.
     topdown_inf_layer = TopDownInferenceModel(
-        centroid_crop=None, instance_peaks=find_peaks_layer
+        centroid_crop=CentroidCrop(
+            use_gt_centroids=True, anchor_ind=0, crop_hw=(160, 160), return_crops=True
+        ),
+        instance_peaks=find_peaks_layer,
     )
     outputs = []
-    for x in loader:
-        outputs.append(topdown_inf_layer(x))
+    outputs.append(topdown_inf_layer(ex))
     for i in outputs[0]:
         assert i["centroid_val"][0] == 1
         assert "pred_instance_peaks" in i and "pred_peak_values" in i
 
-    # if centroid layer is none and "instances" not in data
+    # if gt centroids and "instances" not in data
     topdown_inf_layer = TopDownInferenceModel(
-        centroid_crop=None, instance_peaks=FindInstancePeaksGroundTruth()
+        centroid_crop=CentroidCrop(
+            use_gt_centroids=True, anchor_ind=0, crop_hw=(160, 160), return_crops=True
+        ),
+        instance_peaks=FindInstancePeaksGroundTruth(),
     )
-    example = next(iter(data_pipeline))
+    example = ex
     del example["instances"]
 
     with pytest.raises(
@@ -317,19 +309,6 @@ def test_topdown_inference_model(
         model_type="centroid",
     )
 
-    data_provider = LabelsReader.from_filename(minimal_instance, instances_key=True)
-    pipeline = SizeMatcher(
-        data_provider,
-        max_height=None,
-        max_width=None,
-    )
-    pipeline = Normalizer(pipeline, is_rgb=False)
-    pipeline = pipeline.sharding_filter()
-    data_pipeline = DataLoader(
-        pipeline,
-        batch_size=4,
-    )
-
     centroid_layer = CentroidCrop(
         torch_model=torch_model,
         peak_threshold=0.0,
@@ -345,7 +324,7 @@ def test_topdown_inference_model(
     topdown_inf_layer = TopDownInferenceModel(
         centroid_crop=centroid_layer, instance_peaks=find_peaks_layer
     )
-    outputs = topdown_inf_layer(next(iter(data_pipeline)))
+    outputs = topdown_inf_layer(ex)
     for i in outputs:
         assert i["instance_image"].shape[1:] == (1, 1, 160, 160)
         assert i["pred_instance_peaks"].shape[1:] == (2, 2)
