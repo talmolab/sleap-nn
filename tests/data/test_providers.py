@@ -101,3 +101,4 @@ def test_process_lf(minimal_instance):
     assert ex["image"].shape == torch.Size([1, 1, 384, 384])
     assert ex["instances"].shape == torch.Size([1, 4, 2, 2])
     assert torch.isnan(ex["instances"][:, 2:, :, :]).all()
+    assert not torch.is_floating_point(ex["image"])

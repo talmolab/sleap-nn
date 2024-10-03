@@ -2,14 +2,17 @@
 
 from pathlib import Path
 from typing import Optional, List
+import functools
 import time
 from torch import nn
 import os
+import shutil
 import torch
 import sleap_io as sio
 from torch.utils.data import DataLoader
 from omegaconf import OmegaConf
 import lightning as L
+import litdata as ld
 from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
@@ -19,10 +22,7 @@ from sleap_nn.data.pipelines import (
 )
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
-from sleap_nn.architectures.model import Model
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
-from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
-from sleap_nn.data.instance_cropping import find_instance_crop_size
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -36,6 +36,24 @@ from torchvision.models.convnext import (
     ConvNeXt_Tiny_Weights,
     ConvNeXt_Small_Weights,
     ConvNeXt_Large_Weights,
+)
+
+import sleap_io as sio
+from sleap_nn.architectures.model import Model
+from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
+from sleap_nn.data.instance_cropping import find_instance_crop_size
+from sleap_nn.data.providers import get_max_instances
+from sleap_nn.data.get_data_chunks import (
+    bottomup_data_chunks,
+    centered_instance_data_chunks,
+    centroid_data_chunks,
+    single_instance_data_chunks,
+)
+from sleap_nn.data.streaming_datasets import (
+    BottomUpStreamingDataset,
+    CenteredInstanceStreamingDataset,
+    CentroidStreamingDataset,
+    SingleInstanceStreamingDataset,
 )
 
 
@@ -68,21 +86,11 @@ class ModelTrainer:
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
         # initialize attributes
-        self.model_type = None
         self.model = None
         self.provider = None
         self.skeletons = None
         self.train_data_loader = None
         self.val_data_loader = None
-
-        # set seed
-        torch.manual_seed(self.seed)
-
-    def _create_data_loaders(self):
-        """Create a DataLoader for train, validation and test sets using the data_config."""
-        self.provider = self.config.data_config.provider
-        if self.provider == "LabelsReader":
-            self.provider = LabelsReader
 
         # check which head type to choose the model
         for k, v in self.config.model_config.head_configs.items():
@@ -90,16 +98,100 @@ class ModelTrainer:
                 self.model_type = k
                 break
 
+        if not self.config.trainer_config.save_ckpt_path:
+            self.dir_path = "."
+        else:
+            self.dir_path = self.config.trainer_config.save_ckpt_path
+
+        if not Path(self.dir_path).exists():
+            try:
+                Path(self.dir_path).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                raise OSError(
+                    f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
+                )
+
+        # set seed
+        torch.manual_seed(self.seed)
+
+    def _get_data_chunks(self, func, train_labels, val_labels):
+        """Create a new folder with pre-processed data stored as `.bin` files."""
+        ld.optimize(
+            fn=func,
+            inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
+            output_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
+            chunk_size=(
+                self.config.data_config.chunk_size
+                if "chunk_size" in self.config.data_config
+                and self.config.data_config.chunk_size is not None
+                else 100
+            ),  # TODO: defaults should be handles in config validation.
+        )
+
+        ld.optimize(
+            fn=func,
+            inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
+            output_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
+            chunk_size=(
+                self.config.data_config.chunk_size
+                if "chunk_size" in self.config.data_config
+                and self.config.data_config.chunk_size is not None
+                else 100
+            ),  # TODO: defaults should be handles in config validation.
+        )
+
+    def _create_data_loaders(self):
+        """Create a DataLoader for train, validation and test sets using the data_config."""
+        self.provider = self.config.data_config.provider
+        if self.provider == "LabelsReader":
+            self.provider = LabelsReader
+
         train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+        user_instances_only = (
+            self.config.data_config.user_instances_only
+            if "user_instances_only" in self.config.data_config
+            and self.config.data_config.user_instances_only is not None
+            else True
+        )  # TODO: defaults should be handles in config validation.
         self.skeletons = train_labels.skeletons
         max_stride = self.config.model_config.backbone_config.max_stride
+        max_instances = get_max_instances(train_labels)
+        edge_inds = train_labels.skeletons[0].edge_inds
 
         if self.model_type == "single_instance":
 
-            data_pipeline = SingleInstanceConfmapsPipeline(
+            factory_get_chunks = functools.partial(
+                single_instance_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = SingleInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = SingleInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "centered_instance":
@@ -121,26 +213,111 @@ class ModelTrainer:
                 crop_hw = (crop_size, crop_size)
             self.config.data_config.preprocessing.crop_hw = crop_hw
 
-            data_pipeline = TopdownConfmapsPipeline(
+            factory_get_chunks = functools.partial(
+                centered_instance_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_instances=max_instances,
+                crop_size=crop_hw,
+                anchor_ind=self.config.model_config.head_configs.centered_instance.confmaps.anchor_part,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = CenteredInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
+                max_stride=max_stride,
                 crop_hw=crop_hw,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = CenteredInstanceStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
+                max_stride=max_stride,
+                crop_hw=crop_hw,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "centroid":
-            data_pipeline = CentroidConfmapsPipeline(
+            factory_get_chunks = functools.partial(
+                centroid_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_instances=max_instances,
+                anchor_ind=self.config.model_config.head_configs.centroid.confmaps.anchor_part,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = CentroidStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = CentroidStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.centroid.confmaps,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "bottomup":
-            data_pipeline = BottomUpPipeline(
+            factory_get_chunks = functools.partial(
+                bottomup_data_chunks,
                 data_config=self.config.data_config,
-                max_stride=max_stride,
+                max_instances=max_instances,
+                user_instances_only=user_instances_only,
+            )
+
+            self._get_data_chunks(
+                func=factory_get_chunks,
+                train_labels=train_labels,
+                val_labels=val_labels,
+            )
+
+            train_dataset = BottomUpStreamingDataset(
+                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
+                edge_inds=edge_inds,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
+            )
+
+            val_dataset = BottomUpStreamingDataset(
+                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                shuffle=False,
+                apply_aug=False,
+                confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
+                pafs_head=self.config.model_config.head_configs.bottomup.pafs,
+                edge_inds=edge_inds,
+                max_stride=max_stride,
+                scale=self.config.data_config.preprocessing.scale,
             )
 
         else:
@@ -149,38 +326,17 @@ class ModelTrainer:
             )
 
         # train
-        train_labels_reader = self.provider(train_labels)
-
-        train_datapipe = data_pipeline.make_training_pipeline(
-            data_provider=train_labels_reader,
-            use_augmentations=self.config.data_config.use_augmentations_train,
-        )
-
-        # Make sure an epoch runs for `steps_per_epoch` iterations
-        if self.steps_per_epoch is not None:
-            train_datapipe = Cycler(train_datapipe)
-
-        # to remove duplicates when multiprocessing is used
-        train_datapipe = train_datapipe.sharding_filter()
-        self.train_data_loader = DataLoader(
-            train_datapipe,
+        # TODO: cycler - to ensure minimum steps per epoch
+        self.train_data_loader = ld.StreamingDataLoader(
+            train_dataset,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
-            shuffle=self.config.trainer_config.train_data_loader.shuffle,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
         )
 
         # val
-        val_labels_reader = self.provider.from_filename(
-            self.config.data_config.val_labels_path,
-        )
-        val_datapipe = data_pipeline.make_training_pipeline(
-            data_provider=val_labels_reader, use_augmentations=False
-        )
-        val_datapipe = val_datapipe.sharding_filter()
-        self.val_data_loader = DataLoader(
-            val_datapipe,
+        self.val_data_loader = ld.StreamingDataLoader(
+            val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
-            shuffle=False,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
         )
 
@@ -205,18 +361,6 @@ class ModelTrainer:
         """Initiate the training by calling the fit method of Trainer."""
         self._create_data_loaders()
         logger = []
-        if not self.config.trainer_config.save_ckpt_path:
-            dir_path = "."
-        else:
-            dir_path = self.config.trainer_config.save_ckpt_path
-
-        if not Path(dir_path).exists():
-            try:
-                Path(dir_path).mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                print(
-                    f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
-                )
 
         if self.config.trainer_config.save_ckpt:
 
@@ -224,14 +368,14 @@ class ModelTrainer:
             checkpoint_callback = ModelCheckpoint(
                 save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
                 save_last=self.config.trainer_config.model_ckpt.save_last,
-                dirpath=dir_path,
+                dirpath=self.dir_path,
                 filename="best",
                 monitor="val_loss",
                 mode="min",
             )
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs
-            csv_logger = CSVLogger(dir_path)
+            csv_logger = CSVLogger(self.dir_path)
             logger.append(csv_logger)
 
         else:
@@ -257,7 +401,7 @@ class ModelTrainer:
             wandb_logger = WandbLogger(
                 project=wandb_config.project,
                 name=wandb_config.name,
-                save_dir=dir_path,
+                save_dir=self.dir_path,
                 id=self.config.trainer_config.wandb.prv_runid,
             )
             logger.append(wandb_logger)
@@ -265,7 +409,7 @@ class ModelTrainer:
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
 
-        OmegaConf.save(config=self.config, f=f"{dir_path}/initial_config.yaml")
+        OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
         # save the skeleton in the config
         self.config["data_config"]["skeletons"] = {}
@@ -283,6 +427,10 @@ class ModelTrainer:
 
         self._initialize_model()
         total_params = self._get_param_count()
+        self.config.model_config.total_params = total_params
+
+        # save the configs as yaml in the checkpoint dir
+        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
         trainer = L.Trainer(
             callbacks=callbacks,
@@ -313,16 +461,30 @@ class ModelTrainer:
                     wandb_logger.experiment.config.update({key: value})
                 wandb_logger.experiment.config.update({"model_params": total_params})
 
-        except Exception:
+        except KeyboardInterrupt:
             print("Stopping training...")
 
         finally:
             if self.config.trainer_config.use_wandb:
                 self.config.trainer_config.wandb.run_id = wandb.run.id
-                self.config.model_config.total_params = total_params
-                wandb.finish(exit_code=255)
-            # save the configs as yaml in the checkpoint dir
-            OmegaConf.save(config=self.config, f=f"{dir_path}/training_config.yaml")
+                wandb.finish()
+
+            # save the config with wandb runid
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
+            # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
+            # print("Deleting training and validation files...")
+            # if (Path(self.dir_path) / "train_chunks").exists():
+            #     shutil.rmtree(
+            #         (Path(self.dir_path) / "train_chunks").as_posix(),
+            #         ignore_errors=True,
+            #     )
+            # if (Path(self.dir_path) / "val_chunks").exists():
+            #     shutil.rmtree(
+            #         (Path(self.dir_path) / "val_chunks").as_posix(),
+            #         ignore_errors=True,
+            #     )
 
 
 class TrainingModel(L.LightningModule):

@@ -60,6 +60,9 @@ def config(sleap_data_dir):
                 },
                 "use_augmentations_train": True,
                 "augmentation_config": {
+                    "intensity": {
+                        "contrast_p": 1.0,
+                    },
                     "geometric": {
                         "rotation": 180.0,
                         "scale": None,
