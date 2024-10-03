@@ -32,3 +32,4 @@ dependencies:
   - pip
   - pip:
     - "--editable=.[dev]"
+    - litdata

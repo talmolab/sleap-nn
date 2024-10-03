@@ -67,20 +67,22 @@ def process_lf(
         instances, axis=0
     )  # (n_samples=1, num_instances, num_nodes, 2)
 
-    image = torch.from_numpy(image.astype("float32"))
     instances = torch.from_numpy(instances.astype("float32"))
 
     num_instances, nodes = instances.shape[1:3]
     img_height, img_width = image.shape[-2:]
 
     # append with nans for broadcasting
-    nans = torch.full((1, np.abs(max_instances - num_instances), nodes, 2), torch.nan)
-    instances = torch.cat(
-        [instances, nans], dim=1
-    )  # (n_samples, max_instances, num_nodes, 2)
+    if max_instances != 1:
+        nans = torch.full(
+            (1, np.abs(max_instances - num_instances), nodes, 2), torch.nan
+        )
+        instances = torch.cat(
+            [instances, nans], dim=1
+        )  # (n_samples, max_instances, num_nodes, 2)
 
     ex = {
-        "image": image,
+        "image": torch.from_numpy(image),
         "instances": instances,
         "video_idx": torch.tensor(video_idx, dtype=torch.int32),
         "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
