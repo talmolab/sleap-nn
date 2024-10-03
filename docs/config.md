@@ -15,6 +15,9 @@ The config file has three main sections:
     - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
     - `train_labels_path`: (str) Path to training data (`.slp` file)
     - `val_labels_path`: (str) Path to validation data (`.slp` file)
+    - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
+    - `chunk_size`: (int) Size of each chunk (in MB). *Default*: "100". 
+    #TODO: change in inference ckpts
     - `preprocessing`:
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
         channel when this is set to `True`, then the images from single-channel
@@ -56,8 +59,9 @@ The config file has three main sections:
             - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `None`.
             - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
             - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
-            - `random crop`: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where *random_crop_p* is the probability of applying random crop and *crop_height* and *crop_width* are the desired output size (out_h, out_w) of the crop.
-            # TODO: change doc for random crop
+            - `random_crop_p`: (float) Probability of applying random crop.
+            - `random_crop_height`: (int) Desired output height of the random crop.
+            - `random_crop_width`: (int) Desired output height of the random crop.
 - `model_config`: 
     - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
     - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].

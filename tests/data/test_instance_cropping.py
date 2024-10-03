@@ -8,7 +8,7 @@ from sleap_nn.data.instance_cropping import (
     generate_crops,
     make_centered_bboxes,
 )
-from sleap_nn.data.normalization import Normalizer
+from sleap_nn.data.normalization import Normalizer, apply_normalization
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.data.providers import LabelsReader, process_lf
 
@@ -91,6 +91,7 @@ def test_generate_crops(minimal_instance):
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
     ex = process_lf(lf, 0, 2)
+    ex["image"] = apply_normalization(ex["image"])
 
     centroids = generate_centroids(ex["instances"], 0)
     cropped_ex = generate_crops(
