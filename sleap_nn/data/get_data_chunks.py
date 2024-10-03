@@ -1,6 +1,6 @@
 """Handles generating data chunks for training."""
 
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Iterator, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
 import torch
@@ -18,7 +18,7 @@ from sleap_nn.data.resizing import apply_sizematcher
 
 
 def bottomup_data_chunks(
-    x: Tuple[Union[sio.LabeledFrame, int]],
+    x: Tuple[sio.LabeledFrame, int],
     data_config: DictConfig,
     max_instances: int,
     user_instances_only: bool = True,
@@ -66,13 +66,13 @@ def bottomup_data_chunks(
 
 
 def centered_instance_data_chunks(
-    x: Tuple[Union[sio.LabeledFrame, int]],
+    x: Tuple[sio.LabeledFrame, int],
     data_config: DictConfig,
     max_instances: int,
     crop_size: Tuple[int],
     anchor_ind: Optional[int],
     user_instances_only: bool = True,
-) -> Dict[str, torch.Tensor]:
+) -> Iterator[Dict[str, torch.Tensor]]:
     """Generate dict from `sio.LabeledFrame`.
 
     This function processes the input `sio.LabeledFrame`, applies data pre-processing
@@ -139,7 +139,7 @@ def centered_instance_data_chunks(
 
 
 def centroid_data_chunks(
-    x: Tuple[Union[sio.LabeledFrame, int]],
+    x: Tuple[sio.LabeledFrame, int],
     data_config: DictConfig,
     max_instances: int,
     anchor_ind: Optional[int],
@@ -196,7 +196,7 @@ def centroid_data_chunks(
 
 
 def single_instance_data_chunks(
-    x: Tuple[Union[sio.LabeledFrame, int]],
+    x: Tuple[sio.LabeledFrame, int],
     data_config: DictConfig,
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:

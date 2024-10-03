@@ -96,7 +96,7 @@ class ModelTrainer:
             if v is not None:
                 self.model_type = k
                 break
-
+     
         if not self.config.trainer_config.save_ckpt_path:
             self.dir_path = "."
         else:
@@ -261,7 +261,7 @@ class ModelTrainer:
             )
 
         elif self.model_type == "bottomup":
-
+          
             train_dataset = BottomUpStreamingDataset(
                 input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
@@ -429,7 +429,7 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb:
                 self.config.trainer_config.wandb.run_id = wandb.run.id
                 wandb.finish()
-            # save the configs as yaml in the checkpoint dir
+            # save the config with wandb runid
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
@@ -537,8 +537,9 @@ class TrainingModel(L.LightningModule):
             self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
         # Initializing model (encoder + decoder) with trained ckpts
+        # TODO: Handling different input channels
         if trained_ckpts_path is not None:
-            print(f"Loading wieghts from `{trained_ckpts_path}` ...")
+            print(f"Loading weights from `{trained_ckpts_path}` ...")
             ckpt = torch.load(trained_ckpts_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
