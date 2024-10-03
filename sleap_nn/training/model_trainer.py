@@ -132,24 +132,25 @@ class ModelTrainer:
             else 100
         )
 
-        # compute crop size
-        self.crop_hw = self.config.data_config.preprocessing.crop_hw
-        if self.crop_hw is None:
+        if self.model_type == "centered_instance":
+            # compute crop size
+            self.crop_hw = self.config.data_config.preprocessing.crop_hw
+            if self.crop_hw is None:
 
-            min_crop_size = (
-                self.config.data_config.preprocessing.min_crop_size
-                if "min_crop_size" in self.config.data_config.preprocessing
-                else None
-            )
-            crop_size = find_instance_crop_size(
-                train_labels,
-                maximum_stride=self.max_stride,
-                input_scaling=self.config.data_config.preprocessing.scale,
-                min_crop_size=min_crop_size,
-            )
-            self.crop_hw = crop_size
-        else:
-            self.crop_hw = self.crop_hw[0]
+                min_crop_size = (
+                    self.config.data_config.preprocessing.min_crop_size
+                    if "min_crop_size" in self.config.data_config.preprocessing
+                    else None
+                )
+                crop_size = find_instance_crop_size(
+                    train_labels,
+                    maximum_stride=self.max_stride,
+                    input_scaling=self.config.data_config.preprocessing.scale,
+                    min_crop_size=min_crop_size,
+                )
+                self.crop_hw = crop_size
+            else:
+                self.crop_hw = self.crop_hw[0]
 
     def _create_data_loaders(self):
         """Create a DataLoader for train, validation and test sets using the data_config."""
@@ -179,12 +180,6 @@ class ModelTrainer:
                 text=True,
             )
 
-            # for line in process.stdout:
-            #     print(f"STDOUT: {line}", end="")
-
-            # for line in process.stderr:
-            #     print(f"STDERR: {line}", end="")
-
             # Use communicate() to read output and avoid hanging
             stdout, stderr = process.communicate()
 
@@ -193,7 +188,6 @@ class ModelTrainer:
             print("Standard Error:\n", stderr)
 
         try:
-            print(self.dir_path, self.model_type)
             run_subprocess()
 
         except Exception as e:

@@ -16,7 +16,6 @@ from sleap_nn.data.get_data_chunks import (
 )
 
 if __name__ == "__main__":
-    print("hello")
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir_path", type=str)
     parser.add_argument("--user_instances_only", type=str)
@@ -34,6 +33,8 @@ if __name__ == "__main__":
 
     max_stride = config.model_config.backbone_config.max_stride
     max_instances = get_max_instances(train_labels)
+
+    print("Starting data-chunk generation...")
 
     if args.model_type == "single_instance":
 
