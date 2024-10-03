@@ -90,6 +90,7 @@ class ModelTrainer:
         self.model = None
         self.train_data_loader = None
         self.val_data_loader = None
+        self.crop_hw = None
 
         # check which head type to choose the model
         for k, v in self.config.model_config.head_configs.items():
