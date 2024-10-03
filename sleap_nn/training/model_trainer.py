@@ -14,7 +14,6 @@ import sleap_io as sio
 from omegaconf import OmegaConf
 import lightning as L
 import litdata as ld
-from sleap_nn.data.providers import LabelsReader
 from sleap_nn.data.pipelines import (
     TopdownConfmapsPipeline,
     SingleInstanceConfmapsPipeline,

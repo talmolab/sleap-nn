@@ -9,6 +9,7 @@ from sleap_nn.data.resizing import (
     apply_pad_to_stride,
 )
 from sleap_nn.inference.peak_finding import crop_bboxes
+from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
 
@@ -47,12 +48,17 @@ class CentroidCrop(L.LightningModule):
             If > 1, this will pad the bottom and right of the images to ensure they meet
             this divisibility criteria. Padding is applied after the scaling specified
             in the `scale` attribute.
+        use_gt_centroids: If `True`, then the crops are generated using ground-truth centroids.
+            If `False`, then centroids are predicted using a trained centroid model.
+        anchor_ind: The index of the node to use as the anchor for the centroid. If not
+            provided or if not present in the instance, the midpoint of the bounding box
+            is used instead.
 
     """
 
     def __init__(
         self,
-        torch_model: L.LightningModule,
+        torch_model: Optional[L.LightningModule] = None,
         output_stride: int = 1,
         peak_threshold: float = 0.0,
         max_instances: Optional[int] = None,
@@ -63,6 +69,8 @@ class CentroidCrop(L.LightningModule):
         crop_hw: tuple = (160, 160),
         input_scale: float = 1.0,
         max_stride: int = 1,
+        use_gt_centroids: bool = False,
+        anchor_ind: Optional[int] = None,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -78,6 +86,8 @@ class CentroidCrop(L.LightningModule):
         self.crop_hw = crop_hw
         self.input_scale = input_scale
         self.max_stride = max_stride
+        self.use_gt_centroids = use_gt_centroids
+        self.anchor_ind = anchor_ind
 
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
@@ -152,6 +162,42 @@ class CentroidCrop(L.LightningModule):
             and (batch, max_instances) repsectively which could then to passed to
             FindInstancePeaksGroundTruth class.
         """
+        if self.use_gt_centroids:
+            batch = inputs["video_idx"].shape[0]
+            centroids = generate_centroids(
+                inputs["instances"], anchor_ind=self.anchor_ind
+            )
+            centroid_vals = torch.ones(centroids.shape)[..., 0]
+            self.refined_peaks_batched = [x[0] for x in centroids]
+            self.peak_vals_batched = [x[0] for x in centroid_vals]
+
+            max_instances = (
+                self.max_instances
+                if self.max_instances is not None
+                else inputs["instances"].shape[-3]
+            )
+
+            refined_peaks_with_nans = torch.zeros((batch, max_instances, 2))
+            peak_vals_with_nans = torch.zeros((batch, max_instances))
+            for ind, (r, p) in enumerate(
+                zip(self.refined_peaks_batched, self.peak_vals_batched)
+            ):
+                refined_peaks_with_nans[ind] = r
+                peak_vals_with_nans[ind] = p
+
+            inputs.update(
+                {
+                    "centroids": refined_peaks_with_nans.unsqueeze(dim=1),
+                    "centroid_vals": peak_vals_with_nans,
+                }
+            )
+
+            if self.return_crops:
+                crops_dict = self._generate_crops(inputs)
+                return crops_dict
+            else:
+                return inputs
+
         # Network forward pass.
         orig_image = inputs["image"]
         scaled_image = resize_image(orig_image, self.input_scale)
@@ -469,38 +515,20 @@ class TopDownInferenceModel(L.LightningModule):
             `"pred_peak_vals": (batch_size, n_nodes)`: Confidence
                 values for the instance skeleton points.
         """
-        batch_size = batch["video_idx"].shape[0]
+        if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+            if "instances" not in batch:
+                raise ValueError(
+                    "Ground truth data was not detected... "
+                    "Please load both models when predicting on non-ground-truth data."
+                )
+        self.centroid_crop.eval()
         peaks_output = []
-        if self.centroid_crop is None:
-            batch["centroid_val"] = torch.ones(batch_size)
-            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-                if "instances" in batch:
-                    peaks_output.append(self.instance_peaks(batch))
-                else:
-                    raise ValueError(
-                        "Ground truth data was not detected... "
-                        "Please load both models when predicting on non-ground-truth data."
-                    )
-            else:
-                self.instance_peaks.eval()
-                peaks_output.append(self.instance_peaks(batch))
+        batch = self.centroid_crop(batch)
 
+        if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+            peaks_output.append(self.instance_peaks(batch))
         else:
-            self.centroid_crop.eval()
-            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-                if "instances" in batch:
-                    max_inst = batch["instances"].shape[-3]
-                    self.centroid_crop.max_instances = max_inst
-                else:
-                    raise ValueError(
-                        "Ground truth data was not detected... "
-                        "Please load both models when predicting on non-ground-truth data."
-                    )
-            batch = self.centroid_crop(batch)
-            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-                peaks_output.append(self.instance_peaks(batch))
-            else:
-                for i in batch:
-                    self.instance_peaks.eval()
-                    peaks_output.append(self.instance_peaks(i))
+            for i in batch:
+                self.instance_peaks.eval()
+                peaks_output.append(self.instance_peaks(i))
         return peaks_output

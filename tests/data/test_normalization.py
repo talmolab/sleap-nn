@@ -6,12 +6,12 @@ from sleap_nn.data.normalization import (
     convert_to_grayscale,
     apply_normalization,
 )
-from sleap_nn.data.providers import LabelsReader
+from sleap_nn.data.providers import LabelsReaderDP
 
 
 def test_normalizer(minimal_instance):
     """Test Normalizer module."""
-    p = LabelsReader.from_filename(minimal_instance)
+    p = LabelsReaderDP.from_filename(minimal_instance)
     p = Normalizer(p)
 
     ex = next(iter(p))
@@ -19,7 +19,7 @@ def test_normalizer(minimal_instance):
     assert ex["image"].shape[-3] == 1
 
     # test is_rgb
-    p = LabelsReader.from_filename(minimal_instance)
+    p = LabelsReaderDP.from_filename(minimal_instance)
     p = Normalizer(p, is_rgb=True)
 
     ex = next(iter(p))

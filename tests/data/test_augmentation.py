@@ -10,12 +10,12 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.normalization import apply_normalization
 from sleap_nn.data.providers import process_lf
 from sleap_nn.data.normalization import Normalizer
-from sleap_nn.data.providers import LabelsReader
+from sleap_nn.data.providers import LabelsReaderDP
 
 
 def test_uniform_noise(minimal_instance):
     """Test RandomUniformNoise module."""
-    p = LabelsReader.from_filename(minimal_instance)
+    p = LabelsReaderDP.from_filename(minimal_instance)
     p = Normalizer(p)
 
     sample = next(iter(p))
@@ -99,7 +99,7 @@ def test_apply_geometric_augmentation(minimal_instance):
 
 def test_kornia_augmentation(minimal_instance):
     """Test KorniaAugmenter module."""
-    p = LabelsReader.from_filename(minimal_instance)
+    p = LabelsReaderDP.from_filename(minimal_instance)
 
     p = Normalizer(p)
     p = KorniaAugmenter(
@@ -127,7 +127,7 @@ def test_kornia_augmentation(minimal_instance):
     assert pts.shape == (1, 2, 2, 2)
 
     # Test RandomCrop value error.
-    p = LabelsReader.from_filename(minimal_instance)
+    p = LabelsReaderDP.from_filename(minimal_instance)
     p = Normalizer(p)
     with pytest.raises(
         ValueError, match="crop_hw height and width must be greater than 0."

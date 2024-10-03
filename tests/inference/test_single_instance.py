@@ -1,17 +1,15 @@
 import sleap_io as sio
 from omegaconf import OmegaConf
 import numpy as np
-from torch.utils.data.dataloader import DataLoader
 from sleap_nn.data.resizing import resize_image
-from sleap_nn.data.providers import LabelsReader
-from sleap_nn.data.normalization import Normalizer
-from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.training.model_trainer import (
     SingleInstanceModel,
 )
 from sleap_nn.inference.single_instance import (
     SingleInstanceInferenceModel,
 )
+from sleap_nn.data.providers import process_lf
+from sleap_nn.data.normalization import apply_normalization
 
 
 def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt):
@@ -42,25 +40,9 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
     for lf in labels:
         lf.instances = lf.instances[:1]
 
-    provider_pipeline = LabelsReader(labels)
-    pipeline = Normalizer(provider_pipeline, is_rgb=False)
-    pipeline = SizeMatcher(
-        pipeline,
-        max_height=None,
-        max_width=None,
-        provider=provider_pipeline,
-    )
+    ex = process_lf(labels[0], 0, 2)
+    ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
 
-    pipeline = Resizer(pipeline, scale=config.data_config.preprocessing.scale)
-    pipeline = PadToStride(
-        pipeline, max_stride=config.model_config.backbone_config.max_stride
-    )
-
-    pipeline = pipeline.sharding_filter()
-    data_pipeline = DataLoader(
-        pipeline,
-        batch_size=4,
-    )
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model,
         output_stride=2,
@@ -69,8 +51,7 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
     )
 
     outputs = []
-    for x in data_pipeline:
-        outputs.append(find_peaks_layer(x))
+    outputs.append(find_peaks_layer(ex))
     keys = outputs[0][0].keys()
     assert "pred_instance_peaks" in keys and "pred_peak_values" in keys
     assert "pred_confmaps" not in keys
@@ -87,9 +68,8 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
         input_scale=0.5,
     )
     outputs = []
-    for x in data_pipeline:
-        x["image"] = resize_image(x["image"], 0.5)
-        outputs.append(find_peaks_layer(x))
+    ex["image"] = resize_image(ex["image"], 0.5)
+    outputs.append(find_peaks_layer(ex))
 
     for i in outputs:
         instance = i[0]["pred_instance_peaks"].numpy()
@@ -100,7 +80,6 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
         torch_model=torch_model, output_stride=2, peak_threshold=0, return_confmaps=True
     )
     outputs = []
-    for x in data_pipeline:
-        outputs.append(find_peaks_layer(x))
+    outputs.append(find_peaks_layer(ex))
     assert "pred_confmaps" in outputs[0][0].keys()
-    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (192, 192)
+    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (96, 96)
