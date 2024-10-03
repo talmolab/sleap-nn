@@ -46,14 +46,14 @@ def test_create_data_loader(config, tmp_path: str):
     shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
 
-#     # test exception
-#     config_copy = config.copy()
-#     head_config = config_copy.model_config.head_configs.centered_instance
-#     del config_copy.model_config.head_configs.centered_instance
-#     OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
-#     model_trainer = ModelTrainer(config_copy)
-#     with pytest.raises(Exception):
-#         model_trainer._create_data_loaders()
+    # test exception
+    config_copy = config.copy()
+    head_config = config_copy.model_config.head_configs.centered_instance
+    del config_copy.model_config.head_configs.centered_instance
+    OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
+    model_trainer = ModelTrainer(config_copy)
+    with pytest.raises(Exception):
+        model_trainer._create_data_loaders()
 
 
 def test_wandb():
