@@ -2,6 +2,7 @@ data_config:
   provider: LabelsReader
   train_labels_path: minimal_instance.pkg.slp
   val_labels_path: minimal_instance.pkg.slp
+  user_instances_only: True
   preprocessing:
     max_width: 
     max_height: 
@@ -9,10 +10,6 @@ data_config:
     is_rgb: False
   use_augmentations_train: true
   augmentation_config: # sample augmentation_config
-    random_crop:
-      random_crop_p: 0
-      crop_height: 160
-      crop_width: 160
     intensity:
       uniform_noise_min: 0.0
       uniform_noise_max: 0.04
@@ -38,6 +35,9 @@ data_config:
       erase_p: 0
       mixup_lambda: null
       mixup_p: 0
+      random_crop_p: 0
+      crop_height: 160
+      crop_width: 160
 
 model_config:
   init_weights: xavier

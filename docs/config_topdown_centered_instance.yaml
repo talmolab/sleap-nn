@@ -2,6 +2,7 @@ data_config:
   provider: LabelsReader
   train_labels_path: minimal_instance.pkg.slp
   val_labels_path: minimal_instance.pkg.slp
+  user_instances_only: True
   preprocessing:
     max_width: 
     max_height: 

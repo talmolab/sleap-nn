@@ -1,6 +1,6 @@
 import torch
 
-from sleap_nn.data.providers import LabelsReader, VideoReader
+from sleap_nn.data.providers import LabelsReader, VideoReader, process_lf
 from queue import Queue
 import sleap_io as sio
 import numpy as np
@@ -91,3 +91,14 @@ def test_videoreader_provider(centered_instance_video):
     finally:
         reader.join()
     assert reader.total_len() == 6
+
+
+def test_process_lf(minimal_instance):
+    labels = sio.load_slp(minimal_instance)
+    lf = labels[0]
+    ex = process_lf(lf, 0, 4)
+
+    assert ex["image"].shape == torch.Size([1, 1, 384, 384])
+    assert ex["instances"].shape == torch.Size([1, 4, 2, 2])
+    assert torch.isnan(ex["instances"][:, 2:, :, :]).all()
+    assert not torch.is_floating_point(ex["image"])
