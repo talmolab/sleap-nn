@@ -154,14 +154,13 @@ class ModelTrainer:
 
     def _create_data_loaders(self):
         """Create a DataLoader for train, validation and test sets using the data_config."""
-        with open(f"{self.dir_path}/get_bin_files.py", "w") as file:
-            file.write(inspect.getsource(get_bin_files))
 
         def run_subprocess():
             process = subprocess.Popen(
                 [
                     "python",
-                    f"{self.dir_path}/get_bin_files.py",
+                    "-m",
+                    f"sleap_nn.training.get_bin_files",
                     "--dir_path",
                     f"{self.dir_path}",
                     "--user_instances_only",
@@ -448,7 +447,6 @@ class ModelTrainer:
             #         (Path(self.dir_path) / "val_chunks").as_posix(),
             #         ignore_errors=True,
             #     )
-            # TODO: delete .py file
 
 
 class TrainingModel(L.LightningModule):
