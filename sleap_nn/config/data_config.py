@@ -35,7 +35,6 @@ class AugmentationConfig:
     intensity: Optional[IntensityConfig] = attr.ib(default=None)
     geometric: Optional[GeometricConfig] = attr.ib(default=None)
 
-# still looking over this part and below (function to check if is greater than 0)
 @attr.s(auto_attribs=True)
 class IntensityConfig:
     uniform_noise_min: float = 0.0
@@ -49,6 +48,17 @@ class IntensityConfig:
     contrast_p: float = 0.0
     brightness: Tuple[float, float] = (1.0, 1.0)
     brightness_p: float = 0.0
+
+    # validate parameters
+    @uniform_noise_min.validator
+    def check_uniform_noise_min(self, attribute, value):
+        if value < 0:
+            raise ValueError(f"{attribute.name} must be >= 0.")
+
+    @uniform_noise_max.validator
+    def check_uniform_noise_max(self, attribute, value):
+        if value <= 0:
+            raise ValueError(f"{attribute.name} must be <= 1.")
 
 @attr.s(auto_attribs=True)
 class GeometricConfig:
