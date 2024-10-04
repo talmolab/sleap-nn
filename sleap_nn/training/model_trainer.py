@@ -41,7 +41,7 @@ import sleap_io as sio
 from sleap_nn.architectures.model import Model
 from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
 from sleap_nn.data.instance_cropping import find_instance_crop_size
-from sleap_nn.data.providers import get_max_instances
+from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.get_data_chunks import (
     bottomup_data_chunks,
     centered_instance_data_chunks,
@@ -131,6 +131,14 @@ class ModelTrainer:
             and self.config.data_config.chunk_size is not None
             else 100
         )
+
+        max_height, max_width = get_max_height_width(train_labels)
+        if (
+            self.config.data_config.preprocessing.max_height is None
+            and self.config.data_config.preprocessing.max_width is None
+        ):
+            self.config.data_config.preprocessing.max_height = max_height
+            self.config.data_config.preprocessing.max_width = max_width
 
         if self.model_type == "centered_instance":
             # compute crop size
