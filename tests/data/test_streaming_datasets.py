@@ -10,6 +10,7 @@ from sleap_nn.data.get_data_chunks import (
     centroid_data_chunks,
     single_instance_data_chunks,
 )
+from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.streaming_datasets import (
     BottomUpStreamingDataset,
     CenteredInstanceStreamingDataset,
@@ -21,12 +22,16 @@ from sleap_nn.data.streaming_datasets import (
 def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
     """Test BottomUpStreamingDataset class."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
     edge_inds = labels.skeletons[0].edge_inds
 
     dir_path = Path(sleap_data_dir) / "data_chunks"
 
     partial_func = functools.partial(
-        bottomup_data_chunks, data_config=config.data_config, max_instances=2
+        bottomup_data_chunks,
+        data_config=config.data_config,
+        max_instances=2,
+        max_hw=max_hw,
     )
     ld.optimize(
         fn=partial_func,
@@ -85,6 +90,7 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
 def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, config):
     """Test CenteredInstanceStreamingDataset class."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
 
     dir_path = Path(sleap_data_dir) / "data_chunks"
 
@@ -94,6 +100,7 @@ def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, c
         max_instances=2,
         crop_size=(160, 160),
         anchor_ind=0,
+        max_hw=max_hw,
     )
     ld.optimize(
         fn=partial_func,
@@ -127,6 +134,7 @@ def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, c
 def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
     """Test CentroidStreamingDataset class."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
 
     dir_path = Path(sleap_data_dir) / "data_chunks"
 
@@ -135,6 +143,7 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
         data_config=config.data_config,
         max_instances=2,
         anchor_ind=0,
+        max_hw=max_hw,
     )
 
     ld.optimize(
@@ -188,12 +197,12 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
 def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, config):
     """Test SingleInstanceStreamingDataset class."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
 
     dir_path = Path(sleap_data_dir) / "data_chunks"
 
     partial_func = functools.partial(
-        single_instance_data_chunks,
-        data_config=config.data_config,
+        single_instance_data_chunks, data_config=config.data_config, max_hw=max_hw
     )
 
     for lf in labels:
