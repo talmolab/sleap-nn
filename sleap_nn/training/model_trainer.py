@@ -157,6 +157,10 @@ class ModelTrainer:
                     min_crop_size=min_crop_size,
                 )
                 self.crop_hw = crop_size
+                self.config.data_config.preprocessing.crop_hw = (
+                    self.crop_hw,
+                    self.crop_hw,
+                )
             else:
                 self.crop_hw = self.crop_hw[0]
 
@@ -222,7 +226,6 @@ class ModelTrainer:
             )
 
         elif self.model_type == "centered_instance":
-            self.config.data_config.preprocessing.crop_hw = (self.crop_hw, self.crop_hw)
 
             train_dataset = CenteredInstanceStreamingDataset(
                 input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
