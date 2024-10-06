@@ -36,6 +36,7 @@ def test_bottomup_inference_model(
     labels = sio.load_slp(minimal_instance)
     ex = process_lf(labels[0], 0, 2)
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
+    ex["eff_scale"] = 1.0
 
     torch_model = BottomUpModel.load_from_checkpoint(
         f"{minimal_instance_bottomup_ckpt}/best.ckpt",
