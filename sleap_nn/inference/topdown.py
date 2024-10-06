@@ -323,10 +323,8 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         parsed = 0
         for i in range(b):
             if i not in matched_batch_inds:
-                batch_peaks = torch.full((max_inst, nodes, 2), torch.nan).unsqueeze(
-                    dim=0
-                )
-                vals = torch.full((max_inst, nodes), torch.nan).unsqueeze(dim=0)
+                batch_peaks = torch.full((max_inst, nodes, 2), torch.nan)
+                vals = torch.full((max_inst, nodes), torch.nan)
             else:
                 c = counts[i]
                 batch_peaks = peaks_list[parsed : parsed + c]
