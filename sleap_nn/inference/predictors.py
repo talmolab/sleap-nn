@@ -66,6 +66,7 @@ class Predictor(ABC):
         inference_model: Instance of one of the inference models ["TopDownInferenceModel",
             "SingleInstanceInferenceModel", "BottomUpInferenceModel"]. Default: None.
         instances_key: If `True`, then instances are appended to the data samples.
+        eff_scale: Scaling applied to the image in `apply_sizematcher` function.
     """
 
     preprocess: bool = True
@@ -85,6 +86,7 @@ class Predictor(ABC):
         ]
     ] = None
     instances_key: bool = False
+    eff_scale: float = 1.0
 
     @classmethod
     def from_model_paths(
@@ -261,11 +263,12 @@ class Predictor(ABC):
                     done = True
                     break
                 frame["image"] = apply_normalization(frame["image"])
-                frame["image"] = apply_sizematcher(
+                frame["image"], eff_scale = apply_sizematcher(
                     frame["image"],
                     self.preprocess_config["max_height"],
                     self.preprocess_config["max_width"],
                 )
+                self.eff_scale = eff_scale
                 imgs.append(frame["image"].unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])
                 vidxs.append(frame["video_idx"])
@@ -285,6 +288,7 @@ class Predictor(ABC):
                     "frame_idx": fidxs,
                     "video_idx": vidxs,
                     "orig_size": org_szs,
+                    "eff_scale": self.eff_scale,
                 }
                 if self.instances_key:
                     ex["instances"] = instances
