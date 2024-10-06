@@ -112,10 +112,10 @@ def test_apply_sizematcher(minimal_instance):
     lf = labels[0]
     ex = process_lf(lf, 0, 2)
 
-    image = apply_sizematcher(ex["image"], 500, 500)
+    image, _ = apply_sizematcher(ex["image"], 500, 500)
     assert image.shape == torch.Size([1, 1, 500, 500])
 
-    image = apply_sizematcher(ex["image"])
+    image, _ = apply_sizematcher(ex["image"])
     assert image.shape == torch.Size([1, 1, 384, 384])
 
     with pytest.raises(
