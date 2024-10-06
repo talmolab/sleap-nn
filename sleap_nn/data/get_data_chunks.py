@@ -65,11 +65,12 @@ def bottomup_data_chunks(
         data_config.preprocessing.max_height,
         data_config.preprocessing.max_width,
     )
-    sample["image"] = apply_sizematcher(
+    sample["image"], eff_scale = apply_sizematcher(
         sample["image"],
         max_height=max_height if max_height is not None else max_hw[0],
         max_width=max_width if max_width is not None else max_hw[1],
     )
+    sample["instances"] = sample["instances"] * eff_scale
 
     return sample
 
@@ -128,11 +129,12 @@ def centered_instance_data_chunks(
         data_config.preprocessing.max_height,
         data_config.preprocessing.max_width,
     )
-    sample["image"] = apply_sizematcher(
+    sample["image"], eff_scale = apply_sizematcher(
         sample["image"],
         max_height=max_height if max_height is not None else max_hw[0],
         max_width=max_width if max_width is not None else max_hw[1],
     )
+    sample["instances"] = sample["instances"] * eff_scale
 
     # get the centroids based on the anchor idx
     centroids = generate_centroids(sample["instances"], anchor_ind=anchor_ind)
@@ -208,11 +210,13 @@ def centroid_data_chunks(
         data_config.preprocessing.max_height,
         data_config.preprocessing.max_width,
     )
-    sample["image"] = apply_sizematcher(
+    sample["image"], eff_scale = apply_sizematcher(
         sample["image"],
         max_height=max_height if max_height is not None else max_hw[0],
         max_width=max_width if max_width is not None else max_hw[1],
     )
+
+    sample["instances"] = sample["instances"] * eff_scale
 
     # get the centroids based on the anchor idx
     centroids = generate_centroids(sample["instances"], anchor_ind=anchor_ind)
@@ -270,10 +274,11 @@ def single_instance_data_chunks(
         data_config.preprocessing.max_height,
         data_config.preprocessing.max_width,
     )
-    sample["image"] = apply_sizematcher(
+    sample["image"], eff_scale = apply_sizematcher(
         sample["image"],
         max_height=max_height if max_height is not None else max_hw[0],
         max_width=max_width if max_width is not None else max_hw[1],
     )
+    sample["instances"] = sample["instances"] * eff_scale
 
     return sample
