@@ -146,10 +146,12 @@ class Model(nn.Module):
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
             in_channels = int(
-                self.backbone.max_channels
-                / (
-                    self.backbone_config.filters_rate
-                    ** len(self.backbone.dec.decoder_stack)
+                round(
+                    self.backbone.max_channels
+                    / (
+                        self.backbone_config.filters_rate
+                        ** len(self.backbone.dec.decoder_stack)
+                    )
                 )
             )
             if head.output_stride != min_output_stride:

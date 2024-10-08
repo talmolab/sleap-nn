@@ -28,6 +28,13 @@ def get_max_instances(labels: sio.Labels):
     return max_instances
 
 
+def get_max_height_width(labels: sio.Labels) -> Tuple[int, int]:
+    """Return `(height, width)` that is the maximum of all videos."""
+    return max(video.shape[1] for video in labels.videos), max(
+        video.shape[2] for video in labels.videos
+    )
+
+
 def process_lf(
     lf: sio.LabeledFrame,
     video_idx: int,

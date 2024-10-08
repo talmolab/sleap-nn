@@ -7,15 +7,21 @@ from sleap_nn.data.get_data_chunks import (
     single_instance_data_chunks,
 )
 
+from sleap_nn.data.providers import get_max_height_width
+
 
 def test_bottomup_data_chunks(minimal_instance, config):
     """Test `bottomup_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
     samples = []
     for idx, lf in enumerate(labels):
         samples.append(
             bottomup_data_chunks(
-                (lf, idx), data_config=config.data_config, max_instances=4
+                (lf, idx),
+                data_config=config.data_config,
+                max_instances=4,
+                max_hw=max_hw,
             )
         )
 
@@ -44,6 +50,7 @@ def test_bottomup_data_chunks(minimal_instance, config):
                 (lf, idx),
                 data_config=config.data_config,
                 max_instances=2,
+                max_hw=max_hw,
             )
         )
 
@@ -65,6 +72,7 @@ def test_bottomup_data_chunks(minimal_instance, config):
 def test_centered_instance_data_chunks(minimal_instance, config):
     """Test `centered_instance_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
     samples = []
     for idx, lf in enumerate(labels):
         res = centered_instance_data_chunks(
@@ -73,6 +81,7 @@ def test_centered_instance_data_chunks(minimal_instance, config):
             anchor_ind=0,
             crop_size=(160, 160),
             max_instances=4,
+            max_hw=max_hw,
         )
         samples.extend(res)
 
@@ -105,6 +114,7 @@ def test_centered_instance_data_chunks(minimal_instance, config):
             anchor_ind=0,
             crop_size=(160, 160),
             max_instances=2,
+            max_hw=max_hw,
         )
         samples.extend(res)
 
@@ -128,6 +138,7 @@ def test_centered_instance_data_chunks(minimal_instance, config):
 def test_centroid_data_chunks(minimal_instance, config):
     """Test `centroid_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
     samples = []
     for idx, lf in enumerate(labels):
         samples.append(
@@ -136,6 +147,7 @@ def test_centroid_data_chunks(minimal_instance, config):
                 data_config=config.data_config,
                 max_instances=4,
                 anchor_ind=0,
+                max_hw=max_hw,
             )
         )
 
@@ -167,6 +179,7 @@ def test_centroid_data_chunks(minimal_instance, config):
                 data_config=config.data_config,
                 max_instances=2,
                 anchor_ind=0,
+                max_hw=max_hw,
             )
         )
 
@@ -190,6 +203,7 @@ def test_centroid_data_chunks(minimal_instance, config):
 def test_single_instance_data_chunks(minimal_instance, config):
     """Test `single_instance_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    max_hw = get_max_height_width(labels)
     # Making our minimal 2-instance example into a single instance example.
     for lf in labels:
         lf.instances = lf.instances[:1]
@@ -197,7 +211,9 @@ def test_single_instance_data_chunks(minimal_instance, config):
     samples = []
     for idx, lf in enumerate(labels):
         samples.append(
-            single_instance_data_chunks((lf, idx), data_config=config.data_config)
+            single_instance_data_chunks(
+                (lf, idx), data_config=config.data_config, max_hw=max_hw
+            )
         )
 
     assert len(samples) == 1
@@ -221,7 +237,9 @@ def test_single_instance_data_chunks(minimal_instance, config):
     samples = []
     for idx, lf in enumerate(labels):
         samples.append(
-            single_instance_data_chunks((lf, idx), data_config=config.data_config)
+            single_instance_data_chunks(
+                (lf, idx), data_config=config.data_config, max_hw=max_hw
+            )
         )
 
     gt_keys = [
