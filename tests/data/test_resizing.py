@@ -115,6 +115,9 @@ def test_apply_sizematcher(minimal_instance):
     image, _ = apply_sizematcher(ex["image"], 500, 500)
     assert image.shape == torch.Size([1, 1, 500, 500])
 
+    image, _ = apply_sizematcher(ex["image"], 700, 600)
+    assert image.shape == torch.Size([1, 1, 700, 600])
+
     image, _ = apply_sizematcher(ex["image"])
     assert image.shape == torch.Size([1, 1, 384, 384])
 
