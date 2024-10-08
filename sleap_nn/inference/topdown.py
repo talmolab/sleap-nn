@@ -330,7 +330,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 batch_peaks = peaks_list[parsed : parsed + c]
                 num_inst = len(batch_peaks)
                 vals = torch.ones((num_inst, nodes))
-                if c <= max_inst:
+                if c < max_inst:
                     batch_peaks = torch.cat(
                         [
                             batch_peaks,

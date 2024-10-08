@@ -295,9 +295,7 @@ class Predictor(ABC):
                     ex["instances"] = instances
                 if self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 3:
                     ex["image"] = ex["image"].repeat(1, 1, 3, 1, 1)
-                elif (
-                    not self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 1
-                ):
+                elif not self.preprocess_config["is_rgb"]:
                     ex["image"] = F.rgb_to_grayscale(ex["image"], num_output_channels=1)
                 if self.preprocess:
                     scale = self.preprocess_config["scale"]
