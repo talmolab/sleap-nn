@@ -323,12 +323,13 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     OmegaConf.update(
         config, "model_config.pre_trained_weights", "ConvNeXt_Tiny_Weights"
     )
+    OmegaConf.update(config, "data_config.preprocessing.is_rgb", True)
     OmegaConf.update(config, "model_config.backbone_type", "convnext")
     OmegaConf.update(
         config,
         "model_config.backbone_config",
         {
-            "in_channels": 1,
+            "in_channels": 3,
             "model_type": "tiny",
             "arch": None,
             "kernel_size": 3,
