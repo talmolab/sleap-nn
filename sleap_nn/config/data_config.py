@@ -9,6 +9,7 @@ These configuration classes are intended to specify all
 the parameters required to initialize the data config.
 """
 
+
 @attrs.define
 class DataConfig:
     """Data configuration.
@@ -25,19 +26,19 @@ class DataConfig:
         and topdown models.
     """
 
-    provider: str="LabelsReader"
-    train_labels_path: str=MISSING
-    val_labels_path: str=MISSING
+    provider: str = "LabelsReader"
+    train_labels_path: str = MISSING
+    val_labels_path: str = MISSING
     user_instances_only: bool = True
     chunk_size: int = 100
     preprocessing: PreprocessingConfig = attrs.field(factory=PreprocessingConfig)
-    use_augmentations_train: bool=False
+    use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None
 
 
 @attrs.define
 class PreprocessingConfig:
-    """ Configuration of Preprocessing.
+    """Configuration of Preprocessing.
 
     Attributes:
         is_rgb: (bool) True if the image has 3 channels (RGB image). If input has only one channel when this is set to True, then the images from single-channel is replicated along the channel axis. If input has three channels and this is set to False, then we convert the image to grayscale (single-channel) image.
@@ -53,11 +54,12 @@ class PreprocessingConfig:
     max_width: Optional[int] = None
     scale: Union[float, Tuple[float, float]] = 1.0
     crop_hw: Optional[Tuple[int, int]] = None
-    min_crop_size: int = 32                  #to help app work incase of error
+    min_crop_size: int = 32  # to help app work incase of error
+
 
 @attrs.define
 class AugmentationConfig:
-    """ Configuration of Augmentation
+    """Configuration of Augmentation
 
     Attributes:
         random crop: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where random_crop_p is the probability of applying random crop and crop_height and crop_width are the desired output size (out_h, out_w) of the crop.
@@ -69,9 +71,10 @@ class AugmentationConfig:
     intensity: Optional[IntensityConfig] = attrs.field(default=None)
     geometric: Optional[GeometricConfig] = attrs.field(default=None)
 
+
 @attrs.define
 class IntensityConfig:
-    """ Configuration of Intensity (Optional):
+    """Configuration of Intensity (Optional):
 
     Attributes:
         uniform_noise_min: (float) Minimum value for uniform noise (uniform_noise_min >=0).
@@ -87,8 +90,12 @@ class IntensityConfig:
         brightness_p: (float) Probability of applying random brightness. Default=0.0
     """
 
-    uniform_noise_min: float = attrs.field(default=0.0, validator=attrs.validators.ge(0))
-    uniform_noise_max: float = attrs.field(default=1.0, validator=attrs.validators.le(1))
+    uniform_noise_min: float = attrs.field(
+        default=0.0, validator=attrs.validators.ge(0)
+    )
+    uniform_noise_max: float = attrs.field(
+        default=1.0, validator=attrs.validators.le(1)
+    )
     uniform_noise_p: float = 0.0
     gaussian_noise_mean: float = 0.0
     gaussian_noise_std: float = 1.0
@@ -98,6 +105,7 @@ class IntensityConfig:
     contrast_p: float = 0.0
     brightness: Tuple[float, float] = (1.0, 1.0)
     brightness_p: float = 0.0
+
 
 @attrs.define
 class GeometricConfig:
