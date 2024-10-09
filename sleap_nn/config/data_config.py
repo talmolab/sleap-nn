@@ -13,8 +13,14 @@ the parameters required to initialize the data config.
 class DataConfig:
     """Data configuration.
 
-    labels: Configuration options related to user labels for training or testing.
+    provider: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
+    train_labels_path: (str) Path to training data (.slp file)
+    val_labels_path: (str) Path to validation data (.slp file)
+    user_instances_only: (bool) True if only user labeled instances should be used for training. If False, both user labeled and predicted instances would be used. Default: True.
+    chunk_size: (int) Size of each chunk (in MB). Default: "100". #TODO: change in inference ckpts
     preprocessing: Configuration options related to data preprocessing.
+    use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
+    augmentation_config: Configurations related to augmentation
     instance_cropping: Configuration options related to instance cropping for centroid
         and topdown models.
     """
@@ -22,6 +28,8 @@ class DataConfig:
     provider: str="LabelsReader"
     train_labels_path: str=MISSING
     val_labels_path: str=MISSING
+    user_instances_only: bool = True
+    chunk_size: int = 100
     preprocessing: PreprocessingConfig = attrs.field(factory=PreprocessingConfig)
     use_augmentations_train: bool=False
     augmentation_config: Optional[AugmentationConfig] = None
