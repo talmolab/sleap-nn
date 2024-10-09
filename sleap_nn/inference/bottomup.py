@@ -138,6 +138,7 @@ class BottomUpInferenceModel(L.LightningModule):
         )
 
         predicted_instances = predicted_instances / self.input_scale
+        predicted_instances = predicted_instances / inputs["eff_scale"]
         out = {
             "pred_instance_peaks": predicted_instances,
             "pred_peak_values": predicted_peak_scores,

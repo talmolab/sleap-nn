@@ -7,6 +7,7 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 import numpy as np
 import sleap_io as sio
+import torchvision.transforms.v2.functional as F
 import torch
 import attrs
 import lightning as L
@@ -66,6 +67,7 @@ class Predictor(ABC):
         inference_model: Instance of one of the inference models ["TopDownInferenceModel",
             "SingleInstanceInferenceModel", "BottomUpInferenceModel"]. Default: None.
         instances_key: If `True`, then instances are appended to the data samples.
+        eff_scale: Scaling applied to the image in `apply_sizematcher` function.
     """
 
     preprocess: bool = True
@@ -74,6 +76,8 @@ class Predictor(ABC):
         "scale": 1.0,
         "is_rgb": False,
         "max_stride": 1,
+        "max_height": None,
+        "max_width": None,
     }
     provider: Union[LabelsReader, VideoReader] = LabelsReader
     pipeline: Optional[Union[LabelsReader, VideoReader]] = None
@@ -83,6 +87,7 @@ class Predictor(ABC):
         ]
     ] = None
     instances_key: bool = False
+    eff_scale: float = 1.0
 
     @classmethod
     def from_model_paths(
@@ -258,6 +263,13 @@ class Predictor(ABC):
                 if frame["image"] is None:
                     done = True
                     break
+                frame["image"] = apply_normalization(frame["image"])
+                frame["image"], eff_scale = apply_sizematcher(
+                    frame["image"],
+                    self.preprocess_config["max_height"],
+                    self.preprocess_config["max_width"],
+                )
+                self.eff_scale = eff_scale
                 imgs.append(frame["image"].unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])
                 vidxs.append(frame["video_idx"])
@@ -277,14 +289,14 @@ class Predictor(ABC):
                     "frame_idx": fidxs,
                     "video_idx": vidxs,
                     "orig_size": org_szs,
+                    "eff_scale": self.eff_scale,
                 }
                 if self.instances_key:
                     ex["instances"] = instances
-                ex["image"] = apply_normalization(ex["image"])
-                if self.preprocess_config["is_rgb"]:
-                    ex["image"] = convert_to_rgb(ex["image"])
-                else:
-                    ex["image"] = convert_to_grayscale(ex["image"])
+                if self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 3:
+                    ex["image"] = ex["image"].repeat(1, 1, 3, 1, 1)
+                elif not self.preprocess_config["is_rgb"]:
+                    ex["image"] = F.rgb_to_grayscale(ex["image"], num_output_channels=1)
                 if self.preprocess:
                     scale = self.preprocess_config["scale"]
                     if scale != 1.0:
@@ -623,6 +635,8 @@ class TopDownPredictor(Predictor):
                 "scale": scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
+                "max_height": self.data_config.max_height,
+                "max_width": self.data_config.max_width,
             }
 
             self.pipeline = provider.from_filename(
@@ -649,6 +663,8 @@ class TopDownPredictor(Predictor):
                 "max_stride": (
                     self.centroid_config.model_config.backbone_config.max_stride
                 ),
+                "max_height": self.data_config.max_height,
+                "max_width": self.data_config.max_width,
             }
 
             self.pipeline = provider.from_filename(
@@ -908,6 +924,8 @@ class SingleInstancePredictor(Predictor):
                 "scale": self.confmap_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
+                "max_height": self.data_config.max_height,
+                "max_width": self.data_config.max_width,
             }
 
             self.pipeline = provider.from_filename(
@@ -926,6 +944,8 @@ class SingleInstancePredictor(Predictor):
                 "max_stride": (
                     self.confmap_config.model_config.backbone_config.max_stride
                 ),
+                "max_height": self.data_config.max_height,
+                "max_width": self.data_config.max_width,
             }
 
             self.pipeline = provider.from_filename(
@@ -1215,6 +1235,8 @@ class BottomUpPredictor(Predictor):
                 "scale": self.bottomup_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
+                "max_height": self.data_config.max_height,
+                "max_width": self.data_config.max_width,
             }
 
             self.pipeline = provider.from_filename(
@@ -1233,6 +1255,8 @@ class BottomUpPredictor(Predictor):
                 "max_stride": (
                     self.bottomup_config.model_config.backbone_config.max_stride
                 ),
+                "max_height": self.data_config.max_height,
+                "max_width": self.data_config.max_width,
             }
 
             self.pipeline = provider.from_filename(
