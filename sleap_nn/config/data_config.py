@@ -1,4 +1,4 @@
-import attr
+import attrs
 from omegaconf import MISSING
 from typing import Optional, Tuple, List, Dict
 
@@ -9,7 +9,7 @@ These configuration classes are intended to specify all
 the parameters required to initialize the data config.
 """
 
-@attr.s(auto_attribs=True)
+@attrs.define
 class DataConfig:
     """Data configuration.
 
@@ -22,12 +22,12 @@ class DataConfig:
     provider: str="LabelsReader"
     train_labels_path: str=MISSING
     val_labels_path: str=MISSING
-    preprocessing: PreprocessingConfig = attr.ib(factory=PreprocessingConfig)
+    preprocessing: PreprocessingConfig = attrs.field(factory=PreprocessingConfig)
     use_augmentations_train: bool=False
     augmentation_config: Optional[AugmentationConfig] = None
 
 
-@attr.s(auto_attribs=True)
+@attrs.define
 class PreprocessingConfig:
     """ Configuration of Preprocessing.
 
@@ -47,7 +47,7 @@ class PreprocessingConfig:
     crop_hw: Optional[Tuple[int, int]] = None
     min_crop_size: int = 32                  #to help app work incase of error
 
-@attr.s(auto_attribs=True)
+@attrs.define
 class AugmentationConfig:
     """ Configuration of Augmentation
 
@@ -58,10 +58,10 @@ class AugmentationConfig:
     """
 
     random_crop: Optional[Dict[str, Optional[float]]] = None
-    intensity: Optional[IntensityConfig] = attr.ib(default=None)
-    geometric: Optional[GeometricConfig] = attr.ib(default=None)
+    intensity: Optional[IntensityConfig] = attrs.field(default=None)
+    geometric: Optional[GeometricConfig] = attrs.field(default=None)
 
-@attr.s(auto_attribs=True)
+@attrs.define
 class IntensityConfig:
     """ Configuration of Intensity (Optional):
 
@@ -79,30 +79,19 @@ class IntensityConfig:
         brightness_p: (float) Probability of applying random brightness. Default=0.0
     """
 
-    uniform_noise_min: float = 0.0
-    uniform_noise_max: float = 1.0
+    uniform_noise_min: float = attrs.field(default=0.0, validator=attrs.validators.ge(0))
+    uniform_noise_max: float = attrs.field(default=1.0, validator=attrs.validators.le(1))
     uniform_noise_p: float = 0.0
     gaussian_noise_mean: float = 0.0
     gaussian_noise_std: float = 1.0
     gaussian_noise_p: float = 0.0
-    contrast_min: float = 0.5
-    contrast_max: float = 2.0
+    contrast_min: float = attrs.field(default=0.5, validator=attrs.validators.ge(0))
+    contrast_max: float = attrs.field(default=2.0, validator=attrs.validators.ge(0))
     contrast_p: float = 0.0
     brightness: Tuple[float, float] = (1.0, 1.0)
     brightness_p: float = 0.0
 
-    # validate parameters
-    @uniform_noise_min.validator
-    def check_uniform_noise_min(self, attribute, value):
-        if value < 0:
-            raise ValueError(f"{attribute.name} must be >= 0.")
-
-    @uniform_noise_max.validator
-    def check_uniform_noise_max(self, attribute, value):
-        if value <= 0:
-            raise ValueError(f"{attribute.name} must be <= 1.")
-
-@attr.s(auto_attribs=True)
+@attrs.define
 class GeometricConfig:
     """
     Configuration of Geometric (Optional)
@@ -122,7 +111,7 @@ class GeometricConfig:
         mixup_p: (float) Probability of applying random mixup v2. Default=0.0
         input_key: (str) Can be image or instance. The input_key instance expects the KorniaAugmenter to follow the InstanceCropper else image otherwise for default.
     """
-    
+
     rotation: float = 0.0
     scale: Optional[Tuple[float, float, float, float]] = None
     translate_width: float = 0.0
