@@ -395,6 +395,8 @@ class TopDownPredictor(Predictor):
         tracker: A `sleap_nn.tracking.Tracker` that will be called to associate
             detections over time. Predicted instances will not be assigned to tracks if
             if this is `None`.
+        anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
+            provided, the anchor idx in the `training_config.yaml` is used instead.
 
     """
 
@@ -413,6 +415,7 @@ class TopDownPredictor(Predictor):
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
     tracker: Optional[Tracker] = None
+    anchor_ind: Optional[int] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -428,18 +431,25 @@ class TopDownPredictor(Predictor):
             centroid_peak_threshold = self.peak_threshold
             centered_instance_peak_threshold = self.peak_threshold
 
-        if self.centroid_config is None:
+        if self.data_config.crop_hw is None and self.confmap_config is not None:
+            self.data_config.crop_hw = (
+                self.confmap_config.data_config.preprocessing.crop_hw
+            )
 
+        if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
                 crop_hw=self.data_config.crop_hw,
-                anchor_ind=self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part,
+                anchor_ind=(
+                    self.anchor_ind
+                    if self.anchor_ind is not None
+                    else self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+                ),
                 return_crops=return_crops,
             )
 
         else:
             max_stride = self.centroid_config.model_config.backbone_config.max_stride
-
             # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
@@ -1371,12 +1381,13 @@ def main(
     max_width: int = None,
     max_height: int = None,
     is_rgb: bool = False,
+    anchor_ind: Optional[int] = None,
     provider: str = "LabelsReader",
     batch_size: int = 4,
     queue_maxsize: int = 8,
     videoreader_start_idx: Optional[int] = None,
     videoreader_end_idx: Optional[int] = None,
-    crop_hw: List[int] = (160, 160),
+    crop_hw: Optional[List[int]] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
     integral_refinement: str = None,
     integral_patch_size: int = 5,
@@ -1421,6 +1432,8 @@ def main(
                 is replicated along the channel axis. If input has three channels and this
                 is set to False, then we convert the image to grayscale (single-channel)
                 image. Default: False.
+        anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
+                provided, the anchor idx in the `training_config.yaml` is used instead.
         provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader". Default: LabelsReader.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -1549,6 +1562,9 @@ def main(
             of_window_size=of_window_size,
             of_max_levels=of_max_levels,
         )
+
+    if isinstance(predictor, TopDownPredictor):
+        predictor.anchor_ind = anchor_ind
 
     if isinstance(predictor, BottomUpPredictor):
         predictor.inference_model.paf_scorer.max_edge_length_ratio = (

@@ -1,6 +1,6 @@
 """Inference modules for TopDown centroid and centered-instance models."""
 
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 import torch
 import lightning as L
 import numpy as np
@@ -66,7 +66,7 @@ class CentroidCrop(L.LightningModule):
         integral_patch_size: int = 5,
         return_confmaps: bool = False,
         return_crops: bool = False,
-        crop_hw: tuple = (160, 160),
+        crop_hw: Optional[List[int]] = None,
         input_scale: float = 1.0,
         max_stride: int = 1,
         use_gt_centroids: bool = False,
