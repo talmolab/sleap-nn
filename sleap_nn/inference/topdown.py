@@ -92,13 +92,14 @@ class CentroidCrop(L.LightningModule):
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-        for centroid, centroid_val, image, fidx, vidx, sz in zip(
+        for centroid, centroid_val, image, fidx, vidx, sz, eff_sc in zip(
             self.refined_peaks_batched,
             self.peak_vals_batched,
             inputs["image"],
             inputs["frame_idx"],
             inputs["video_idx"],
             inputs["orig_size"],
+            inputs["eff_scale"],
         ):
             if torch.any(torch.isnan(centroid)):
                 if torch.all(torch.isnan(centroid)):
@@ -139,7 +140,7 @@ class CentroidCrop(L.LightningModule):
             ex["instance_bbox"] = instance_bbox.squeeze(dim=0).unsqueeze(dim=1)
             ex["instance_image"] = instance_image.unsqueeze(dim=1)
             ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
-            ex["eff_scale"] = inputs["eff_scale"]
+            ex["eff_scale"] = torch.Tensor([eff_sc] * n)
             crops_dict.append(ex)
 
         return crops_dict
@@ -267,7 +268,9 @@ class CentroidCrop(L.LightningModule):
             ):
                 refined_peaks_with_nans[ind] = r
                 peak_vals_with_nans[ind] = p
-            refined_peaks_with_nans = refined_peaks_with_nans / inputs["eff_scale"]
+            refined_peaks_with_nans = refined_peaks_with_nans / inputs[
+                "eff_scale"
+            ].unsqueeze(dim=1).unsqueeze(dim=2)
             inputs.update(
                 {
                     "centroids": refined_peaks_with_nans.unsqueeze(dim=1),
@@ -353,7 +356,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 peaks_vals = vals
 
         peaks_output = batch
-        peaks = peaks / batch["eff_scale"]
+        peaks = peaks / batch["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2)
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
 
@@ -460,7 +463,9 @@ class FindInstancePeaks(L.LightningModule):
         peak_points = peak_points * self.output_stride
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
-        peak_points = peak_points / inputs["eff_scale"]
+        peak_points = peak_points / inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(
+            dim=2
+        )
 
         # Build outputs.
         outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}
