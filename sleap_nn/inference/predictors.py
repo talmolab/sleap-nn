@@ -7,6 +7,7 @@ from pathlib import Path
 from abc import ABC, abstractmethod
 import numpy as np
 import sleap_io as sio
+import torchvision.transforms.v2.functional as F
 import torch
 import attrs
 import lightning as L
@@ -66,6 +67,7 @@ class Predictor(ABC):
         inference_model: Instance of one of the inference models ["TopDownInferenceModel",
             "SingleInstanceInferenceModel", "BottomUpInferenceModel"]. Default: None.
         instances_key: If `True`, then instances are appended to the data samples.
+        eff_scale: Scaling applied to the image in `apply_sizematcher` function.
     """
 
     preprocess: bool = True
@@ -74,6 +76,8 @@ class Predictor(ABC):
         "scale": 1.0,
         "is_rgb": False,
         "max_stride": 1,
+        "max_height": None,
+        "max_width": None,
     }
     provider: Union[LabelsReader, VideoReader] = LabelsReader
     pipeline: Optional[Union[LabelsReader, VideoReader]] = None
@@ -83,6 +87,7 @@ class Predictor(ABC):
         ]
     ] = None
     instances_key: bool = False
+    eff_scale: float = 1.0
 
     @classmethod
     def from_model_paths(
@@ -258,6 +263,13 @@ class Predictor(ABC):
                 if frame["image"] is None:
                     done = True
                     break
+                frame["image"] = apply_normalization(frame["image"])
+                frame["image"], eff_scale = apply_sizematcher(
+                    frame["image"],
+                    self.preprocess_config["max_height"],
+                    self.preprocess_config["max_width"],
+                )
+                self.eff_scale = eff_scale
                 imgs.append(frame["image"].unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])
                 vidxs.append(frame["video_idx"])
@@ -277,14 +289,14 @@ class Predictor(ABC):
                     "frame_idx": fidxs,
                     "video_idx": vidxs,
                     "orig_size": org_szs,
+                    "eff_scale": self.eff_scale,
                 }
                 if self.instances_key:
                     ex["instances"] = instances
-                ex["image"] = apply_normalization(ex["image"])
-                if self.preprocess_config["is_rgb"]:
-                    ex["image"] = convert_to_rgb(ex["image"])
-                else:
-                    ex["image"] = convert_to_grayscale(ex["image"])
+                if self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 3:
+                    ex["image"] = ex["image"].repeat(1, 1, 3, 1, 1)
+                elif not self.preprocess_config["is_rgb"]:
+                    ex["image"] = F.rgb_to_grayscale(ex["image"], num_output_channels=1)
                 if self.preprocess:
                     scale = self.preprocess_config["scale"]
                     if scale != 1.0:
@@ -383,6 +395,8 @@ class TopDownPredictor(Predictor):
         tracker: A `sleap_nn.tracking.Tracker` that will be called to associate
             detections over time. Predicted instances will not be assigned to tracks if
             if this is `None`.
+        anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
+            provided, the anchor idx in the `training_config.yaml` is used instead.
 
     """
 
@@ -401,6 +415,7 @@ class TopDownPredictor(Predictor):
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
     tracker: Optional[Tracker] = None
+    anchor_ind: Optional[int] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -416,18 +431,25 @@ class TopDownPredictor(Predictor):
             centroid_peak_threshold = self.peak_threshold
             centered_instance_peak_threshold = self.peak_threshold
 
-        if self.centroid_config is None:
+        if self.data_config.crop_hw is None and self.confmap_config is not None:
+            self.data_config.crop_hw = (
+                self.confmap_config.data_config.preprocessing.crop_hw
+            )
 
+        if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
                 crop_hw=self.data_config.crop_hw,
-                anchor_ind=self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part,
+                anchor_ind=(
+                    self.anchor_ind
+                    if self.anchor_ind is not None
+                    else self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+                ),
                 return_crops=return_crops,
             )
 
         else:
             max_stride = self.centroid_config.model_config.backbone_config.max_stride
-
             # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
@@ -603,19 +625,20 @@ class TopDownPredictor(Predictor):
             Thread is started in Predictor._predict_generator() method.
         """
         self.provider = provider
+        if self.centroid_config is not None:
+            max_stride = self.centroid_config.model_config.backbone_config.max_stride
+            scale = self.centroid_config.data_config.preprocessing.scale
+            max_height = self.centroid_config.data_config.preprocessing.max_height
+            max_width = self.centroid_config.data_config.preprocessing.max_width
+        else:
+            max_stride = self.confmap_config.model_config.backbone_config.max_stride
+            scale = self.confmap_config.data_config.preprocessing.scale
+            max_height = self.confmap_config.data_config.preprocessing.max_height
+            max_width = self.confmap_config.data_config.preprocessing.max_width
 
         # LabelsReader provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-
-            if self.centroid_config is not None:
-                max_stride = (
-                    self.centroid_config.model_config.backbone_config.max_stride
-                )
-                scale = self.centroid_config.data_config.preprocessing.scale
-            else:
-                max_stride = self.confmap_config.model_config.backbone_config.max_stride
-                scale = self.confmap_config.data_config.preprocessing.scale
 
             self.preprocess = False
             self.preprocess_config = {
@@ -623,6 +646,16 @@ class TopDownPredictor(Predictor):
                 "scale": scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -648,6 +681,16 @@ class TopDownPredictor(Predictor):
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.centroid_config.model_config.backbone_config.max_stride
+                ),
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else max_width
                 ),
             }
 
@@ -908,6 +951,16 @@ class SingleInstancePredictor(Predictor):
                 "scale": self.confmap_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.confmap_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.confmap_config.data_config.preprocessing.max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -925,6 +978,16 @@ class SingleInstancePredictor(Predictor):
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.confmap_config.model_config.backbone_config.max_stride
+                ),
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.confmap_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.confmap_config.data_config.preprocessing.max_width
                 ),
             }
 
@@ -1215,6 +1278,16 @@ class BottomUpPredictor(Predictor):
                 "scale": self.bottomup_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.bottomup_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.bottomup_config.data_config.preprocessing.max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -1232,6 +1305,16 @@ class BottomUpPredictor(Predictor):
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.bottomup_config.model_config.backbone_config.max_stride
+                ),
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.bottomup_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.bottomup_config.data_config.preprocessing.max_width
                 ),
             }
 
@@ -1347,12 +1430,13 @@ def main(
     max_width: int = None,
     max_height: int = None,
     is_rgb: bool = False,
+    anchor_ind: Optional[int] = None,
     provider: str = "LabelsReader",
     batch_size: int = 4,
     queue_maxsize: int = 8,
     videoreader_start_idx: Optional[int] = None,
     videoreader_end_idx: Optional[int] = None,
-    crop_hw: List[int] = (160, 160),
+    crop_hw: Optional[List[int]] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
     integral_refinement: str = None,
     integral_patch_size: int = 5,
@@ -1397,6 +1481,8 @@ def main(
                 is replicated along the channel axis. If input has three channels and this
                 is set to False, then we convert the image to grayscale (single-channel)
                 image. Default: False.
+        anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
+                provided, the anchor idx in the `training_config.yaml` is used instead.
         provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader". Default: LabelsReader.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -1525,6 +1611,9 @@ def main(
             of_window_size=of_window_size,
             of_max_levels=of_max_levels,
         )
+
+    if isinstance(predictor, TopDownPredictor):
+        predictor.anchor_ind = anchor_ind
 
     if isinstance(predictor, BottomUpPredictor):
         predictor.inference_model.paf_scorer.max_edge_length_ratio = (

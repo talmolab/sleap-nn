@@ -42,6 +42,7 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
 
     ex = process_lf(labels[0], 0, 2)
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
+    ex["eff_scale"] = 1.0
 
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model,
