@@ -269,6 +269,12 @@ class Predictor(ABC):
                     self.preprocess_config["max_height"],
                     self.preprocess_config["max_width"],
                 )
+                if self.preprocess_config["is_rgb"] and frame["image"].shape[-3] != 3:
+                    frame["image"] = frame["image"].repeat(1, 3, 1, 1)
+                elif not self.preprocess_config["is_rgb"]:
+                    frame["image"] = F.rgb_to_grayscale(
+                        frame["image"], num_output_channels=1
+                    )
                 self.eff_scale = eff_scale
                 imgs.append(frame["image"].unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])
