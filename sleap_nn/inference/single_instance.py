@@ -86,7 +86,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
             peak_points = peak_points / self.input_scale
         peak_points = peak_points / inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(
             dim=2
-        )
+        ).to(peak_points.device)
 
         # Build outputs.
         outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}

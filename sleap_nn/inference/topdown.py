@@ -270,7 +270,7 @@ class CentroidCrop(L.LightningModule):
                 peak_vals_with_nans[ind] = p
             refined_peaks_with_nans = refined_peaks_with_nans / inputs[
                 "eff_scale"
-            ].unsqueeze(dim=1).unsqueeze(dim=2)
+            ].unsqueeze(dim=1).unsqueeze(dim=2).to(refined_peaks_with_nans.device)
             inputs.update(
                 {
                     "centroids": refined_peaks_with_nans.unsqueeze(dim=1),

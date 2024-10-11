@@ -140,7 +140,9 @@ class BottomUpInferenceModel(L.LightningModule):
         predicted_instances = predicted_instances / self.input_scale
         predicted_instances_adjusted = []
         for idx, p in enumerate(predicted_instances):
-            predicted_instances_adjusted.append(p / inputs["eff_scale"][idx])
+            predicted_instances_adjusted.append(
+                p / inputs["eff_scale"][idx].to(p.device)
+            )
         predicted_instances_adjusted = torch.nested.nested_tensor(
             predicted_instances_adjusted
         )
