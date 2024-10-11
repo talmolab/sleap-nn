@@ -625,19 +625,20 @@ class TopDownPredictor(Predictor):
             Thread is started in Predictor._predict_generator() method.
         """
         self.provider = provider
+        if self.centroid_config is not None:
+            max_stride = self.centroid_config.model_config.backbone_config.max_stride
+            scale = self.centroid_config.data_config.preprocessing.scale
+            max_height = self.centroid_config.data_config.preprocessing.max_height
+            max_width = self.centroid_config.data_config.preprocessing.max_width
+        else:
+            max_stride = self.confmap_config.model_config.backbone_config.max_stride
+            scale = self.confmap_config.data_config.preprocessing.scale
+            max_height = self.confmap_config.data_config.preprocessing.max_height
+            max_width = self.confmap_config.data_config.preprocessing.max_width
 
         # LabelsReader provider
         if self.provider == "LabelsReader":
             provider = LabelsReader
-
-            if self.centroid_config is not None:
-                max_stride = (
-                    self.centroid_config.model_config.backbone_config.max_stride
-                )
-                scale = self.centroid_config.data_config.preprocessing.scale
-            else:
-                max_stride = self.confmap_config.model_config.backbone_config.max_stride
-                scale = self.confmap_config.data_config.preprocessing.scale
 
             self.preprocess = False
             self.preprocess_config = {
@@ -645,8 +646,16 @@ class TopDownPredictor(Predictor):
                 "scale": scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
-                "max_height": self.data_config.max_height,
-                "max_width": self.data_config.max_width,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -673,8 +682,16 @@ class TopDownPredictor(Predictor):
                 "max_stride": (
                     self.centroid_config.model_config.backbone_config.max_stride
                 ),
-                "max_height": self.data_config.max_height,
-                "max_width": self.data_config.max_width,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -934,8 +951,16 @@ class SingleInstancePredictor(Predictor):
                 "scale": self.confmap_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
-                "max_height": self.data_config.max_height,
-                "max_width": self.data_config.max_width,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.confmap_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.confmap_config.data_config.preprocessing.max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -954,8 +979,16 @@ class SingleInstancePredictor(Predictor):
                 "max_stride": (
                     self.confmap_config.model_config.backbone_config.max_stride
                 ),
-                "max_height": self.data_config.max_height,
-                "max_width": self.data_config.max_width,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.confmap_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.confmap_config.data_config.preprocessing.max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -1245,8 +1278,16 @@ class BottomUpPredictor(Predictor):
                 "scale": self.bottomup_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
-                "max_height": self.data_config.max_height,
-                "max_width": self.data_config.max_width,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.bottomup_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.bottomup_config.data_config.preprocessing.max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
@@ -1265,8 +1306,16 @@ class BottomUpPredictor(Predictor):
                 "max_stride": (
                     self.bottomup_config.model_config.backbone_config.max_stride
                 ),
-                "max_height": self.data_config.max_height,
-                "max_width": self.data_config.max_width,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.bottomup_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.bottomup_config.data_config.preprocessing.max_width
+                ),
             }
 
             self.pipeline = provider.from_filename(
