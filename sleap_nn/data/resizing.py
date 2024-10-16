@@ -149,7 +149,7 @@ def apply_sizematcher(
 
         return image, eff_scale_ratio
     else:
-        return image, 1
+        return image, 1.0
 
 
 class Resizer(IterDataPipe):

@@ -67,7 +67,6 @@ class Predictor(ABC):
         inference_model: Instance of one of the inference models ["TopDownInferenceModel",
             "SingleInstanceInferenceModel", "BottomUpInferenceModel"]. Default: None.
         instances_key: If `True`, then instances are appended to the data samples.
-        eff_scale: Scaling applied to the image in `apply_sizematcher` function.
     """
 
     preprocess: bool = True
@@ -87,7 +86,6 @@ class Predictor(ABC):
         ]
     ] = None
     instances_key: bool = False
-    eff_scale: float = 1.0
 
     @classmethod
     def from_model_paths(
@@ -258,6 +256,7 @@ class Predictor(ABC):
             vidxs = []
             org_szs = []
             instances = []
+            eff_scales = []
             for _ in range(batch_size):
                 frame = self.pipeline.frame_buffer.get()
                 if frame["image"] is None:
@@ -269,7 +268,15 @@ class Predictor(ABC):
                     self.preprocess_config["max_height"],
                     self.preprocess_config["max_width"],
                 )
-                self.eff_scale = eff_scale
+                if self.instances_key:
+                    frame["instances"] = frame["instances"] * eff_scale
+                if self.preprocess_config["is_rgb"] and frame["image"].shape[-3] != 3:
+                    frame["image"] = frame["image"].repeat(1, 3, 1, 1)
+                elif not self.preprocess_config["is_rgb"]:
+                    frame["image"] = F.rgb_to_grayscale(
+                        frame["image"], num_output_channels=1
+                    )
+                eff_scales.append(torch.tensor(eff_scale))
                 imgs.append(frame["image"].unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])
                 vidxs.append(frame["video_idx"])
@@ -282,6 +289,7 @@ class Predictor(ABC):
                 fidxs = torch.tensor(fidxs, dtype=torch.int32)
                 vidxs = torch.tensor(vidxs, dtype=torch.int32)
                 org_szs = torch.concatenate(org_szs, dim=0)
+                eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
                 if self.instances_key:
                     instances = torch.concatenate(instances, dim=0)
                 ex = {
@@ -289,7 +297,7 @@ class Predictor(ABC):
                     "frame_idx": fidxs,
                     "video_idx": vidxs,
                     "orig_size": org_szs,
-                    "eff_scale": self.eff_scale,
+                    "eff_scale": eff_scales,
                 }
                 if self.instances_key:
                     ex["instances"] = instances
