@@ -15,12 +15,14 @@ class ModelConfig:
     init_weight: str = "default"
     pre_trained_weights: str = None
     backbone_type: BackboneType = BackboneType.UNET
-    backbone_config: Union[UNetConfig, ConvNextConfig, SwinTConfig] = attrs.field(init=False)
+    backbone_config: Union[UNetConfig, ConvNextConfig, SwinTConfig] = attrs.field(init=False)   # backbone_config can be any of these 3 configurations. init=False lets you set the parameters later (not in initialization)
 
+    # post-initialization
     def __attrs_post_init__(self):
         self.backbone_config = self.set_backbone_config()
         self.validate_pre_trained_weights()
 
+    # configures back_bone config to one of these types
     def set_backbone_config(self):
         if self.backbone_type == BackboneType.UNET:
             return UNetConfig()
