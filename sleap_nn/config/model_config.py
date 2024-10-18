@@ -1,4 +1,7 @@
-@attr.s(auto_attribs=True)
+import attrs
+from enum import Enum
+
+@attrs.define
 class ModelConfig:
     """Configurations related to model architecture.
 
@@ -10,9 +13,36 @@ class ModelConfig:
     """
 
     init_weight: str = "default"
-    pre_trained_weights: str = 
+    pre_trained_weights: str = None
     backbone_type: BackboneType = BackboneType.UNET
-    backbone_config: 
+    backbone_config: Union[UNetConfig, ConvNextConfig, SwinTConfig] = attrs.field(init=False)
+
+    def __attrs_post_init__(self):
+        self.backbone_config = self.set_backbone_config()
+        self.validate_pre_trained_weights()
+
+    def set_backbone_config(self):
+        if self.backbone_type == BackboneType.UNET:
+            return UNetConfig()
+        elif self.backbone_type == BackboneType.CONVNEXT:
+            return ConvNextConfig()
+        elif self.backbone_type == BackboneType.SWINT:
+            return SwinTConfig()
+        else:
+            raise ValueError(f"Invalid backbone_type: {self.backbone_type}")
+
+    def validate_pre_trained_weights(self):
+        convnext_weights = ["ConvNeXt_Base_Weights", "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]
+        swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
+
+        if self.backbone_type == BackboneType.CONVNEXT:
+            if self.pre_trained_weights not in convnext_weights:
+                raise ValueError(f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}")
+        elif self.backbone_type == BackboneType.SWINT:
+            if self.pre_trained_weights not in swint_weights:
+                raise ValueError(f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}")
+        elif self.backbone_type == BackboneType.UNET and self.pre_trained_weights is not None:
+            raise ValueError("UNet does not support pre-trained weights.")
 
     class BackboneType(Enum):
         UNET = "unet"
