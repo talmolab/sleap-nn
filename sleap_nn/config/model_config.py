@@ -102,12 +102,13 @@ class HeadConfig:
         }
     )
 
+# Head_config single instance
 @attrs.define
 class SingleInstanceConfig:
-    confmaps: Optional[ConfMapsConfig] = None
+    confmaps: Optional[SingleInstanceConfMapsConfig] = None
 
 @attrs.define
-class ConfMapsConfig:
+class SingleInstanceConfMapsConfig:
     '''
 
     Attributes:
@@ -118,3 +119,42 @@ class ConfMapsConfig:
     part_names: Optional[List[str]] = None
     sigma: Optional[float] = None
     output_stride: Optional[float] = None
+
+# Head_config centroid
+@attrs.define
+class centroid:
+    confmaps: Optional[CentroidConfMapsConfig] = None
+
+@attrs.define
+class CentroidConfMapsConfig:
+    '''
+
+    Attributes:
+        anchor_part: (int) Note: Only for 'CenteredInstanceConfmapsHead'. Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
+        sigma: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
+        output_stride: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+    '''
+    anchor_part: Optional[int] = None
+    sigma: Optional[float] = None
+    output_stride: Optional[float] = None
+
+# Head_config centered_instance
+@attrs.define
+class centered_instance:
+    confmaps: Optional[CenteredInstanceConfMapsConfig] = None
+
+@attrs.define
+class CenteredInstanceConfMapsConfig:
+    '''
+
+    Attributes:  
+        part_names: (List[str]) None if nodes from sio.Labels file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
+        anchor_part: (int) Note: Only for 'CenteredInstanceConfmapsHead'. Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
+        sigma: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
+        output_stride: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+    '''
+    part_names: Optional[List[str]] = None
+    anchor_part: Optional[int] = None
+    sigma: Optional[float] = None
+    output_stride: Optional[float] = None
+
