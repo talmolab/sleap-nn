@@ -47,13 +47,25 @@ class TrainerConfig:
         resume_ckpt_path: (str) Path to .ckpt file from which training is resumed. Default: None.
         wandb: (Only if use_wandb is True, else skip this)
     """
-    train_data_loader: TrainDataLoader = attrs.field(factory=DataLoader)
-    val_data_loader: ValDataLoader = attrs.field(factory=DataLoader)
+    train_data_loader: DataLoaderConfig = attrs.field(factory=DataLoaderConfig)
+    val_data_loader: DataLoaderConfig = attrs.field(factory=DataLoaderConfig)
+    model_ckpt: ModelCkptConfig = attrs.field(factory=ModelCkptConfig)
+    trainer_devices: Union[int, List[int], str] = "auto"
+    trainer_accelerator: str="auto"
+    enable_progress_bar: bool = True
+    steps_per_epoch: Optional[int] = None
+    max_epochs: int = 10
+    seed: Optional[int] = None
+    use_wandb: bool = False
+    save_ckpt: bool = False
+    save_ckpt_path: str = "./"
+    resume_ckpt_path: Optional[str] = None
+    wandb: 
+
 
 @attrs.define
-class DataLoader:
-    '''
-    train and val data_loader: (Note: Any parameters from Torch's DataLoader could be used.)
+class DataLoaderConfig:
+    '''train and val DataLoaderConfig: (Note: Any parameters from Torch's DataLoader could be used.)
 
     Attributes:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. Default = 1.
@@ -64,3 +76,13 @@ class DataLoader:
     shuffle: bool=False
     num_workers: int=0
 
+@attrs.define 
+class ModelCkptConfig:
+    '''modelCkptConfig: (Note: Any parameters from Lightning's ModelCheckpoint could be used.)
+    
+    Attributes:
+        save_top_k: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
+        save_last: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. Default: None.
+    '''
+    save_top_k: int = 1
+    save_last: Optional[bool]=None
