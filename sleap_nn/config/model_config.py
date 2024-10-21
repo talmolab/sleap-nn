@@ -16,6 +16,7 @@ class ModelConfig:
     pre_trained_weights: str = None
     backbone_type: BackboneType = BackboneType.UNET
     backbone_config: Union[UNetConfig, ConvNextConfig, SwinTConfig] = attrs.field(init=False)   # backbone_config can be any of these 3 configurations. init=False lets you set the parameters later (not in initialization)
+    head_configs: HeadConfig = attrs.field(factory=HeadConfig)
 
     # post-initialization
     def __attrs_post_init__(self):
@@ -89,3 +90,31 @@ class ModelConfig:
         filters_rate: float = 1.5
         convs_per_block: int = 2
         up_interpolate: bool = True
+
+@attrs.define
+class HeadConfig:
+    head_configs: Dict[str, Optional[Dict]] = attrs.field(
+        factory = lambda:{
+            "single_instance": None,
+            "centroid": None,
+            "centered_instance": None,
+            "bottomup": None
+        }
+    )
+
+@attrs.define
+class SingleInstanceConfig:
+    confmaps: Optional[ConfMapsConfig] = None
+
+@attrs.define
+class ConfMapsConfig:
+    '''
+
+    Attributes:
+        part_names: (List[str]) None if nodes from sio.Labels file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
+        sigma: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
+        output_stride: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+    '''
+    part_names: Optional[List[str]] = None
+    sigma: Optional[float] = None
+    output_stride: Optional[float] = None
