@@ -47,3 +47,20 @@ class TrainerConfig:
         resume_ckpt_path: (str) Path to .ckpt file from which training is resumed. Default: None.
         wandb: (Only if use_wandb is True, else skip this)
     """
+    train_data_loader: TrainDataLoader = attrs.field(factory=DataLoader)
+    val_data_loader: ValDataLoader = attrs.field(factory=DataLoader)
+
+@attrs.define
+class DataLoader:
+    '''
+    train and val data_loader: (Note: Any parameters from Torch's DataLoader could be used.)
+
+    Attributes:
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. Default = 1.
+        shuffle: (bool) True to have the data reshuffled at every epoch. Default: False.
+        num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. Default: 0.
+    '''
+    batch_size: int = 1
+    shuffle: bool=False
+    num_workers: int=0
+
