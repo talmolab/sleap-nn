@@ -1,3 +1,4 @@
+import attrs
 from omegaconf import OmegaConf
 
 """Serializable configuration classes for specifying all training job parameters.
@@ -46,6 +47,10 @@ class TrainerConfig:
         save_ckpt_path: (str) Directory path to save the training config and checkpoint files. Default: "./"
         resume_ckpt_path: (str) Path to .ckpt file from which training is resumed. Default: None.
         wandb: (Only if use_wandb is True, else skip this)
+        optimizer_name: (str) Optimizer to be used. One of ["Adam", "AdamW"].
+        optimizer:
+        lr_scheduler:
+        early_stopping:
     """
     train_data_loader: DataLoaderConfig = attrs.field(factory=DataLoaderConfig)
     val_data_loader: DataLoaderConfig = attrs.field(factory=DataLoaderConfig)
@@ -60,7 +65,18 @@ class TrainerConfig:
     save_ckpt: bool = False
     save_ckpt_path: str = "./"
     resume_ckpt_path: Optional[str] = None
-    wandb: 
+    wandb: Optional[WandBConfig] = attrs.field(init=False)
+    optimizer: Optional[OptimizerConfig] = attrs.field(factory=OptimizerConfig)
+    lr_scheduler: LRSchedulerConfig = attrs.field(factory=LRSchedulerConfig)
+    early_stopping: EarlyStoppingConfig = attr.field(factory=EarlyStoppingConfig)
+
+    # post-initialization
+    def __attrs_post_init__(self):
+        # Set wandb configuration only if use_wandb is True
+        if self.use_wandb:
+            self.wandb = WandBConfig()  # Initialize WandBConfig with defaults or passed parameters
+        else:
+            self.wandb = None
 
 
 @attrs.define
@@ -86,3 +102,69 @@ class ModelCkptConfig:
     '''
     save_top_k: int = 1
     save_last: Optional[bool]=None
+
+@attrs.define
+class WandBConfig:
+    '''wandb: (Only if use_wandb is True, else skip this)
+
+    Attributes:
+        entity: (str) Entity of wandb project.
+        project: (str) Project name for the wandb project.
+        name: (str) Name of the current run.
+        api_key: (str) API key. The API key is masked when saved to config files.
+        wandb_mode: (str) "offline" if only local logging is required. Default: "None".
+        prv_runid: (str) Previous run ID if training should be resumed from a previous ckpt. Default: None.
+        log_params: (List[str]) List of config parameters to save it in wandb logs. For example, to save learning rate from trainer config section, use "trainer_config.optimizer.lr" (provide the full path to the specific config parameter).
+    '''
+    entity: Optional[str] = None
+    project: Optional[str] = None
+    name: Optional[str] = None
+    api_key: Optional[str] = None
+    wandb_mode: Optional[str] = "None"
+    prv_runid: Optional[str] = None
+    log_params: Optional[List[str]] = None
+
+@attrs.define
+class OptimizerConfig:
+    '''optimizer configuration
+
+    lr: (float) Learning rate of type float. Default: 1e-3
+    amsgrad: (bool) Enable AMSGrad with the optimizer. Default: False
+    '''
+    lr: float = 1e-3
+    amsgrad: bool = False
+
+@attrs.define
+class LRSchedulerConfig:
+    '''lr_scheduler configuration
+
+    Attributes:
+        mode: (str) One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. Default: "min".
+        threshold: (float) Threshold for measuring the new optimum, to only focus on significant changes. Default: 1e-4.
+        threshold_mode: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. Default: "rel".
+        cooldown: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. Default: 0
+        patience: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. Default: 10.
+        factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. Default: 0.1.
+        min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. Default: 0.
+    '''
+
+    mode: str = "min"
+    threshold: float = 1e-4
+    threshold_mode: str = "rel"
+    cooldown: int = 0
+    patience: int = 10
+    factor: float = 0.1
+    min_lr: Union[float, List[float]] = 0.0
+
+@attrs.define
+class EarlyStoppingConfig:
+    '''early_stopping configuration
+
+    Attributes:
+        stop_training_on_plateau: (bool) True if early stopping should be enabled.
+        min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement.
+        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch.
+    '''
+    stop_training_on_plateau: bool = False
+    min_delta: float = 0.0
+    patience: int = 1
