@@ -158,3 +158,39 @@ class CenteredInstanceConfMapsConfig:
     sigma: Optional[float] = None
     output_stride: Optional[float] = None
 
+# Head_config bottomup
+@attrs.define
+class BottomUpConfig:
+    confmaps: Optional[BottomUpConfMapsConfig] = None
+    pafs: Optional[PAFConfig] = None
+
+@attrs.define
+class BottomUpConfMapsConfig():
+    '''
+
+    Attributes:
+        part_names: (List[str]) None if nodes from sio.Labels file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
+        sigma: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
+        output_stride: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
+    '''
+    part_names: Optional[List[str]] = None
+    sigma: Optional[float] = None
+    output_stride: Optional[float] = None
+    loss_weight: Optional[float] = None
+
+@attrs.define
+class PAFConfig():
+    '''
+
+    Attributes:
+        edges: (List[str]) None if edges from sio.Labels file can be used directly. Note: Only for 'PartAffinityFieldsHead'. List of indices (src, dest) that form an edge.
+        sigma: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied.
+        output_stride: (float) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models.
+    '''
+    edges: Optional[List[str]] = None
+    sigma: Optional[float] = None
+    output_stride: Optional[float] = None
+    loss_weight: Optional[float] = None
+    
