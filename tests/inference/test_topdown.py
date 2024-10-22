@@ -62,7 +62,7 @@ def test_centroid_inference_model(config, minimal_instance):
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
     ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
     ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
-    ex["eff_scale"] = 1.0
+    ex["eff_scale"] = torch.Tensor([1.0])
 
     trainer._initialize_model()
     model = trainer.model
@@ -117,8 +117,7 @@ def test_find_instance_peaks_groundtruth(
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
     ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
     ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
-    ex["eff_scale"] = 1.0
-    # ex["centroids"] = generate_centroids(ex["instances"], 0)
+    ex["eff_scale"] = torch.Tensor([1.0])
 
     example = ex
     topdown_inf_layer = TopDownInferenceModel(
@@ -144,7 +143,7 @@ def test_find_instance_peaks_groundtruth(
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
     ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
     ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
-    ex["eff_scale"] = 1.0
+    ex["eff_scale"] = torch.Tensor([1.0])
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     OmegaConf.update(
         config,
@@ -201,7 +200,7 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
         ex["instances"][0, 0],
         ex["centroids"][0, 0],
     )  # n_samples=1
-    ex["eff_scale"] = 1.0
+    ex["eff_scale"] = torch.Tensor([1.0])
 
     for cnt, (instance, centroid) in enumerate(zip(ex["instances"], centroids)):
         if cnt == ex["num_instances"]:
@@ -214,7 +213,7 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
         res["num_instances"] = ex["num_instances"]
         res["orig_size"] = ex["orig_size"]
         res["instance_image"] = res["instance_image"].unsqueeze(dim=0)
-        res["eff_scale"] = 1.0
+        res["eff_scale"] = torch.Tensor([1.0])
 
         break
 
@@ -270,7 +269,7 @@ def test_topdown_inference_model(
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
     ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
     ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
-    ex["eff_scale"] = 1.0
+    ex["eff_scale"] = torch.Tensor([1.0])
 
     # if gt centroids and centered-instance model.
     topdown_inf_layer = TopDownInferenceModel(
