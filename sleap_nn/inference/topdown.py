@@ -464,7 +464,7 @@ class FindInstancePeaks(L.LightningModule):
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
             inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
-            
+
         peak_points = peak_points / inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(
             dim=2
         ).to(peak_points.device)
