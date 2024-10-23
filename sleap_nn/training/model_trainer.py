@@ -626,7 +626,7 @@ class TrainingModel(L.LightningModule):
             optimizer,
             mode="min",
             threshold=self.trainer_config.lr_scheduler.threshold,
-            threshold_mode="rel",
+            threshold_mode=self.trainer_config.lr_scheduler.threshold_mode,
             cooldown=self.trainer_config.lr_scheduler.cooldown,
             patience=self.trainer_config.lr_scheduler.patience,
             factor=self.trainer_config.lr_scheduler.factor,
