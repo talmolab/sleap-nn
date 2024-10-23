@@ -47,12 +47,12 @@ def find_instance_crop_size(
         for inst in lf.instances:
             pts = inst.numpy()
             pts *= input_scaling
-            max_length = np.maximum(
-                max_length, np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
-            )
-            max_length = np.maximum(
-                max_length, np.nanmax(pts[:, 1]) - np.nanmin(pts[:, 1])
-            )
+            diff_x = np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
+            diff_x = 0 if np.isnan(diff_x) else diff_x
+            max_length = np.maximum(max_length, diff_x)
+            diff_y = np.nanmax(pts[:, 1]) - np.nanmin(pts[:, 1])
+            diff_y = 0 if np.isnan(diff_y) else diff_y
+            max_length = np.maximum(max_length, diff_y)
             max_length = np.maximum(max_length, min_crop_size_no_pad)
 
     max_length += float(padding)

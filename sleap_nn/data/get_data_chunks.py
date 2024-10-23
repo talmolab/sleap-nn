@@ -4,7 +4,7 @@ from typing import Dict, Iterator, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
 import torch
-
+import torchvision.transforms as T
 import sleap_io as sio
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import generate_crops
@@ -52,9 +52,6 @@ def bottomup_data_chunks(
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
 
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
-
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
     else:
@@ -71,6 +68,9 @@ def bottomup_data_chunks(
         max_width=max_width if max_width is not None else max_hw[1],
     )
     sample["instances"] = sample["instances"] * eff_scale
+
+    transform = T.ToPILImage()
+    sample["image"] = transform(sample["image"].squeeze(dim=0))
 
     return sample
 
@@ -116,9 +116,6 @@ def centered_instance_data_chunks(
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
 
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
-
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
     else:
@@ -144,16 +141,21 @@ def centered_instance_data_chunks(
 
     sample["instances"], centroids = sample["instances"][0], centroids[0]  # n_samples=1
 
+    transform = T.ToPILImage()
+
     for cnt, (instance, centroid) in enumerate(zip(sample["instances"], centroids)):
         if cnt == sample["num_instances"]:
             break
 
-        res = generate_crops(sample["image"], instance, centroid, crop_size)
+        res = generate_crops(
+            apply_normalization(sample["image"]), instance, centroid, crop_size
+        )
 
         res["frame_idx"] = sample["frame_idx"]
         res["video_idx"] = sample["video_idx"]
         res["num_instances"] = sample["num_instances"]
         res["orig_size"] = sample["orig_size"]
+        res["instance_image"] = transform(res["instance_image"].squeeze(dim=0))
 
         yield res
 
@@ -197,9 +199,6 @@ def centroid_data_chunks(
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
 
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
-
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
     else:
@@ -222,6 +221,9 @@ def centroid_data_chunks(
     centroids = generate_centroids(sample["instances"], anchor_ind=anchor_ind)
 
     sample["centroids"] = centroids
+
+    transform = T.ToPILImage()
+    sample["image"] = transform(sample["image"].squeeze(dim=0))
 
     return sample
 
@@ -261,9 +263,6 @@ def single_instance_data_chunks(
         lf, video_idx, user_instances_only=user_instances_only, max_instances=1
     )
 
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
-
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
     else:
@@ -280,5 +279,8 @@ def single_instance_data_chunks(
         max_width=max_width if max_width is not None else max_hw[1],
     )
     sample["instances"] = sample["instances"] * eff_scale
+
+    transform = T.ToPILImage()
+    sample["image"] = transform(sample["image"].squeeze(dim=0))
 
     return sample

@@ -1,5 +1,5 @@
 import sleap_io as sio
-
+import torchvision.transforms as T
 from sleap_nn.data.get_data_chunks import (
     bottomup_data_chunks,
     centered_instance_data_chunks,
@@ -13,6 +13,7 @@ from sleap_nn.data.providers import get_max_height_width
 def test_bottomup_data_chunks(minimal_instance, config):
     """Test `bottomup_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    transform = T.ToTensor()
     max_hw = get_max_height_width(labels)
     samples = []
     for idx, lf in enumerate(labels):
@@ -38,7 +39,7 @@ def test_bottomup_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["image"].shape == (1, 1, 384, 384)
+    assert transform(samples[0]["image"]).shape == (1, 384, 384)
     assert samples[0]["instances"].shape == (1, 4, 2, 2)
 
     # test `is_rgb`
@@ -65,13 +66,14 @@ def test_bottomup_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["image"].shape == (1, 3, 384, 384)
+    assert transform(samples[0]["image"]).shape == (3, 384, 384)
     assert samples[0]["instances"].shape == (1, 2, 2, 2)
 
 
 def test_centered_instance_data_chunks(minimal_instance, config):
     """Test `centered_instance_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    transform = T.ToTensor()
     max_hw = get_max_height_width(labels)
     samples = []
     for idx, lf in enumerate(labels):
@@ -100,7 +102,7 @@ def test_centered_instance_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["instance_image"].shape == (1, 1, 226, 226)
+    assert transform(samples[0]["instance_image"]).shape == (1, 226, 226)
     assert samples[0]["instance"].shape == (1, 2, 2)
 
     # test `is_rgb`
@@ -131,13 +133,14 @@ def test_centered_instance_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["instance_image"].shape == (1, 3, 226, 226)
+    assert transform(samples[0]["instance_image"]).shape == (3, 226, 226)
     assert samples[0]["instance"].shape == (1, 2, 2)
 
 
 def test_centroid_data_chunks(minimal_instance, config):
     """Test `centroid_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    transform = T.ToTensor()
     max_hw = get_max_height_width(labels)
     samples = []
     for idx, lf in enumerate(labels):
@@ -165,7 +168,7 @@ def test_centroid_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["image"].shape == (1, 1, 384, 384)
+    assert transform(samples[0]["image"]).shape == (1, 384, 384)
     assert samples[0]["instances"].shape == (1, 4, 2, 2)
     assert samples[0]["centroids"].shape == (1, 4, 2)
 
@@ -195,7 +198,7 @@ def test_centroid_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["image"].shape == (1, 3, 384, 384)
+    assert transform(samples[0]["image"]).shape == (3, 384, 384)
     assert samples[0]["instances"].shape == (1, 2, 2, 2)
     assert samples[0]["centroids"].shape == (1, 2, 2)
 
@@ -203,6 +206,7 @@ def test_centroid_data_chunks(minimal_instance, config):
 def test_single_instance_data_chunks(minimal_instance, config):
     """Test `single_instance_data_chunks` function."""
     labels = sio.load_slp(minimal_instance)
+    transform = T.ToTensor()
     max_hw = get_max_height_width(labels)
     # Making our minimal 2-instance example into a single instance example.
     for lf in labels:
@@ -229,7 +233,7 @@ def test_single_instance_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["image"].shape == (1, 1, 384, 384)
+    assert transform(samples[0]["image"]).shape == (1, 384, 384)
     assert samples[0]["instances"].shape == (1, 1, 2, 2)
 
     # test `is_rgb`
@@ -253,5 +257,5 @@ def test_single_instance_data_chunks(minimal_instance, config):
     for k in gt_keys:
         assert k in samples[0]
 
-    assert samples[0]["image"].shape == (1, 3, 384, 384)
+    assert transform(samples[0]["image"]).shape == (3, 384, 384)
     assert samples[0]["instances"].shape == (1, 1, 2, 2)
