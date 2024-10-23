@@ -240,8 +240,22 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     del centroid_config.model_config.head_configs.centered_instance
     del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
-    if Path(centroid_config.trainer_config.save_ckpt_path).exists():
-        shutil.rmtree(centroid_config.trainer_config.save_ckpt_path)
+    if (Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt"
+            ).as_posix()
+        )
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
+            ).as_posix()
+        )
+        shutil.rmtree(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
+            ).as_posix()
+        )
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -267,8 +281,22 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
     bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
-    if Path(bottomup_config.trainer_config.save_ckpt_path).exists():
-        shutil.rmtree(bottomup_config.trainer_config.save_ckpt_path)
+    if (Path(bottomup_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
+        os.remove(
+            (
+                Path(bottomup_config.trainer_config.save_ckpt_path) / "best.ckpt"
+            ).as_posix()
+        )
+        os.remove(
+            (
+                Path(bottomup_config.trainer_config.save_ckpt_path) / "last.ckpt"
+            ).as_posix()
+        )
+        shutil.rmtree(
+            (
+                Path(bottomup_config.trainer_config.save_ckpt_path) / "lightning_logs"
+            ).as_posix()
+        )
 
     OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
