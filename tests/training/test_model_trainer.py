@@ -192,7 +192,9 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
     )
     assert training_config.trainer_config.wandb.run_id == prv_runid
-    shutil.rmtree(f"{config_copy.trainer_config.save_ckpt_path}")
+    os.remove((Path(model_trainer.dir_path) / "best.ckpt").as_posix())
+    os.remove((Path(model_trainer.dir_path) / "last.ckpt").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "lightning_logs").as_posix())
 
     # check early stopping
     config_early_stopping = config.copy()
