@@ -104,6 +104,7 @@ trainer_config:
     amsgrad: false
   lr_scheduler:
     threshold: 1.0e-07
+    threshold_mode: abs
     cooldown: 3
     patience: 5
     factor: 0.5
