@@ -208,8 +208,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             make_labels=True,
             max_instances=6,
             peak_threshold=0.1,
-            max_height=500,
-            max_width=500,
         )
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 1
@@ -230,8 +228,6 @@ def test_single_instance_predictor(minimal_instance, minimal_instance_ckpt):
             provider="LabelsReader",
             make_labels=False,
             peak_threshold=0.3,
-            max_height=500,
-            max_width=500,
         )
         assert isinstance(preds, list)
         assert len(preds) == 1

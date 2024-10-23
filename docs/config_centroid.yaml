@@ -115,6 +115,7 @@ trainer_config:
   save_ckpt_path: 'min_inst_centroid'
   resume_ckpt_path:
   wandb: # sample wandb config
+    entity:
     project: 'test_centroid_centered'
     name: 'fly_unet_centered'
     wandb_mode: ''
