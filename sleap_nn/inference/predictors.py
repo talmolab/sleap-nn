@@ -262,7 +262,6 @@ class Predictor(ABC):
                 if frame["image"] is None:
                     done = True
                     break
-                frame["image"] = apply_normalization(frame["image"])
                 frame["image"], eff_scale = apply_sizematcher(
                     frame["image"],
                     self.preprocess_config["max_height"],
@@ -276,6 +275,8 @@ class Predictor(ABC):
                     frame["image"] = F.rgb_to_grayscale(
                         frame["image"], num_output_channels=1
                     )
+                frame["image"] = apply_normalization(frame["image"])
+
                 eff_scales.append(torch.tensor(eff_scale))
                 imgs.append(frame["image"].unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])

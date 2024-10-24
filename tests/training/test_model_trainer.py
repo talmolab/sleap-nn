@@ -134,7 +134,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
 
     checkpoint = torch.load(
-        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 1
 
@@ -171,7 +171,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(
         config_copy,
         "trainer_config.resume_ckpt_path",
-        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+        f"{Path(config.trainer_config.save_ckpt_path).joinpath('last.ckpt')}",
     )
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
@@ -182,7 +182,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     trainer.train()
 
     checkpoint = torch.load(
-        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 3
     shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
@@ -213,7 +213,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     trainer.train()
 
     checkpoint = torch.load(
-        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 1
     shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
