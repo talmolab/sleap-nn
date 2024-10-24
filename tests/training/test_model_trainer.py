@@ -134,7 +134,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
 
     checkpoint = torch.load(
-        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 1
 
@@ -171,7 +171,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(
         config_copy,
         "trainer_config.resume_ckpt_path",
-        f"{Path(config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+        f"{Path(config.trainer_config.save_ckpt_path).joinpath('last.ckpt')}",
     )
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
@@ -182,7 +182,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     trainer.train()
 
     checkpoint = torch.load(
-        Path(config_copy.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 3
     shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
@@ -192,7 +192,9 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
     )
     assert training_config.trainer_config.wandb.run_id == prv_runid
-    shutil.rmtree(f"{config_copy.trainer_config.save_ckpt_path}")
+    os.remove((Path(model_trainer.dir_path) / "best.ckpt").as_posix())
+    os.remove((Path(model_trainer.dir_path) / "last.ckpt").as_posix())
+    shutil.rmtree((Path(model_trainer.dir_path) / "lightning_logs").as_posix())
 
     # check early stopping
     config_early_stopping = config.copy()
@@ -211,7 +213,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     trainer.train()
 
     checkpoint = torch.load(
-        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("best.ckpt")
+        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 1
     shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
@@ -238,8 +240,22 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     del centroid_config.model_config.head_configs.centered_instance
     del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
-    if Path(centroid_config.trainer_config.save_ckpt_path).exists():
-        shutil.rmtree(centroid_config.trainer_config.save_ckpt_path)
+    if (Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt"
+            ).as_posix()
+        )
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
+            ).as_posix()
+        )
+        shutil.rmtree(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
+            ).as_posix()
+        )
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -265,8 +281,22 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     bottomup_config.model_config.head_configs.bottomup["pafs"] = paf
     bottomup_config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
-    if Path(bottomup_config.trainer_config.save_ckpt_path).exists():
-        shutil.rmtree(bottomup_config.trainer_config.save_ckpt_path)
+    if (Path(bottomup_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
+        os.remove(
+            (
+                Path(bottomup_config.trainer_config.save_ckpt_path) / "best.ckpt"
+            ).as_posix()
+        )
+        os.remove(
+            (
+                Path(bottomup_config.trainer_config.save_ckpt_path) / "last.ckpt"
+            ).as_posix()
+        )
+        shutil.rmtree(
+            (
+                Path(bottomup_config.trainer_config.save_ckpt_path) / "lightning_logs"
+            ).as_posix()
+        )
 
     OmegaConf.update(bottomup_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
