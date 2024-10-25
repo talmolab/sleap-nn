@@ -161,7 +161,7 @@ The config file has three main sections:
     - `use_wandb`: (bool) True to enable wandb logging.
     - `save_ckpt`: (bool) True to enable checkpointing. 
     - `save_ckpt_path`: (str) Directory path to save the training config and checkpoint files. *Default*: "./"
-    - `bin_files_path`: (str) Temp directory to save the `.bin` files while training. This dir need not be unique for each model as this creates a unique sub-folder with timestamp (`<bin_files_path>/chunks_<timestamp>`) in the specified directory. If `None`, it uses the `save_ckpt_path`.
+    - `bin_files_path`: (str) Temp directory to save the `.bin` files while training. This dir need not be unique for each model as this creates a unique sub-folder with timestamp (`<bin_files_path>/chunks_<timestamp>`) in the specified directory, which is then deleted once the training is done. If `None`, it uses the `save_ckpt_path`.
     - `resume_ckpt_path`: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
     - `wandb`: (Only if `use_wandb` is `True`, else skip this)
         - `entity`: (str) Entity of wandb project.
