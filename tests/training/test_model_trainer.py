@@ -91,6 +91,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
+    #######
+
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
@@ -165,6 +167,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
+    #######
+
     # check resume training
     config_copy = config.copy()
     OmegaConf.update(config_copy, "trainer_config.max_epochs", 4)
@@ -185,16 +189,18 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         Path(config_copy.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 3
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(trainer.bin_files_path) / "val_chunks").as_posix())
 
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
     )
     assert training_config.trainer_config.wandb.run_id == prv_runid
-    os.remove((Path(model_trainer.dir_path) / "best.ckpt").as_posix())
-    os.remove((Path(model_trainer.dir_path) / "last.ckpt").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "lightning_logs").as_posix())
+    os.remove((Path(trainer.dir_path) / "best.ckpt").as_posix())
+    os.remove((Path(trainer.dir_path) / "last.ckpt").as_posix())
+    shutil.rmtree((Path(trainer.dir_path) / "lightning_logs").as_posix())
+
+    #######
 
     # check early stopping
     config_early_stopping = config.copy()
@@ -216,8 +222,10 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 1
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(trainer.bin_files_path) / "val_chunks").as_posix())
+
+    #######
 
     # For Single instance model
     single_instance_config = config.copy()
@@ -233,6 +241,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
     assert isinstance(trainer.model, SingleInstanceModel)
+
+    #######
 
     # Centroid model
     centroid_config = config.copy()
@@ -266,6 +276,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     trainer._initialize_model()
     assert isinstance(trainer.model, CentroidModel)
+
+    #######
 
     # bottom up model
     bottomup_config = config.copy()
@@ -307,6 +319,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpModel)
 
+    #######
+
     # check loading trained weights
     load_weights_config = config.copy()
     ckpt = torch.load((Path(minimal_instance_bottomup_ckpt) / "best.ckpt").as_posix())
@@ -323,8 +337,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-3)
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(trainer.bin_files_path) / "val_chunks").as_posix())
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
