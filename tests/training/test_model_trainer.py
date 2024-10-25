@@ -65,11 +65,6 @@ def test_wandb():
     wandb.finish()
 
 
-@pytest.mark.skipif(
-    sys.platform.startswith("li"),
-    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
-)
-# TODO: Revisit this test later (Failing on ubuntu)
 def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     model_trainer = ModelTrainer(config)
