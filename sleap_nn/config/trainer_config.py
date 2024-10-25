@@ -137,8 +137,9 @@ class WandBConfig:
 class OptimizerConfig:
     """optimizer configuration
 
-    lr: (float) Learning rate of type float. Default: 1e-3
-    amsgrad: (bool) Enable AMSGrad with the optimizer. Default: False
+    Attributes:
+        lr: (float) Learning rate of type float. Default: 1e-3
+        amsgrad: (bool) Enable AMSGrad with the optimizer. Default: False
     """
 
     lr: float = 1e-3
