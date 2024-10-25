@@ -43,8 +43,8 @@ def test_create_data_loader(config, tmp_path: str):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     # test exception
     config_copy = config.copy()
@@ -88,8 +88,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert not (
         Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
     )
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
@@ -162,8 +162,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     # check resume training
     config_copy = config.copy()
@@ -185,8 +185,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         Path(config_copy.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 3
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
@@ -216,8 +216,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 1
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     # For Single instance model
     single_instance_config = config.copy()
@@ -323,8 +323,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-3)
 
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
@@ -346,8 +346,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     # convnext with pretrained weights
     OmegaConf.update(
@@ -391,8 +391,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         < 1e-4
     )
 
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
 
 def test_centroid_model(config, tmp_path: str):
@@ -423,8 +423,8 @@ def test_centroid_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
 
 def test_single_instance_model(config, tmp_path: str):
@@ -467,8 +467,8 @@ def test_single_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
 
 def test_bottomup_model(config, tmp_path: str):
@@ -504,8 +504,8 @@ def test_bottomup_model(config, tmp_path: str):
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
 
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     # with edges as None
     config = config_copy
@@ -539,5 +539,5 @@ def test_bottomup_model(config, tmp_path: str):
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
 
-    shutil.rmtree((Path(model_trainer.dir_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.dir_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())

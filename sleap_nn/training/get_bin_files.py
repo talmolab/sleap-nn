@@ -18,6 +18,7 @@ from sleap_nn.data.get_data_chunks import (
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir_path", type=str)
+    parser.add_argument("--bin_files_path", type=str)
     parser.add_argument("--user_instances_only", type=str)
     parser.add_argument("--model_type", type=str)
     parser.add_argument("--num_workers", type=int)
@@ -49,7 +50,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
-            output_dir=(Path(args.dir_path) / "train_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
@@ -57,7 +58,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
-            output_dir=(Path(args.dir_path) / "val_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
@@ -77,7 +78,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
-            output_dir=(Path(args.dir_path) / "train_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
@@ -85,7 +86,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
-            output_dir=(Path(args.dir_path) / "val_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
@@ -103,7 +104,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
-            output_dir=(Path(args.dir_path) / "train_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
@@ -111,7 +112,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
-            output_dir=(Path(args.dir_path) / "val_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
@@ -128,7 +129,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, train_labels.videos.index(x.video)) for x in train_labels],
-            output_dir=(Path(args.dir_path) / "train_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
@@ -136,7 +137,7 @@ if __name__ == "__main__":
         ld.optimize(
             fn=factory_get_chunks,
             inputs=[(x, val_labels.videos.index(x.video)) for x in val_labels],
-            output_dir=(Path(args.dir_path) / "val_chunks").as_posix(),
+            output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
         )
