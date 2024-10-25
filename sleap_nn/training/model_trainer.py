@@ -1,5 +1,6 @@
 """This module is to train a sleap-nn model using Lightning."""
 
+from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
 import functools
@@ -107,10 +108,28 @@ class ModelTrainer:
                 Path(self.dir_path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
                 raise OSError(
-                    f"Cannot create a new folder. Check the permissions to the given Checkpoint directory. \n {e}"
+                    f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
+                )
+
+        if not self.config.trainer_config.bin_files_path:
+            self.bin_files_path = self.dir_path
+        else:
+            self.bin_files_path = self.config.trainer_config.bin_files_path
+
+        self.bin_files_path = f"{self.bin_files_path}/chunks_{datetime.strftime(datetime.now(), '%Y%m%d_%H-%M-%S-%f')}"
+        print(f"`.bin` files are saved in {self.bin_files_path}")
+
+        if not Path(self.bin_files_path).exists():
+            try:
+                Path(self.bin_files_path).mkdir(parents=True, exist_ok=True)
+            except OSError as e:
+                raise OSError(
+                    f"Cannot create a new folder in {self.bin_files_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                 )
 
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
+
+        self.config.trainer_config.saved_bin_files_path = self.bin_files_path
 
         # set seed
         torch.manual_seed(self.seed)
@@ -174,6 +193,8 @@ class ModelTrainer:
                     f"sleap_nn.training.get_bin_files",
                     "--dir_path",
                     f"{self.dir_path}",
+                    "--bin_files_path",
+                    f"{self.bin_files_path}",
                     "--user_instances_only",
                     "1" if self.user_instances_only else "0",
                     "--model_type",
@@ -208,7 +229,7 @@ class ModelTrainer:
         if self.model_type == "single_instance":
 
             train_dataset = SingleInstanceStreamingDataset(
-                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -217,7 +238,7 @@ class ModelTrainer:
             )
 
             val_dataset = SingleInstanceStreamingDataset(
-                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
@@ -227,7 +248,7 @@ class ModelTrainer:
         elif self.model_type == "centered_instance":
 
             train_dataset = CenteredInstanceStreamingDataset(
-                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -238,7 +259,7 @@ class ModelTrainer:
             )
 
             val_dataset = CenteredInstanceStreamingDataset(
-                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
@@ -249,7 +270,7 @@ class ModelTrainer:
 
         elif self.model_type == "centroid":
             train_dataset = CentroidStreamingDataset(
-                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -258,7 +279,7 @@ class ModelTrainer:
             )
 
             val_dataset = CentroidStreamingDataset(
-                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
@@ -267,7 +288,7 @@ class ModelTrainer:
 
         elif self.model_type == "bottomup":
             train_dataset = BottomUpStreamingDataset(
-                input_dir=(Path(self.dir_path) / "train_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -278,7 +299,7 @@ class ModelTrainer:
             )
 
             val_dataset = BottomUpStreamingDataset(
-                input_dir=(Path(self.dir_path) / "val_chunks").as_posix(),
+                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
