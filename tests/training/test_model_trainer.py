@@ -71,6 +71,17 @@ def test_wandb():
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
+    # test permission error
+    OmegaConf.update(config, "trainer_config.save_ckpt_path", "C:/")
+    with pytest.raises(OSError):
+        model_trainer = ModelTrainer(config)
+
+    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    model_trainer = ModelTrainer(config)
+    assert model_trainer.dir_path == "."
+
+    #####
+
     # # for topdown centered instance model
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
