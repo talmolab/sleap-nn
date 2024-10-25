@@ -466,18 +466,12 @@ class ModelTrainer:
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
-            # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
-            # print("Deleting training and validation files...")
-            # if (Path(self.dir_path) / "train_chunks").exists():
-            #     shutil.rmtree(
-            #         (Path(self.dir_path) / "train_chunks").as_posix(),
-            #         ignore_errors=True,
-            #     )
-            # if (Path(self.dir_path) / "val_chunks").exists():
-            #     shutil.rmtree(
-            #         (Path(self.dir_path) / "val_chunks").as_posix(),
-            #         ignore_errors=True,
-            #     )
+            print("Deleting `.bin` dir...")
+            if Path(self.bin_files_path).exists():
+                shutil.rmtree(
+                    (Path(self.bin_files_path)).as_posix(),
+                    ignore_errors=True,
+                )
 
 
 class TrainingModel(L.LightningModule):
