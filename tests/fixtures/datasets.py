@@ -154,6 +154,7 @@ def config(sleap_data_dir):
                 "optimizer": {"lr": 0.0001, "amsgrad": False},
                 "lr_scheduler": {
                     "threshold": 1e-07,
+                    "threshold_mode": "rel",
                     "cooldown": 3,
                     "patience": 5,
                     "factor": 0.5,
