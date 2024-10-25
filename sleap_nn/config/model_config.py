@@ -91,21 +91,47 @@ class ModelConfig:
         convs_per_block: int = 2
         up_interpolate: bool = True
 
-@attrs.define
-class HeadConfig:
-    head_configs: Dict[str, Optional[Dict]] = attrs.field(
-        factory = lambda:{
-            "single_instance": None,
-            "centroid": None,
-            "centered_instance": None,
-            "bottomup": None
-        }
-    )
+@oneof
+@attr.s(auto_attribs=True)
+class HeadsConfig:
+    """Configurations related to the model output head type.
+
+    Only one attribute of this class can be set, which defines the model output type.
+
+    Attributes:
+        single_instance: An instance of `SingleInstanceConfmapsHeadConfig`.
+        centroid: An instance of `CentroidsHeadConfig`.
+        centered_instance: An instance of `CenteredInstanceConfmapsHeadConfig`.
+        multi_instance: An instance of `MultiInstanceConfig`.
+        multi_class_bottomup: An instance of `MultiClassBottomUpConfig`.
+        multi_class_topdown: An instance of `MultiClassTopDownConfig`.
+    """
+
+    single_instance: Optional[SingleInstanceConfig] = None
+    centroid: Optional[CentroidConfig] = None
+    centered_instance: Optional[CenteredInstanceConfig] = None
+    bottomup: Optional[BottomUpConfig] = None
 
 # Head_config single instance
 @attrs.define
 class SingleInstanceConfig:
     confmaps: Optional[SingleInstanceConfMapsConfig] = None
+
+# Head_config centroid
+@attrs.define
+class CentroidConfig:
+    confmaps: Optional[CentroidConfMapsConfig] = None
+
+# Head_config centered_instance
+@attrs.define
+class CenteredInstanceConfig:
+    confmaps: Optional[CenteredInstanceConfMapsConfig] = None
+
+# Head_config bottomup
+@attrs.define
+class BottomUpConfig:
+    confmaps: Optional[BottomUpConfMapsConfig] = None
+    pafs: Optional[PAFConfig] = None
 
 @attrs.define
 class SingleInstanceConfMapsConfig:
@@ -120,11 +146,6 @@ class SingleInstanceConfMapsConfig:
     sigma: Optional[float] = None
     output_stride: Optional[float] = None
 
-# Head_config centroid
-@attrs.define
-class centroid:
-    confmaps: Optional[CentroidConfMapsConfig] = None
-
 @attrs.define
 class CentroidConfMapsConfig:
     '''
@@ -137,11 +158,6 @@ class CentroidConfMapsConfig:
     anchor_part: Optional[int] = None
     sigma: Optional[float] = None
     output_stride: Optional[float] = None
-
-# Head_config centered_instance
-@attrs.define
-class centered_instance:
-    confmaps: Optional[CenteredInstanceConfMapsConfig] = None
 
 @attrs.define
 class CenteredInstanceConfMapsConfig:
@@ -157,12 +173,6 @@ class CenteredInstanceConfMapsConfig:
     anchor_part: Optional[int] = None
     sigma: Optional[float] = None
     output_stride: Optional[float] = None
-
-# Head_config bottomup
-@attrs.define
-class BottomUpConfig:
-    confmaps: Optional[BottomUpConfMapsConfig] = None
-    pafs: Optional[PAFConfig] = None
 
 @attrs.define
 class BottomUpConfMapsConfig():
