@@ -470,7 +470,6 @@ class ModelTrainer:
             if Path(self.bin_files_path).exists():
                 shutil.rmtree(
                     (Path(self.bin_files_path)).as_posix(),
-                    ignore_errors=True,
                 )
 
 
