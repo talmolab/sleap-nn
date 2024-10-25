@@ -43,13 +43,16 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     return torch_model, find_peaks_layer
 
 
-def test_centroid_inference_model(config, minimal_instance):
+def test_centroid_inference_model(config, minimal_instance, tmp_path):
     """Test CentroidCrop class to run inference on centroid models."""
 
     OmegaConf.update(
         config,
         "model_config.head_configs.centroid",
         config.model_config.head_configs.centered_instance,
+    )
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
     del config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centroid["confmaps"].part_names
