@@ -98,10 +98,9 @@ class ModelTrainer:
                 self.model_type = k
                 break
 
-        if not self.config.trainer_config.save_ckpt_path:
+        self.dir_path = self.config.trainer_config.save_ckpt_path
+        if self.dir_path is None:
             self.dir_path = "."
-        else:
-            self.dir_path = self.config.trainer_config.save_ckpt_path
 
         if not Path(self.dir_path).exists():
             try:
@@ -111,10 +110,9 @@ class ModelTrainer:
                     f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                 )
 
-        if not self.config.trainer_config.bin_files_path:
+        self.bin_files_path = self.config.trainer_config.bin_files_path
+        if self.bin_files_path is None:
             self.bin_files_path = self.dir_path
-        else:
-            self.bin_files_path = self.config.trainer_config.bin_files_path
 
         self.bin_files_path = f"{self.bin_files_path}/chunks_{datetime.strftime(datetime.now(), '%Y%m%d_%H-%M-%S-%f')}"
         print(f"`.bin` files are saved in {self.bin_files_path}")
