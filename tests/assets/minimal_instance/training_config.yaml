@@ -2,6 +2,8 @@ data_config:
   provider: LabelsReader
   train_labels_path: minimal_instance.pkg.slp
   val_labels_path: minimal_instance.pkg.slp
+  user_instances_only: true
+  chunk_size: 100
   preprocessing:
     max_width: null
     max_height: null
@@ -10,6 +12,7 @@ data_config:
     crop_hw:
     - 160
     - 160
+    min_crop_size: null
   use_augmentations_train: true
   augmentation_config:
     geometric:
@@ -76,6 +79,7 @@ trainer_config:
   use_wandb: false
   save_ckpt: true
   save_ckpt_path: min_inst_centered
+  bin_files_path: null
   resume_ckpt_path: null
   wandb:
     entity: null
@@ -95,11 +99,14 @@ trainer_config:
     lr: 0.0001
     amsgrad: false
   lr_scheduler:
-    threshold: 1.0e-07
-    cooldown: 3
-    patience: 5
-    factor: 0.5
-    min_lr: 1.0e-08
+    use_step_lr: false
+    reduce_lr_on_plateau:
+      threshold: 1.0e-07
+      threshold_mode: abs
+      cooldown: 3
+      patience: 5
+      factor: 0.5
+      min_lr: 1.0e-08
   early_stopping:
     stop_training_on_plateau: true
     min_delta: 1.0e-08
