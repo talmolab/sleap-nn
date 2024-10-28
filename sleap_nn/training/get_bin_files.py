@@ -22,6 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--model_type", type=str)
     parser.add_argument("--num_workers", type=int)
     parser.add_argument("--chunk_size", type=int)
+    parser.add_argument("--scale", type=float)
     parser.add_argument("--crop_hw", type=int, default=None)
     args = parser.parse_args()
 
@@ -44,6 +45,7 @@ if __name__ == "__main__":
             data_config=config.data_config,
             user_instances_only=user_instances_only,
             max_hw=(max_height, max_width),
+            scale=args.scale,
         )
 
         ld.optimize(
@@ -72,6 +74,7 @@ if __name__ == "__main__":
             anchor_ind=config.model_config.head_configs.centered_instance.confmaps.anchor_part,
             user_instances_only=user_instances_only,
             max_hw=(max_height, max_width),
+            scale=args.scale,
         )
 
         ld.optimize(
@@ -98,6 +101,7 @@ if __name__ == "__main__":
             anchor_ind=config.model_config.head_configs.centroid.confmaps.anchor_part,
             user_instances_only=user_instances_only,
             max_hw=(max_height, max_width),
+            scale=args.scale,
         )
 
         ld.optimize(
@@ -123,6 +127,7 @@ if __name__ == "__main__":
             max_instances=max_instances,
             user_instances_only=user_instances_only,
             max_hw=(max_height, max_width),
+            scale=args.scale,
         )
 
         ld.optimize(
