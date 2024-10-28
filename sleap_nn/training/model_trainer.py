@@ -153,7 +153,6 @@ class ModelTrainer:
                 crop_size = find_instance_crop_size(
                     train_labels,
                     maximum_stride=self.max_stride,
-                    input_scaling=self.config.data_config.preprocessing.scale,
                     min_crop_size=min_crop_size,
                 )
                 self.crop_hw = crop_size
@@ -183,6 +182,8 @@ class ModelTrainer:
                     f"{self.config.trainer_config.train_data_loader.num_workers}",
                     "--chunk_size",
                     f"{self.chunk_size}",
+                    "--scale",
+                    f"{self.config.data_config.preprocessing.scale}",
                     "--crop_hw",
                     f"{self.crop_hw}",
                 ],
@@ -213,7 +214,6 @@ class ModelTrainer:
                 augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
-                scale=self.config.data_config.preprocessing.scale,
             )
 
             val_dataset = SingleInstanceStreamingDataset(
@@ -222,7 +222,6 @@ class ModelTrainer:
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
-                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "centered_instance":
@@ -235,7 +234,7 @@ class ModelTrainer:
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
                 crop_hw=(self.crop_hw, self.crop_hw),
-                scale=self.config.data_config.preprocessing.scale,
+                input_scale=self.config.data_config.preprocessing.scale,
             )
 
             val_dataset = CenteredInstanceStreamingDataset(
@@ -245,7 +244,7 @@ class ModelTrainer:
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
                 crop_hw=(self.crop_hw, self.crop_hw),
-                scale=self.config.data_config.preprocessing.scale,
+                input_scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "centroid":
@@ -256,7 +255,6 @@ class ModelTrainer:
                 augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
-                scale=self.config.data_config.preprocessing.scale,
             )
 
             val_dataset = CentroidStreamingDataset(
@@ -265,7 +263,6 @@ class ModelTrainer:
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
-                scale=self.config.data_config.preprocessing.scale,
             )
 
         elif self.model_type == "bottomup":
@@ -278,7 +275,6 @@ class ModelTrainer:
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
                 edge_inds=self.edge_inds,
                 max_stride=self.max_stride,
-                scale=self.config.data_config.preprocessing.scale,
             )
 
             val_dataset = BottomUpStreamingDataset(
@@ -289,7 +285,6 @@ class ModelTrainer:
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
                 edge_inds=self.edge_inds,
                 max_stride=self.max_stride,
-                scale=self.config.data_config.preprocessing.scale,
             )
 
         else:
