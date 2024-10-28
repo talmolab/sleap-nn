@@ -176,13 +176,17 @@ The config file has three main sections:
         - `lr`: (float) Learning rate of type float. *Default*: 1e-3
         - `amsgrad`: (bool) Enable AMSGrad with the optimizer. *Default*: False
     - `lr_scheduler`
-        - `mode`: (str) One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. *Default*: "min".
-        - `threshold`: (float) Threshold for measuring the new optimum, to only focus on significant changes. *Default*: 1e-4.
-        - `threshold_mode`: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: "rel".
-        - `cooldown`: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: 0
-        - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. *Default*: 10.
-        - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: 0.1.
-        - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: 0.
+        - `use_step_lr`: (bool) True if `torch.optim.lr_scheduler.StepLR` should be used, else `torch.optim.lr_scheduler.ReduceLROnPlateau` will be used.
+        - `step_lr`:
+            - `step_size`: (int) Period of learning rate decay. If `step_size`=10, then every 10 epochs, learning rate will be reduced by a factor of `gamma`.
+            - `gamma`: (float) Multiplicative factor of learning rate decay.*Default*: 0.1.
+        - `reduce_lr_on_plateau`:
+            - `threshold`: (float) Threshold for measuring the new optimum, to only focus on significant changes. *Default*: 1e-4.
+            - `threshold_mode`: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: "rel".
+            - `cooldown`: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: 0
+            - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. *Default*: 10.
+            - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: 0.1.
+            - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: 0.
     - `early_stopping`
         - `stop_training_on_plateau`: (bool) True if early stopping should be enabled.
         - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement.

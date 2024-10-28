@@ -48,15 +48,18 @@ def config(sleap_data_dir):
     init_config = OmegaConf.create(
         {
             "data_config": {
-                "provider": "LabelsReaderDP",
+                "provider": "LabelsReader",
                 "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "user_instances_only": True,
+                "chunk_size": 100,
                 "preprocessing": {
                     "is_rgb": False,
                     "max_width": None,
                     "max_height": None,
                     "scale": 1.0,
                     "crop_hw": [160, 160],
+                    "min_crop_size": None,
                 },
                 "use_augmentations_train": True,
                 "augmentation_config": {
@@ -153,12 +156,15 @@ def config(sleap_data_dir):
                 "optimizer_name": "Adam",
                 "optimizer": {"lr": 0.0001, "amsgrad": False},
                 "lr_scheduler": {
-                    "threshold": 1e-07,
-                    "threshold_mode": "rel",
-                    "cooldown": 3,
-                    "patience": 5,
-                    "factor": 0.5,
-                    "min_lr": 1e-08,
+                    "use_step_lr": False,
+                    "reduce_lr_on_plateau": {
+                        "threshold": 1e-07,
+                        "threshold_mode": "rel",
+                        "cooldown": 3,
+                        "patience": 5,
+                        "factor": 0.5,
+                        "min_lr": 1e-08,
+                    },
                 },
             },
         }

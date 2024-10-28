@@ -636,16 +636,25 @@ class TrainingModel(L.LightningModule):
             lr=self.trainer_config.optimizer.lr,
             amsgrad=self.trainer_config.optimizer.amsgrad,
         )
+
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             optimizer,
             mode="min",
-            threshold=self.trainer_config.lr_scheduler.threshold,
-            threshold_mode=self.trainer_config.lr_scheduler.threshold_mode,
-            cooldown=self.trainer_config.lr_scheduler.cooldown,
-            patience=self.trainer_config.lr_scheduler.patience,
-            factor=self.trainer_config.lr_scheduler.factor,
-            min_lr=self.trainer_config.lr_scheduler.min_lr,
+            threshold=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold,
+            threshold_mode=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+            cooldown=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.cooldown,
+            patience=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.patience,
+            factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
+            min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
         )
+
+        if self.trainer_config.lr_scheduler.use_step_lr:
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer=optimizer,
+                step_size=self.trainer_config.lr_scheduler.step_lr.step_size,
+                gamma=self.trainer_config.lr_scheduler.step_lr.gamma,
+            )
+
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
