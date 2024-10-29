@@ -106,11 +106,11 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert folder_created
-    files = [
-        str(x)
-        for x in Path(config.trainer_config.save_ckpt_path).iterdir()
-        if x.is_file()
-    ]
+    # files = [
+    #     str(x)
+    #     for x in Path(config.trainer_config.save_ckpt_path).iterdir()
+    #     if x.is_file()
+    # ]
     assert (
         Path(config.trainer_config.save_ckpt_path)
         .joinpath("initial_config.yaml")
