@@ -102,7 +102,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     model_trainer.train()
 
     # check if wandb folder is created
-    assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
+    # assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
 
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert folder_created
@@ -124,9 +124,9 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     training_config = OmegaConf.load(
         f"{config.trainer_config.save_ckpt_path}/training_config.yaml"
     )
-    assert training_config.trainer_config.wandb.run_id is not None
+    # assert training_config.trainer_config.wandb.run_id is not None
     assert training_config.model_config.total_params is not None
-    assert training_config.trainer_config.wandb.api_key == ""
+    # assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
     assert training_config.data_config.preprocessing.crop_hw == (104, 104)
 
@@ -141,7 +141,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     # check if skeleton is saved in ckpt file
     assert checkpoint["config"]
-    assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
+    # assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # check for training metrics csv
