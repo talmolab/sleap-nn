@@ -467,8 +467,8 @@ class ModelTrainer:
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
             print("Deleting `.bin` dir...")
-            if Path(self.bin_files_path).exists():
-                shutil.rmtree((Path(self.bin_files_path)).as_posix())
+            # if Path(self.bin_files_path).exists():
+            #     shutil.rmtree((Path(self.bin_files_path)).as_posix())
 
 
 class TrainingModel(L.LightningModule):
