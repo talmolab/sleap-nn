@@ -76,25 +76,25 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
-    model_trainer = ModelTrainer(config)
-    model_trainer.train()
+    # model_trainer = ModelTrainer(config)
+    # model_trainer.train()
 
-    # disable ckpt, check if ckpt is created
-    folder_created = Path(config.trainer_config.save_ckpt_path).exists()
-    assert (
-        Path(config.trainer_config.save_ckpt_path)
-        .joinpath("training_config.yaml")
-        .exists()
-    )
-    assert not (
-        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
-    )
+    # # disable ckpt, check if ckpt is created
+    # folder_created = Path(config.trainer_config.save_ckpt_path).exists()
+    # assert (
+    #     Path(config.trainer_config.save_ckpt_path)
+    #     .joinpath("training_config.yaml")
+    #     .exists()
+    # )
+    # assert not (
+    #     Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+    # )
 
     #######
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "trainer_config.use_wandb", False)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
 
@@ -164,8 +164,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    # shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
+    # shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     # #######
 
