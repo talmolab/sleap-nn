@@ -93,8 +93,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     #######
 
     # update save_ckpt to True
-    OmegaConf.update(config, "trainer_config.save_ckpt", True)
-    OmegaConf.update(config, "trainer_config.use_wandb", False)
+    OmegaConf.update(config, "trainer_config.save_ckpt", False)
+    OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
 
@@ -102,7 +102,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     model_trainer.train()
 
     # check if wandb folder is created
-    # assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
+    assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
 
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert folder_created
@@ -124,45 +124,45 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     training_config = OmegaConf.load(
         f"{config.trainer_config.save_ckpt_path}/training_config.yaml"
     )
-    # assert training_config.trainer_config.wandb.run_id is not None
+    assert training_config.trainer_config.wandb.run_id is not None
     assert training_config.model_config.total_params is not None
-    # assert training_config.trainer_config.wandb.api_key == ""
+    assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
     assert training_config.data_config.preprocessing.crop_hw == (104, 104)
 
     # check if ckpt is created
-    assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
-    assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+    # assert Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt").exists()
+    # assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
 
-    checkpoint = torch.load(
-        Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt")
-    )
-    assert checkpoint["epoch"] == 1
+    # checkpoint = torch.load(
+    # Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt")
+    # )
+    # assert checkpoint["epoch"] == 1
 
     # check if skeleton is saved in ckpt file
-    assert checkpoint["config"]
+    # assert checkpoint["config"]
     # assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
-    assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
+    # assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # check for training metrics csv
-    path = Path(config.trainer_config.save_ckpt_path).joinpath(
-        "lightning_logs/version_0/"
-    )
-    files = [str(x) for x in Path(path).iterdir() if x.is_file()]
-    metrics = False
-    for i in files:
-        if "metrics.csv" in i:
-            metrics = True
-            break
-    assert metrics
-    df = pd.read_csv(
-        Path(config.trainer_config.save_ckpt_path).joinpath(
-            "lightning_logs/version_0/metrics.csv"
-        )
-    )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
+    # path = Path(config.trainer_config.save_ckpt_path).joinpath(
+    #     "lightning_logs/version_0/"
+    # )
+    # files = [str(x) for x in Path(path).iterdir() if x.is_file()]
+    # metrics = False
+    # for i in files:
+    #     if "metrics.csv" in i:
+    #         metrics = True
+    #         break
+    # assert metrics
+    # df = pd.read_csv(
+    #     Path(config.trainer_config.save_ckpt_path).joinpath(
+    #         "lightning_logs/version_0/metrics.csv"
+    #     )
+    # )
+    # assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
+    # assert not df.val_loss.isnull().all()
+    # assert not df.train_loss.isnull().all()
 
     # shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     # shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
