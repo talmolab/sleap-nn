@@ -106,8 +106,8 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(config, "trainer_config.lr_scheduler.use_step_lr", True)
-    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 0.5)
-    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 10)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
