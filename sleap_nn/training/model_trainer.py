@@ -468,9 +468,7 @@ class ModelTrainer:
             )
             print("Deleting `.bin` dir...")
             if Path(self.bin_files_path).exists():
-                shutil.rmtree(
-                    (Path(self.bin_files_path)).as_posix(),
-                )
+                shutil.rmtree((Path(self.bin_files_path)).as_posix())
 
 
 class TrainingModel(L.LightningModule):

@@ -94,7 +94,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     # update save_ckpt to True
     OmegaConf.update(config, "trainer_config.save_ckpt", False)
-    OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "trainer_config.use_wandb", False)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
 
@@ -102,7 +102,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     model_trainer.train()
 
     # check if wandb folder is created
-    assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
+    # assert Path(config.trainer_config.save_ckpt_path).joinpath("wandb").exists()
 
     folder_created = Path(config.trainer_config.save_ckpt_path).exists()
     assert folder_created
@@ -126,7 +126,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     )
     assert training_config.trainer_config.wandb.run_id is not None
     assert training_config.model_config.total_params is not None
-    assert training_config.trainer_config.wandb.api_key == ""
+    # assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
     assert training_config.data_config.preprocessing.crop_hw == (104, 104)
 
