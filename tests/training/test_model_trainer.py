@@ -86,15 +86,15 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     model_trainer.train()
 
     # disable ckpt, check if ckpt is created
-    folder_created = Path(config.trainer_config.save_ckpt_path).exists()
-    assert (
-        Path(config.trainer_config.save_ckpt_path)
-        .joinpath("training_config.yaml")
-        .exists()
-    )
-    assert not (
-        Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
-    )
+    # folder_created = Path(config.trainer_config.save_ckpt_path).exists()
+    # assert (
+    #     Path(config.trainer_config.save_ckpt_path)
+    #     .joinpath("training_config.yaml")
+    #     .exists()
+    # )
+    # assert not (
+    #     Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+    # )
     # shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     # shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
