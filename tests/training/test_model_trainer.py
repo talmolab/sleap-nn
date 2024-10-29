@@ -81,6 +81,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
+
     model_trainer = ModelTrainer(config)
     model_trainer.train()
 
@@ -99,11 +100,14 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     #######
 
-    # update save_ckpt to True
+    # update save_ckpt to True and test step lr
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.use_step_lr", True)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 0.5)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 10)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -349,14 +353,11 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
 
-    # unet and steplr
+    # unet
     model = TopDownCenteredInstanceModel(config, None, "centered_instance")
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
-    OmegaConf.update(config, "trainer_config.lr_scheduler.use_step_lr", True)
-    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 0.5)
-    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 10)
 
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
