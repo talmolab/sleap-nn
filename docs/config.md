@@ -170,7 +170,6 @@ The config file has three main sections:
         - `api_key`: (str) API key. The API key is masked when saved to config files.
         - `wandb_mode`: (str) "offline" if only local logging is required. Default: "None".
         - `prv_runid`: (str) Previous run ID if training should be resumed from a previous ckpt. *Default*: `None`.
-        - `log_params`: (List[str]) List of config parameters to save it in wandb logs. For example, to save learning rate from trainer config section, use "trainer_config.optimizer.lr" (provide the full path to the specific config parameter).
     - `optimizer_name`: (str) Optimizer to be used. One of ["Adam", "AdamW"].
     - `optimizer`
         - `lr`: (float) Learning rate of type float. *Default*: 1e-3
