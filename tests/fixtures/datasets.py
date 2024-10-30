@@ -133,6 +133,7 @@ def config(sleap_data_dir):
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",
+                "bin_files_path": None,
                 "resume_ckpt_path": None,
                 "wandb": {
                     "entity": None,
