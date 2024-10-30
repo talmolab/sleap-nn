@@ -123,12 +123,6 @@ trainer_config:
     wandb_mode: ''
     api_key: ''
     prv_runid:
-    log_params:
-    - trainer_config.optimizer_name
-    - trainer_config.optimizer.amsgrad
-    - trainer_config.optimizer.lr
-    - model_config.backbone_type
-    - model_config.init_weights
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
