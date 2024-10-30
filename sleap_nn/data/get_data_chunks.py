@@ -4,7 +4,7 @@ from typing import Dict, Iterator, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
 import torch
-
+import torchvision.transforms as T
 import sleap_io as sio
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import generate_crops
@@ -14,7 +14,7 @@ from sleap_nn.data.normalization import (
     convert_to_rgb,
 )
 from sleap_nn.data.providers import process_lf
-from sleap_nn.data.resizing import apply_sizematcher
+from sleap_nn.data.resizing import apply_sizematcher, apply_resizer
 
 
 def bottomup_data_chunks(
@@ -23,6 +23,7 @@ def bottomup_data_chunks(
     max_instances: int,
     max_hw: Tuple[int, int],
     user_instances_only: bool = True,
+    scale: float = 1.0,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
 
@@ -42,6 +43,7 @@ def bottomup_data_chunks(
             are used.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
+        scale: Factor to resize the image dimensions by. Default: 1.0.
 
     Returns:
         Dict with image, instances, frame index, video index, original image size and
@@ -51,9 +53,6 @@ def bottomup_data_chunks(
     lf, video_idx = x
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
-
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
 
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
@@ -72,6 +71,16 @@ def bottomup_data_chunks(
     )
     sample["instances"] = sample["instances"] * eff_scale
 
+    # resize the image
+    sample["image"], sample["instances"] = apply_resizer(
+        sample["image"],
+        sample["instances"],
+        scale=scale,
+    )
+
+    transform = T.ToPILImage()
+    sample["image"] = transform(sample["image"].squeeze(dim=0))
+
     return sample
 
 
@@ -83,6 +92,7 @@ def centered_instance_data_chunks(
     anchor_ind: Optional[int],
     max_hw: Tuple[int, int],
     user_instances_only: bool = True,
+    scale: float = 1.0,
 ) -> Iterator[Dict[str, torch.Tensor]]:
     """Generate dict from `sio.LabeledFrame`.
 
@@ -106,6 +116,7 @@ def centered_instance_data_chunks(
             are used.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
+        scale: Factor to resize the image dimensions by. Default: 1.0.
 
     Returns:
         Dict with image, instances, frame index, video index, original image size and
@@ -115,9 +126,6 @@ def centered_instance_data_chunks(
     lf, video_idx = x
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
-
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
 
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
@@ -144,16 +152,27 @@ def centered_instance_data_chunks(
 
     sample["instances"], centroids = sample["instances"][0], centroids[0]  # n_samples=1
 
+    transform = T.ToPILImage()
+
     for cnt, (instance, centroid) in enumerate(zip(sample["instances"], centroids)):
         if cnt == sample["num_instances"]:
             break
 
-        res = generate_crops(sample["image"], instance, centroid, crop_size)
+        res = generate_crops(
+            sample["image"].to(torch.float32), instance, centroid, crop_size
+        )
 
         res["frame_idx"] = sample["frame_idx"]
         res["video_idx"] = sample["video_idx"]
         res["num_instances"] = sample["num_instances"]
         res["orig_size"] = sample["orig_size"]
+
+        # resize image
+        res["instance_image"], res["instance"] = apply_resizer(
+            res["instance_image"], res["instance"], scale=scale
+        )
+
+        res["instance_image"] = transform(res["instance_image"].squeeze(dim=0))
 
         yield res
 
@@ -165,6 +184,7 @@ def centroid_data_chunks(
     anchor_ind: Optional[int],
     max_hw: Tuple[int, int],
     user_instances_only: bool = True,
+    scale: float = 1.0,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
 
@@ -187,6 +207,7 @@ def centroid_data_chunks(
             are used.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
+        scale: Factor to resize the image dimensions by. Default: 1.0.
 
     Returns:
         Dict with image, instances, frame index, video index, original image size and
@@ -196,9 +217,6 @@ def centroid_data_chunks(
     lf, video_idx = x
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
-
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
 
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
@@ -223,6 +241,14 @@ def centroid_data_chunks(
 
     sample["centroids"] = centroids
 
+    # resize image
+    sample["image"], sample["centroids"] = apply_resizer(
+        sample["image"], sample["centroids"], scale=scale
+    )
+
+    transform = T.ToPILImage()
+    sample["image"] = transform(sample["image"].squeeze(dim=0))
+
     return sample
 
 
@@ -231,6 +257,7 @@ def single_instance_data_chunks(
     data_config: DictConfig,
     max_hw: Tuple[int, int],
     user_instances_only: bool = True,
+    scale: float = 1.0,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
 
@@ -249,6 +276,7 @@ def single_instance_data_chunks(
             are used.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
+        scale: Factor to resize the image dimensions by. Default: 1.0.
 
     Returns:
         Dict with image, instances, frame index, video index, original image size and
@@ -260,9 +288,6 @@ def single_instance_data_chunks(
     sample = process_lf(
         lf, video_idx, user_instances_only=user_instances_only, max_instances=1
     )
-
-    # Normalize image
-    sample["image"] = apply_normalization(sample["image"])
 
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
@@ -280,5 +305,13 @@ def single_instance_data_chunks(
         max_width=max_width if max_width is not None else max_hw[1],
     )
     sample["instances"] = sample["instances"] * eff_scale
+
+    # resize image
+    sample["image"], sample["instances"] = apply_resizer(
+        sample["image"], sample["instances"], scale=scale
+    )
+
+    transform = T.ToPILImage()
+    sample["image"] = transform(sample["image"].squeeze(dim=0))
 
     return sample

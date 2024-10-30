@@ -5,7 +5,7 @@ from omegaconf import DictConfig
 from typing import List, Optional, Tuple
 import litdata as ld
 import torch
-
+import torchvision.transforms as T
 from sleap_nn.data.augmentation import (
     apply_geometric_augmentation,
     apply_intensity_augmentation,
@@ -13,6 +13,7 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.normalization import apply_normalization
 from sleap_nn.data.resizing import apply_pad_to_stride, apply_resizer
 
 
@@ -31,9 +32,6 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
             for PAFs.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        scale: Factor to resize the image dimensions by, specified as either a float scalar
-            or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
-            are resized by the same factor. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
@@ -46,7 +44,6 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
         pafs_head: DictConfig,
         edge_inds: list,
         max_stride: int,
-        scale: float = 1.0,
         apply_aug: bool = False,
         augmentation_config: DictConfig = None,
         *args,
@@ -59,13 +56,15 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
         self.pafs_head = pafs_head
         self.edge_inds = edge_inds
         self.max_stride = max_stride
-        self.scale = scale
         self.apply_aug = apply_aug
         self.aug_config = augmentation_config
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
+        transform = T.PILToTensor()
+        ex["image"] = transform(ex["image"])
+        ex["image"] = ex["image"].unsqueeze(dim=0).to(torch.float32)
 
         # Augmentation
         if self.apply_aug:
@@ -79,12 +78,7 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
                     ex["image"], ex["instances"], **self.aug_config.geometric
                 )
 
-        # resize the image
-        ex["image"], ex["instances"] = apply_resizer(
-            ex["image"],
-            ex["instances"],
-            scale=self.scale,
-        )
+        ex["image"] = apply_normalization(ex["image"])
 
         # Pad the image (if needed) according max stride
         ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
@@ -130,13 +124,11 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         crop_hw: Height and width of the crop in pixels.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        scale: Factor to resize the image dimensions by, specified as either a float scalar
-            or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
-            are resized by the same factor. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
             section in the config file.)
+        input_scale: Resize factor applied to the image. Default: 1.0.
     """
 
     def __init__(
@@ -144,9 +136,9 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         confmap_head: DictConfig,
         crop_hw: Tuple[int],
         max_stride: int,
-        scale: float = 1.0,
         apply_aug: bool = False,
         augmentation_config: DictConfig = None,
+        input_scale: float = 1.0,
         *args,
         **kwargs,
     ):
@@ -155,15 +147,17 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
 
         self.confmap_head = confmap_head
         self.crop_hw = crop_hw
-        self.scale = scale
         self.max_stride = max_stride
         self.apply_aug = apply_aug
         self.aug_config = augmentation_config
+        self.input_scale = input_scale
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
-
+        transform = T.PILToTensor()
+        ex["instance_image"] = transform(ex["instance_image"])
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0).to(torch.float32)
         # Augmentation
         if self.apply_aug:
             if "intensity" in self.aug_config:
@@ -177,7 +171,7 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
                 )
 
         # Re-crop to original crop size
-        self.crop_hw = list(self.crop_hw)
+        self.crop_hw = [int(x * self.input_scale) for x in self.crop_hw]
         ex["instance_bbox"] = torch.unsqueeze(
             make_centered_bboxes(ex["centroid"][0], self.crop_hw[0], self.crop_hw[1]), 0
         )
@@ -191,12 +185,7 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         ex["instance"] = center_instance.unsqueeze(0)  # (n_samples=1, n_nodes, 2)
         ex["centroid"] = centered_centroid.unsqueeze(0)  # (n_samples=1, 2)
 
-        # resize the image
-        ex["instance_image"], ex["instance"] = apply_resizer(
-            ex["instance_image"],
-            ex["instance"],
-            scale=self.scale,
-        )
+        ex["instance_image"] = apply_normalization(ex["instance_image"])
 
         # Pad the image (if needed) according max stride
         ex["instance_image"] = apply_pad_to_stride(
@@ -229,9 +218,6 @@ class CentroidStreamingDataset(ld.StreamingDataset):
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        scale: Factor to resize the image dimensions by, specified as either a float scalar
-            or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
-            are resized by the same factor. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
@@ -242,7 +228,6 @@ class CentroidStreamingDataset(ld.StreamingDataset):
         self,
         confmap_head: DictConfig,
         max_stride: int,
-        scale: float = 1.0,
         apply_aug: bool = False,
         augmentation_config: DictConfig = None,
         *args,
@@ -253,13 +238,15 @@ class CentroidStreamingDataset(ld.StreamingDataset):
 
         self.confmap_head = confmap_head
         self.max_stride = max_stride
-        self.scale = scale
         self.apply_aug = apply_aug
         self.aug_config = augmentation_config
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
+        transform = T.PILToTensor()
+        ex["image"] = transform(ex["image"])
+        ex["image"] = ex["image"].unsqueeze(dim=0).to(torch.float32)
 
         # Augmentation
         if self.apply_aug:
@@ -273,12 +260,7 @@ class CentroidStreamingDataset(ld.StreamingDataset):
                     ex["image"], ex["centroids"], **self.aug_config.geometric
                 )
 
-        # resize the image
-        ex["image"], ex["centroids"] = apply_resizer(
-            ex["image"],
-            ex["centroids"],
-            scale=self.scale,
-        )
+        ex["image"] = apply_normalization(ex["image"])
 
         # Pad the image (if needed) according max stride
         ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
@@ -311,9 +293,6 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
-        scale: Factor to resize the image dimensions by, specified as either a float scalar
-            or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions
-            are resized by the same factor. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         augmentation_config: Augmentation parameters. (`data_config.preprocessing.augmentation_config`
@@ -324,7 +303,6 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
         self,
         confmap_head: DictConfig,
         max_stride: int,
-        scale: float = 1.0,
         apply_aug: bool = False,
         augmentation_config: DictConfig = None,
         *args,
@@ -335,13 +313,15 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
 
         self.confmap_head = confmap_head
         self.max_stride = max_stride
-        self.scale = scale
         self.apply_aug = apply_aug
         self.aug_config = augmentation_config
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
         ex = super().__getitem__(index)
+        transform = T.PILToTensor()
+        ex["image"] = transform(ex["image"])
+        ex["image"] = ex["image"].unsqueeze(dim=0).to(torch.float32)
 
         # Augmentation
         if self.apply_aug:
@@ -355,12 +335,7 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
                     ex["image"], ex["instances"], **self.aug_config.geometric
                 )
 
-        # resize the image
-        ex["image"], ex["instances"] = apply_resizer(
-            ex["image"],
-            ex["instances"],
-            scale=self.scale,
-        )
+        ex["image"] = apply_normalization(ex["image"])
 
         # Pad the image (if needed) according max stride
         ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
