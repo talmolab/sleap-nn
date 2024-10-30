@@ -105,7 +105,7 @@ trainer_config:
     lr: 0.0001
     amsgrad: false
   lr_scheduler:
-    use_step_lr: False
+    scheduler: ReduceLROnPlateau
     reduce_lr_on_plateau:
       threshold: 1.0e-07
       threshold_mode: abs

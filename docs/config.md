@@ -176,7 +176,7 @@ The config file has three main sections:
         - `lr`: (float) Learning rate of type float. *Default*: 1e-3
         - `amsgrad`: (bool) Enable AMSGrad with the optimizer. *Default*: False
     - `lr_scheduler`
-        - `use_step_lr`: (bool) True if `torch.optim.lr_scheduler.StepLR` should be used, else `torch.optim.lr_scheduler.ReduceLROnPlateau` will be used.
+        - `scheduler`: (str) Name of the scheduler to use. Valid schedulers: `"StepLR"`, `"ReduceLROnPlateau"`.
         - `step_lr`:
             - `step_size`: (int) Period of learning rate decay. If `step_size`=10, then every 10 epochs, learning rate will be reduced by a factor of `gamma`.
             - `gamma`: (float) Multiplicative factor of learning rate decay.*Default*: 0.1.
