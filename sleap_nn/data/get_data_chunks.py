@@ -21,7 +21,6 @@ def bottomup_data_chunks(
     x: Tuple[sio.LabeledFrame, int],
     data_config: DictConfig,
     max_instances: int,
-    max_hw: Tuple[int, int],
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
@@ -36,10 +35,6 @@ def bottomup_data_chunks(
             index of lf.video in the source sio.labels.videos.
         data_config: Data-related configuration. (`data_config` section in the config file)
         max_instances: Maximum number of instances that could occur in a single LabeledFrame.
-        max_hw: Maximum height and width of images across the labels file. If `max_height` and
-           `max_width` in the config is None, then `max_hw` is used (computed with
-            `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
-            are used.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -61,16 +56,11 @@ def bottomup_data_chunks(
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher
-    max_height, max_width = (
-        data_config.preprocessing.max_height,
-        data_config.preprocessing.max_width,
-    )
-    sample["image"], eff_scale = apply_sizematcher(
+    sample["image"] = apply_sizematcher(
         sample["image"],
-        max_height=max_height if max_height is not None else max_hw[0],
-        max_width=max_width if max_width is not None else max_hw[1],
+        max_height=data_config.preprocessing.max_height,
+        max_width=data_config.preprocessing.max_width,
     )
-    sample["instances"] = sample["instances"] * eff_scale
 
     return sample
 
@@ -81,7 +71,6 @@ def centered_instance_data_chunks(
     max_instances: int,
     crop_size: Tuple[int],
     anchor_ind: Optional[int],
-    max_hw: Tuple[int, int],
     user_instances_only: bool = True,
 ) -> Iterator[Dict[str, torch.Tensor]]:
     """Generate dict from `sio.LabeledFrame`.
@@ -100,10 +89,6 @@ def centered_instance_data_chunks(
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the midpoint of the bounding box
             is used instead.
-        max_hw: Maximum height and width of images across the labels file. If `max_height` and
-           `max_width` in the config is None, then `max_hw` is used (computed with
-            `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
-            are used.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -125,16 +110,11 @@ def centered_instance_data_chunks(
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher
-    max_height, max_width = (
-        data_config.preprocessing.max_height,
-        data_config.preprocessing.max_width,
-    )
-    sample["image"], eff_scale = apply_sizematcher(
+    sample["image"] = apply_sizematcher(
         sample["image"],
-        max_height=max_height if max_height is not None else max_hw[0],
-        max_width=max_width if max_width is not None else max_hw[1],
+        max_height=data_config.preprocessing.max_height,
+        max_width=data_config.preprocessing.max_width,
     )
-    sample["instances"] = sample["instances"] * eff_scale
 
     # get the centroids based on the anchor idx
     centroids = generate_centroids(sample["instances"], anchor_ind=anchor_ind)
@@ -163,7 +143,6 @@ def centroid_data_chunks(
     data_config: DictConfig,
     max_instances: int,
     anchor_ind: Optional[int],
-    max_hw: Tuple[int, int],
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
@@ -181,10 +160,6 @@ def centroid_data_chunks(
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the midpoint of the bounding box
             is used instead.
-        max_hw: Maximum height and width of images across the labels file. If `max_height` and
-           `max_width` in the config is None, then `max_hw` is used (computed with
-            `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
-            are used.
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -206,17 +181,11 @@ def centroid_data_chunks(
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher
-    max_height, max_width = (
-        data_config.preprocessing.max_height,
-        data_config.preprocessing.max_width,
-    )
-    sample["image"], eff_scale = apply_sizematcher(
+    sample["image"] = apply_sizematcher(
         sample["image"],
-        max_height=max_height if max_height is not None else max_hw[0],
-        max_width=max_width if max_width is not None else max_hw[1],
+        max_height=data_config.preprocessing.max_height,
+        max_width=data_config.preprocessing.max_width,
     )
-
-    sample["instances"] = sample["instances"] * eff_scale
 
     # get the centroids based on the anchor idx
     centroids = generate_centroids(sample["instances"], anchor_ind=anchor_ind)
@@ -229,7 +198,6 @@ def centroid_data_chunks(
 def single_instance_data_chunks(
     x: Tuple[sio.LabeledFrame, int],
     data_config: DictConfig,
-    max_hw: Tuple[int, int],
     user_instances_only: bool = True,
 ) -> Dict[str, torch.Tensor]:
     """Generate dict from `sio.LabeledFrame`.
@@ -242,11 +210,7 @@ def single_instance_data_chunks(
     Args:
         x: Tuple (lf, video_idx) where lf is a `sio.LabeledFrame` and video_idx is the
             index of lf.video in the source sio.labels.videos.
-        data_config: Data-related configuration. (`data_config` section in the config file).
-        max_hw: Maximum height and width of images across the labels file. If `max_height` and
-           `max_width` in the config is None, then `max_hw` is used (computed with
-            `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
-            are used.
+        data_config: Data-related configuration. (`data_config` section in the config file)
         user_instances_only: True if filter labels only to user instances else False.
             Default: True.
 
@@ -270,15 +234,10 @@ def single_instance_data_chunks(
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher
-    max_height, max_width = (
-        data_config.preprocessing.max_height,
-        data_config.preprocessing.max_width,
-    )
-    sample["image"], eff_scale = apply_sizematcher(
+    sample["image"] = apply_sizematcher(
         sample["image"],
-        max_height=max_height if max_height is not None else max_hw[0],
-        max_width=max_width if max_width is not None else max_hw[1],
+        max_height=data_config.preprocessing.max_height,
+        max_width=data_config.preprocessing.max_width,
     )
-    sample["instances"] = sample["instances"] * eff_scale
 
     return sample

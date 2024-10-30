@@ -108,48 +108,30 @@ def apply_sizematcher(
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
 ):
-    """Apply scaling and padding to smaller image to (max_height, max_width) shape."""
+    """Apply padding to smaller image to (max_height, max_width) shape."""
     img_height, img_width = image.shape[-2:]
     # pad images to max_height and max_width
     if max_height is None:
         max_height = img_height
     if max_width is None:
         max_width = img_width
-    if img_height > max_height:
+    pad_height = max_height - img_height
+    pad_width = max_width - img_width
+    if pad_height < 0:
         raise ValueError(
             f"Max height {max_height} should be greater than the current image height: {img_height}"
         )
-    if img_width > max_width:
+    if pad_width < 0:
         raise ValueError(
             f"Max width {max_width} should be greater than the current image width: {img_width}"
         )
-    if img_height < max_height or img_width < max_width:
-        hratio = max_height / img_height
-        wratio = max_width / img_width
+    image = F.pad(
+        image,
+        (0, pad_width, 0, pad_height),
+        mode="constant",
+    ).to(torch.float32)
 
-        if hratio > wratio:
-            eff_scale_ratio = wratio
-            target_h = int(round(img_height * wratio))
-            target_w = int(round(img_width * wratio))
-        else:
-            eff_scale_ratio = hratio
-            target_w = int(round(img_width * hratio))
-            target_h = int(round(img_height * hratio))
-
-        image = tvf.resize(image, size=(target_h, target_w))
-
-        pad_height = max_height - target_h
-        pad_width = max_width - target_w
-
-        image = F.pad(
-            image,
-            (0, pad_width, 0, pad_height),
-            mode="constant",
-        ).to(torch.float32)
-
-        return image, eff_scale_ratio
-    else:
-        return image, 1
+    return image
 
 
 class Resizer(IterDataPipe):
