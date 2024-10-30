@@ -171,7 +171,7 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
                 ex["instance_image"], ex["instance"] = apply_geometric_augmentation(
                     ex["instance_image"], ex["instance"], **self.aug_config.geometric
                 )
-                                                                                                                          
+
         ex["instance_bbox"] = torch.unsqueeze(
             make_centered_bboxes(ex["centroid"][0], self.crop_hw[0], self.crop_hw[1]), 0
         )

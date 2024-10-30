@@ -666,12 +666,14 @@ class TrainingModel(L.LightningModule):
                 factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
                 min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
             )
-        
+
         elif self.trainer_config.lr_scheduler.scheduler is None:
             scheduler = None
 
         else:
-            raise ValueError(f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`")
+            raise ValueError(
+                f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
+            )
 
         return {
             "optimizer": optimizer,

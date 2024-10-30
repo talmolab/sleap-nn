@@ -219,7 +219,9 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     )
     OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
-    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", None)
+    OmegaConf.update(
+        config_early_stopping, "trainer_config.lr_scheduler.scheduler", None
+    )
     OmegaConf.update(
         config_early_stopping,
         "trainer_config.save_ckpt_path",
@@ -331,6 +333,14 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert isinstance(trainer.model, BottomUpModel)
 
     #######
+
+    # check exception for lr scheduler
+    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "ReduceLR")
+    with pytest.raises(ValueError):
+        trainer = ModelTrainer(config)
+        trainer.train()
+
+    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
 
     # check loading trained weights
     load_weights_config = config.copy()
