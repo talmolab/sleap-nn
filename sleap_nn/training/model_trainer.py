@@ -373,6 +373,7 @@ class ModelTrainer:
             else:
                 self._set_wandb()
             wandb_logger = WandbLogger(
+                entity=wandb_config.entity,
                 project=wandb_config.project,
                 name=wandb_config.name,
                 save_dir=self.dir_path,

@@ -135,7 +135,7 @@ def config(sleap_data_dir):
                 "save_ckpt_path": "",
                 "resume_ckpt_path": None,
                 "wandb": {
-                    "entity": "team-ucsd",
+                    "entity": None,
                     "project": "test",
                     "name": "test_run",
                     "wandb_mode": "offline",
