@@ -89,7 +89,7 @@ def config(sleap_data_dir):
                     "stacks": 1,
                     "stem_stride": None,
                     "middle_block": True,
-                    "up_interpolate": True,
+                    "up_interpolate": False,
                 },
                 "head_configs": {
                     "single_instance": None,
