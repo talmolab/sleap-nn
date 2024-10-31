@@ -440,7 +440,7 @@ class ModelTrainer:
             )
 
             if self.config.trainer_config.use_wandb:
-                wandb_logger.experiment.config.update(self.config)
+                wandb_logger.experiment.config.update(dict(self.config))
                 wandb_logger.experiment.config.update({"model_params": total_params})
 
         except KeyboardInterrupt:
