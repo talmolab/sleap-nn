@@ -91,6 +91,8 @@ class Predictor(ABC):
     def from_model_paths(
         cls,
         model_paths: List[Text],
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
         peak_threshold: Union[float, List[float]] = 0.2,
         integral_refinement: str = None,
         integral_patch_size: int = 5,
@@ -105,6 +107,15 @@ class Predictor(ABC):
         Args:
             model_paths: (List[str]) List of paths to the directory where the best.ckpt
                 and training_config.yaml are saved.
+            #TODO: redo
+            backbone_ckpt_path: (str) The `best.ckpt` from the `model_paths` dir is used by default.
+                    To run inference on any other `.ckpt`, the path to the `.ckpt` file
+                    should be passed here.
+            head_ckpt_path: (str) By default, all weights are loaded from the ckpt file in
+                    model_paths (or `backbone_ckpt_path`). If only the head layer weights must
+                    be updated, the `.ckpt` path can be passed here. If `None`, the `best.ckpt`
+                    from `model_paths` dir is used (or the ckpt from `backbone_ckpt_path` is
+                    used, if specified.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
                 centroid and centered-instance model, where the first element corresponds
@@ -145,6 +156,8 @@ class Predictor(ABC):
             confmap_ckpt_path = model_paths[model_names.index("single_instance")]
             predictor = SingleInstancePredictor.from_trained_models(
                 confmap_ckpt_path,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
                 peak_threshold=peak_threshold,
                 integral_refinement=integral_refinement,
                 integral_patch_size=integral_patch_size,
@@ -166,6 +179,8 @@ class Predictor(ABC):
             predictor = TopDownPredictor.from_trained_models(
                 centroid_ckpt_path=centroid_ckpt_path,
                 confmap_ckpt_path=confmap_ckpt_path,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
                 peak_threshold=peak_threshold,
                 integral_refinement=integral_refinement,
                 integral_patch_size=integral_patch_size,
@@ -180,6 +195,8 @@ class Predictor(ABC):
             bottomup_ckpt_path = model_paths[model_names.index("bottomup")]
             predictor = BottomUpPredictor.from_trained_models(
                 bottomup_ckpt_path,
+                bottomup_ckpt_path=bottomup_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
                 peak_threshold=peak_threshold,
                 integral_refinement=integral_refinement,
                 integral_patch_size=integral_patch_size,
@@ -519,6 +536,8 @@ class TopDownPredictor(Predictor):
         cls,
         centroid_ckpt_path: Optional[Text] = None,
         confmap_ckpt_path: Optional[Text] = None,
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
         integral_refinement: str = None,
         integral_patch_size: int = 5,
@@ -533,6 +552,7 @@ class TopDownPredictor(Predictor):
         Args:
             centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            #TODO
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -563,12 +583,23 @@ class TopDownPredictor(Predictor):
                 f"{centroid_ckpt_path}/training_config.yaml"
             )
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
+            ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
+            if backbone_ckpt_path is not None:
+                ckpt_path = backbone_ckpt_path
             centroid_model = CentroidModel.load_from_checkpoint(
-                checkpoint_path=f"{centroid_ckpt_path}/best.ckpt",
+                checkpoint_path=ckpt_path,
                 config=centroid_config,
                 skeletons=skeletons,
                 model_type="centroid",
             )
+            if head_ckpt_path is not None:
+                ckpt = torch.load(head_ckpt_path)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".head_layers" in k
+                }
+                centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
             centroid_model.to(device)
 
         else:
@@ -579,12 +610,23 @@ class TopDownPredictor(Predictor):
             # Load confmap model.
             confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+            ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+            if backbone_ckpt_path is not None:
+                ckpt_path = backbone_ckpt_path
             confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-                checkpoint_path=f"{confmap_ckpt_path}/best.ckpt",
+                checkpoint_path=ckpt_path,
                 config=confmap_config,
                 skeletons=skeletons,
                 model_type="centered_instance",
             )
+            if head_ckpt_path is not None:
+                ckpt = torch.load(head_ckpt_path)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".head_layers" in k
+                }
+                confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
             confmap_model.to(device)
 
         else:
@@ -864,6 +906,8 @@ class SingleInstancePredictor(Predictor):
     def from_trained_models(
         cls,
         confmap_ckpt_path: Optional[Text] = None,
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
         integral_refinement: str = None,
         integral_patch_size: int = 5,
@@ -876,6 +920,7 @@ class SingleInstancePredictor(Predictor):
 
         Args:
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            #TODO
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -898,12 +943,23 @@ class SingleInstancePredictor(Predictor):
         """
         confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+        ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+        if backbone_ckpt_path is not None:
+            ckpt_path = backbone_ckpt_path
         confmap_model = SingleInstanceModel.load_from_checkpoint(
-            checkpoint_path=f"{confmap_ckpt_path}/best.ckpt",
+            checkpoint_path=ckpt_path,
             config=confmap_config,
             skeletons=skeletons,
             model_type="single_instance",
         )
+        if head_ckpt_path is not None:
+            ckpt = torch.load(head_ckpt_path)
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".head_layers" in k
+            }
+            confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
         confmap_model.to(device)
 
         # create an instance of SingleInstancePredictor class
@@ -1191,6 +1247,8 @@ class BottomUpPredictor(Predictor):
     def from_trained_models(
         cls,
         bottomup_ckpt_path: Optional[Text] = None,
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
         integral_refinement: str = None,
         integral_patch_size: int = 5,
@@ -1204,6 +1262,7 @@ class BottomUpPredictor(Predictor):
 
         Args:
             bottomup_ckpt_path: Path to a bottom-up ckpt dir with model.ckpt and config.yaml.
+            #TODO
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -1227,12 +1286,23 @@ class BottomUpPredictor(Predictor):
         """
         bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
+        ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
+        if backbone_ckpt_path is not None:
+            ckpt_path = backbone_ckpt_path
         bottomup_model = BottomUpModel.load_from_checkpoint(
-            f"{bottomup_ckpt_path}/best.ckpt",
+            ckpt_path,
             config=bottomup_config,
             skeletons=skeletons,
             model_type="bottomup",
         )
+        if head_ckpt_path is not None:
+            ckpt = torch.load(head_ckpt_path)
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".head_layers" in k
+            }
+            bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
         bottomup_model.to(device)
 
         # create an instance of SingleInstancePredictor class
@@ -1435,6 +1505,8 @@ class BottomUpPredictor(Predictor):
 def main(
     data_path: str,
     model_paths: List[str],
+    backbone_ckpt_path: Optional[str] = None,
+    head_ckpt_path: Optional[str] = None,
     max_instances: int = None,
     max_width: int = None,
     max_height: int = None,
@@ -1480,6 +1552,15 @@ def main(
         data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
         model_paths: (List[str]) List of paths to the directory where the best.ckpt
                 and training_config.yaml are saved.
+        #TODO: redo
+        backbone_ckpt_path: (str) The `best.ckpt` from the `model_paths` dir is used by default.
+                To run inference on any other `.ckpt`, the path to the `.ckpt` file
+                should be passed here.
+        head_ckpt_path: (str) By default, all weights are loaded from the ckpt file in
+                model_paths (or `backbone_ckpt_path`). If only the head layer weights must
+                be updated, the `.ckpt` path can be passed here. If `None`, the `best.ckpt`
+                from `model_paths` dir is used (or the ckpt from `backbone_ckpt_path` is
+                used, if specified.)
         max_instances: (int) Max number of instances to consider from the predictions.
         max_width: (int) Maximum width the image should be padded to. If not provided, the
                 original image size will be retained. Default: None.
@@ -1595,6 +1676,8 @@ def main(
     # initializes the inference model
     predictor = Predictor.from_model_paths(
         model_paths,
+        backbone_ckpt_path=backbone_ckpt_path,
+        head_ckpt_path=head_ckpt_path,
         peak_threshold=peak_threshold,
         integral_refinement=integral_refinement,
         integral_patch_size=integral_patch_size,
