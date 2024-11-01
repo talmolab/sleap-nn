@@ -36,6 +36,11 @@ class DataConfig:
     augmentation_config: Optional[AugmentationConfig] = None
 
 
+def validate_proportion(instance, attribute, value):
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(f"{attribute.name} must be between 0.0 and 1.0, got {value}")
+
+
 @attrs.define
 class PreprocessingConfig:
     """Configuration of Preprocessing.
@@ -62,12 +67,10 @@ class AugmentationConfig:
     """Configuration of Augmentation
 
     Attributes:
-        random crop: (Optional) (Dict[float]) {"random_crop_p": None, "crop_height": None. "crop_width": None}, where random_crop_p is the probability of applying random crop and crop_height and crop_width are the desired output size (out_h, out_w) of the crop.
         intensity: (Optional)
         geometric: (Optional)
     """
 
-    random_crop: Optional[Dict[str, Optional[float]]] = None
     intensity: Optional[IntensityConfig] = attrs.field(default=None)
     geometric: Optional[GeometricConfig] = attrs.field(default=None)
 
@@ -96,15 +99,15 @@ class IntensityConfig:
     uniform_noise_max: float = attrs.field(
         default=1.0, validator=attrs.validators.le(1)
     )
-    uniform_noise_p: float = 0.0
+    uniform_noise_p: float = attrs.field(default=0.0, validator=validate_proportion)
     gaussian_noise_mean: float = 0.0
     gaussian_noise_std: float = 1.0
-    gaussian_noise_p: float = 0.0
+    gaussian_noise_p: float = attrs.field(default=0.0, validator=validate_proportion)
     contrast_min: float = attrs.field(default=0.5, validator=attrs.validators.ge(0))
     contrast_max: float = attrs.field(default=2.0, validator=attrs.validators.ge(0))
-    contrast_p: float = 0.0
+    contrast_p: float = attrs.field(default=0.0, validator=validate_proportion)
     brightness: Tuple[float, float] = (1.0, 1.0)
-    brightness_p: float = 0.0
+    brightness_p: float = attrs.field(default=0.0, validator=validate_proportion)
 
 
 @attrs.define
@@ -126,18 +129,24 @@ class GeometricConfig:
         mixup_lambda: (float) min-max value of mixup strength. Default is 0-1. Default: None.
         mixup_p: (float) Probability of applying random mixup v2. Default=0.0
         input_key: (str) Can be image or instance. The input_key instance expects the KorniaAugmenter to follow the InstanceCropper else image otherwise for default.
+        random_crop_p: (float) Probability of applying random crop.
+        random_crop_height: (int) Desired output height of the random crop.
+        random_crop_width: (int) Desired output height of the random crop.
     """
 
     rotation: float = 0.0
     scale: Optional[Tuple[float, float, float, float]] = None
     translate_width: float = 0.0
     translate_height: float = 0.0
-    affine_p: float = 0.0
+    affine_p: float = attrs.field(default=0.0, validator=validate_proportion)
     erase_scale_min: float = 0.0001
     erase_scale_max: float = 0.01
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
-    erase_p: float = 0.0
+    erase_p: float = attrs.field(default=0.0, validator=validate_proportion)
     mixup_lambda: Optional[float] = None
-    mixup_p: float = 0.0
+    mixup_p: float = attrs.field(default=0.0, validator=validate_proportion)
     input_key: str = "image"
+    random_crop_p: Optional[float] = None
+    random_crop_height: Optional[int] = None
+    random_crop_width: Optional[int] = None
