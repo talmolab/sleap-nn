@@ -107,15 +107,15 @@ class Predictor(ABC):
         Args:
             model_paths: (List[str]) List of paths to the directory where the best.ckpt
                 and training_config.yaml are saved.
-            #TODO: redo
-            backbone_ckpt_path: (str) The `best.ckpt` from the `model_paths` dir is used by default.
-                    To run inference on any other `.ckpt`, the path to the `.ckpt` file
-                    should be passed here.
-            head_ckpt_path: (str) By default, all weights are loaded from the ckpt file in
-                    model_paths (or `backbone_ckpt_path`). If only the head layer weights must
-                    be updated, the `.ckpt` path can be passed here. If `None`, the `best.ckpt`
-                    from `model_paths` dir is used (or the ckpt from `backbone_ckpt_path` is
-                    used, if specified.)
+            backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
+                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
+                    the model parameters are inferred from the ckpt directly.
+            head_ckpt_path: (str) To use different head layer weights for the model
+                    initialized with either `model_paths` or `backbone_ckpt_path`,
+                    the `.ckpt` path should be passed here.
+                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                    from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
                 centroid and centered-instance model, where the first element corresponds
@@ -194,8 +194,8 @@ class Predictor(ABC):
         elif "bottomup" in model_names:
             bottomup_ckpt_path = model_paths[model_names.index("bottomup")]
             predictor = BottomUpPredictor.from_trained_models(
-                bottomup_ckpt_path,
                 bottomup_ckpt_path=bottomup_ckpt_path,
+                backbone_ckpt_path=backbone_ckpt_path,
                 head_ckpt_path=head_ckpt_path,
                 peak_threshold=peak_threshold,
                 integral_refinement=integral_refinement,
@@ -552,7 +552,15 @@ class TopDownPredictor(Predictor):
         Args:
             centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
-            #TODO
+            backbone_ckpt_path: To run inference on any `.ckpt` other than `best.ckpt`
+                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
+                    the model parameters are inferred from the ckpt directly.
+            head_ckpt_path: To use different head layer weights for the model
+                    initialized with either `model_paths` or `backbone_ckpt_path`,
+                    the `.ckpt` path should be passed here.
+                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                    from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -920,7 +928,15 @@ class SingleInstancePredictor(Predictor):
 
         Args:
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
-            #TODO
+            backbone_ckpt_path: To run inference on any `.ckpt` other than `best.ckpt`
+                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
+                    the model parameters are inferred from the ckpt directly.
+            head_ckpt_path: To use different head layer weights for the model
+                    initialized with either `model_paths` or `backbone_ckpt_path`,
+                    the `.ckpt` path should be passed here.
+                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                    from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -1262,7 +1278,15 @@ class BottomUpPredictor(Predictor):
 
         Args:
             bottomup_ckpt_path: Path to a bottom-up ckpt dir with model.ckpt and config.yaml.
-            #TODO
+            backbone_ckpt_path: To run inference on any `.ckpt` other than `best.ckpt`
+                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
+                    the model parameters are inferred from the ckpt directly.
+            head_ckpt_path: To use different head layer weights for the model
+                    initialized with either `model_paths` or `backbone_ckpt_path`,
+                    the `.ckpt` path should be passed here.
+                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                    from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -1552,15 +1576,15 @@ def main(
         data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
         model_paths: (List[str]) List of paths to the directory where the best.ckpt
                 and training_config.yaml are saved.
-        #TODO: redo
-        backbone_ckpt_path: (str) The `best.ckpt` from the `model_paths` dir is used by default.
-                To run inference on any other `.ckpt`, the path to the `.ckpt` file
-                should be passed here.
-        head_ckpt_path: (str) By default, all weights are loaded from the ckpt file in
-                model_paths (or `backbone_ckpt_path`). If only the head layer weights must
-                be updated, the `.ckpt` path can be passed here. If `None`, the `best.ckpt`
-                from `model_paths` dir is used (or the ckpt from `backbone_ckpt_path` is
-                used, if specified.)
+        backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
+                from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+                If not `None`, the lightning model is initialized with this ckpt, i.e.,
+                the model parameters are inferred from the ckpt directly.
+        head_ckpt_path: (str) To use different head layer weights for the model
+                initialized with either `model_paths` or `backbone_ckpt_path`,
+                the `.ckpt` path should be passed here.
+                If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                from `backbone_ckpt_path` if provided.)
         max_instances: (int) Max number of instances to consider from the predictions.
         max_width: (int) Maximum width the image should be padded to. If not provided, the
                 original image size will be retained. Default: None.
