@@ -108,14 +108,10 @@ class Predictor(ABC):
             model_paths: (List[str]) List of paths to the directory where the best.ckpt
                 and training_config.yaml are saved.
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
-                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
-                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
-                    the model parameters are inferred from the ckpt directly.
-            head_ckpt_path: (str) To use different head layer weights for the model
-                    initialized with either `model_paths` or `backbone_ckpt_path`,
-                    the `.ckpt` path should be passed here.
-                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
-                    from `backbone_ckpt_path` if provided.)
+                from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+            head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
+                are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
                 centroid and centered-instance model, where the first element corresponds
@@ -552,15 +548,11 @@ class TopDownPredictor(Predictor):
         Args:
             centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
-            backbone_ckpt_path: To run inference on any `.ckpt` other than `best.ckpt`
-                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
-                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
-                    the model parameters are inferred from the ckpt directly.
-            head_ckpt_path: To use different head layer weights for the model
-                    initialized with either `model_paths` or `backbone_ckpt_path`,
-                    the `.ckpt` path should be passed here.
-                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
-                    from `backbone_ckpt_path` if provided.)
+            backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
+                from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+            head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
+                are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -592,15 +584,30 @@ class TopDownPredictor(Predictor):
             )
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
             ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
-            if backbone_ckpt_path is not None:
-                ckpt_path = backbone_ckpt_path
             centroid_model = CentroidModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=centroid_config,
                 skeletons=skeletons,
                 model_type="centroid",
             )
+
+            if backbone_ckpt_path is not None and head_ckpt_path is not None:
+                print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".backbone" in k
+                }
+                centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            elif backbone_ckpt_path is not None:
+                print(f"Loading weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path)
+                centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
+
             if head_ckpt_path is not None:
+                print(f"Loading head weights from `{head_ckpt_path}` ...")
                 ckpt = torch.load(head_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -608,6 +615,7 @@ class TopDownPredictor(Predictor):
                     if ".head_layers" in k
                 }
                 centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
+
             centroid_model.to(device)
 
         else:
@@ -619,15 +627,29 @@ class TopDownPredictor(Predictor):
             confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
             ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
-            if backbone_ckpt_path is not None:
-                ckpt_path = backbone_ckpt_path
             confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
                 skeletons=skeletons,
                 model_type="centered_instance",
             )
+            if backbone_ckpt_path is not None and head_ckpt_path is not None:
+                print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".backbone" in k
+                }
+                confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            elif backbone_ckpt_path is not None:
+                print(f"Loading weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path)
+                confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
             if head_ckpt_path is not None:
+                print(f"Loading head weights from `{head_ckpt_path}` ...")
                 ckpt = torch.load(head_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -635,6 +657,7 @@ class TopDownPredictor(Predictor):
                     if ".head_layers" in k
                 }
                 confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
             confmap_model.to(device)
 
         else:
@@ -928,15 +951,11 @@ class SingleInstancePredictor(Predictor):
 
         Args:
             confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
-            backbone_ckpt_path: To run inference on any `.ckpt` other than `best.ckpt`
-                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
-                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
-                    the model parameters are inferred from the ckpt directly.
-            head_ckpt_path: To use different head layer weights for the model
-                    initialized with either `model_paths` or `backbone_ckpt_path`,
-                    the `.ckpt` path should be passed here.
-                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
-                    from `backbone_ckpt_path` if provided.)
+            backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
+                from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+            head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
+                are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
@@ -960,15 +979,29 @@ class SingleInstancePredictor(Predictor):
         confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
         ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
-        if backbone_ckpt_path is not None:
-            ckpt_path = backbone_ckpt_path
         confmap_model = SingleInstanceModel.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             config=confmap_config,
             skeletons=skeletons,
             model_type="single_instance",
         )
+        if backbone_ckpt_path is not None and head_ckpt_path is not None:
+            print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+            ckpt = torch.load(backbone_ckpt_path)
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".backbone" in k
+            }
+            confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+        elif backbone_ckpt_path is not None:
+            print(f"Loading weights from `{backbone_ckpt_path}` ...")
+            ckpt = torch.load(backbone_ckpt_path)
+            confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
         if head_ckpt_path is not None:
+            print(f"Loading head weights from `{head_ckpt_path}` ...")
             ckpt = torch.load(head_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1278,14 +1311,10 @@ class BottomUpPredictor(Predictor):
 
         Args:
             bottomup_ckpt_path: Path to a bottom-up ckpt dir with model.ckpt and config.yaml.
-            backbone_ckpt_path: To run inference on any `.ckpt` other than `best.ckpt`
-                    from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
-                    If not `None`, the lightning model is initialized with this ckpt, i.e.,
-                    the model parameters are inferred from the ckpt directly.
-            head_ckpt_path: To use different head layer weights for the model
-                    initialized with either `model_paths` or `backbone_ckpt_path`,
-                    the `.ckpt` path should be passed here.
-                    If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+            backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
+                from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+            head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
+                    are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
                     from `backbone_ckpt_path` if provided.)
             peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2
@@ -1311,15 +1340,29 @@ class BottomUpPredictor(Predictor):
         bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
         ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
-        if backbone_ckpt_path is not None:
-            ckpt_path = backbone_ckpt_path
         bottomup_model = BottomUpModel.load_from_checkpoint(
             ckpt_path,
             config=bottomup_config,
             skeletons=skeletons,
             model_type="bottomup",
         )
+        if backbone_ckpt_path is not None and head_ckpt_path is not None:
+            print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+            ckpt = torch.load(backbone_ckpt_path)
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".backbone" in k
+            }
+            bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+        elif backbone_ckpt_path is not None:
+            print(f"Loading weights from `{backbone_ckpt_path}` ...")
+            ckpt = torch.load(backbone_ckpt_path)
+            bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
+
         if head_ckpt_path is not None:
+            print(f"Loading head weights from `{head_ckpt_path}` ...")
             ckpt = torch.load(head_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1578,12 +1621,8 @@ def main(
                 and training_config.yaml are saved.
         backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
-                If not `None`, the lightning model is initialized with this ckpt, i.e.,
-                the model parameters are inferred from the ckpt directly.
-        head_ckpt_path: (str) To use different head layer weights for the model
-                initialized with either `model_paths` or `backbone_ckpt_path`,
-                the `.ckpt` path should be passed here.
-                If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+        head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
+                are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
                 from `backbone_ckpt_path` if provided.)
         max_instances: (int) Max number of instances to consider from the predictions.
         max_width: (int) Maximum width the image should be padded to. If not provided, the
