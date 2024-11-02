@@ -70,7 +70,7 @@ def test_wandb():
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
+def test_trainer(config, tmp_path: str):
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     model_trainer = ModelTrainer(config)
     assert model_trainer.dir_path == "."
@@ -95,8 +95,6 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert not (
         Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
     )
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     #######
 
@@ -174,8 +172,6 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
     assert not df.val_loss.isnull().all()
     assert not df.train_loss.isnull().all()
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
     #######
 
@@ -199,8 +195,6 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         Path(config_copy.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 3
-    shutil.rmtree((Path(trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(trainer.bin_files_path) / "val_chunks").as_posix())
 
     training_config = OmegaConf.load(
         f"{config_copy.trainer_config.save_ckpt_path}/training_config.yaml"
@@ -235,8 +229,6 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
         Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("last.ckpt")
     )
     assert checkpoint["epoch"] == 1
-    shutil.rmtree((Path(trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(trainer.bin_files_path) / "val_chunks").as_posix())
 
     #######
 
@@ -382,6 +374,54 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     )
 
     assert np.all(np.abs(head_layer_ckpt - model_ckpt) < 1e-6)
+
+
+def test_reuse_bin_files(config, tmp_path: str):
+    """Test reusing `.bin` files."""
+    # Centroid model
+    centroid_config = config.copy()
+    head_config = config.model_config.head_configs.centered_instance
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
+
+    OmegaConf.update(
+        centroid_config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_model_trainer/",
+    )
+
+    if (Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt"
+            ).as_posix()
+        )
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
+            ).as_posix()
+        )
+        shutil.rmtree(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
+            ).as_posix()
+        )
+
+    OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
+    OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
+
+    # test reusing bin files
+    trainer1 = ModelTrainer(centroid_config)
+    trainer1.train(delete_bin_files_after_training=False)
+
+    trainer2 = ModelTrainer(centroid_config)
+    trainer2.train(
+        train_chunks_dir_path=trainer1.train_input_dir,
+        val_chunks_dir_path=trainer1.val_input_dir,
+    )
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):

@@ -90,6 +90,7 @@ class ModelTrainer:
         self.model = None
         self.train_data_loader = None
         self.val_data_loader = None
+        self.bin_files_path = None
         self.crop_hw = -1
 
         # check which head type to choose the model
@@ -110,24 +111,7 @@ class ModelTrainer:
                     f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                 )
 
-        self.bin_files_path = self.config.trainer_config.bin_files_path
-        if self.bin_files_path is None:
-            self.bin_files_path = self.dir_path
-
-        self.bin_files_path = f"{self.bin_files_path}/chunks_{datetime.strftime(datetime.now(), '%Y%m%d_%H-%M-%S-%f')}"
-        print(f"`.bin` files are saved in {self.bin_files_path}")
-
-        if not Path(self.bin_files_path).exists():
-            try:
-                Path(self.bin_files_path).mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                raise OSError(
-                    f"Cannot create a new folder in {self.bin_files_path}. Check the permissions to the given Checkpoint directory. \n {e}"
-                )
-
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
-
-        self.config.trainer_config.saved_bin_files_path = self.bin_files_path
 
         # set seed
         torch.manual_seed(self.seed)
@@ -180,7 +164,11 @@ class ModelTrainer:
             else:
                 self.crop_hw = self.crop_hw[0]
 
-    def _create_data_loaders(self):
+    def _create_data_loaders(
+        self,
+        train_chunks_dir_path: Optional[str] = None,
+        val_chunks_dir_path: Optional[str] = None,
+    ):
         """Create a DataLoader for train, validation and test sets using the data_config."""
 
         def run_subprocess():
@@ -218,16 +206,50 @@ class ModelTrainer:
             print("Standard Output:\n", stdout)
             print("Standard Error:\n", stderr)
 
-        try:
-            run_subprocess()
+        if train_chunks_dir_path is None:
+            try:
+                self.bin_files_path = self.config.trainer_config.bin_files_path
+                if self.bin_files_path is None:
+                    self.bin_files_path = self.dir_path
 
-        except Exception as e:
-            raise Exception(f"Error while creating the `.bin` files... {e}")
+                self.bin_files_path = f"{self.bin_files_path}/chunks_{datetime.strftime(datetime.now(), '%Y%m%d_%H-%M-%S-%f')}"
+                print(
+                    f"New dir is created and `.bin` files are saved in {self.bin_files_path}"
+                )
+
+                if not Path(self.bin_files_path).exists():
+                    try:
+                        Path(self.bin_files_path).mkdir(parents=True, exist_ok=True)
+                    except OSError as e:
+                        raise OSError(
+                            f"Cannot create a new folder in {self.bin_files_path}. Check the permissions to the given Checkpoint directory. \n {e}"
+                        )
+
+                self.config.trainer_config.saved_bin_files_path = self.bin_files_path
+
+                self.train_input_dir = (
+                    Path(self.bin_files_path) / "train_chunks"
+                ).as_posix()
+                self.val_input_dir = (
+                    Path(self.bin_files_path) / "val_chunks"
+                ).as_posix()
+
+                run_subprocess()
+
+            except Exception as e:
+                raise Exception(f"Error while creating the `.bin` files... {e}")
+
+        else:
+            print(
+                f"Using `.bin` files from {train_chunks_dir_path} for train dataset and from {val_chunks_dir_path} for val dataset."
+            )
+            self.train_input_dir = train_chunks_dir_path
+            self.val_input_dir = val_chunks_dir_path
 
         if self.model_type == "single_instance":
 
             train_dataset = SingleInstanceStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
+                input_dir=self.train_input_dir,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -236,7 +258,7 @@ class ModelTrainer:
             )
 
             val_dataset = SingleInstanceStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
+                input_dir=self.val_input_dir,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
@@ -246,7 +268,7 @@ class ModelTrainer:
         elif self.model_type == "centered_instance":
 
             train_dataset = CenteredInstanceStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
+                input_dir=self.train_input_dir,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -257,7 +279,7 @@ class ModelTrainer:
             )
 
             val_dataset = CenteredInstanceStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
+                input_dir=self.val_input_dir,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
@@ -268,7 +290,7 @@ class ModelTrainer:
 
         elif self.model_type == "centroid":
             train_dataset = CentroidStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
+                input_dir=self.train_input_dir,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -277,7 +299,7 @@ class ModelTrainer:
             )
 
             val_dataset = CentroidStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
+                input_dir=self.val_input_dir,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
@@ -286,7 +308,7 @@ class ModelTrainer:
 
         elif self.model_type == "bottomup":
             train_dataset = BottomUpStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "train_chunks").as_posix(),
+                input_dir=self.train_input_dir,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -297,7 +319,7 @@ class ModelTrainer:
             )
 
             val_dataset = BottomUpStreamingDataset(
-                input_dir=(Path(self.bin_files_path) / "val_chunks").as_posix(),
+                input_dir=self.val_input_dir,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
@@ -355,6 +377,9 @@ class ModelTrainer:
         self,
         backbone_trained_ckpts_path: Optional[str] = None,
         head_trained_ckpts_path: Optional[str] = None,
+        delete_bin_files_after_training: bool = True,
+        train_chunks_dir_path: Optional[str] = None,
+        val_chunks_dir_path: Optional[str] = None,
     ):
         """Initiate the training by calling the fit method of Trainer."""
         logger = []
@@ -416,7 +441,7 @@ class ModelTrainer:
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
-        self._create_data_loaders()
+        self._create_data_loaders(train_chunks_dir_path, val_chunks_dir_path)
 
         # save the skeleton in the config
         self.config["data_config"]["skeletons"] = {}
@@ -468,17 +493,23 @@ class ModelTrainer:
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
             # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
-            # print("Deleting training and validation files...")
-            # if (Path(self.dir_path) / "train_chunks").exists():
-            #     shutil.rmtree(
-            #         (Path(self.dir_path) / "train_chunks").as_posix(),
-            #         ignore_errors=True,
-            #     )
-            # if (Path(self.dir_path) / "val_chunks").exists():
-            #     shutil.rmtree(
-            #         (Path(self.dir_path) / "val_chunks").as_posix(),
-            #         ignore_errors=True,
-            #     )
+            if delete_bin_files_after_training:
+                print("Deleting training and validation files...")
+                if (Path(self.train_input_dir)).exists():
+                    shutil.rmtree(
+                        (Path(self.train_input_dir)).as_posix(),
+                        ignore_errors=True,
+                    )
+                if (Path(self.val_input_dir)).exists():
+                    shutil.rmtree(
+                        (Path(self.val_input_dir)).as_posix(),
+                        ignore_errors=True,
+                    )
+                if self.bin_files_path is not None:
+                    shutil.rmtree(
+                        (Path(self.bin_files_path)).as_posix(),
+                        ignore_errors=True,
+                    )
 
 
 class TrainingModel(L.LightningModule):
