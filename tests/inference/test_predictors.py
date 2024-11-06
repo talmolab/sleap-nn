@@ -34,7 +34,15 @@ def test_topdown_predictor(
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
     gt_lf = gt_labels[0]
-    assert pred_labels.skeletons == gt_labels.skeletons
+
+    skl = pred_labels.skeletons[0]
+    gt_skl = gt_labels.skeletons[0]
+    assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+    assert len(skl.edges) == len(gt_skl.edges)
+    for a, b in zip(skl.edges, gt_skl.edges):
+        assert a[0].name == b[0].name and a[1].name == b[1].name
+    assert skl.symmetries == gt_skl.symmetries
+
     assert lf.frame_idx == gt_lf.frame_idx
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
     assert lf.instances[1].numpy().shape == gt_lf.instances[1].numpy().shape
@@ -421,7 +429,13 @@ def test_single_instance_predictor(
         # check if the predicted labels have same video and skeleton as the ground truth labels
         gt_labels = sio.load_slp(minimal_instance)
         gt_lf = gt_labels[0]
-        assert pred_labels.skeletons == gt_labels.skeletons
+        skl = pred_labels.skeletons[0]
+        gt_skl = gt_labels.skeletons[0]
+        assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+        assert len(skl.edges) == len(gt_skl.edges)
+        for a, b in zip(skl.edges, gt_skl.edges):
+            assert a[0].name == b[0].name and a[1].name == b[1].name
+        assert skl.symmetries == gt_skl.symmetries
         assert lf.frame_idx == gt_lf.frame_idx
         assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
@@ -473,7 +487,13 @@ def test_single_instance_predictor(
 
         # check if the predicted labels have same skeleton as the GT labels
         gt_labels = sio.load_slp(minimal_instance)
-        assert pred_labels.skeletons == gt_labels.skeletons
+        skl = pred_labels.skeletons[0]
+        gt_skl = gt_labels.skeletons[0]
+        assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+        assert len(skl.edges) == len(gt_skl.edges)
+        for a, b in zip(skl.edges, gt_skl.edges):
+            assert a[0].name == b[0].name and a[1].name == b[1].name
+        assert skl.symmetries == gt_skl.symmetries
         assert lf.frame_idx == 0
 
         # check if dictionaries are created when make labels is set to False
@@ -649,7 +669,13 @@ def test_bottomup_predictor(
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
     gt_lf = gt_labels[0]
-    assert pred_labels.skeletons == gt_labels.skeletons
+    skl = pred_labels.skeletons[0]
+    gt_skl = gt_labels.skeletons[0]
+    assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+    assert len(skl.edges) == len(gt_skl.edges)
+    for a, b in zip(skl.edges, gt_skl.edges):
+        assert a[0].name == b[0].name and a[1].name == b[1].name
+    assert skl.symmetries == gt_skl.symmetries
     assert lf.frame_idx == gt_lf.frame_idx
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
