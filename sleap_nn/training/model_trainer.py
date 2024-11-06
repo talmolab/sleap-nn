@@ -91,6 +91,7 @@ class ModelTrainer:
         self.train_data_loader = None
         self.val_data_loader = None
         self.bin_files_path = None
+        self.trainer = None
         self.crop_hw = -1
 
         # check which head type to choose the model
@@ -378,7 +379,19 @@ class ModelTrainer:
         delete_bin_files_after_training: bool = True,
         chunks_dir_path: Optional[str] = None,
     ):
-        """Initiate the training by calling the fit method of Trainer."""
+        """Initiate the training by calling the fit method of Trainer.
+
+        Args:
+            backbone_trained_ckpts_path: Path of the `ckpt` file with which the backbone
+                 is initialized. If `None`, random init is used.
+            head_trained_ckpts_path: Path of the `ckpt` file with which the head layers
+                 are initialized. If `None`, random init is used.
+            delete_bin_files_after_training: If `False`, the `bin` files are retained after
+                training. Else, the `bin` files are deleted.
+            chunks_dir_path: Path to chunks dir (this dir should contain `train_chunks`
+                and `val_chunks` folder.). If `None`, `bin` files are generated.
+
+        """
         logger = []
 
         if self.config.trainer_config.save_ckpt:
@@ -454,7 +467,7 @@ class ModelTrainer:
                 "symmetries": symm,
             }
 
-        trainer = L.Trainer(
+        self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=logger,
             enable_checkpointing=self.config.trainer_config.save_ckpt,
@@ -466,7 +479,7 @@ class ModelTrainer:
         )
 
         try:
-            trainer.fit(
+            self.trainer.fit(
                 self.model,
                 self.train_data_loader,
                 self.val_data_loader,
