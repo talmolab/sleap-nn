@@ -125,6 +125,20 @@ class ModelTrainer:
             else True
         )  # TODO: defaults should be handles in config validation.
         self.skeletons = train_labels.skeletons
+        # save the skeleton in the config
+        self.config["data_config"]["skeletons"] = {}
+        for skl in self.skeletons:
+            if skl.symmetries:
+                symm = [list(s.nodes) for s in skl.symmetries]
+            else:
+                symm = None
+            skl_name = skl.name if skl.name is not None else "skeleton-0"
+            self.config["data_config"]["skeletons"][skl_name] = {
+                "nodes": skl.nodes,
+                "edges": skl.edges,
+                "symmetries": symm,
+            }
+
         self.max_stride = self.config.model_config.backbone_config.max_stride
         self.edge_inds = train_labels.skeletons[0].edge_inds
         self.chunk_size = (
@@ -452,20 +466,6 @@ class ModelTrainer:
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
         self._create_data_loaders(chunks_dir_path)
-
-        # save the skeleton in the config
-        self.config["data_config"]["skeletons"] = {}
-        for skl in self.skeletons:
-            if skl.symmetries:
-                symm = [list(s.nodes) for s in skl.symmetries]
-            else:
-                symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"][skl_name] = {
-                "nodes": skl.nodes,
-                "edges": skl.edges,
-                "symmetries": symm,
-            }
 
         self.trainer = L.Trainer(
             callbacks=callbacks,
