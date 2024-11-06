@@ -424,8 +424,7 @@ def test_reuse_bin_files(config, tmp_path: str):
 
     trainer2 = ModelTrainer(centroid_config)
     trainer2.train(
-        train_chunks_dir_path=trainer1.train_input_dir,
-        val_chunks_dir_path=trainer1.val_input_dir,
+        chunks_dir_path=(trainer1.train_input_dir).split("train_chunks")[0],
     )
 
 

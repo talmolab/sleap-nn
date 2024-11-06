@@ -166,8 +166,7 @@ class ModelTrainer:
 
     def _create_data_loaders(
         self,
-        train_chunks_dir_path: Optional[str] = None,
-        val_chunks_dir_path: Optional[str] = None,
+        chunks_dir_path: Optional[str] = None,
     ):
         """Create a DataLoader for train, validation and test sets using the data_config."""
 
@@ -206,7 +205,7 @@ class ModelTrainer:
             print("Standard Output:\n", stdout)
             print("Standard Error:\n", stderr)
 
-        if train_chunks_dir_path is None:
+        if chunks_dir_path is None:
             try:
                 self.bin_files_path = self.config.trainer_config.bin_files_path
                 if self.bin_files_path is None:
@@ -240,11 +239,10 @@ class ModelTrainer:
                 raise Exception(f"Error while creating the `.bin` files... {e}")
 
         else:
-            print(
-                f"Using `.bin` files from {train_chunks_dir_path} for train dataset and from {val_chunks_dir_path} for val dataset."
-            )
-            self.train_input_dir = train_chunks_dir_path
-            self.val_input_dir = val_chunks_dir_path
+            print(f"Using `.bin` files from {chunks_dir_path}.")
+            self.train_input_dir = (Path(chunks_dir_path) / "train_chunks").as_posix()
+            self.val_input_dir = (Path(chunks_dir_path) / "val_chunks").as_posix()
+            self.config.trainer_config.saved_bin_files_path = chunks_dir_path
 
         if self.model_type == "single_instance":
 
@@ -378,8 +376,7 @@ class ModelTrainer:
         backbone_trained_ckpts_path: Optional[str] = None,
         head_trained_ckpts_path: Optional[str] = None,
         delete_bin_files_after_training: bool = True,
-        train_chunks_dir_path: Optional[str] = None,
-        val_chunks_dir_path: Optional[str] = None,
+        chunks_dir_path: Optional[str] = None,
     ):
         """Initiate the training by calling the fit method of Trainer."""
         logger = []
@@ -441,7 +438,7 @@ class ModelTrainer:
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
-        self._create_data_loaders(train_chunks_dir_path, val_chunks_dir_path)
+        self._create_data_loaders(chunks_dir_path)
 
         # save the skeleton in the config
         self.config["data_config"]["skeletons"] = {}
