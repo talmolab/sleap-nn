@@ -82,47 +82,47 @@ class TrainerConfig:
             self.wandb = None
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[Text, Any]) -> "TrainerJobConfig":
-        """Create a TrainingJobConfig from a Python dictionary.
+    def from_dict(cls, config_dict: Dict[Text, Any]) -> "TrainerConfig":
+        """Create a TrainerConfig from a Python dictionary.
 
         Arguments:
             config_dict: python dictionary that specifies the configurations.
 
         Returns:
-            A TrainingJobConfig instance parsed from the python dictionary.
+            A TrainerConfig instance parsed from the python dictionary.
         """
         # Convert dictionary to an OmegaConf config, then instantiate from it.
         config = OmegaConf.create(config_dict)
         return Omega.to_object(config, cls)
 
     @classmethod
-    def from_json(cls, json_data: Text) -> "TrainingJobConfig":
-        """Create TrainingJobConfig from JSON-formatted string
+    def from_json(cls, json_data: Text) -> "TrainerConfig":
+        """Create TrainerConfig from JSON-formatted string
 
         Arguments:
             json_data: JSON-formatted string that specifies the configurations.
 
         Returns:
-            A TrainingJobConfig instance parsed from the JSON text.
+            A TrainerConfig instance parsed from the JSON text.
         """
         config_dict = json.loads(json_data)
         return cls.from_dict(config_dict)
 
     @classmethod
-    def from_yaml(cls, yaml_data: Text) -> "TrainingJobConfig":
-        """Create TrainingJobConfig from YAML-formatted string.
+    def from_yaml(cls, yaml_data: Text) -> "TrainerConfig":
+        """Create TrainerConfig from YAML-formatted string.
 
         Arguments:
             yaml_data: YAML-formatted string that specifies the configurations.
 
         Returns:
-            A TrainingJobConfig instance parsed from the YAML text.
+            A TrainerConfig instance parsed from the YAML text.
         """
         config = OmegaConf.create(yaml_data)
         return OmegaConf.to_object(config, cls)
 
     @classmethod
-    def load_json(cls, filename: Text) -> "TrainingJobConfig":
+    def load_json(cls, filename: Text) -> "TrainerConfig":
         """Load a training job configuration from a json file.
 
         Arguments:
@@ -130,14 +130,14 @@ class TrainerConfig:
                 containing `"training_job.json"`.
 
         Returns:
-          A TrainingJobConfig instance parsed from the json file.
+          A TrainerConfig instance parsed from the json file.
         """
         with open(filename, "r") as f:
             json_data = f.read()
             return cls.from_json(json_data)
 
     @classmethod
-    def load_yaml(cls, filename: Text) -> "TrainingJobConfig":
+    def load_yaml(cls, filename: Text) -> "TrainerConfig":
         """Load a training job configuration from a yaml file.
 
         Arguments:
@@ -145,7 +145,7 @@ class TrainerConfig:
                 containing `"training_job.yaml"`.
 
         Returns:
-          A TrainingJobConfig instance parsed from the YAML file.
+          A TrainerConfig instance parsed from the YAML file.
         """
         config = OmegaConf.load(filename)
         return OmegaConf.to_object(config, cls)
