@@ -98,7 +98,7 @@ class TrainerConfig:
     @classmethod
     def from_json(cls, json_data: Text) -> "TrainingJobConfig":
         """Create TrainingJobConfig from JSON-formatted string
-        
+
         Arguments:
             json_data: JSON-formatted string that specifies the configurations.
 
@@ -137,7 +137,7 @@ class TrainerConfig:
             return cls.from_json(json_data)
 
     @classmethod
-    def load_yaml(cls, filename:Text) -> "TrainingJobConfig":
+    def load_yaml(cls, filename: Text) -> "TrainingJobConfig":
         """Load a training job configuration from a yaml file.
 
         Arguments:
@@ -155,7 +155,7 @@ class TrainerConfig:
 
         Returns:
             The dictionary representation of the configuration.
-        """        
+        """
         return OmegaConf.structured(self)
 
     def to_json(self) -> str:
@@ -193,6 +193,7 @@ class TrainerConfig:
         """
         with open(filename, "w") as f:
             f.write(self.to_yaml())
+
 
 @attrs.define
 class DataLoaderConfig:
