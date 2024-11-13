@@ -159,7 +159,7 @@ def centered_instance_data_chunks(
             break
 
         res = generate_crops(
-            sample["image"].to(torch.float32), instance, centroid, crop_size
+            apply_normalization(sample["image"]), instance, centroid, crop_size
         )
 
         res["frame_idx"] = sample["frame_idx"]
