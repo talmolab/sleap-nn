@@ -64,7 +64,8 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
         ex = super().__getitem__(index)
         transform = T.PILToTensor()
         ex["image"] = transform(ex["image"])
-        ex["image"] = ex["image"].unsqueeze(dim=0).to(torch.float32)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        ex["image"] = apply_normalization(ex["image"])
 
         # Augmentation
         if self.apply_aug:
@@ -77,8 +78,6 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
                 ex["image"], ex["instances"] = apply_geometric_augmentation(
                     ex["image"], ex["instances"], **self.aug_config.geometric
                 )
-
-        ex["image"] = apply_normalization(ex["image"])
 
         # Pad the image (if needed) according max stride
         ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
@@ -159,7 +158,9 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         ex = super().__getitem__(index)
         transform = T.PILToTensor()
         ex["instance_image"] = transform(ex["instance_image"])
-        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0).to(torch.float32)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+        ex["instance_image"] = apply_normalization(ex["instance_image"])
+
         # Augmentation
         if self.apply_aug:
             if "intensity" in self.aug_config:
@@ -184,8 +185,6 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
 
         ex["instance"] = center_instance.unsqueeze(0)  # (n_samples=1, n_nodes, 2)
         ex["centroid"] = centered_centroid.unsqueeze(0)  # (n_samples=1, 2)
-
-        ex["instance_image"] = apply_normalization(ex["instance_image"])
 
         # Pad the image (if needed) according max stride
         ex["instance_image"] = apply_pad_to_stride(
@@ -246,7 +245,8 @@ class CentroidStreamingDataset(ld.StreamingDataset):
         ex = super().__getitem__(index)
         transform = T.PILToTensor()
         ex["image"] = transform(ex["image"])
-        ex["image"] = ex["image"].unsqueeze(dim=0).to(torch.float32)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        ex["image"] = apply_normalization(ex["image"])
 
         # Augmentation
         if self.apply_aug:
@@ -259,8 +259,6 @@ class CentroidStreamingDataset(ld.StreamingDataset):
                 ex["image"], ex["centroids"] = apply_geometric_augmentation(
                     ex["image"], ex["centroids"], **self.aug_config.geometric
                 )
-
-        ex["image"] = apply_normalization(ex["image"])
 
         # Pad the image (if needed) according max stride
         ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
@@ -321,7 +319,8 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
         ex = super().__getitem__(index)
         transform = T.PILToTensor()
         ex["image"] = transform(ex["image"])
-        ex["image"] = ex["image"].unsqueeze(dim=0).to(torch.float32)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        ex["image"] = apply_normalization(ex["image"])
 
         # Augmentation
         if self.apply_aug:
@@ -334,8 +333,6 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
                 ex["image"], ex["instances"] = apply_geometric_augmentation(
                     ex["image"], ex["instances"], **self.aug_config.geometric
                 )
-
-        ex["image"] = apply_normalization(ex["image"])
 
         # Pad the image (if needed) according max stride
         ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
