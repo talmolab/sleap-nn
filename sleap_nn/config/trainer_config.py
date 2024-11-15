@@ -82,33 +82,6 @@ class TrainerConfig:
             self.wandb = None
 
     @classmethod
-    def from_dict(cls, config_dict: Dict[Text, Any]) -> "TrainerConfig":
-        """Create a TrainerConfig from a Python dictionary.
-
-        Arguments:
-            config_dict: python dictionary that specifies the configurations.
-
-        Returns:
-            A TrainerConfig instance parsed from the python dictionary.
-        """
-        # Convert dictionary to an OmegaConf config, then instantiate from it.
-        config = OmegaConf.create(config_dict)
-        return Omega.to_object(config, cls)
-
-    @classmethod
-    def from_json(cls, json_data: Text) -> "TrainerConfig":
-        """Create TrainerConfig from JSON-formatted string
-
-        Arguments:
-            json_data: JSON-formatted string that specifies the configurations.
-
-        Returns:
-            A TrainerConfig instance parsed from the JSON text.
-        """
-        config_dict = json.loads(json_data)
-        return cls.from_dict(config_dict)
-
-    @classmethod
     def from_yaml(cls, yaml_data: Text) -> "TrainerConfig":
         """Create TrainerConfig from YAML-formatted string.
 
@@ -120,21 +93,6 @@ class TrainerConfig:
         """
         config = OmegaConf.create(yaml_data)
         return OmegaConf.to_object(config, cls)
-
-    @classmethod
-    def load_json(cls, filename: Text) -> "TrainerConfig":
-        """Load a training job configuration from a json file.
-
-        Arguments:
-            filename: Path to a training job configuration JSON file or a directory
-                containing `"training_job.json"`.
-
-        Returns:
-          A TrainerConfig instance parsed from the json file.
-        """
-        with open(filename, "r") as f:
-            json_data = f.read()
-            return cls.from_json(json_data)
 
     @classmethod
     def load_yaml(cls, filename: Text) -> "TrainerConfig":
@@ -150,23 +108,6 @@ class TrainerConfig:
         config = OmegaConf.load(filename)
         return OmegaConf.to_object(config, cls)
 
-    def to_dict(self) -> DictConfig:
-        """Serialize the configuration into a python dictionary format.
-
-        Returns:
-            The dictionary representation of the configuration.
-        """
-        return OmegaConf.structured(self)
-
-    def to_json(self) -> str:
-        """Serialize the configuration into JSON-encoded string format.
-
-        Returns:
-            The JSON encoded string representation of the configuration.
-        """
-        config = self.to_dict()
-        return json.dumps(OmegaConf.to_container(config), indent=4)
-
     def to_yaml(self) -> str:
         """Serialize the configuration into YAML-encoded string format.
 
@@ -175,15 +116,6 @@ class TrainerConfig:
         """
         config = self.to_dict()
         return OmegaConf.to_yaml(config)
-
-    def save_json(self, filename: Text):
-        """Save the configuration to a JSON file.
-
-        Arguments:
-            filename: Path to save the training job file to.
-        """
-        with open(filename, "w") as f:
-            f.write(self.to_json())
 
     def save_yaml(self, filename: Text):
         """Save the configuration to a YAML file.
