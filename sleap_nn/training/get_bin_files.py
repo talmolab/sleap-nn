@@ -25,12 +25,13 @@ if __name__ == "__main__":
     parser.add_argument("--chunk_size", type=int)
     parser.add_argument("--scale", type=float)
     parser.add_argument("--crop_hw", type=int, default=None)
+    parser.add_argument("--max_height", type=int)
+    parser.add_argument("--max_width", type=int)
     args = parser.parse_args()
 
     config = OmegaConf.load(f"{args.dir_path}/initial_config.yaml")
 
     train_labels = sio.load_slp(config.data_config.train_labels_path)
-    max_height, max_width = get_max_height_width(train_labels)
     val_labels = sio.load_slp(config.data_config.val_labels_path)
     user_instances_only = False if args.user_instances_only == 0 else True
 
@@ -45,7 +46,7 @@ if __name__ == "__main__":
             single_instance_data_chunks,
             data_config=config.data_config,
             user_instances_only=user_instances_only,
-            max_hw=(max_height, max_width),
+            max_hw=(args.max_height, args.max_width),
             scale=args.scale,
         )
 
@@ -74,7 +75,7 @@ if __name__ == "__main__":
             crop_size=(args.crop_hw, args.crop_hw),
             anchor_ind=config.model_config.head_configs.centered_instance.confmaps.anchor_part,
             user_instances_only=user_instances_only,
-            max_hw=(max_height, max_width),
+            max_hw=(args.max_height, args.max_width),
             scale=args.scale,
         )
 
@@ -101,7 +102,7 @@ if __name__ == "__main__":
             max_instances=max_instances,
             anchor_ind=config.model_config.head_configs.centroid.confmaps.anchor_part,
             user_instances_only=user_instances_only,
-            max_hw=(max_height, max_width),
+            max_hw=(args.max_height, args.max_width),
             scale=args.scale,
         )
 
@@ -127,7 +128,7 @@ if __name__ == "__main__":
             data_config=config.data_config,
             max_instances=max_instances,
             user_instances_only=user_instances_only,
-            max_hw=(max_height, max_width),
+            max_hw=(args.max_height, args.max_width),
             scale=args.scale,
         )
 
