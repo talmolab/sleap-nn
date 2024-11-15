@@ -38,8 +38,15 @@ from torchvision.models.convnext import (
     ConvNeXt_Small_Weights,
     ConvNeXt_Large_Weights,
 )
+from torch.utils.data.dataloader import DataLoader
 import sleap_io as sio
 from sleap_nn.architectures.model import Model
+from sleap_nn.data.custom_datasets import (
+    BottomUpDataset,
+    CenteredInstanceDataset,
+    CentroidDataset,
+    SingleInstanceDataset,
+)
 from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
@@ -76,13 +83,13 @@ class ModelTrainer:
                 (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-
+        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`]
     """
 
-    def __init__(self, config: OmegaConf):
+    def __init__(self, config: OmegaConf, data_pipeline_fw: str = "litdata"):
         """Initialise the class with configs and set the seed and device as class attributes."""
         self.config = config
-
+        self.data_pipeline_fw = data_pipeline_fw
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
@@ -141,20 +148,14 @@ class ModelTrainer:
 
         self.max_stride = self.config.model_config.backbone_config.max_stride
         self.edge_inds = train_labels.skeletons[0].edge_inds
-        self.chunk_size = (
-            self.config.data_config.chunk_size
-            if "chunk_size" in self.config.data_config
-            and self.config.data_config.chunk_size is not None
-            else 100
-        )
 
-        max_height, max_width = get_max_height_width(train_labels)
+        self.max_height, self.max_width = get_max_height_width(train_labels)
         if (
             self.config.data_config.preprocessing.max_height is None
             and self.config.data_config.preprocessing.max_width is None
         ):
-            self.config.data_config.preprocessing.max_height = max_height
-            self.config.data_config.preprocessing.max_width = max_width
+            self.config.data_config.preprocessing.max_height = self.max_height
+            self.config.data_config.preprocessing.max_width = self.max_width
 
         if self.model_type == "centered_instance":
             # compute crop size
@@ -179,11 +180,117 @@ class ModelTrainer:
             else:
                 self.crop_hw = self.crop_hw[0]
 
-    def _create_data_loaders(
+    def _create_data_loaders_torch_dataset(self):
+        """Create a torch DataLoader for train, validation and test sets using the data_config."""
+        if self.model_type == "bottomup":
+            train_dataset = BottomUpDataset(
+                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
+                pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                max_hw=(self.max_height, self.max_width),
+            )
+            val_dataset = BottomUpDataset(
+                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
+                pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=False,
+                max_hw=(self.max_height, self.max_width),
+            )
+
+        elif self.model_type == "centered_instance":
+            train_dataset = CenteredInstanceDataset(
+                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                crop_hw=(self.crop_hw, self.crop_hw),
+                max_hw=(self.max_height, self.max_width),
+            )
+            val_dataset = CenteredInstanceDataset(
+                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=False,
+                crop_hw=(self.crop_hw, self.crop_hw),
+                max_hw=(self.max_height, self.max_width),
+            )
+
+        elif self.model_type == "centroid":
+            train_dataset = CentroidDataset(
+                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                max_hw=(self.max_height, self.max_width),
+            )
+            val_dataset = CentroidDataset(
+                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=False,
+                max_hw=(self.max_height, self.max_width),
+            )
+
+        elif self.model_type == "single_instance":
+            train_dataset = SingleInstanceDataset(
+                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=self.config.data_config.use_augmentations_train,
+                max_hw=(self.max_height, self.max_width),
+            )
+            val_dataset = SingleInstanceDataset(
+                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                data_config=self.config.data_config,
+                confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
+                max_stride=self.config.model_config.backbone_config.max_stride,
+                apply_aug=False,
+                max_hw=(self.max_height, self.max_width),
+            )
+
+        else:
+            raise ValueError(
+                f"Moedl type: {self.model_type}. Ensure the heads config has one of the keys: [`bototmup`, `centroid`, `centered_instance`, `single_instance`]."
+            )
+
+        # train
+        # TODO: cycler - to ensure minimum steps per epoch
+        self.train_data_loader = DataLoader(
+            train_dataset,
+            shuffle=self.config.trainer_config.train_data_loader.shuffle,
+            batch_size=self.config.trainer_config.train_data_loader.batch_size,
+            num_workers=self.config.trainer_config.train_data_loader.num_workers,
+        )
+
+        # val
+        self.val_data_loader = DataLoader(
+            val_dataset,
+            shuffle=False,
+            batch_size=self.config.trainer_config.val_data_loader.batch_size,
+            num_workers=self.config.trainer_config.val_data_loader.num_workers,
+        )
+
+    def _create_data_loaders_litdata(
         self,
         chunks_dir_path: Optional[str] = None,
     ):
-        """Create a DataLoader for train, validation and test sets using the data_config."""
+        """Create a StreamingDataLoader for train, validation and test sets using the data_config."""
+        self.chunk_size = (
+            self.config.data_config.chunk_size
+            if "chunk_size" in self.config.data_config
+            and self.config.data_config.chunk_size is not None
+            else 100
+        )
 
         def run_subprocess():
             process = subprocess.Popen(
@@ -207,6 +314,10 @@ class ModelTrainer:
                     f"{self.config.data_config.preprocessing.scale}",
                     "--crop_hw",
                     f"{self.crop_hw}",
+                    "--max_height",
+                    f"{self.max_height}",
+                    "--max_width",
+                    f"{self.max_width}",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -465,7 +576,16 @@ class ModelTrainer:
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
-        self._create_data_loaders(chunks_dir_path)
+        if self.data_pipeline_fw == "litdata":
+            self._create_data_loaders_litdata(chunks_dir_path)
+
+        elif self.data_pipeline_fw == "torch_dataset":
+            self._create_data_loaders_torch_dataset()
+
+        else:
+            raise ValueError(
+                f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
+            )
 
         self.trainer = L.Trainer(
             callbacks=callbacks,
@@ -503,7 +623,7 @@ class ModelTrainer:
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
             # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
-            if delete_bin_files_after_training:
+            if self.data_pipeline_fw == "litdata" and delete_bin_files_after_training:
                 print("Deleting training and validation files...")
                 if (Path(self.train_input_dir)).exists():
                     shutil.rmtree(

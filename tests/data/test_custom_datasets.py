@@ -245,6 +245,202 @@ def test_bottomup_dataset(minimal_instance):
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
 
 
+def test_centered_instance_dataset(minimal_instance):
+    """Test the CenteredInstanceDataset."""
+    crop_hw = (160, 160)
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": False,
+        },
+    )
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+
+    dataset = CenteredInstanceDataset(
+        data_config=base_topdown_data_config,
+        max_stride=16,
+        confmap_head_config=confmap_head,
+        crop_hw=crop_hw,
+        labels=sio.load_slp(minimal_instance),
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+    )
+
+    gt_sample_keys = [
+        "centroid",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+        "frame_idx",
+        "video_idx",
+        "orig_size",
+        "num_instances",
+    ]
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 160, 160)
+    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
+            "augmentation_config": {
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
+                    "random_crop_p": 0.0,
+                    "random_crop_height": 160,
+                    "random_crop_width": 160,
+                },
+            },
+        }
+    )
+
+    dataset = CenteredInstanceDataset(
+        data_config=base_topdown_data_config,
+        max_stride=8,
+        confmap_head_config=confmap_head,
+        crop_hw=(100, 100),
+        labels=sio.load_slp(minimal_instance),
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+    )
+
+    gt_sample_keys = [
+        "centroid",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+        "frame_idx",
+        "video_idx",
+        "orig_size",
+        "num_instances",
+    ]
+
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 104, 104)
+    assert sample["confidence_maps"].shape == (1, 2, 52, 52)
+
+    # Test with resizing and padding
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": False,
+            },
+            "use_augmentations_train": True,
+            "augmentation_config": {
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": 0.05,
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
+                    "random_crop_p": 0.0,
+                    "random_crop_height": 160,
+                    "random_crop_width": 160,
+                },
+            },
+        }
+    )
+
+    dataset = CenteredInstanceDataset(
+        data_config=base_topdown_data_config,
+        max_stride=16,
+        confmap_head_config=confmap_head,
+        crop_hw=(100, 100),
+        labels=sio.load_slp(minimal_instance),
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+    )
+
+    gt_sample_keys = [
+        "centroid",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+        "frame_idx",
+        "video_idx",
+        "orig_size",
+        "num_instances",
+    ]
+
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 208, 208)
+    assert sample["confidence_maps"].shape == (1, 2, 104, 104)
+
+
 def test_centroid_dataset(minimal_instance):
     """Test CentroidDataset class."""
     base_centroid_data_config = OmegaConf.create(

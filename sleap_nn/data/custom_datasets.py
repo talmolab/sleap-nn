@@ -249,6 +249,7 @@ class CenteredInstanceDataset(BaseDataset):
         self.crop_hw = crop_hw
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list()
+        self.cache_lf = [None, None]
 
     def _get_instance_idx_list(self) -> List[Tuple[int]]:
         """Return list of tuples with indices of labelled frames and instances."""
@@ -270,19 +271,49 @@ class CenteredInstanceDataset(BaseDataset):
         video_idx = self._get_video_idx(lf)
 
         # get dict
-        sample = process_lf(
-            lf,
-            video_idx=video_idx,
-            max_instances=None,
-            user_instances_only=self.data_config.user_instances_only,
-        )
+        # Filter to user instances
+        if self.data_config.user_instances_only:
+            if lf.user_instances is not None and len(lf.user_instances) > 0:
+                lf.instances = lf.user_instances
+
+        if lf_idx == self.cache_lf[0]:
+            img = self.cache_lf[1]
+        else:
+            img = lf.image
+            self.cache_lf = [lf_idx, img]
+
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+
+        instances = []
+        for inst in lf:
+            if not inst.is_empty:
+                instances.append(inst.numpy())
+        instances = np.stack(instances, axis=0)
+
+        # Add singleton time dimension for single frames.
+        image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
+        instances = np.expand_dims(
+            instances, axis=0
+        )  # (n_samples=1, num_instances, num_nodes, 2)
+
+        instances = torch.from_numpy(instances.astype("float32"))
+
+        num_instances, _ = instances.shape[1:3]
+        img_height, img_width = image.shape[-2:]
+
+        sample = {
+            "image": torch.from_numpy(image),
+            "instances": instances,
+            "video_idx": torch.tensor(video_idx, dtype=torch.int32),
+            "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
+            "orig_size": torch.Tensor([img_height, img_width]),
+            "num_instances": num_instances,
+        }
 
         sample["instances"] = sample["instances"][:, inst_idx]
 
         # apply normalization
-        sample["image"] = apply_normalization(
-            sample["image"]
-        )  # TODO: get img with cache
+        sample["image"] = apply_normalization(sample["image"])
 
         if self.data_config.preprocessing.is_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
@@ -318,8 +349,7 @@ class CenteredInstanceDataset(BaseDataset):
             sample["instances"], anchor_ind=self.confmap_head_config.anchor_part
         )
 
-        instances, centroids = sample["instances"][0], centroids[0]  # (n_samples=1)
-        instance, centroid = instances[0], centroids[0]  # (num_instances=1, ...)
+        instance, centroid = sample["instances"][0], centroids[0]  # (n_samples=1)
 
         res = generate_crops(sample["image"], instance, centroid, self.crop_hw)
 
