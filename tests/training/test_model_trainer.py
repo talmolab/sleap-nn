@@ -104,6 +104,12 @@ def test_trainer_litdata(config, tmp_path: str):
     assert model_trainer.dir_path == "."
 
     #####
+    # test incorrect value for data fww
+    with pytest.raises(ValueError):
+        model_trainer = ModelTrainer(config, data_pipeline_fw="torch")
+        model_trainer.train()
+
+    #####
 
     # # for topdown centered instance model
     OmegaConf.update(
@@ -754,6 +760,25 @@ def test_centroid_model(config, tmp_path: str):
     shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
+    # torch dataset
+    model = CentroidModel(config, None, "centroid")
+
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
+    model_trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
+    model_trainer._create_data_loaders_torch_dataset()
+    input_ = next(iter(model_trainer.train_data_loader))
+    input_cm = input_["centroids_confidence_maps"]
+    preds = model(input_["image"])
+
+    # check the output shape
+    assert preds.shape == (1, 1, 192, 192)
+
+    # check the loss value
+    loss = model.training_step(input_, 0)
+    assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
+
 
 def test_single_instance_model(config, tmp_path: str):
     """Test the SingleInstanceModel training."""
@@ -797,6 +822,45 @@ def test_single_instance_model(config, tmp_path: str):
 
     shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+
+    # torch dataset
+    head_config = config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centered_instance
+    OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
+    del config.model_config.head_configs.single_instance.confmaps.anchor_part
+
+    OmegaConf.update(config, "model_config.init_weights", "xavier")
+
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
+    model_trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
+    model_trainer._create_data_loaders_torch_dataset()
+    input_ = next(iter(model_trainer.train_data_loader))
+    model = SingleInstanceModel(config, None, "single_instance")
+
+    img = input_["image"]
+    img_shape = img.shape[-2:]
+    preds = model(img)
+
+    # check the output shape
+    assert preds.shape == (
+        1,
+        2,
+        int(
+            img_shape[0]
+            / config.model_config.head_configs.single_instance.confmaps.output_stride
+        ),
+        int(
+            img_shape[1]
+            / config.model_config.head_configs.single_instance.confmaps.output_stride
+        ),
+    )
+
+    # check the loss value
+    input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
+    loss = model.training_step(input_, 0)
+    assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
 
 def test_bottomup_model(config, tmp_path: str):
@@ -853,8 +917,8 @@ def test_bottomup_model(config, tmp_path: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
+    model_trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
+    model_trainer._create_data_loaders_torch_dataset()
     skeletons = model_trainer.skeletons
     input_ = next(iter(model_trainer.train_data_loader))
 
@@ -866,6 +930,3 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
-
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
