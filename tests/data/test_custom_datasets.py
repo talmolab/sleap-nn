@@ -62,7 +62,7 @@ def test_bottomup_dataset(minimal_instance):
                 "max_height": None,
                 "max_width": None,
                 "scale": 0.5,
-                "is_rgb": False,
+                "is_rgb": True,
             },
             "use_augmentations_train": False,
         }
@@ -92,7 +92,7 @@ def test_bottomup_dataset(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 192, 192)
+    assert sample["image"].shape == (1, 3, 192, 192)
     assert sample["confidence_maps"].shape == (1, 2, 96, 96)
     assert sample["part_affinity_fields"].shape == (48, 48, 2)
 
@@ -237,6 +237,7 @@ def test_bottomup_dataset(minimal_instance):
     ]
 
     sample = next(iter(dataset))
+    assert len(dataset) == 1
     assert len(sample.keys()) == len(gt_sample_keys)
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -298,7 +299,7 @@ def test_centered_instance_dataset(minimal_instance):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": False,
+                "is_rgb": True,
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -362,7 +363,7 @@ def test_centered_instance_dataset(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 1, 104, 104)
+    assert sample["instance_image"].shape == (1, 3, 104, 104)
     assert sample["confidence_maps"].shape == (1, 2, 52, 52)
 
     # Test with resizing and padding
@@ -433,6 +434,7 @@ def test_centered_instance_dataset(minimal_instance):
     ]
 
     sample = next(iter(dataset))
+    assert len(dataset) == 2
     assert len(sample.keys()) == len(gt_sample_keys)
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -450,7 +452,7 @@ def test_centroid_dataset(minimal_instance):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": False,
+                "is_rgb": True,
             },
             "use_augmentations_train": False,
         }
@@ -480,7 +482,7 @@ def test_centroid_dataset(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["image"].shape == (1, 3, 384, 384)
     assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
 
     base_centroid_data_config = OmegaConf.create(
@@ -548,6 +550,7 @@ def test_centroid_dataset(minimal_instance):
     ]
 
     sample = next(iter(dataset))
+    assert len(dataset) == 1
     assert len(sample.keys()) == len(gt_sample_keys)
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -571,7 +574,7 @@ def test_single_instance_dataset(minimal_instance):
                 "max_height": None,
                 "max_width": None,
                 "scale": 2.0,
-                "is_rgb": False,
+                "is_rgb": True,
             },
             "use_augmentations_train": False,
         }
@@ -588,6 +591,7 @@ def test_single_instance_dataset(minimal_instance):
     )
 
     sample = next(iter(dataset))
+    assert len(dataset) == 1
 
     gt_sample_keys = [
         "image",
@@ -601,7 +605,7 @@ def test_single_instance_dataset(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 768, 768)
+    assert sample["image"].shape == (1, 3, 768, 768)
     assert sample["confidence_maps"].shape == (1, 2, 384, 384)
 
     base_singleinstance_data_config = OmegaConf.create(

@@ -116,10 +116,6 @@ class BottomUpDataset(BaseDataset):
 
         self.edge_inds = self.labels.skeletons[0].edge_inds
 
-    def __len__(self) -> int:
-        """Return number of `LabeledFrames` in the labels object."""
-        return len(self.labels)
-
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
         lf = self.labels[index]
@@ -422,10 +418,6 @@ class CentroidDataset(BaseDataset):
         )
         self.confmap_head_config = confmap_head_config
 
-    def __len__(self) -> int:
-        """Return number of `LabeledFrames` in the labels object."""
-        return len(self.labels)
-
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
         lf = self.labels[index]
@@ -543,10 +535,6 @@ class SingleInstanceDataset(BaseDataset):
             max_hw=max_hw,
         )
         self.confmap_head_config = confmap_head_config
-
-    def __len__(self) -> int:
-        """Return number of `LabeledFrames` in the labels object."""
-        return len(self.labels)
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
