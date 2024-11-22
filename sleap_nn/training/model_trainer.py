@@ -260,7 +260,7 @@ class ModelTrainer:
 
         else:
             raise ValueError(
-                f"Moedl type: {self.model_type}. Ensure the heads config has one of the keys: [`bototmup`, `centroid`, `centered_instance`, `single_instance`]."
+                f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bototmup`, `centroid`, `centered_instance`, `single_instance`]."
             )
 
         # train
