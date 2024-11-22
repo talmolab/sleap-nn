@@ -37,7 +37,7 @@ model_config:
     stacks: 1
     stem_stride: null
     middle_block: true
-    up_interpolate: true
+    up_interpolate: false
   head_configs:
     single_instance: null
     centroid: null
