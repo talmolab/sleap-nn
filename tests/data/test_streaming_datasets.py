@@ -59,7 +59,7 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
 
         assert samples[0]["image"].shape == (1, 1, 200, 200)
         assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
-        assert samples[0]["part_affinity_fields"].shape == (50, 50, 2)
+        assert samples[0]["part_affinity_fields"].shape == (2, 50, 50)
 
     finally:
         shutil.rmtree(dir_path)
@@ -103,7 +103,7 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
 
         assert samples[0]["image"].shape == (1, 1, 300, 300)
         assert samples[0]["confidence_maps"].shape == (1, 2, 150, 150)
-        assert samples[0]["part_affinity_fields"].shape == (75, 75, 2)
+        assert samples[0]["part_affinity_fields"].shape == (2, 75, 75)
 
     finally:
         shutil.rmtree(dir_path)
