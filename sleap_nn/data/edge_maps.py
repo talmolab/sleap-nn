@@ -146,7 +146,7 @@ def make_pafs(
         A set of part affinity fields corresponding to the unit vector pointing along
         the direction of each edge weighted by the probability of each point on a
         sampling grid being on each edge. These will be in a tensor of shape
-        (grid_height, grid_width, n_edges, 2) of dtype torch.float32. The last axis
+        (n_edges, 2, grid_height, grid_width) of dtype torch.float32. The last axis
         corresponds to the x- and y-coordinates of the unit vectors.
     """
     unit_vectors = edge_destination - edge_source
@@ -161,6 +161,7 @@ def make_pafs(
     pafs = torch.unsqueeze(edge_confidence_map, dim=-1) * expand_to_rank(
         unit_vectors, 4
     )
+    pafs = pafs.permute(2, 3, 0, 1)
     return pafs
 
 
@@ -191,7 +192,7 @@ def make_multi_pafs(
 
     Returns:
         A set of part affinity fields generated for each instance. These will be in a
-        tensor of shape (grid_height, grid_width, n_edges, 2). If multiple instance
+        tensor of shape (n_edges, 2, grid_height, grid_width). If multiple instance
         PAFs are defined on the same pixel, they will be summed.
     """
     grid_height = yv.shape[0]
@@ -199,7 +200,7 @@ def make_multi_pafs(
     n_edges = edge_sources.shape[1]
     n_instances = edge_sources.shape[0]
 
-    pafs = torch.zeros((grid_height, grid_width, n_edges, 2), dtype=torch.float32)
+    pafs = torch.zeros((n_edges, 2, grid_height, grid_width), dtype=torch.float32)
 
     for i in range(n_instances):
         edge_source = edge_sources[i, :]
@@ -269,17 +270,17 @@ def generate_pafs(
         edge_inds: `torch.Tensor` to use for looking up the index of the
             edges.
         flatten_channels: If False, the generated tensors are of shape
-            [height, width, n_edges, 2]. If True, generated tensors are of shape
-            [height, width, n_edges * 2] by flattening the last 2 axes.
+            [n_edges, 2, height, width]. If True, generated tensors are of shape
+            [n_edges * 2, height, width] by flattening the last 2 axes.
 
     Returns:
         The "part_affinity_fields" key will be a tensor of shape
-        (grid_height, grid_width, n_edges, 2) containing the combined part affinity
+        (n_edges, 2, grid_height, grid_width) containing the combined part affinity
         fields of all instances in the frame.
 
         If the `flatten_channels` attribute is set to True, the last 2 axes of the
         "part_affinity_fields" are flattened to produce a tensor of shape
-        (grid_height, grid_width, n_edges * 2). This is a convenient form when
+        (n_edges * 2, grid_height, grid_width). This is a convenient form when
         training models as a rank-4 (batched) tensor will generally be expected.
     """
     image_height, image_width = img_hw
@@ -314,11 +315,11 @@ def generate_pafs(
         edge_destinations=edge_destinations,
         sigma=sigma,
     )
-    assert pafs.shape == (grid_height, grid_width, n_edges, 2)
+    assert pafs.shape == (n_edges, 2, grid_height, grid_width)
 
     if flatten_channels:
-        pafs = pafs.reshape(grid_height, grid_width, n_edges * 2)
-        assert pafs.shape == (grid_height, grid_width, n_edges * 2)
+        pafs = pafs.reshape(n_edges * 2, grid_height, grid_width)
+        assert pafs.shape == (n_edges * 2, grid_height, grid_width)
 
     return pafs
 
@@ -337,8 +338,8 @@ class PartAffinityFieldsGenerator(IterDataPipe):
         edge_inds: `torch.Tensor` to use for looking up the index of the
             edges.
         flatten_channels: If False, the generated tensors are of shape
-            [height, width, n_edges, 2]. If True, generated tensors are of shape
-            [height, width, n_edges * 2] by flattening the last 2 axes.
+            [n_edges, 2, height, width]. If True, generated tensors are of shape
+            [n_edges * 2, height, width] by flattening the last 2 axes.
     """
 
     def __init__(
@@ -380,12 +381,12 @@ class PartAffinityFieldsGenerator(IterDataPipe):
             "part_affinity_fields".
 
             The "part_affinity_fields" key will be a tensor of shape
-            (grid_height, grid_width, n_edges, 2) containing the combined part affinity
+            (n_edges, 2, grid_height, grid_width) containing the combined part affinity
             fields of all instances in the frame.
 
             If the `flatten_channels` attribute is set to True, the last 2 axes of the
             "part_affinity_fields" are flattened to produce a tensor of shape
-            (grid_height, grid_width, n_edges * 2). This is a convenient form when
+            (n_edges * 2, grid_height, grid_width). This is a convenient form when
             training models as a rank-4 (batched) tensor will generally be expected.
 
         Notes:
@@ -433,11 +434,11 @@ class PartAffinityFieldsGenerator(IterDataPipe):
                 edge_destinations=edge_destinations,
                 sigma=self.sigma,
             )
-            assert pafs.shape == (grid_height, grid_width, n_edges, 2)
+            assert pafs.shape == (n_edges, 2, grid_height, grid_width)
 
             if self.flatten_channels:
-                pafs = pafs.reshape(grid_height, grid_width, n_edges * 2)
-                assert pafs.shape == (grid_height, grid_width, n_edges * 2)
+                pafs = pafs.reshape(n_edges * 2, grid_height, grid_width)
+                assert pafs.shape == (n_edges * 2, grid_height, grid_width)
 
             ex["part_affinity_fields"] = pafs
 
