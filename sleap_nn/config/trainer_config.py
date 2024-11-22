@@ -1,5 +1,7 @@
 import attrs
 from omegaconf import OmegaConf
+from typing import Optional, Union, List, Text, Any
+
 
 """Serializable configuration classes for specifying all training job parameters.
 
@@ -26,105 +28,6 @@ to the high level parameters at creation time.
 Conveniently, this format also provides a single location where all user-facing
 parameters are aggregated and documented for end users (as opposed to developers).
 """
-
-
-@attrs.define
-class TrainerConfig:
-    """Configuration of Trainer.
-
-    Attributes:
-        train_data_loader: (Note: Any parameters from Torch's DataLoader could be used.)
-        val_data_loader: (Similar to train_data_loader)
-        model_ckpt: (Note: Any parameters from Lightning's ModelCheckpoint could be used.)
-        trainer_devices: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
-        trainer_accelerator: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the Trainer to be connected to.
-        enable_progress_bar: (bool) When True, enables printing the logs during training.
-        steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
-        max_epochs: (int) Maxinum number of epochs to run.
-        seed: (int) Seed value for the current experiment.
-        use_wandb: (bool) True to enable wandb logging.
-        save_ckpt: (bool) True to enable checkpointing.
-        save_ckpt_path: (str) Directory path to save the training config and checkpoint files. Default: "./"
-        resume_ckpt_path: (str) Path to .ckpt file from which training is resumed. Default: None.
-        wandb: (Only if use_wandb is True, else skip this)
-        optimizer_name: (str) Optimizer to be used. One of ["Adam", "AdamW"].
-        optimizer:
-        lr_scheduler:
-        early_stopping:
-    """
-
-    train_data_loader: DataLoaderConfig = attrs.field(factory=DataLoaderConfig)
-    val_data_loader: DataLoaderConfig = attrs.field(factory=DataLoaderConfig)
-    model_ckpt: ModelCkptConfig = attrs.field(factory=ModelCkptConfig)
-    trainer_devices: Union[int, List[int], str] = "auto"
-    trainer_accelerator: str = "auto"
-    enable_progress_bar: bool = True
-    steps_per_epoch: Optional[int] = None
-    max_epochs: int = 10
-    seed: Optional[int] = None
-    use_wandb: bool = False
-    save_ckpt: bool = False
-    save_ckpt_path: str = "./"
-    resume_ckpt_path: Optional[str] = None
-    wandb: Optional[WandBConfig] = attrs.field(init=False)
-    optimizer: Optional[OptimizerConfig] = attrs.field(factory=OptimizerConfig)
-    lr_scheduler: LRSchedulerConfig = attrs.field(factory=LRSchedulerConfig)
-    early_stopping: EarlyStoppingConfig = attr.field(factory=EarlyStoppingConfig)
-
-    # post-initialization
-    def __attrs_post_init__(self):
-        # Set wandb configuration only if use_wandb is True
-        if self.use_wandb:
-            self.wandb = (
-                WandBConfig()
-            )  # Initialize WandBConfig with defaults or passed parameters
-        else:
-            self.wandb = None
-
-    @classmethod
-    def from_yaml(cls, yaml_data: Text) -> "TrainerConfig":
-        """Create TrainerConfig from YAML-formatted string.
-
-        Arguments:
-            yaml_data: YAML-formatted string that specifies the configurations.
-
-        Returns:
-            A TrainerConfig instance parsed from the YAML text.
-        """
-        config = OmegaConf.create(yaml_data)
-        return OmegaConf.to_object(config, cls)
-
-    @classmethod
-    def load_yaml(cls, filename: Text) -> "TrainerConfig":
-        """Load a training job configuration from a yaml file.
-
-        Arguments:
-            filename: Path to a training job configuration YAML file or a directory
-                containing `"training_job.yaml"`.
-
-        Returns:
-          A TrainerConfig instance parsed from the YAML file.
-        """
-        config = OmegaConf.load(filename)
-        return OmegaConf.to_object(config, cls)
-
-    def to_yaml(self) -> str:
-        """Serialize the configuration into YAML-encoded string format.
-
-        Returns:
-            The YAML encoded string representation of the configuration.
-        """
-        config = self.to_dict()
-        return OmegaConf.to_yaml(config)
-
-    def save_yaml(self, filename: Text):
-        """Save the configuration to a YAML file.
-
-        Arguments:
-            filename: Path to save the training job file to.
-        """
-        with open(filename, "w") as f:
-            f.write(self.to_yaml())
 
 
 @attrs.define
@@ -211,7 +114,17 @@ class LRSchedulerConfig:
     cooldown: int = 0
     patience: int = 10
     factor: float = 0.1
-    min_lr: Union[float, List[float]] = 0.0
+    min_lr: Any = 0.0 
+
+    def __post_init__(self):
+        self.validate_min_lr()
+
+    def validate_min_lr(self):
+        if isinstance(self.min_lr, float):
+            return
+        if isinstance(self.min_lr, list) and all(isinstance(x, float) for x in self.min_lr):
+            return
+        raise ValueError("min_lr must be a float or a list of floats.")
 
 
 @attrs.define
@@ -227,3 +140,115 @@ class EarlyStoppingConfig:
     stop_training_on_plateau: bool = False
     min_delta: float = 0.0
     patience: int = 1
+
+
+@attrs.define
+class TrainerConfig:
+    """Configuration of Trainer.
+
+    Attributes:
+        train_data_loader: (Note: Any parameters from Torch's DataLoader could be used.)
+        val_data_loader: (Similar to train_data_loader)
+        model_ckpt: (Note: Any parameters from Lightning's ModelCheckpoint could be used.)
+        trainer_devices: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
+        trainer_accelerator: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the Trainer to be connected to.
+        enable_progress_bar: (bool) When True, enables printing the logs during training.
+        steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
+        max_epochs: (int) Maxinum number of epochs to run.
+        seed: (int) Seed value for the current experiment.
+        use_wandb: (bool) True to enable wandb logging.
+        save_ckpt: (bool) True to enable checkpointing.
+        save_ckpt_path: (str) Directory path to save the training config and checkpoint files. Default: "./"
+        resume_ckpt_path: (str) Path to .ckpt file from which training is resumed. Default: None.
+        wandb: (Only if use_wandb is True, else skip this)
+        optimizer_name: (str) Optimizer to be used. One of ["Adam", "AdamW"].
+        optimizer: create an optimizer configuration
+        lr_scheduler: create an lr_scheduler configuration
+        early_stopping: create an early_stopping configuration
+    """
+
+    train_data_loader: DataLoaderConfig = DataLoaderConfig()
+    val_data_loader: DataLoaderConfig = DataLoaderConfig()
+    model_ckpt: ModelCkptConfig = ModelCkptConfig()
+    trainer_devices: Any = "auto"
+    trainer_accelerator: str = "auto"
+    enable_progress_bar: bool = True
+    steps_per_epoch: Optional[int] = None
+    max_epochs: int = 10
+    seed: Optional[int] = None
+    use_wandb: bool = False
+    save_ckpt: bool = False
+    save_ckpt_path: str = "./"
+    resume_ckpt_path: Optional[str] = None
+    wandb: Optional[WandBConfig] = attrs.field(init=False)
+    optimizer: Optional[OptimizerConfig] = OptimizerConfig()
+    lr_scheduler: LRSchedulerConfig = LRSchedulerConfig()
+    early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
+
+    # post-initialization
+    def __attrs_post_init__(self):
+        self.validate_trainer_devices()
+        # Set wandb configuration only if use_wandb is True
+        if self.use_wandb:
+            self.wandb = (
+                WandBConfig()
+            )  # Initialize WandBConfig with defaults or passed parameters
+        else:
+            self.wandb = None
+
+    def validate_trainer_devices(self):
+        """Validate the value of trainer_devices."""
+        if isinstance(self.trainer_devices, int) and self.trainer_devices >= 0:
+            return
+        if isinstance(self.trainer_devices, list) and all(isinstance(x, int) and x >= 0 for x in self.trainer_devices):
+            return
+        if isinstance(self.trainer_devices, str) and self.trainer_devices == "auto":
+            return
+        raise ValueError(
+            "trainer_devices must be an integer >= 0, a list of integers >= 0, or the string 'auto'."
+        )
+
+    @classmethod
+    def from_yaml(cls, yaml_data: Text) -> "TrainerConfig":
+        """Create TrainerConfig from YAML-formatted string.
+
+        Arguments:
+            yaml_data: YAML-formatted string that specifies the configurations.
+
+        Returns:
+            A TrainerConfig instance parsed from the YAML text.
+        """
+        config = OmegaConf.create(yaml_data)
+        return OmegaConf.to_object(config, cls)
+
+    @classmethod
+    def load_yaml(cls, filename: Text) -> "TrainerConfig":
+        """Load a training job configuration from a yaml file.
+
+        Arguments:
+            filename: Path to a training job configuration YAML file or a directory
+                containing `"training_job.yaml"`.
+
+        Returns:
+          A TrainerConfig instance parsed from the YAML file.
+        """
+        config = OmegaConf.load(filename)
+        return OmegaConf.to_object(config, cls)
+
+    def to_yaml(self) -> str:
+        """Serialize the configuration into YAML-encoded string format.
+
+        Returns:
+            The YAML encoded string representation of the configuration.
+        """
+        config = self.to_dict()
+        return OmegaConf.to_yaml(config)
+
+    def save_yaml(self, filename: Text):
+        """Save the configuration to a YAML file.
+
+        Arguments:
+            filename: Path to save the training job file to.
+        """
+        with open(filename, "w") as f:
+            f.write(self.to_yaml())
