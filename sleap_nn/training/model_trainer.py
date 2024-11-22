@@ -1150,7 +1150,7 @@ class BottomUpModel(TrainingModel):
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
         y_paf = batch["part_affinity_fields"].to(self.device)
         preds = self.model(X)
-        pafs = preds["PartAffinityFieldsHead"].permute(0, 2, 3, 1)
+        pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
         losses = {
             "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
@@ -1169,7 +1169,7 @@ class BottomUpModel(TrainingModel):
         y_paf = batch["part_affinity_fields"].to(self.device)
 
         preds = self.model(X)
-        pafs = preds["PartAffinityFieldsHead"].permute(0, 2, 3, 1)
+        pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
         losses = {
             "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
