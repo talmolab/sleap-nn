@@ -56,6 +56,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
         ld.optimize(
@@ -64,6 +65,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
     elif args.model_type == "centered_instance":
@@ -85,6 +87,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
         ld.optimize(
@@ -93,6 +96,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
     elif args.model_type == "centroid":
@@ -112,6 +116,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
         ld.optimize(
@@ -120,6 +125,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
     elif args.model_type == "bottomup":
@@ -138,6 +144,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "train_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
         ld.optimize(
@@ -146,6 +153,7 @@ if __name__ == "__main__":
             output_dir=(Path(args.bin_files_path) / "val_chunks").as_posix(),
             num_workers=args.num_workers,
             chunk_size=args.chunk_size,
+            compression="zstd",
         )
 
     else:
