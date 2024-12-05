@@ -151,6 +151,8 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         self.apply_aug = apply_aug
         self.aug_config = augmentation_config
         self.input_scale = input_scale
+        # Re-crop to original crop size
+        self.crop_hw = [int(x * self.input_scale) for x in self.crop_hw]
 
     def __getitem__(self, index):
         """Apply augmentation and generate confidence maps."""
@@ -170,8 +172,6 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
                     ex["instance_image"], ex["instance"], **self.aug_config.geometric
                 )
 
-        # Re-crop to original crop size
-        self.crop_hw = [int(x * self.input_scale) for x in self.crop_hw]
         ex["instance_bbox"] = torch.unsqueeze(
             make_centered_bboxes(ex["centroid"][0], self.crop_hw[0], self.crop_hw[1]), 0
         )

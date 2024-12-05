@@ -81,6 +81,7 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
+
     model_trainer = ModelTrainer(config)
     model_trainer.train()
 
@@ -99,11 +100,14 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     #######
 
-    # update save_ckpt to True
+    # update save_ckpt to True and test step lr
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -216,6 +220,9 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
     OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
     OmegaConf.update(
+        config_early_stopping, "trainer_config.lr_scheduler.scheduler", None
+    )
+    OmegaConf.update(
         config_early_stopping,
         "trainer_config.save_ckpt_path",
         f"{tmp_path}/test_model_trainer/",
@@ -327,6 +334,14 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     #######
 
+    # check exception for lr scheduler
+    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "ReduceLR")
+    with pytest.raises(ValueError):
+        trainer = ModelTrainer(config)
+        trainer.train()
+
+    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
+
     # check loading trained weights
     load_weights_config = config.copy()
     ckpt = torch.load((Path(minimal_instance_bottomup_ckpt) / "best.ckpt").as_posix())
@@ -354,6 +369,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
+
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders()
     input_ = next(iter(model_trainer.train_data_loader))
