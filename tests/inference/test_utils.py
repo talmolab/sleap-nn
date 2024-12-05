@@ -10,8 +10,15 @@ def test_get_skeleton_from_config(minimal_instance, minimal_instance_ckpt):
     training_config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
     skeleton_config = training_config.data_config.skeletons
     skeletons = get_skeleton_from_config(skeleton_config)
+    skl = skeletons[0]
     labels = sio.load_slp(f"{minimal_instance}")
-    assert skeletons[0] == labels.skeletons[0]
+    gt_skl = labels.skeletons[0]
+
+    assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+    assert len(skl.edges) == len(gt_skl.edges)
+    for a, b in zip(skl.edges, gt_skl.edges):
+        assert a[0].name == b[0].name and a[1].name == b[1].name
+    assert skl.symmetries == gt_skl.symmetries
 
 
 def test_interp1d():

@@ -34,7 +34,15 @@ def test_topdown_predictor(
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
     gt_lf = gt_labels[0]
-    assert pred_labels.skeletons == gt_labels.skeletons
+
+    skl = pred_labels.skeletons[0]
+    gt_skl = gt_labels.skeletons[0]
+    assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+    assert len(skl.edges) == len(gt_skl.edges)
+    for a, b in zip(skl.edges, gt_skl.edges):
+        assert a[0].name == b[0].name and a[1].name == b[1].name
+    assert skl.symmetries == gt_skl.symmetries
+
     assert lf.frame_idx == gt_lf.frame_idx
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
     assert lf.instances[1].numpy().shape == gt_lf.instances[1].numpy().shape
@@ -299,6 +307,88 @@ def test_topdown_predictor(
 
     assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
 
+    # load only backbone and head ckpt as None - centered instance
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
+        head_ckpt_path=None,
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    backbone_ckpt = ckpt["state_dict"][
+        "model.backbone.enc.encoder_stack.0.blocks.0.weight"
+    ][0, 0, :].numpy()
+
+    model_weights = (
+        next(predictor.inference_model.instance_peaks.torch_model.model.parameters())[
+            0, 0, :
+        ]
+        .detach()
+        .numpy()
+    )
+
+    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+    # check loading diff head ckpt for centroid
+    preprocess_config = {
+        "is_rgb": False,
+        "crop_hw": None,
+        "max_width": None,
+        "max_height": None,
+    }
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
+        head_ckpt_path=Path(minimal_instance_centroid_ckpt) / "best.ckpt",
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    backbone_ckpt = ckpt["state_dict"][
+        "model.backbone.enc.encoder_stack.0.blocks.0.weight"
+    ][0, 0, :].numpy()
+
+    model_weights = (
+        next(predictor.inference_model.centroid_crop.torch_model.model.parameters())[
+            0, 0, :
+        ]
+        .detach()
+        .numpy()
+    )
+
+    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+    # load only backbone and head ckpt as None - centroid
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_centroid_ckpt) / "best.ckpt",
+        head_ckpt_path=None,
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(Path(minimal_instance_centroid_ckpt) / "best.ckpt")
+    backbone_ckpt = ckpt["state_dict"][
+        "model.backbone.enc.encoder_stack.0.blocks.0.weight"
+    ][0, 0, :].numpy()
+
+    model_weights = (
+        next(predictor.inference_model.centroid_crop.torch_model.model.parameters())[
+            0, 0, :
+        ]
+        .detach()
+        .numpy()
+    )
+
+    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
 
 def test_single_instance_predictor(
     minimal_instance,
@@ -339,7 +429,13 @@ def test_single_instance_predictor(
         # check if the predicted labels have same video and skeleton as the ground truth labels
         gt_labels = sio.load_slp(minimal_instance)
         gt_lf = gt_labels[0]
-        assert pred_labels.skeletons == gt_labels.skeletons
+        skl = pred_labels.skeletons[0]
+        gt_skl = gt_labels.skeletons[0]
+        assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+        assert len(skl.edges) == len(gt_skl.edges)
+        for a, b in zip(skl.edges, gt_skl.edges):
+            assert a[0].name == b[0].name and a[1].name == b[1].name
+        assert skl.symmetries == gt_skl.symmetries
         assert lf.frame_idx == gt_lf.frame_idx
         assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
@@ -391,7 +487,13 @@ def test_single_instance_predictor(
 
         # check if the predicted labels have same skeleton as the GT labels
         gt_labels = sio.load_slp(minimal_instance)
-        assert pred_labels.skeletons == gt_labels.skeletons
+        skl = pred_labels.skeletons[0]
+        gt_skl = gt_labels.skeletons[0]
+        assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+        assert len(skl.edges) == len(gt_skl.edges)
+        for a, b in zip(skl.edges, gt_skl.edges):
+            assert a[0].name == b[0].name and a[1].name == b[1].name
+        assert skl.symmetries == gt_skl.symmetries
         assert lf.frame_idx == 0
 
         # check if dictionaries are created when make labels is set to False
@@ -567,7 +669,13 @@ def test_bottomup_predictor(
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
     gt_lf = gt_labels[0]
-    assert pred_labels.skeletons == gt_labels.skeletons
+    skl = pred_labels.skeletons[0]
+    gt_skl = gt_labels.skeletons[0]
+    assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+    assert len(skl.edges) == len(gt_skl.edges)
+    for a, b in zip(skl.edges, gt_skl.edges):
+        assert a[0].name == b[0].name and a[1].name == b[1].name
+    assert skl.symmetries == gt_skl.symmetries
     assert lf.frame_idx == gt_lf.frame_idx
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
