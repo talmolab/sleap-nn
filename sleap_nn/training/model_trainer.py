@@ -593,7 +593,6 @@ class TrainingModel(L.LightningModule):
                 for k in ckpt["state_dict"].keys()
                 if ".head_layers" in k
             }
-            print(f"from main code: {ckpt['state_dict'].keys()}")
             self.load_state_dict(ckpt["state_dict"], strict=False)
 
     def forward(self, img):
