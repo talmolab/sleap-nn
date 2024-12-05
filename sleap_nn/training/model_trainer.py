@@ -440,13 +440,7 @@ class ModelTrainer:
             )
 
             if self.config.trainer_config.use_wandb:
-                for m in self.config.trainer_config.wandb.log_params:
-                    list_keys = m.split(".")
-                    key = list_keys[-1]
-                    value = self.config[list_keys[0]]
-                    for l in list_keys[1:]:
-                        value = value[l]
-                    wandb_logger.experiment.config.update({key: value})
+                wandb_logger.experiment.config.update(dict(self.config))
                 wandb_logger.experiment.config.update({"model_params": total_params})
 
         except KeyboardInterrupt:
