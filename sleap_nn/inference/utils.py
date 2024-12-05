@@ -17,36 +17,17 @@ def get_skeleton_from_config(skeleton_config: OmegaConf):
 
     """
     skeletons = []
-    for name in skeleton_config.keys():
+    for name, skel_cfg in skeleton_config.items():
 
-        # create `sio.Node` object.
-        nodes = [sio.Node(n["name"]) for n in skeleton_config[name].nodes]
+        skel = sio.Skeleton(nodes=[n["name"] for n in skel_cfg.nodes], name=name)
+        skel.add_edges(
+            [(e["source"]["name"], e["destination"]["name"]) for e in skel_cfg.edges]
+        )
+        if skel_cfg.symmetries:
+            for n1, n2 in skel_cfg.symmetries:
+                skel.add_symmetry(n1["name"], n2["name"])
 
-        # create `sio.Edge` object.
-        edges = [
-            sio.Edge(
-                sio.Node(e["source"]["name"]),
-                sio.Node(e["destination"]["name"]),
-            )
-            for e in skeleton_config[name].edges
-        ]
-
-        # create `sio.Symmetry` object.
-        if skeleton_config[name].symmetries:
-            list_args = [
-                set(
-                    [
-                        sio.Node(s[0]["name"]),
-                        sio.Node(s[1]["name"]),
-                    ]
-                )
-                for s in skeleton_config[name].symmetries
-            ]
-            symmetries = [sio.Symmetry(x) for x in list_args]
-        else:
-            symmetries = []
-
-        skeletons.append(sio.Skeleton(nodes, edges, symmetries, name))
+        skeletons.append(skel)
 
     return skeletons
 
