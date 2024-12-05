@@ -54,6 +54,8 @@ def bottomup_data_chunks(
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
 
+    sample["image"] = apply_normalization(sample["image"])
+
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
     else:
@@ -126,6 +128,7 @@ def centered_instance_data_chunks(
     lf, video_idx = x
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
+    sample["image"] = apply_normalization(sample["image"])
 
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
@@ -158,9 +161,7 @@ def centered_instance_data_chunks(
         if cnt == sample["num_instances"]:
             break
 
-        res = generate_crops(
-            sample["image"].to(torch.float32), instance, centroid, crop_size
-        )
+        res = generate_crops(sample["image"], instance, centroid, crop_size)
 
         res["frame_idx"] = sample["frame_idx"]
         res["video_idx"] = sample["video_idx"]
@@ -217,6 +218,7 @@ def centroid_data_chunks(
     lf, video_idx = x
 
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
+    sample["image"] = apply_normalization(sample["image"])
 
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
@@ -288,6 +290,7 @@ def single_instance_data_chunks(
     sample = process_lf(
         lf, video_idx, user_instances_only=user_instances_only, max_instances=1
     )
+    sample["image"] = apply_normalization(sample["image"])
 
     if data_config.preprocessing.is_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
