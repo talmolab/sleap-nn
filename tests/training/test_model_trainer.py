@@ -342,24 +342,46 @@ def test_trainer(config, tmp_path: str, minimal_instance_bottomup_ckpt: str):
 
     OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
 
-    # check loading trained weights
+
+def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
+    """Test loading trained weights for backbone and head layers."""
+
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+    )
+    OmegaConf.update(config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
+
+    # check loading trained weights for backbone
     load_weights_config = config.copy()
-    ckpt = torch.load((Path(minimal_instance_bottomup_ckpt) / "best.ckpt").as_posix())
+    ckpt = torch.load((Path(minimal_instance_ckpt) / "best.ckpt").as_posix())
     first_layer_ckpt = ckpt["state_dict"][
         "model.backbone.enc.encoder_stack.0.blocks.0.weight"
     ][0, 0, :].numpy()
 
+    # load head ckpts
+    head_layer_ckpt = ckpt["state_dict"]["model.head_layers.0.0.weight"][
+        0, 0, :
+    ].numpy()
+
     trainer = ModelTrainer(load_weights_config)
-    trainer._create_data_loaders()
     trainer._initialize_model(
-        (Path(minimal_instance_bottomup_ckpt) / "best.ckpt").as_posix()
+        backbone_trained_ckpts_path=(
+            Path(minimal_instance_ckpt) / "best.ckpt"
+        ).as_posix(),
+        head_trained_ckpts_path=(Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
     )
     model_ckpt = next(trainer.model.parameters())[0, 0, :].detach().numpy()
 
-    assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-3)
+    assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-6)
 
-    shutil.rmtree((Path(trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(trainer.bin_files_path) / "val_chunks").as_posix())
+    model_ckpt = (
+        next(trainer.model.model.head_layers.parameters())[0, 0, :].detach().numpy()
+    )
+
+    assert np.all(np.abs(head_layer_ckpt - model_ckpt) < 1e-6)
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
