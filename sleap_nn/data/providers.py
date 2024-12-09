@@ -30,8 +30,8 @@ def get_max_instances(labels: sio.Labels):
 
 def get_max_height_width(labels: sio.Labels) -> Tuple[int, int]:
     """Return `(height, width)` that is the maximum of all videos."""
-    return max(video.shape[1] for video in labels.videos), max(
-        video.shape[2] for video in labels.videos
+    return int(max(video.shape[1] for video in labels.videos)), int(
+        max(video.shape[2] for video in labels.videos)
     )
 
 
