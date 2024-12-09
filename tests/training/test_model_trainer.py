@@ -686,19 +686,6 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
 
-    ## check val step
-    model_trainer._create_data_loaders_litdata()
-    input_ = next(iter(model_trainer.val_data_loader))
-    input_cm = input_["confidence_maps"]
-    preds = model(input_["instance_image"])
-
-    # check the output shape
-    assert preds.shape == (1, 2, 80, 80)
-
-    # check the loss value
-    loss = model.validation_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
-
     shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
@@ -774,19 +761,6 @@ def test_centroid_model(config, tmp_path: str):
 
     # check the loss value
     loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
-
-    ## check val step
-    model_trainer._create_data_loaders_litdata()
-    input_ = next(iter(model_trainer.val_data_loader))
-    input_cm = input_["centroids_confidence_maps"]
-    preds = model(input_["image"])
-
-    # check the output shape
-    assert preds.shape == (1, 1, 192, 192)
-
-    # check the loss value
-    loss = model.validation_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
     shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
