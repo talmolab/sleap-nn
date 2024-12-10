@@ -685,6 +685,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+
     shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
     shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
 
