@@ -123,9 +123,6 @@ def apply_geometric_augmentation(
     erase_p: float = 0.0,
     mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
     mixup_p: float = 0.0,
-    random_crop_height: int = 0,
-    random_crop_width: int = 0,
-    random_crop_p: float = 0.0,
 ) -> Tuple[torch.Tensor]:
     """Apply kornia geometric augmentation on image and instances.
 
@@ -153,9 +150,6 @@ def apply_geometric_augmentation(
         erase_p: Probability of applying random erase.
         mixup_lambda: min-max value of mixup strength. Default is 0-1. Default: `None`.
         mixup_p: Probability of applying random mixup v2.
-        random_crop_height: Desired output height of the crop. Must be int.
-        random_crop_width: Desired output width of the crop. Must be int.
-        random_crop_p: Probability of applying random crop.
 
 
     Returns:
@@ -195,19 +189,6 @@ def apply_geometric_augmentation(
                 same_on_batch=True,
             )
         )
-    if random_crop_p > 0:
-        if random_crop_height > 0 and random_crop_width > 0:
-            aug_stack.append(
-                K.augmentation.RandomCrop(
-                    size=(random_crop_height, random_crop_width),
-                    pad_if_needed=True,
-                    p=random_crop_p,
-                    keepdim=True,
-                    same_on_batch=True,
-                )
-            )
-        else:
-            raise ValueError(f"random_crop_hw height and width must be greater than 0.")
 
     augmenter = AugmentationSequential(
         *aug_stack,
@@ -350,9 +331,6 @@ class KorniaAugmenter(IterDataPipe):
         erase_p: Probability of applying random erase.
         mixup_lambda: min-max value of mixup strength. Default is 0-1. Default: `None`.
         mixup_p: Probability of applying random mixup v2.
-        random_crop_height: Desired output height of the crop. Must be int.
-        random_crop_width: Desired output width of the crop. Must be int.
-        random_crop_p: Probability of applying random crop.
         input_key: Can be `image` or `instance`. The input_key `instance` expects the
             the KorniaAugmenter to follow the InstanceCropper else `image` otherwise
             for default.
@@ -398,9 +376,6 @@ class KorniaAugmenter(IterDataPipe):
         erase_p: float = 0.0,
         mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
         mixup_p: float = 0.0,
-        random_crop_height: int = 0,
-        random_crop_width: int = 0,
-        random_crop_p: float = 0.0,
         image_key: str = "image",
         instance_key: str = "instances",
     ) -> None:
@@ -431,9 +406,6 @@ class KorniaAugmenter(IterDataPipe):
         self.erase_p = erase_p
         self.mixup_lambda = mixup_lambda
         self.mixup_p = mixup_p
-        self.random_crop_height = random_crop_height
-        self.random_crop_width = random_crop_width
-        self.random_crop_p = random_crop_p
         self.image_key = image_key
         self.instance_key = instance_key
 
@@ -505,21 +477,6 @@ class KorniaAugmenter(IterDataPipe):
                     same_on_batch=True,
                 )
             )
-        if self.random_crop_p > 0:
-            if self.random_crop_height > 0 and self.random_crop_width > 0:
-                aug_stack.append(
-                    K.augmentation.RandomCrop(
-                        size=(self.random_crop_height, self.random_crop_width),
-                        pad_if_needed=True,
-                        p=self.random_crop_p,
-                        keepdim=True,
-                        same_on_batch=True,
-                    )
-                )
-            else:
-                raise ValueError(
-                    f"random_crop_hw height and width must be greater than 0."
-                )
 
         self.augmenter = AugmentationSequential(
             *aug_stack,
