@@ -252,9 +252,6 @@ def test_centered_instance_dataset(minimal_instance):
                     "erase_p": 0.5,
                     "mixup_lambda": None,
                     "mixup_p": 0.5,
-                    "random_crop_p": 0.0,
-                    "random_crop_height": 160,
-                    "random_crop_width": 160,
                 },
             },
         }
@@ -327,9 +324,6 @@ def test_centered_instance_dataset(minimal_instance):
                     "erase_p": 0.5,
                     "mixup_lambda": None,
                     "mixup_p": 0.5,
-                    "random_crop_p": 0.0,
-                    "random_crop_height": 160,
-                    "random_crop_width": 160,
                 },
             },
         }
@@ -445,9 +439,6 @@ def test_centroid_dataset(minimal_instance):
                     "erase_p": 0.5,
                     "mixup_lambda": None,
                     "mixup_p": 0.5,
-                    "random_crop_p": 1.0,
-                    "random_crop_height": 160,
-                    "random_crop_width": 160,
                 },
             },
         }
@@ -478,8 +469,8 @@ def test_centroid_dataset(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 160, 160)
-    assert sample["centroids_confidence_maps"].shape == (1, 1, 80, 80)
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
 
 
 def test_single_instance_dataset(minimal_instance):
@@ -568,9 +559,6 @@ def test_single_instance_dataset(minimal_instance):
                     "erase_p": 0.5,
                     "mixup_lambda": None,
                     "mixup_p": 0.5,
-                    "random_crop_p": 1.0,
-                    "random_crop_height": 160,
-                    "random_crop_width": 160,
                 },
             },
         }
@@ -598,6 +586,6 @@ def test_single_instance_dataset(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["confidence_maps"].shape == (1, 2, 192, 192)
     assert sample["instances"].shape == (1, 1, 2, 2)

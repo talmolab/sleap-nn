@@ -59,9 +59,6 @@ The config file has three main sections:
             - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `None`.
             - `mixup_p`: (float) Probability of applying random mixup v2. *Default*=0.0
             - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
-            - `random_crop_p`: (float) Probability of applying random crop.
-            - `random_crop_height`: (int) Desired output height of the random crop.
-            - `random_crop_width`: (int) Desired output height of the random crop.
 - `model_config`: 
     - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
     - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
