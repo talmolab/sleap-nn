@@ -116,7 +116,7 @@ class LRSchedulerConfig:
     factor: float = 0.1
     min_lr: Any = 0.0 
 
-    def __post_init__(self):
+    def __attrs_post_init__(self):
         self.validate_min_lr()
 
     def validate_min_lr(self):

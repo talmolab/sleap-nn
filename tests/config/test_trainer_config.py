@@ -1,5 +1,6 @@
 import pytest
 from omegaconf import OmegaConf
+from omegaconf import ValidationError
 from sleap_nn.config.trainer_config import (
     DataLoaderConfig,
     ModelCkptConfig,
@@ -111,3 +112,55 @@ def test_trainer_config():
     assert custom_conf.train_data_loader.batch_size == 32
     assert custom_conf.optimizer.lr == 0.01
     assert custom_conf.use_wandb is True
+
+    ### testing validation
+
+    # max_epochs
+    with pytest.raises(ValidationError, match="max_epochs"): 
+        OmegaConf.structured(
+            TrainerConfig(
+                max_epochs = 20.2
+            )
+        )
+
+    # trainer_devices
+    with pytest.raises(ValueError, match="trainer_devices"): 
+        OmegaConf.structured(
+            TrainerConfig(
+                trainer_devices = 1.1
+            )
+        )
+    with pytest.raises(ValueError, match="trainer_devices"): 
+        OmegaConf.structured(
+            TrainerConfig(
+                trainer_devices = -1
+            )
+        )
+    with pytest.raises(ValueError, match="trainer_devices"): 
+        OmegaConf.structured(
+            TrainerConfig(
+                trainer_devices = [0,1,3,-9]
+            )
+        )
+    with pytest.raises(ValueError, match="trainer_devices"): 
+        OmegaConf.structured(
+            TrainerConfig(
+                trainer_devices = "uato"
+            )
+        )
+    
+    # LRScheduler
+    with pytest.raises(ValueError): 
+        OmegaConf.structured(
+            LRSchedulerConfig(
+                min_lr = "uato"
+            )
+        )
+    with pytest.raises(ValueError): 
+        OmegaConf.structured(
+            LRSchedulerConfig(
+                min_lr = [1.0,1.1,"uato"]
+            )
+        )
+
+        
