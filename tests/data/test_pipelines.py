@@ -149,11 +149,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             },
             "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {
-                    "random_crop_p": 0.0,
-                    "crop_height": 160,
-                    "crop_width": 160,
-                },
                 "intensity": {
                     "uniform_noise_min": 0.0,
                     "uniform_noise_max": 0.04,
@@ -229,11 +224,6 @@ def test_topdownconfmapspipeline(minimal_instance):
             },
             "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {
-                    "random_crop_p": 0.0,
-                    "crop_height": 160,
-                    "crop_width": 160,
-                },
                 "intensity": {
                     "uniform_noise_min": 0.0,
                     "uniform_noise_max": 0.04,
@@ -359,11 +349,6 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
             },
             "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {
-                    "random_crop_p": 1.0,
-                    "crop_height": 160,
-                    "crop_width": 160,
-                },
                 "intensity": {
                     "uniform_noise_min": 0.0,
                     "uniform_noise_max": 0.04,
@@ -420,8 +405,8 @@ def test_singleinstanceconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["confidence_maps"].shape == (1, 2, 192, 192)
     assert sample["instances"].shape == (1, 1, 2, 2)
 
 
@@ -476,11 +461,6 @@ def test_centroidconfmapspipeline(minimal_instance):
             },
             "use_augmentations_train": True,
             "augmentation_config": {
-                "random_crop": {
-                    "random_crop_p": 1.0,
-                    "crop_height": 160,
-                    "crop_width": 160,
-                },
                 "intensity": {
                     "uniform_noise_min": 0.0,
                     "uniform_noise_max": 0.04,
@@ -536,8 +516,8 @@ def test_centroidconfmapspipeline(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 160, 160)
-    assert sample["centroids_confidence_maps"].shape == (1, 1, 80, 80)
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
 
 
 def test_bottomuppipeline(minimal_instance):
@@ -631,160 +611,3 @@ def test_bottomuppipeline(minimal_instance):
     assert sample["image"].shape == (1, 1, 192, 192)
     assert sample["confidence_maps"].shape == (1, 2, 96, 96)
     assert sample["part_affinity_fields"].shape == (2, 48, 48)
-
-    # with padding
-    base_bottom_config = OmegaConf.create(
-        {
-            "preprocessing": {
-                "max_height": None,
-                "max_width": None,
-                "scale": 1.0,
-                "is_rgb": False,
-            },
-            "use_augmentations_train": True,
-            "augmentation_config": {
-                "random_crop": {
-                    "random_crop_p": 1.0,
-                    "crop_height": 100,
-                    "crop_width": 100,
-                },
-                "intensity": {
-                    "uniform_noise_min": 0.0,
-                    "uniform_noise_max": 0.04,
-                    "uniform_noise_p": 0.5,
-                    "gaussian_noise_mean": 0.02,
-                    "gaussian_noise_std": 0.004,
-                    "gaussian_noise_p": 0.5,
-                    "contrast_min": 0.5,
-                    "contrast_max": 2.0,
-                    "contrast_p": 0.5,
-                    "brightness": 0.0,
-                    "brightness_p": 0.5,
-                },
-                "geometric": {
-                    "rotation": 15.0,
-                    "scale": 0.05,
-                    "translate_width": 0.02,
-                    "translate_height": 0.02,
-                    "affine_p": 0.5,
-                    "erase_scale_min": 0.0001,
-                    "erase_scale_max": 0.01,
-                    "erase_ratio_min": 1,
-                    "erase_ratio_max": 1,
-                    "erase_p": 0.5,
-                    "mixup_lambda": None,
-                    "mixup_p": 0.5,
-                },
-            },
-        }
-    )
-
-    pipeline = BottomUpPipeline(
-        data_config=base_bottom_config,
-        max_stride=32,
-        confmap_head=confmap_head,
-        pafs_head=pafs_head,
-    )
-    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
-
-    datapipe = pipeline.make_training_pipeline(
-        data_provider=data_provider,
-        use_augmentations=base_bottom_config.use_augmentations_train,
-    )
-
-    gt_sample_keys = [
-        "image",
-        "video_idx",
-        "frame_idx",
-        "confidence_maps",
-        "orig_size",
-        "num_instances",
-        "part_affinity_fields",
-    ]
-
-    sample = next(iter(datapipe))
-    assert len(sample.keys()) == len(gt_sample_keys)
-
-    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
-        assert gt_key == key
-    assert sample["image"].shape == (1, 1, 128, 128)
-    assert sample["confidence_maps"].shape == (1, 2, 64, 64)
-    assert sample["part_affinity_fields"].shape == (2, 32, 32)
-
-    # with random crop
-    base_bottom_config = OmegaConf.create(
-        {
-            "preprocessing": {
-                "max_height": None,
-                "max_width": None,
-                "scale": 1.0,
-                "is_rgb": False,
-            },
-            "use_augmentations_train": True,
-            "augmentation_config": {
-                "random_crop": {
-                    "random_crop_p": 1.0,
-                    "crop_height": 160,
-                    "crop_width": 160,
-                },
-                "intensity": {
-                    "uniform_noise_min": 0.0,
-                    "uniform_noise_max": 0.04,
-                    "uniform_noise_p": 0.5,
-                    "gaussian_noise_mean": 0.02,
-                    "gaussian_noise_std": 0.004,
-                    "gaussian_noise_p": 0.5,
-                    "contrast_min": 0.5,
-                    "contrast_max": 2.0,
-                    "contrast_p": 0.5,
-                    "brightness": 0.0,
-                    "brightness_p": 0.5,
-                },
-                "geometric": {
-                    "rotation": 15.0,
-                    "scale": 0.05,
-                    "translate_width": 0.02,
-                    "translate_height": 0.02,
-                    "affine_p": 0.5,
-                    "erase_scale_min": 0.0001,
-                    "erase_scale_max": 0.01,
-                    "erase_ratio_min": 1,
-                    "erase_ratio_max": 1,
-                    "erase_p": 0.5,
-                    "mixup_lambda": None,
-                    "mixup_p": 0.5,
-                },
-            },
-        }
-    )
-
-    pipeline = BottomUpPipeline(
-        data_config=base_bottom_config,
-        max_stride=32,
-        confmap_head=confmap_head,
-        pafs_head=pafs_head,
-    )
-
-    data_provider = LabelsReaderDP(labels=sio.load_slp(minimal_instance))
-    datapipe = pipeline.make_training_pipeline(
-        data_provider=data_provider,
-        use_augmentations=base_bottom_config.use_augmentations_train,
-    )
-
-    gt_sample_keys = [
-        "image",
-        "video_idx",
-        "frame_idx",
-        "confidence_maps",
-        "orig_size",
-        "num_instances",
-        "part_affinity_fields",
-    ]
-
-    sample = next(iter(datapipe))
-    assert len(sample.keys()) == len(gt_sample_keys)
-
-    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
-        assert gt_key == key
-    assert sample["image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)

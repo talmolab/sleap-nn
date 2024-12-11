@@ -36,9 +36,6 @@ data_config:
       erase_p: 0
       mixup_lambda: null
       mixup_p: 0
-      random_crop_p: 0
-      crop_height: 160
-      crop_width: 160
 
 model_config:
   init_weights: xavier

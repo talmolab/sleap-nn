@@ -191,16 +191,6 @@ class SingleInstanceConfmapsPipeline:
                     instance_key="instances",
                 )
 
-            if "random_crop" in self.data_config.augmentation_config:
-                datapipe = KorniaAugmenter(
-                    datapipe,
-                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
-                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
-                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
-                    image_key="image",
-                    instance_key="instances",
-                )
-
         datapipe = Resizer(datapipe, scale=self.data_config.preprocessing.scale)
         datapipe = PadToStride(datapipe, max_stride=self.max_stride)
 
@@ -288,15 +278,6 @@ class CentroidConfmapsPipeline:
                 datapipe = KorniaAugmenter(
                     datapipe,
                     **dict(self.data_config.augmentation_config.geometric),
-                    image_key="image",
-                    instance_key="instances",
-                )
-            if "random_crop" in self.data_config.augmentation_config:
-                datapipe = KorniaAugmenter(
-                    datapipe,
-                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
-                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
-                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
                     image_key="image",
                     instance_key="instances",
                 )
@@ -390,16 +371,6 @@ class BottomUpPipeline:
                 datapipe = KorniaAugmenter(
                     datapipe,
                     **dict(self.data_config.augmentation_config.geometric),
-                    image_key="image",
-                    instance_key="instances",
-                )
-
-            if "random_crop" in self.data_config.augmentation_config:
-                datapipe = KorniaAugmenter(
-                    datapipe,
-                    random_crop_height=self.data_config.augmentation_config.random_crop.crop_height,
-                    random_crop_width=self.data_config.augmentation_config.random_crop.crop_width,
-                    random_crop_p=self.data_config.augmentation_config.random_crop.random_crop_p,
                     image_key="image",
                     instance_key="instances",
                 )
