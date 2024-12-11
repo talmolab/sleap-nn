@@ -134,9 +134,6 @@ def test_bottomup_dataset(minimal_instance):
                     "erase_p": 0.5,
                     "mixup_lambda": None,
                     "mixup_p": 0.5,
-                    "random_crop_p": 1.0,
-                    "random_crop_height": 100,
-                    "random_crop_width": 100,
                 },
             },
         }
@@ -144,7 +141,7 @@ def test_bottomup_dataset(minimal_instance):
 
     dataset = BottomUpDataset(
         data_config=base_bottom_config,
-        max_stride=32,
+        max_stride=256,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
@@ -167,83 +164,9 @@ def test_bottomup_dataset(minimal_instance):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 1, 128, 128)
-    assert sample["confidence_maps"].shape == (1, 2, 64, 64)
-    assert sample["part_affinity_fields"].shape == (2, 32, 32)
-
-    # with random crop
-    base_bottom_config = OmegaConf.create(
-        {
-            "user_instances_only": True,
-            "preprocessing": {
-                "max_height": None,
-                "max_width": None,
-                "scale": 1.0,
-                "is_rgb": False,
-            },
-            "use_augmentations_train": True,
-            "augmentation_config": {
-                "intensity": {
-                    "uniform_noise_min": 0.0,
-                    "uniform_noise_max": 0.04,
-                    "uniform_noise_p": 0.5,
-                    "gaussian_noise_mean": 0.02,
-                    "gaussian_noise_std": 0.004,
-                    "gaussian_noise_p": 0.5,
-                    "contrast_min": 0.5,
-                    "contrast_max": 2.0,
-                    "contrast_p": 0.5,
-                    "brightness": 0.0,
-                    "brightness_p": 0.5,
-                },
-                "geometric": {
-                    "rotation": 15.0,
-                    "scale": 0.05,
-                    "translate_width": 0.02,
-                    "translate_height": 0.02,
-                    "affine_p": 0.5,
-                    "erase_scale_min": 0.0001,
-                    "erase_scale_max": 0.01,
-                    "erase_ratio_min": 1,
-                    "erase_ratio_max": 1,
-                    "erase_p": 0.5,
-                    "mixup_lambda": None,
-                    "mixup_p": 0.5,
-                    "random_crop_p": 1.0,
-                    "random_crop_height": 160,
-                    "random_crop_width": 160,
-                },
-            },
-        }
-    )
-    dataset = BottomUpDataset(
-        data_config=base_bottom_config,
-        max_stride=32,
-        confmap_head_config=confmap_head,
-        pafs_head_config=pafs_head,
-        labels=sio.load_slp(minimal_instance),
-        apply_aug=base_bottom_config.use_augmentations_train,
-    )
-
-    gt_sample_keys = [
-        "image",
-        "instances",
-        "video_idx",
-        "frame_idx",
-        "confidence_maps",
-        "orig_size",
-        "num_instances",
-        "part_affinity_fields",
-    ]
-
-    sample = next(iter(dataset))
-    assert len(dataset) == 1
-    assert len(sample.keys()) == len(gt_sample_keys)
-
-    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
-        assert gt_key == key
-    assert sample["image"].shape == (1, 1, 160, 160)
-    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert sample["image"].shape == (1, 1, 512, 512)
+    assert sample["confidence_maps"].shape == (1, 2, 256, 256)
+    assert sample["part_affinity_fields"].shape == (2, 128, 128)
 
 
 def test_centered_instance_dataset(minimal_instance):

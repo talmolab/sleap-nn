@@ -163,9 +163,11 @@ class BottomUpDataset(BaseDataset):
 
             self.cache[lf_idx] = sample.copy()
 
+        for video in self.labels.videos:
+            video.close()
+
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
-
         sample = self.cache[index]
 
         # apply augmentation
@@ -509,6 +511,9 @@ class CentroidDataset(BaseDataset):
 
             self.cache[lf_idx] = sample.copy()
 
+        for video in self.labels.videos:
+            video.close()
+
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
         sample = self.cache[index]
@@ -627,6 +632,9 @@ class SingleInstanceDataset(BaseDataset):
             )
 
             self.cache[lf_idx] = sample.copy()
+
+        for video in self.labels.videos:
+            video.close()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
