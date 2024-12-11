@@ -61,6 +61,54 @@ class BaseDataset(Dataset):
         self.max_hw = max_hw
         self.max_instances = get_max_instances(self.labels)
 
+        self.cache = {}
+
+    def _fill_cache(self):
+        """Load all samples to cache."""
+        for lf_idx, lf in enumerate(self.labels):
+            video_idx = self._get_video_idx(lf)
+
+            # get dict
+            sample = process_lf(
+                lf,
+                video_idx=video_idx,
+                max_instances=self.max_instances,
+                user_instances_only=self.data_config.user_instances_only,
+            )
+
+            # apply normalization
+            sample["image"] = apply_normalization(sample["image"])
+
+            if self.data_config.preprocessing.is_rgb:
+                sample["image"] = convert_to_rgb(sample["image"])
+            else:
+                sample["image"] = convert_to_grayscale(sample["image"])
+
+            # size matcher
+            sample["image"], eff_scale = apply_sizematcher(
+                sample["image"],
+                max_height=self.max_hw[0],
+                max_width=self.max_hw[1],
+            )
+            sample["instances"] = sample["instances"] * eff_scale
+
+            # resize image
+            sample["image"], sample["instances"] = apply_resizer(
+                sample["image"],
+                sample["instances"],
+                scale=self.data_config.preprocessing.scale,
+            )
+
+            # Pad the image (if needed) according max stride
+            sample["image"] = apply_pad_to_stride(
+                sample["image"], max_stride=self.max_stride
+            )
+
+            self.cache[lf_idx] = sample.copy()
+
+        for video in self.labels.videos:
+            video.close()
+
     def _get_video_idx(self, lf):
         """Return indsample of `lf.video` in `labels.videos`."""
         return self.labels.videos.index(lf.video)
@@ -117,54 +165,7 @@ class BottomUpDataset(BaseDataset):
         self.pafs_head_config = pafs_head_config
 
         self.edge_inds = self.labels.skeletons[0].edge_inds
-        self.cache = {}
         self._fill_cache()
-
-    def _fill_cache(self):
-        """Load all samples to cache."""
-        for lf_idx, lf in enumerate(self.labels):
-            video_idx = self._get_video_idx(lf)
-
-            # get dict
-            sample = process_lf(
-                lf,
-                video_idx=video_idx,
-                max_instances=self.max_instances,
-                user_instances_only=self.data_config.user_instances_only,
-            )
-
-            # apply normalization
-            sample["image"] = apply_normalization(sample["image"])
-
-            if self.data_config.preprocessing.is_rgb:
-                sample["image"] = convert_to_rgb(sample["image"])
-            else:
-                sample["image"] = convert_to_grayscale(sample["image"])
-
-            # size matcher
-            sample["image"], eff_scale = apply_sizematcher(
-                sample["image"],
-                max_height=self.max_hw[0],
-                max_width=self.max_hw[1],
-            )
-            sample["instances"] = sample["instances"] * eff_scale
-
-            # resize image
-            sample["image"], sample["instances"] = apply_resizer(
-                sample["image"],
-                sample["instances"],
-                scale=self.data_config.preprocessing.scale,
-            )
-
-            # Pad the image (if needed) according max stride
-            sample["image"] = apply_pad_to_stride(
-                sample["image"], max_stride=self.max_stride
-            )
-
-            self.cache[lf_idx] = sample.copy()
-
-        for video in self.labels.videos:
-            video.close()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
@@ -259,7 +260,6 @@ class CenteredInstanceDataset(BaseDataset):
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list()
         self.cache_lf = [None, None]
-        self.cache = {}
         self._fill_cache()
 
     def _fill_cache(self):
@@ -458,7 +458,6 @@ class CentroidDataset(BaseDataset):
             max_hw=max_hw,
         )
         self.confmap_head_config = confmap_head_config
-        self.cache = {}
         self._fill_cache()
 
     def _fill_cache(self):
@@ -587,54 +586,7 @@ class SingleInstanceDataset(BaseDataset):
             max_hw=max_hw,
         )
         self.confmap_head_config = confmap_head_config
-        self.cache = {}
         self._fill_cache()
-
-    def _fill_cache(self):
-        """Load all samples to cache."""
-        for lf_idx, lf in enumerate(self.labels):
-            video_idx = self._get_video_idx(lf)
-
-            # get dict
-            sample = process_lf(
-                lf,
-                video_idx=video_idx,
-                max_instances=1,
-                user_instances_only=self.data_config.user_instances_only,
-            )
-
-            # apply normalization
-            sample["image"] = apply_normalization(sample["image"])
-
-            if self.data_config.preprocessing.is_rgb:
-                sample["image"] = convert_to_rgb(sample["image"])
-            else:
-                sample["image"] = convert_to_grayscale(sample["image"])
-
-            # size matcher
-            sample["image"], eff_scale = apply_sizematcher(
-                sample["image"],
-                max_height=self.max_hw[0],
-                max_width=self.max_hw[1],
-            )
-            sample["instances"] = sample["instances"] * eff_scale
-
-            # resize image
-            sample["image"], sample["instances"] = apply_resizer(
-                sample["image"],
-                sample["instances"],
-                scale=self.data_config.preprocessing.scale,
-            )
-
-            # Pad the image (if needed) according max stride
-            sample["image"] = apply_pad_to_stride(
-                sample["image"], max_stride=self.max_stride
-            )
-
-            self.cache[lf_idx] = sample.copy()
-
-        for video in self.labels.videos:
-            video.close()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
