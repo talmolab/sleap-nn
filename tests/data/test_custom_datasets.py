@@ -8,7 +8,7 @@ from sleap_nn.data.custom_datasets import (
 )
 
 
-def test_bottomup_dataset(minimal_instance):
+def test_bottomup_dataset(minimal_instance, tmp_path):
     """Test BottomUpDataset class."""
     base_bottom_config = OmegaConf.create(
         {
@@ -168,8 +168,39 @@ def test_bottomup_dataset(minimal_instance):
     assert sample["confidence_maps"].shape == (1, 2, 256, 256)
     assert sample["part_affinity_fields"].shape == (2, 128, 128)
 
+    ## test with np chunks
+    dataset = BottomUpDataset(
+        data_config=base_bottom_config,
+        max_stride=32,
+        confmap_head_config=confmap_head,
+        pafs_head_config=pafs_head,
+        labels=sio.load_slp(minimal_instance),
+        apply_aug=base_bottom_config.use_augmentations_train,
+        np_chunks=True,
+        np_chunks_path=f"{tmp_path}/np_chunks",
+    )
 
-def test_centered_instance_dataset(minimal_instance):
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "video_idx",
+        "frame_idx",
+        "confidence_maps",
+        "orig_size",
+        "num_instances",
+        "part_affinity_fields",
+    ]
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["confidence_maps"].shape == (1, 2, 192, 192)
+    assert sample["part_affinity_fields"].shape == (2, 96, 96)
+
+
+def test_centered_instance_dataset(minimal_instance, tmp_path):
     """Test the CenteredInstanceDataset."""
     crop_hw = (160, 160)
     base_topdown_data_config = OmegaConf.create(
@@ -186,6 +217,39 @@ def test_centered_instance_dataset(minimal_instance):
     )
 
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+
+    ## npz chunks
+    dataset = CenteredInstanceDataset(
+        data_config=base_topdown_data_config,
+        max_stride=16,
+        confmap_head_config=confmap_head,
+        crop_hw=crop_hw,
+        labels=sio.load_slp(minimal_instance),
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+        np_chunks=True,
+        np_chunks_path=f"{tmp_path}/np_chunks",
+    )
+
+    gt_sample_keys = [
+        "centroid",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+        "frame_idx",
+        "video_idx",
+        "orig_size",
+        "num_instances",
+    ]
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 160, 160)
+    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+
+    ## no chunks
 
     dataset = CenteredInstanceDataset(
         data_config=base_topdown_data_config,
@@ -360,7 +424,7 @@ def test_centered_instance_dataset(minimal_instance):
     assert sample["confidence_maps"].shape == (1, 2, 104, 104)
 
 
-def test_centroid_dataset(minimal_instance):
+def test_centroid_dataset(minimal_instance, tmp_path):
     """Test CentroidDataset class."""
     base_centroid_data_config = OmegaConf.create(
         {
@@ -375,6 +439,37 @@ def test_centroid_dataset(minimal_instance):
         }
     )
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+
+    ## np chunks
+    dataset = CentroidDataset(
+        data_config=base_centroid_data_config,
+        max_stride=32,
+        confmap_head_config=confmap_head,
+        apply_aug=base_centroid_data_config.use_augmentations_train,
+        labels=sio.load_slp(minimal_instance),
+        np_chunks=True,
+        np_chunks_path=f"{tmp_path}/np_chunks",
+    )
+
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "centroids",
+        "video_idx",
+        "frame_idx",
+        "centroids_confidence_maps",
+        "orig_size",
+        "num_instances",
+    ]
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 3, 384, 384)
+    assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
+
+    ## no chunks
 
     dataset = CentroidDataset(
         data_config=base_centroid_data_config,
@@ -473,7 +568,7 @@ def test_centroid_dataset(minimal_instance):
     assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
 
 
-def test_single_instance_dataset(minimal_instance):
+def test_single_instance_dataset(minimal_instance, tmp_path):
     """Test the SingleInstanceDataset."""
     labels = sio.load_slp(minimal_instance)
 
@@ -495,6 +590,37 @@ def test_single_instance_dataset(minimal_instance):
     )
 
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+
+    ## np chunks
+    dataset = SingleInstanceDataset(
+        data_config=base_singleinstance_data_config,
+        max_stride=8,
+        confmap_head_config=confmap_head,
+        labels=labels,
+        apply_aug=base_singleinstance_data_config.use_augmentations_train,
+        np_chunks=True,
+        np_chunks_path=f"{tmp_path}/np_chunks",
+    )
+
+    sample = next(iter(dataset))
+    assert len(dataset) == 1
+
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "video_idx",
+        "frame_idx",
+        "num_instances",
+        "confidence_maps",
+        "orig_size",
+    ]
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 3, 768, 768)
+    assert sample["confidence_maps"].shape == (1, 2, 384, 384)
+
+    ## no chunks
 
     dataset = SingleInstanceDataset(
         data_config=base_singleinstance_data_config,

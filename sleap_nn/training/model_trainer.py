@@ -83,13 +83,27 @@ class ModelTrainer:
                 (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`]
+        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`]
     """
 
-    def __init__(self, config: OmegaConf, data_pipeline_fw: str = "litdata"):
+    def __init__(
+        self,
+        config: OmegaConf,
+        data_pipeline_fw: str = "litdata",
+        np_chunks_path: Optional[str] = None,
+    ):
         """Initialise the class with configs and set the seed and device as class attributes."""
         self.config = config
         self.data_pipeline_fw = data_pipeline_fw
+        self.np_chunks = True if "np_chunks" in self.data_pipeline_fw else False
+        self.train_np_chunks_path = (
+            Path(np_chunks_path) / "train_chunks"
+            if np_chunks_path is not None
+            else None
+        )
+        self.val_np_chunks_path = (
+            Path(np_chunks_path) / "val_chunks" if np_chunks_path is not None else None
+        )
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
@@ -191,6 +205,8 @@ class ModelTrainer:
                 max_stride=self.config.model_config.backbone_config.max_stride,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = BottomUpDataset(
                 labels=sio.load_slp(self.config.data_config.val_labels_path),
@@ -200,6 +216,8 @@ class ModelTrainer:
                 max_stride=self.config.model_config.backbone_config.max_stride,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.val_np_chunks_path,
             )
 
         elif self.model_type == "centered_instance":
@@ -211,6 +229,8 @@ class ModelTrainer:
                 apply_aug=self.config.data_config.use_augmentations_train,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = CenteredInstanceDataset(
                 labels=sio.load_slp(self.config.data_config.val_labels_path),
@@ -220,6 +240,8 @@ class ModelTrainer:
                 apply_aug=False,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.val_np_chunks_path,
             )
 
         elif self.model_type == "centroid":
@@ -230,6 +252,8 @@ class ModelTrainer:
                 max_stride=self.config.model_config.backbone_config.max_stride,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = CentroidDataset(
                 labels=sio.load_slp(self.config.data_config.val_labels_path),
@@ -238,6 +262,8 @@ class ModelTrainer:
                 max_stride=self.config.model_config.backbone_config.max_stride,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.val_np_chunks_path,
             )
 
         elif self.model_type == "single_instance":
@@ -248,6 +274,8 @@ class ModelTrainer:
                 max_stride=self.config.model_config.backbone_config.max_stride,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = SingleInstanceDataset(
                 labels=sio.load_slp(self.config.data_config.val_labels_path),
@@ -256,6 +284,8 @@ class ModelTrainer:
                 max_stride=self.config.model_config.backbone_config.max_stride,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
+                np_chunks=self.np_chunks,
+                np_chunks_path=self.val_np_chunks_path,
             )
 
         else:
@@ -270,6 +300,17 @@ class ModelTrainer:
             shuffle=self.config.trainer_config.train_data_loader.shuffle,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
+            pin_memory=True,
+            persistent_workers=(
+                True
+                if self.config.trainer_config.train_data_loader.num_workers > 0
+                else None
+            ),
+            prefetch_factor=(
+                self.config.trainer_config.train_data_loader.batch_size
+                if self.config.trainer_config.train_data_loader.num_workers > 0
+                else None
+            ),
         )
 
         # val
@@ -278,6 +319,17 @@ class ModelTrainer:
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
+            pin_memory=True,
+            persistent_workers=(
+                True
+                if self.config.trainer_config.val_data_loader.num_workers > 0
+                else None
+            ),
+            prefetch_factor=(
+                self.config.trainer_config.val_data_loader.batch_size
+                if self.config.trainer_config.val_data_loader.num_workers > 0
+                else None
+            ),
         )
 
     def _create_data_loaders_litdata(
@@ -463,6 +515,17 @@ class ModelTrainer:
             train_dataset,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
+            pin_memory=True,
+            persistent_workers=(
+                True
+                if self.config.trainer_config.train_data_loader.num_workers > 0
+                else None
+            ),
+            prefetch_factor=(
+                self.config.trainer_config.train_data_loader.batch_size
+                if self.config.trainer_config.train_data_loader.num_workers > 0
+                else None
+            ),
         )
 
         # val
@@ -470,6 +533,17 @@ class ModelTrainer:
             val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
+            pin_memory=True,
+            persistent_workers=(
+                True
+                if self.config.trainer_config.val_data_loader.num_workers > 0
+                else None
+            ),
+            prefetch_factor=(
+                self.config.trainer_config.val_data_loader.batch_size
+                if self.config.trainer_config.val_data_loader.num_workers > 0
+                else None
+            ),
         )
 
     def _set_wandb(self):
@@ -579,7 +653,10 @@ class ModelTrainer:
         if self.data_pipeline_fw == "litdata":
             self._create_data_loaders_litdata(chunks_dir_path)
 
-        elif self.data_pipeline_fw == "torch_dataset":
+        elif (
+            self.data_pipeline_fw == "torch_dataset"
+            or self.data_pipeline_fw == "torch_dataset_np_chunks"
+        ):
             self._create_data_loaders_torch_dataset()
 
         else:
@@ -622,6 +699,20 @@ class ModelTrainer:
             OmegaConf.save(
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
+
+            if self.np_chunks:
+                if (self.train_np_chunks_path).exists():
+                    shutil.rmtree(
+                        (self.train_np_chunks_path).as_posix(),
+                        ignore_errors=True,
+                    )
+
+                if (self.val_np_chunks_path).exists():
+                    shutil.rmtree(
+                        (self.val_np_chunks_path).as_posix(),
+                        ignore_errors=True,
+                    )
+
             # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
             if self.data_pipeline_fw == "litdata" and delete_bin_files_after_training:
                 print("Deleting training and validation files...")
