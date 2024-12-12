@@ -84,6 +84,7 @@ class ModelTrainer:
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`]
+        np_chunks_path: Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework.
     """
 
     def __init__(
@@ -577,6 +578,7 @@ class ModelTrainer:
         head_trained_ckpts_path: Optional[str] = None,
         delete_bin_files_after_training: bool = True,
         chunks_dir_path: Optional[str] = None,
+        delete_np_chunks_after_training: bool = True,
     ):
         """Initiate the training by calling the fit method of Trainer.
 
@@ -589,6 +591,8 @@ class ModelTrainer:
                 training. Else, the `bin` files are deleted.
             chunks_dir_path: Path to chunks dir (this dir should contain `train_chunks`
                 and `val_chunks` folder.). If `None`, `bin` files are generated.
+            delete_np_chunks_after_training: If `False`, the numpy chunks are retained after
+                training. Else, the numpy chunks are deleted.
 
         """
         logger = []
@@ -700,7 +704,7 @@ class ModelTrainer:
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
 
-            if self.np_chunks:
+            if self.np_chunks and delete_np_chunks_after_training:
                 if (self.train_np_chunks_path).exists():
                     shutil.rmtree(
                         (self.train_np_chunks_path).as_posix(),
