@@ -43,6 +43,21 @@ def test_create_data_loader_torch_dataset(config, tmp_path):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
+    # with np chunks
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    model_trainer = ModelTrainer(
+        config_copy,
+        data_pipeline_fw="torch_dataset_np_chunks",
+        np_chunks_path=f"{tmp_path}/np_chunks/",
+    )
+    model_trainer._create_data_loaders_torch_dataset()
+    assert len(list(iter(model_trainer.train_data_loader))) == 2
+    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    sample = next(iter(model_trainer.train_data_loader))
+    assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
+
     # test exception
     config_copy = config.copy()
     head_config = config_copy.model_config.head_configs.centered_instance
@@ -319,7 +334,11 @@ def test_trainer_torch_dataset(config, tmp_path: str):
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
 
-    model_trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
+    model_trainer = ModelTrainer(
+        config,
+        data_pipeline_fw="torch_dataset_np_chunks",
+        np_chunks_path=f"{tmp_path}/np_chunks/",
+    )
     model_trainer.train()
 
     # disable ckpt, check if ckpt is created
