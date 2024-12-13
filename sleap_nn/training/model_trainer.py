@@ -681,16 +681,17 @@ class ModelTrainer:
         )
 
         try:
+            if self.config.trainer_config.use_wandb:
+                wandb_logger.experiment.config.update({"run_name": wandb_config.name})
+                wandb_logger.experiment.config.update(dict(self.config))
+                wandb_logger.experiment.config.update({"model_params": total_params})
+
             self.trainer.fit(
                 self.model,
                 self.train_data_loader,
                 self.val_data_loader,
                 ckpt_path=self.config.trainer_config.resume_ckpt_path,
             )
-
-            if self.config.trainer_config.use_wandb:
-                wandb_logger.experiment.config.update(dict(self.config))
-                wandb_logger.experiment.config.update({"model_params": total_params})
 
         except KeyboardInterrupt:
             print("Stopping training...")
