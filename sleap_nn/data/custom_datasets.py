@@ -619,16 +619,16 @@ class CentroidDataset(BaseDataset):
         # apply augmentation
         if self.apply_aug:
             if "intensity" in self.data_config.augmentation_config:
-                sample["image"], sample["instances"] = apply_intensity_augmentation(
+                sample["image"], sample["centroids"] = apply_intensity_augmentation(
                     sample["image"],
-                    sample["instances"],
+                    sample["centroids"],
                     **self.data_config.augmentation_config.intensity,
                 )
 
             if "geometric" in self.data_config.augmentation_config:
-                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                sample["image"], sample["centroids"] = apply_geometric_augmentation(
                     sample["image"],
-                    sample["instances"],
+                    sample["centroids"],
                     **self.data_config.augmentation_config.geometric,
                 )
 
