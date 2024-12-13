@@ -1,9 +1,12 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
 from kornia.geometry.transform import crop_and_resize
+from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
+from PIL import Image
+
 import torch
 import torchvision.transforms as T
 from torch.utils.data import Dataset
@@ -16,7 +19,7 @@ from sleap_nn.data.normalization import (
     convert_to_rgb,
 )
 from sleap_nn.data.providers import get_max_instances, get_max_height_width, process_lf
-from sleap_nn.data.resizing import apply_sizematcher, apply_resizer
+from sleap_nn.data.resizing import apply_pad_to_stride, apply_sizematcher, apply_resizer
 from sleap_nn.data.augmentation import (
     apply_geometric_augmentation,
     apply_intensity_augmentation,
@@ -24,8 +27,6 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
-from sleap_nn.data.normalization import apply_normalization
-from sleap_nn.data.resizing import apply_pad_to_stride, apply_resizer
 
 
 class BaseDataset(Dataset):
@@ -42,6 +43,9 @@ class BaseDataset(Dataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
+        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
+            these chunks during training. Else, in-memory caching is used.
+        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
     """
 
     def __init__(
@@ -51,6 +55,8 @@ class BaseDataset(Dataset):
         max_stride: int,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
+        np_chunks: bool = False,
+        np_chunks_path: Optional[str] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
@@ -60,7 +66,20 @@ class BaseDataset(Dataset):
         self.apply_aug = apply_aug
         self.max_hw = max_hw
         self.max_instances = get_max_instances(self.labels)
+        self.np_chunks = np_chunks
+        self.np_chunks_path = np_chunks_path
+        if self.np_chunks_path is None:
+            self.np_chunks_path = "."
+        path = (
+            Path(self.np_chunks_path)
+            if isinstance(self.np_chunks_path, str)
+            else self.np_chunks_path
+        )
+        if not path.is_dir():
+            path.mkdir(parents=True, exist_ok=True)
 
+        self.transform_to_pil = T.ToPILImage()
+        self.transform_pil_to_tensor = T.ToTensor()
         self.cache = {}
 
     def _fill_cache(self):
@@ -104,7 +123,15 @@ class BaseDataset(Dataset):
                 sample["image"], max_stride=self.max_stride
             )
 
-            self.cache[lf_idx] = sample.copy()
+            if self.np_chunks:
+                sample["image"] = self.transform_to_pil(sample["image"].squeeze(dim=0))
+                for k, v in sample.items():
+                    if k != "image" and isinstance(v, torch.Tensor):
+                        sample[k] = v.numpy()
+                np.savez_compressed(f"{self.np_chunks_path}/sample_{lf_idx}", **sample)
+
+            else:
+                self.cache[lf_idx] = sample.copy()
 
         for video in self.labels.videos:
             video.close()
@@ -141,6 +168,9 @@ class BottomUpDataset(BaseDataset):
         pafs_head_config: DictConfig object with all the keys in the `head_config` section
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type )
             for PAFs.
+        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
+            these chunks during training. Else, in-memory caching is used.
+        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
     """
 
     def __init__(
@@ -152,6 +182,8 @@ class BottomUpDataset(BaseDataset):
         max_stride: int,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
+        np_chunks: bool = False,
+        np_chunks_path: Optional[str] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -160,6 +192,8 @@ class BottomUpDataset(BaseDataset):
             max_stride=max_stride,
             apply_aug=apply_aug,
             max_hw=max_hw,
+            np_chunks=np_chunks,
+            np_chunks_path=np_chunks_path,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
@@ -169,7 +203,18 @@ class BottomUpDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
-        sample = self.cache[index]
+        if self.np_chunks:
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            sample = {}
+            for k, v in ex.items():
+                if k != "image":
+                    sample[k] = torch.from_numpy(v)
+                else:
+                    sample[k] = self.transform_pil_to_tensor(
+                        Image.fromarray(ex["image"])
+                    ).unsqueeze(dim=0)
+        else:
+            sample = self.cache[index]
 
         # apply augmentation
         if self.apply_aug:
@@ -229,6 +274,9 @@ class CenteredInstanceDataset(BaseDataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
+        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
+            these chunks during training. Else, in-memory caching is used.
+        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         crop_hw: Height and width of the crop in pixels.
@@ -247,6 +295,8 @@ class CenteredInstanceDataset(BaseDataset):
         max_stride: int,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
+        np_chunks: bool = False,
+        np_chunks_path: Optional[str] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -255,6 +305,8 @@ class CenteredInstanceDataset(BaseDataset):
             max_stride=max_stride,
             apply_aug=apply_aug,
             max_hw=max_hw,
+            np_chunks=np_chunks,
+            np_chunks_path=np_chunks_path,
         )
         self.crop_hw = crop_hw
         self.confmap_head_config = confmap_head_config
@@ -336,7 +388,17 @@ class CenteredInstanceDataset(BaseDataset):
             sample["num_instances"] = num_instances
             sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
 
-            self.cache[idx] = sample.copy()
+            if self.np_chunks:
+                sample["instance_image"] = self.transform_to_pil(
+                    sample["instance_image"].squeeze(dim=0)
+                )
+                for k, v in sample.items():
+                    if k != "instance_image" and isinstance(v, torch.Tensor):
+                        sample[k] = v.numpy()
+                np.savez_compressed(f"{self.np_chunks_path}/sample_{idx}", **sample)
+
+            else:
+                self.cache[idx] = sample.copy()
 
         for video in self.labels.videos:
             video.close()
@@ -355,7 +417,18 @@ class CenteredInstanceDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
-        sample = self.cache[index]
+        if self.np_chunks:
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            sample = {}
+            for k, v in ex.items():
+                if k != "instance_image":
+                    sample[k] = torch.from_numpy(v)
+                else:
+                    sample[k] = self.transform_pil_to_tensor(
+                        Image.fromarray(ex["instance_image"])
+                    ).unsqueeze(dim=0)
+        else:
+            sample = self.cache[index]
 
         # apply augmentation
         if self.apply_aug:
@@ -436,6 +509,9 @@ class CentroidDataset(BaseDataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
+        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
+            these chunks during training. Else, in-memory caching is used.
+        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
     """
@@ -448,6 +524,8 @@ class CentroidDataset(BaseDataset):
         max_stride: int,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
+        np_chunks: bool = False,
+        np_chunks_path: Optional[str] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -456,6 +534,8 @@ class CentroidDataset(BaseDataset):
             max_stride=max_stride,
             apply_aug=apply_aug,
             max_hw=max_hw,
+            np_chunks=np_chunks,
+            np_chunks_path=np_chunks_path,
         )
         self.confmap_head_config = confmap_head_config
         self._fill_cache()
@@ -508,28 +588,47 @@ class CentroidDataset(BaseDataset):
                 sample["image"], max_stride=self.max_stride
             )
 
-            self.cache[lf_idx] = sample.copy()
+            if self.np_chunks:
+                sample["image"] = self.transform_to_pil(sample["image"].squeeze(dim=0))
+                for k, v in sample.items():
+                    if k != "image" and isinstance(v, torch.Tensor):
+                        sample[k] = v.numpy()
+                np.savez_compressed(f"{self.np_chunks_path}/sample_{lf_idx}", **sample)
+
+            else:
+                self.cache[lf_idx] = sample.copy()
 
         for video in self.labels.videos:
             video.close()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
-        sample = self.cache[index]
+        if self.np_chunks:
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            sample = {}
+            for k, v in ex.items():
+                if k != "image":
+                    sample[k] = torch.from_numpy(v)
+                else:
+                    sample[k] = self.transform_pil_to_tensor(
+                        Image.fromarray(ex["image"])
+                    ).unsqueeze(dim=0)
+        else:
+            sample = self.cache[index]
 
         # apply augmentation
         if self.apply_aug:
             if "intensity" in self.data_config.augmentation_config:
-                sample["image"], sample["instances"] = apply_intensity_augmentation(
+                sample["image"], sample["centroids"] = apply_intensity_augmentation(
                     sample["image"],
-                    sample["instances"],
+                    sample["centroids"],
                     **self.data_config.augmentation_config.intensity,
                 )
 
             if "geometric" in self.data_config.augmentation_config:
-                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                sample["image"], sample["centroids"] = apply_geometric_augmentation(
                     sample["image"],
-                    sample["instances"],
+                    sample["centroids"],
                     **self.data_config.augmentation_config.geometric,
                 )
 
@@ -564,6 +663,9 @@ class SingleInstanceDataset(BaseDataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
+        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
+            these chunks during training. Else, in-memory caching is used.
+        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
     """
@@ -576,6 +678,8 @@ class SingleInstanceDataset(BaseDataset):
         max_stride: int,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
+        np_chunks: bool = False,
+        np_chunks_path: Optional[str] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -584,13 +688,26 @@ class SingleInstanceDataset(BaseDataset):
             max_stride=max_stride,
             apply_aug=apply_aug,
             max_hw=max_hw,
+            np_chunks=np_chunks,
+            np_chunks_path=np_chunks_path,
         )
         self.confmap_head_config = confmap_head_config
         self._fill_cache()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
-        sample = self.cache[index]
+        if self.np_chunks:
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            sample = {}
+            for k, v in ex.items():
+                if k != "image":
+                    sample[k] = torch.from_numpy(v)
+                else:
+                    sample[k] = self.transform_pil_to_tensor(
+                        Image.fromarray(ex["image"])
+                    ).unsqueeze(dim=0)
+        else:
+            sample = self.cache[index]
 
         # apply augmentation
         if self.apply_aug:
