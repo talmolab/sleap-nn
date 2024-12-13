@@ -114,7 +114,7 @@ class LRSchedulerConfig:
     cooldown: int = 0
     patience: int = 10
     factor: float = 0.1
-    min_lr: Any = 0.0 
+    min_lr: Any = 0.0
 
     def __attrs_post_init__(self):
         self.validate_min_lr()
@@ -122,7 +122,9 @@ class LRSchedulerConfig:
     def validate_min_lr(self):
         if isinstance(self.min_lr, float):
             return
-        if isinstance(self.min_lr, list) and all(isinstance(x, float) for x in self.min_lr):
+        if isinstance(self.min_lr, list) and all(
+            isinstance(x, float) for x in self.min_lr
+        ):
             return
         raise ValueError("min_lr must be a float or a list of floats.")
 
@@ -200,7 +202,9 @@ class TrainerConfig:
         """Validate the value of trainer_devices."""
         if isinstance(self.trainer_devices, int) and self.trainer_devices >= 0:
             return
-        if isinstance(self.trainer_devices, list) and all(isinstance(x, int) and x >= 0 for x in self.trainer_devices):
+        if isinstance(self.trainer_devices, list) and all(
+            isinstance(x, int) and x >= 0 for x in self.trainer_devices
+        ):
             return
         if isinstance(self.trainer_devices, str) and self.trainer_devices == "auto":
             return
