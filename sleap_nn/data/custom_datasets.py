@@ -381,7 +381,7 @@ class CenteredInstanceDataset(BaseDataset):
             )  # crop extra for rotation augmentation
             crop_size = crop_size.astype(np.int32).tolist()
 
-            sample = generate_crops(image, instance, centroid, self.crop_hw)
+            sample = generate_crops(image, instance, centroid, crop_size)
 
             sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
             sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
