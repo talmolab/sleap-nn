@@ -1,6 +1,6 @@
 import attrs
 from omegaconf import MISSING
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Any
 
 
 """Serializable configuration classes for specifying all data configuration parameters.
@@ -8,37 +8,6 @@ from typing import Optional, Tuple, List, Dict
 These configuration classes are intended to specify all 
 the parameters required to initialize the data config.
 """
-
-
-@attrs.define
-class DataConfig:
-    """Data configuration.
-
-    provider: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
-    train_labels_path: (str) Path to training data (.slp file)
-    val_labels_path: (str) Path to validation data (.slp file)
-    user_instances_only: (bool) True if only user labeled instances should be used for training. If False, both user labeled and predicted instances would be used. Default: True.
-    chunk_size: (int) Size of each chunk (in MB). Default: "100". #TODO: change in inference ckpts
-    preprocessing: Configuration options related to data preprocessing.
-    use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
-    augmentation_config: Configurations related to augmentation
-    instance_cropping: Configuration options related to instance cropping for centroid
-        and topdown models.
-    """
-
-    provider: str = "LabelsReader"
-    train_labels_path: str = MISSING
-    val_labels_path: str = MISSING
-    user_instances_only: bool = True
-    chunk_size: int = 100
-    preprocessing: PreprocessingConfig = attrs.field(factory=PreprocessingConfig)
-    use_augmentations_train: bool = False
-    augmentation_config: Optional[AugmentationConfig] = None
-
-
-def validate_proportion(instance, attribute, value):
-    if not (0.0 <= value <= 1.0):
-        raise ValueError(f"{attribute.name} must be between 0.0 and 1.0, got {value}")
 
 
 @attrs.define
@@ -57,22 +26,28 @@ class PreprocessingConfig:
     is_rgb: bool = True
     max_height: Optional[int] = None
     max_width: Optional[int] = None
-    scale: Union[float, Tuple[float, float]] = 1.0
+    scale: Any = 1.0
     crop_hw: Optional[Tuple[int, int]] = None
     min_crop_size: int = 32  # to help app work incase of error
 
+    def __attrs_post_init__(self):
+        self.validate_scale()
 
-@attrs.define
-class AugmentationConfig:
-    """Configuration of Augmentation
+    def validate_scale(self):
+        if isinstance(self.scale, float) and self.scale >= 0:
+            return
+        if isinstance(self.scale, list) and all(
+            isinstance(x, float) and x >= 0 for x in self.scale
+        ):
+            return
+        raise ValueError(
+            "PreprocessingConfig's scale must be a float or a list of floats."
+        )
 
-    Attributes:
-        intensity: (Optional)
-        geometric: (Optional)
-    """
 
-    intensity: Optional[IntensityConfig] = attrs.field(default=None)
-    geometric: Optional[GeometricConfig] = attrs.field(default=None)
+def validate_proportion(instance, attribute, value):
+    if not (0.0 <= value <= 1.0):
+        raise ValueError(f"{attribute.name} must be between 0.0 and 1.0, got {value}")
 
 
 @attrs.define
@@ -150,3 +125,42 @@ class GeometricConfig:
     random_crop_p: Optional[float] = None
     random_crop_height: Optional[int] = None
     random_crop_width: Optional[int] = None
+
+
+@attrs.define
+class AugmentationConfig:
+    """Configuration of Augmentation
+
+    Attributes:
+        intensity: (Optional)
+        geometric: (Optional)
+    """
+
+    intensity: Optional[IntensityConfig] = attrs.field(default=None)
+    geometric: Optional[GeometricConfig] = attrs.field(default=None)
+
+
+@attrs.define
+class DataConfig:
+    """Data configuration.
+
+    provider: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
+    train_labels_path: (str) Path to training data (.slp file)
+    val_labels_path: (str) Path to validation data (.slp file)
+    user_instances_only: (bool) True if only user labeled instances should be used for training. If False, both user labeled and predicted instances would be used. Default: True.
+    chunk_size: (int) Size of each chunk (in MB). Default: "100". #TODO: change in inference ckpts
+    preprocessing: Configuration options related to data preprocessing.
+    use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
+    augmentation_config: Configurations related to augmentation
+    instance_cropping: Configuration options related to instance cropping for centroid
+        and topdown models.
+    """
+
+    provider: str = "LabelsReader"
+    train_labels_path: str = MISSING
+    val_labels_path: str = MISSING
+    user_instances_only: bool = True
+    chunk_size: int = 100
+    preprocessing: PreprocessingConfig = attrs.field(factory=PreprocessingConfig)
+    use_augmentations_train: bool = False
+    augmentation_config: Optional[AugmentationConfig] = None
