@@ -2,7 +2,6 @@ import pytest
 from omegaconf import OmegaConf, ValidationError
 from attrs import fields
 
-# Import the classes from your file
 from sleap_nn.config.data_config import (
     DataConfig,
     PreprocessingConfig,
@@ -14,7 +13,7 @@ from sleap_nn.config.data_config import (
 
 
 def test_data_config_initialization():
-    # Test that DataConfig initializes correctly with default values.
+    """Test that DataConfig initializes correctly with default values."""
     config = DataConfig(train_labels_path="train.slp", val_labels_path="val.slp")
     assert config.provider == "LabelsReader"
     assert config.train_labels_path == "train.slp"
