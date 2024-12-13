@@ -1,6 +1,6 @@
 import attrs
 from omegaconf import OmegaConf
-from typing import Optional, Union, List, Text, Any
+from typing import Optional, List, Text, Any
 
 
 """Serializable configuration classes for specifying all training job parameters.
