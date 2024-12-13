@@ -639,6 +639,7 @@ class ModelTrainer:
                 name=wandb_config.name,
                 save_dir=self.dir_path,
                 id=self.config.trainer_config.wandb.prv_runid,
+                group=self.config.trainer_config.wandb.group,
             )
             logger.append(wandb_logger)
 
