@@ -186,6 +186,7 @@ class ModelTrainer:
                     train_labels,
                     maximum_stride=self.max_stride,
                     min_crop_size=min_crop_size,
+                    input_scaling=self.config.data_config.preprocessing.scale,
                 )
                 self.crop_hw = crop_size
                 self.config.data_config.preprocessing.crop_hw = (
