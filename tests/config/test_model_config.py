@@ -23,6 +23,7 @@ def default_config():
     return ModelConfig(
                         init_weight="default", 
                         pre_trained_weights=None,
+                        backbone_type="unet",
                         backbone_config=BackboneConfig(),
                         head_configs=HeadConfig()
                         )
@@ -33,23 +34,15 @@ def test_default_initialization(default_config):
     assert default_config.init_weight == "default"
     assert default_config.pre_trained_weights == None
 
-# def test_invalid_pre_trained_weights():
-#     """Test validation failure with an invalid pre_trained_weights."""
-#     with pytest.raises(ValueError):
-#         ModelConfig(pre_trained_weights="weights")
+def test_invalid_pre_trained_weights():
+    """Test validation failure with an invalid pre_trained_weights."""
+    with pytest.raises(ValueError):
+        ModelConfig(pre_trained_weights="here", backbone_type="unet")
 
-# def test_invalid_input_size():
-#     """Test validation failure with an invalid input_size."""
-#     with pytest.raises(ValueError, match="input_size must be a tuple of two positive integers"):
-#         ModelConfig(model_type="default", input_size=(224, -1), num_classes=10)
-
-#     with pytest.raises(ValueError, match="input_size must be a tuple of two positive integers"):
-#         ModelConfig(model_type="default", input_size="224,224", num_classes=10)
-
-# def test_invalid_num_classes():
-#     """Test validation failure with an invalid num_classes."""
-#     with pytest.raises(ValueError, match="num_classes must be a positive integer"):
-#         ModelConfig(model_type="default", input_size=(224, 224), num_classes=-5)
+def test_invalid_backbonetype():
+    """Test validation failure with an invalid pre_trained_weights."""
+    with pytest.raises(ValueError, match='backbone_type must be one of "unet", "convnext", "swint"'):
+        ModelConfig(backbone_type="net")
 
 # def test_update_config(default_config):
 #     """Test updating configuration attributes."""

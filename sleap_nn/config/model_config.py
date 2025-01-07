@@ -259,10 +259,12 @@ class ModelConfig:
     init_weight: str = "default"
     pre_trained_weights: str = None
     backbone_config: BackboneConfig = attrs.field(factory=BackboneConfig)
+    backbone_type: str = None
     head_configs: HeadConfig = attrs.field(factory=HeadConfig)
 
     # post-initialization
     def __attrs_post_init__(self):
+        self.validate_backbone_type()
         self.validate_pre_trained_weights()
 
     # validate the pre-trained weights
@@ -274,3 +276,24 @@ class ModelConfig:
             "ConvNeXt_Large_Weights",
         ]
         swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
+        if self.backbone_type == "convnext":
+            if self.pre_trained_weights not in convnext_weights:
+                raise ValueError(
+                    f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
+                )
+        elif self.backbone_type == "swint":
+            if self.pre_trained_weights not in swint_weights:
+                raise ValueError(
+                    f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
+                )
+        elif (
+            self.backbone_type == "unet"
+            and self.pre_trained_weights is not None
+        ):
+            raise ValueError("UNet does not support pre-trained weights.")
+    
+    def validate_backbone_type(self):
+        if self.backbone_type not in ["unet", "convnext", "swint"]:
+            raise ValueError(
+                'backbone_type must be one of "unet", "convnext", "swint"'
+            )
