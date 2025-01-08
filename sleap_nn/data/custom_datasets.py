@@ -9,7 +9,7 @@ from PIL import Image
 
 import torch
 import torchvision.transforms as T
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import sleap_io as sio
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import generate_crops
@@ -62,6 +62,7 @@ class BaseDataset(Dataset):
         super().__init__()
         self.labels = labels
         self.data_config = data_config
+        self.curr_idx = 0
         self.max_stride = max_stride
         self.apply_aug = apply_aug
         self.max_hw = max_hw
@@ -81,6 +82,19 @@ class BaseDataset(Dataset):
         self.transform_to_pil = T.ToPILImage()
         self.transform_pil_to_tensor = T.ToTensor()
         self.cache = {}
+
+    def __next__(self):
+        """Get the next sample from the dataset."""
+        if self.curr_idx >= len(self):
+            raise StopIteration
+
+        sample = self.__getitem__(self.curr_idx)
+        self.curr_idx += 1
+        return sample
+
+    def __iter__(self):
+        """Returns an iterator."""
+        return self
 
     def _fill_cache(self):
         """Load all samples to cache."""
@@ -128,7 +142,9 @@ class BaseDataset(Dataset):
                 for k, v in sample.items():
                     if k != "image" and isinstance(v, torch.Tensor):
                         sample[k] = v.numpy()
-                np.savez_compressed(f"{self.np_chunks_path}/sample_{lf_idx}", **sample)
+                f_name = f"{self.np_chunks_path}/sample_{lf_idx}.npz"
+                np.savez_compressed(f_name, **sample)
+                self.cache[lf_idx] = f_name
 
             else:
                 self.cache[lf_idx] = sample.copy()
@@ -142,11 +158,11 @@ class BaseDataset(Dataset):
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
-        return len(self.labels)
+        return len(self.cache)
 
     def __getitem__(self, index) -> Dict:
         """Returns the sample dict for given index."""
-        pass
+        return {}
 
 
 class BottomUpDataset(BaseDataset):
@@ -204,7 +220,7 @@ class BottomUpDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
         if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            ex = np.load(self.cache[index])
             sample = {}
             for k, v in ex.items():
                 if k != "image":
@@ -401,7 +417,9 @@ class CenteredInstanceDataset(BaseDataset):
                 for k, v in sample.items():
                     if k != "instance_image" and isinstance(v, torch.Tensor):
                         sample[k] = v.numpy()
-                np.savez_compressed(f"{self.np_chunks_path}/sample_{idx}", **sample)
+                f_name = f"{self.np_chunks_path}/sample_{idx}.npz"
+                np.savez_compressed(f_name, **sample)
+                self.cache[idx] = f_name
 
             else:
                 self.cache[idx] = sample.copy()
@@ -424,7 +442,7 @@ class CenteredInstanceDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
         if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            ex = np.load(self.cache[index])
             sample = {}
             for k, v in ex.items():
                 if k != "instance_image":
@@ -592,7 +610,9 @@ class CentroidDataset(BaseDataset):
                 for k, v in sample.items():
                     if k != "image" and isinstance(v, torch.Tensor):
                         sample[k] = v.numpy()
-                np.savez_compressed(f"{self.np_chunks_path}/sample_{lf_idx}", **sample)
+                f_name = f"{self.np_chunks_path}/sample_{lf_idx}.npz"
+                np.savez_compressed(f_name, **sample)
+                self.cache[lf_idx] = f_name
 
             else:
                 self.cache[lf_idx] = sample.copy()
@@ -603,7 +623,7 @@ class CentroidDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
         if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            ex = np.load(self.cache[index])
             sample = {}
             for k, v in ex.items():
                 if k != "image":
@@ -696,7 +716,7 @@ class SingleInstanceDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
         if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
+            ex = np.load(self.cache[index])
             sample = {}
             for k, v in ex.items():
                 if k != "image":
@@ -737,3 +757,25 @@ class SingleInstanceDataset(BaseDataset):
         sample["confidence_maps"] = confidence_maps
 
         return sample
+
+
+class CyclerDataLoader(DataLoader):
+    """DataLoader that cycles through the dataset infinitely."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize class attributes."""
+        super().__init__(*args, **kwargs)
+        self.iterator = super().__iter__()
+
+    def __len__(self):
+        """Returns the length of the dataset."""
+        return len(self.dataset)
+
+    def __iter__(self):
+        """Creates a sampler that repeats indefinitely."""
+        while True:
+            try:
+                yield next(self.iterator)
+            except StopIteration:
+                self.iterator = self._get_iterator()
+                yield next(self.iterator)

@@ -38,8 +38,8 @@ def test_create_data_loader_torch_dataset(config, tmp_path):
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     model_trainer = ModelTrainer(config_copy, data_pipeline_fw="torch_dataset")
     model_trainer._create_data_loaders_torch_dataset()
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    assert len(list(iter(model_trainer.train_dataset))) == 2
+    assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
@@ -53,8 +53,8 @@ def test_create_data_loader_torch_dataset(config, tmp_path):
         np_chunks_path=f"{tmp_path}/np_chunks/",
     )
     model_trainer._create_data_loaders_torch_dataset()
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    assert len(list(iter(model_trainer.train_dataset))) == 2
+    assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
@@ -81,8 +81,8 @@ def test_create_data_loader_litdata(config, tmp_path: str):
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     model_trainer = ModelTrainer(config_copy)
     model_trainer._create_data_loaders_litdata()
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    assert len(list(iter(model_trainer.train_dataset))) == 2
+    assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
