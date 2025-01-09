@@ -697,7 +697,7 @@ class ModelTrainer:
 
         if self.steps_per_epoch is None:
             self.steps_per_epoch = (
-                len(self.train_dataset)
+                len(self.train_data_loader.dataset)
                 // self.config.trainer_config.train_data_loader.batch_size
             )
 
@@ -710,7 +710,7 @@ class ModelTrainer:
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             limit_train_batches=self.steps_per_epoch,
-            limit_val_batches=len(self.val_dataset)
+            limit_val_batches=len(self.val_data_loader.dataset)
             // self.config.trainer_config.val_data_loader.batch_size,
         )
 

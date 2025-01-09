@@ -585,7 +585,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     # check exception for lr scheduler
     OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "ReduceLR")
     with pytest.raises(ValueError):
-        trainer = ModelTrainer(config)
+        trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
         trainer.train()
 
     OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
