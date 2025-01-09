@@ -4,7 +4,6 @@ from sleap_nn.config.utils import oneof
 from typing import Optional, List, Text, Any
 
 
-
 # Define configuration for each backbone type (unet, convnext, swint) configurations
 @attrs.define
 class UNetConfig:
@@ -207,7 +206,6 @@ class BottomUpConfig:
     pafs: Optional[PAFConfig] = None
 
 
-
 @oneof
 @attrs.define
 class HeadConfig:
@@ -228,6 +226,7 @@ class HeadConfig:
     centroid: Optional[CentroidConfig] = None
     centered_instance: Optional[CenteredInstanceConfig] = None
     bottomup: Optional[BottomUpConfig] = None
+
 
 @oneof
 @attrs.define
@@ -286,14 +285,9 @@ class ModelConfig:
                 raise ValueError(
                     f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
                 )
-        elif (
-            self.backbone_type == "unet"
-            and self.pre_trained_weights is not None
-        ):
+        elif self.backbone_type == "unet" and self.pre_trained_weights is not None:
             raise ValueError("UNet does not support pre-trained weights.")
-    
+
     def validate_backbone_type(self):
         if self.backbone_type not in ["unet", "convnext", "swint"]:
-            raise ValueError(
-                'backbone_type must be one of "unet", "convnext", "swint"'
-            )
+            raise ValueError('backbone_type must be one of "unet", "convnext", "swint"')
