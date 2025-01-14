@@ -45,8 +45,8 @@ def test_preprocessing_config_invalid_scale():
 def test_augmentation_config_initialization():
     """Test AugmentationConfig initialization with default values."""
     config = AugmentationConfig()
-    assert config.intensity is None
-    assert config.geometric is None
+    assert config.intensity is not None
+    assert config.geometric is not None
 
 
 def test_intensity_config_validation():

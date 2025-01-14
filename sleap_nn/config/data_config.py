@@ -136,8 +136,8 @@ class AugmentationConfig:
         geometric: (Optional)
     """
 
-    intensity: Optional[IntensityConfig] = attrs.field(default=None)
-    geometric: Optional[GeometricConfig] = attrs.field(default=None)
+    intensity: Optional[IntensityConfig] = IntensityConfig()
+    geometric: Optional[GeometricConfig] = GeometricConfig()
 
 
 @attrs.define
