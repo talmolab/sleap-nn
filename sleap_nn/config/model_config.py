@@ -244,6 +244,12 @@ class BackboneConfig:
     swint: Optional[SwinTConfig] = None
 
 
+class BackboneType(Enum):
+    UNET = "unet"
+    CONVNEXT = "convnext"
+    SWINT = "swint"
+
+
 @attrs.define
 class ModelConfig:
     """Configurations related to model architecture.
@@ -255,15 +261,14 @@ class ModelConfig:
         head_config: head_configs: (Dict) Dictionary with the following keys having head configs for the model to be trained. Note: Configs should be provided only for the model to train and others should be None
     """
 
+    backbone_type: BackboneType
     init_weight: str = "default"
-    pre_trained_weights: str = None
+    pre_trained_weights: Optional[str] = None
     backbone_config: BackboneConfig = attrs.field(factory=BackboneConfig)
-    backbone_type: str = None
     head_configs: HeadConfig = attrs.field(factory=HeadConfig)
 
     # post-initialization
     def __attrs_post_init__(self):
-        self.validate_backbone_type()
         self.validate_pre_trained_weights()
 
     # validate the pre-trained weights
@@ -287,7 +292,3 @@ class ModelConfig:
                 )
         elif self.backbone_type == "unet" and self.pre_trained_weights is not None:
             raise ValueError("UNet does not support pre-trained weights.")
-
-    def validate_backbone_type(self):
-        if self.backbone_type not in ["unet", "convnext", "swint"]:
-            raise ValueError('backbone_type must be one of "unet", "convnext", "swint"')

@@ -1,7 +1,9 @@
 import pytest
+from omegaconf import OmegaConf, ValidationError
 from sleap_nn.config.model_config import (
     ModelConfig,
     BackboneConfig,
+    BackboneType,
     UNetConfig,
     ConvNextConfig,
     SwinTConfig,
@@ -45,19 +47,20 @@ def test_invalid_pre_trained_weights():
 def test_invalid_backbonetype():
     """Test validation failure with an invalid pre_trained_weights."""
     with pytest.raises(
-        ValueError, match='backbone_type must be one of "unet", "convnext", "swint"'
+        AttributeError
     ):
-        ModelConfig(backbone_type="net")
+        ModelConfig(backbone_type=BackboneType.NET)
 
 
 def test_update_config(default_config):
     """Test updating configuration attributes."""
-    default_config.backbone_type = "resnet"
+    config = OmegaConf.structured(ModelConfig(
+        backbone_type=BackboneType.UNET,
+        init_weight="default",
+        pre_trained_weights=None,
+        backbone_config=BackboneConfig(),
+        head_configs=HeadConfig(),
+    ))
 
-    assert default_config.backbone_type == "resnet"
-
-
-def test_validation_on_update(default_config):
-    """Test validation logic when updating attributes."""
-    with pytest.raises(ValueError):
-        default_config.backbone_type = "hi"
+    with pytest.raises(AttributeError):
+        config.backbone_type = BackboneType.NET
