@@ -8,7 +8,7 @@ they parametrize. This serves two purposes:
 
     1. Parameter specification through simple attributes. These can be read/edited by a
         human, as well as easily be serialized/deserialized to/from simple dictionaries
-        and JSON.
+        and YAML.
 
     2. Decoupling from the implementation. This makes it easier to design functional
         modules with attributes/parameters that contain objects that may not be easily
@@ -31,8 +31,7 @@ import sleap
 from sleap.nn.config.data_config import DataConfig
 from sleap.nn.config.model_config import ModelConfig
 from sleap.nn.config.trainer_config import TrainerConfig
-import json
-from jsmin import jsmin
+import yaml
 from typing import Text, Dict, Any, Optional
 
 
@@ -109,9 +108,9 @@ def load_config(filename: Text, load_training_config: bool = True) -> TrainingJo
     """Load a training job configuration for a model run.
 
     Args:
-        filename: Path to a JSON file or directory containing `training_job.json`.
-        load_training_config: If `True` (the default), prefer `training_job.json` over
-            `initial_config.json` if it is present in the same folder.
+        filename: Path to a YAML file or directory containing `training_job.yaml`.
+        load_training_config: If `True` (the default), prefer `training_job.yaml` over
+            `initial_config.yaml` if it is present in the same folder.
 
     Returns:
         The parsed `TrainingJobConfig`.
