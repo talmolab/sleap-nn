@@ -12,8 +12,8 @@ the parameters required to initialize the trainer config.
 
 @attrs.define
 class DataLoaderConfig:
-    """Train and val DataLoaderConfig: 
-    
+    """Train and val DataLoaderConfig:
+
     Any parameters from Torch's DataLoader could be used.
 
     Attributes:
@@ -30,7 +30,7 @@ class DataLoaderConfig:
 @attrs.define
 class ModelCkptConfig:
     """Configuration for model checkpoint.
-    
+
     Any parameters from Lightning's ModelCheckpoint could be used.
 
     Attributes:
@@ -45,7 +45,7 @@ class ModelCkptConfig:
 @attrs.define
 class WandBConfig:
     """Configuration for WandB
-    
+
     Only if use_wandb is True, else skip this
 
     Attributes:
