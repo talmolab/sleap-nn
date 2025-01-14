@@ -46,21 +46,21 @@ def test_invalid_pre_trained_weights():
 
 def test_invalid_backbonetype():
     """Test validation failure with an invalid pre_trained_weights."""
-    with pytest.raises(
-        AttributeError
-    ):
+    with pytest.raises(AttributeError):
         ModelConfig(backbone_type=BackboneType.NET)
 
 
 def test_update_config(default_config):
     """Test updating configuration attributes."""
-    config = OmegaConf.structured(ModelConfig(
-        backbone_type=BackboneType.UNET,
-        init_weight="default",
-        pre_trained_weights=None,
-        backbone_config=BackboneConfig(),
-        head_configs=HeadConfig(),
-    ))
+    config = OmegaConf.structured(
+        ModelConfig(
+            backbone_type=BackboneType.UNET,
+            init_weight="default",
+            pre_trained_weights=None,
+            backbone_config=BackboneConfig(),
+            head_configs=HeadConfig(),
+        )
+    )
 
     with pytest.raises(AttributeError):
         config.backbone_type = BackboneType.NET
