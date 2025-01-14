@@ -4,6 +4,13 @@ from sleap_nn.config.utils import oneof
 from typing import Optional, List, Text, Any
 
 
+"""Serializable configuration classes for specifying all model config parameters.
+
+These configuration classes are intended to specify all 
+the parameters required to initialize the model config.
+"""
+
+
 # Define configuration for each backbone type (unet, convnext, swint) configurations
 @attrs.define
 class UNetConfig:

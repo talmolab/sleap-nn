@@ -3,36 +3,18 @@ from omegaconf import OmegaConf
 from typing import Optional, List, Text, Any
 
 
-"""Serializable configuration classes for specifying all training job parameters.
+"""Serializable configuration classes for specifying all trainer config parameters.
 
-These configuration classes are intended to specify all the parameters required to run
-a training job or perform inference from a serialized one.
-
-They are explicitly not intended to implement any of the underlying functionality that
-they parametrize. This serves two purposes:
-
-    1. Parameter specification through simple attributes. These can be read/edited by a
-        human, as well as easily be serialized/deserialized to/from simple dictionaries
-        and JSON.
-
-    2. Decoupling from the implementation. This makes it easier to design functional
-        modules with attributes/parameters that contain objects that may not be easily
-        serializable or may implement additional logic that relies on runtime
-        information or other parameters.
-
-In general, classes that implement the actual functionality related to these
-configuration classes should provide a classmethod for instantiation from the
-configuration class instances. This makes it easier to implement other logic not related
-to the high level parameters at creation time.
-
-Conveniently, this format also provides a single location where all user-facing
-parameters are aggregated and documented for end users (as opposed to developers).
+These configuration classes are intended to specify all 
+the parameters required to initialize the trainer config.
 """
 
 
 @attrs.define
 class DataLoaderConfig:
-    """train and val DataLoaderConfig: (Note: Any parameters from Torch's DataLoader could be used.)
+    """Train and val DataLoaderConfig: 
+    
+    Any parameters from Torch's DataLoader could be used.
 
     Attributes:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. Default = 1.
@@ -47,7 +29,9 @@ class DataLoaderConfig:
 
 @attrs.define
 class ModelCkptConfig:
-    """modelCkptConfig: (Note: Any parameters from Lightning's ModelCheckpoint could be used.)
+    """Configuration for model checkpoint.
+    
+    Any parameters from Lightning's ModelCheckpoint could be used.
 
     Attributes:
         save_top_k: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
@@ -60,7 +44,9 @@ class ModelCkptConfig:
 
 @attrs.define
 class WandBConfig:
-    """wandb: (Only if use_wandb is True, else skip this)
+    """Configuration for WandB
+    
+    Only if use_wandb is True, else skip this
 
     Attributes:
         entity: (str) Entity of wandb project.
@@ -83,7 +69,7 @@ class WandBConfig:
 
 @attrs.define
 class OptimizerConfig:
-    """optimizer configuration
+    """Configuration for optimizer
 
     Attributes:
         lr: (float) Learning rate of type float. Default: 1e-3
@@ -96,7 +82,7 @@ class OptimizerConfig:
 
 @attrs.define
 class LRSchedulerConfig:
-    """lr_scheduler configuration
+    """Configuration for lr_scheduler
 
     Attributes:
         mode: (str) One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. Default: "min".
@@ -131,7 +117,7 @@ class LRSchedulerConfig:
 
 @attrs.define
 class EarlyStoppingConfig:
-    """early_stopping configuration
+    """Configuration for early_stopping
 
     Attributes:
         stop_training_on_plateau: (bool) True if early stopping should be enabled.
@@ -146,7 +132,7 @@ class EarlyStoppingConfig:
 
 @attrs.define
 class TrainerConfig:
-    """Configuration of Trainer.
+    """Configuration for trainer.
 
     Attributes:
         train_data_loader: (Note: Any parameters from Torch's DataLoader could be used.)
