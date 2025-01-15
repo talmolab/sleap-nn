@@ -248,12 +248,11 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
         output_stride=2,
         peak_threshold=0,
         return_confmaps=True,
-        input_scale=0.5,
     )
     outputs = []
     outputs.append(find_peaks_layer(res))
     assert "pred_confmaps" in outputs[0].keys()
-    assert outputs[0]["pred_confmaps"].shape[-2:] == (40, 40)
+    assert outputs[0]["pred_confmaps"].shape[-2:] == (80, 80)
 
 
 def test_topdown_inference_model(

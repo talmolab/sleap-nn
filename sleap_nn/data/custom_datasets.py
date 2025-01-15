@@ -282,8 +282,7 @@ class CenteredInstanceDataset(BaseDataset):
         crop_hw: Height and width of the crop in pixels.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
-    of original image according to given crop height and width and then the cropped
-    images are scaled.
+    from the scaled image with the given crop size.
     """
 
     def __init__(
@@ -368,6 +367,13 @@ class CenteredInstanceDataset(BaseDataset):
                 max_width=self.max_hw[1],
             )
             instances = instances * eff_scale
+
+            # resize image
+            image, instances = apply_resizer(
+                image,
+                instances,
+                scale=self.data_config.preprocessing.scale,
+            )
 
             # get the centroids based on the anchor idx
             centroids = generate_centroids(
@@ -468,13 +474,6 @@ class CenteredInstanceDataset(BaseDataset):
         sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
         sample["centroid"] = centered_centroid  # (n_samples=1, 2)
 
-        # resize image
-        sample["instance_image"], sample["instance"] = apply_resizer(
-            sample["instance_image"],
-            sample["instance"],
-            scale=self.data_config.preprocessing.scale,
-        )
-
         # Pad the image (if needed) according max stride
         sample["instance_image"] = apply_pad_to_stride(
             sample["instance_image"], max_stride=self.max_stride
@@ -569,19 +568,19 @@ class CentroidDataset(BaseDataset):
             )
             sample["instances"] = sample["instances"] * eff_scale
 
+            # resize image
+            sample["image"], sample["instances"] = apply_resizer(
+                sample["image"],
+                sample["instances"],
+                scale=self.data_config.preprocessing.scale,
+            )
+
             # get the centroids based on the anchor idx
             centroids = generate_centroids(
                 sample["instances"], anchor_ind=self.confmap_head_config.anchor_part
             )
 
             sample["centroids"] = centroids
-
-            # resize image
-            sample["image"], sample["centroids"] = apply_resizer(
-                sample["image"],
-                sample["centroids"],
-                scale=self.data_config.preprocessing.scale,
-            )
 
             # Pad the image (if needed) according max stride
             sample["image"] = apply_pad_to_stride(
