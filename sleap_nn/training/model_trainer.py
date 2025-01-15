@@ -350,7 +350,7 @@ class ModelTrainer:
         # val
         self.val_data_loader = CyclerDataLoader(
             dataset=self.val_dataset,
-            steps_per_epoch=len(self.val_data_loader.dataset)
+            steps_per_epoch=len(self.val_dataset)
             // self.config.trainer_config.val_data_loader.batch_size,
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
