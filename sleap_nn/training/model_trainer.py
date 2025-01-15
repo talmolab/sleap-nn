@@ -3,11 +3,10 @@
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
-import functools
-import inspect
 import time
 from torch import nn
 import os
+import psutil
 import shutil
 import subprocess
 import torch
@@ -15,12 +14,6 @@ import sleap_io as sio
 from omegaconf import OmegaConf
 import lightning as L
 import litdata as ld
-from sleap_nn.data.pipelines import (
-    TopdownConfmapsPipeline,
-    SingleInstanceConfmapsPipeline,
-    CentroidConfmapsPipeline,
-    BottomUpPipeline,
-)
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
@@ -47,29 +40,15 @@ from sleap_nn.data.custom_datasets import (
     CentroidDataset,
     SingleInstanceDataset,
 )
-from sleap_nn.data.cycler import CyclerIterDataPipe as Cycler
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
-from sleap_nn.data.get_data_chunks import (
-    bottomup_data_chunks,
-    centered_instance_data_chunks,
-    centroid_data_chunks,
-    single_instance_data_chunks,
-)
 from sleap_nn.data.streaming_datasets import (
     BottomUpStreamingDataset,
     CenteredInstanceStreamingDataset,
     CentroidStreamingDataset,
     SingleInstanceStreamingDataset,
 )
-from sleap_nn.training import get_bin_files
-
-
-def xavier_init_weights(x):
-    """Function to initilaise the model weights with Xavier initialization method."""
-    if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
-        nn.init.xavier_uniform_(x.weight)
-        nn.init.constant_(x.bias, 0)
+from sleap_nn.training.utils import check_memory, xavier_init_weights
 
 
 class ModelTrainer:
@@ -198,9 +177,41 @@ class ModelTrainer:
 
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
+        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+        if self.data_pipeline_fw == "torch_dataset":
+            train_cache_memory = check_memory(
+                train_labels,
+                max_hw=(self.max_height, self.max_width),
+                model_type=self.model_type,
+                input_scaling=self.config.data_config.preprocessing.scale,
+                crop_size=self.crop_hw if self.crop_hw != -1 else None,
+            )
+            val_cache_memory = check_memory(
+                val_labels,
+                max_hw=(self.max_height, self.max_width),
+                model_type=self.model_type,
+                input_scaling=self.config.data_config.preprocessing.scale,
+                crop_size=self.crop_hw if self.crop_hw != -1 else None,
+            )
+            total_cache_memory = train_cache_memory + val_cache_memory
+            total_cache_memory += 0.1 * total_cache_memory  # memory required in bytes
+            available_memory = (
+                psutil.virtual_memory().available
+            )  # available memory in bytes
+
+            if total_cache_memory > available_memory:
+                self.data_pipeline_fw = "torch_dataset_np_chunks"
+                self.np_chunks = True
+                self.train_np_chunks_path = Path("./train_chunks")
+                self.val_np_chunks_path = Path("./val_chunks")
+                print(
+                    f"Insufficient memory for in-memory caching. `npz` files will be created."
+                )
+
         if self.model_type == "bottomup":
             train_dataset = BottomUpDataset(
-                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
@@ -211,7 +222,7 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = BottomUpDataset(
-                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
@@ -224,7 +235,7 @@ class ModelTrainer:
 
         elif self.model_type == "centered_instance":
             train_dataset = CenteredInstanceDataset(
-                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.config.model_config.backbone_config.max_stride,
@@ -235,7 +246,7 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = CenteredInstanceDataset(
-                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.config.model_config.backbone_config.max_stride,
@@ -248,7 +259,7 @@ class ModelTrainer:
 
         elif self.model_type == "centroid":
             train_dataset = CentroidDataset(
-                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.config.model_config.backbone_config.max_stride,
@@ -258,7 +269,7 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = CentroidDataset(
-                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.config.model_config.backbone_config.max_stride,
@@ -270,7 +281,7 @@ class ModelTrainer:
 
         elif self.model_type == "single_instance":
             train_dataset = SingleInstanceDataset(
-                labels=sio.load_slp(self.config.data_config.train_labels_path),
+                labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.config.model_config.backbone_config.max_stride,
@@ -280,7 +291,7 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
             )
             val_dataset = SingleInstanceDataset(
-                labels=sio.load_slp(self.config.data_config.val_labels_path),
+                labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.config.model_config.backbone_config.max_stride,
@@ -292,7 +303,7 @@ class ModelTrainer:
 
         else:
             raise ValueError(
-                f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bototmup`, `centroid`, `centered_instance`, `single_instance`]."
+                f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
             )
 
         # train
