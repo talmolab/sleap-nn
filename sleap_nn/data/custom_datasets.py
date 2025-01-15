@@ -789,7 +789,7 @@ class CyclerDataLoader(DataLoader):
 
     def __len__(self):
         """Returns the length of the batch sampler's sampler."""
-        return len(self.batch_sampler.sampler)
+        return int(1e6)
 
     def __iter__(self):
         """Creates a sampler that repeats indefinitely."""

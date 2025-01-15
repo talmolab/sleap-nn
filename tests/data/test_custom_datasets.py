@@ -753,5 +753,5 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
 
     dl = iter(CyclerDataLoader(dataset, batch_size=1, num_workers=0))
 
-    for _ in range(5):
+    for _ in range(10):
         ex = next(dl)
