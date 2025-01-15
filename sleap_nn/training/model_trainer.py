@@ -31,7 +31,6 @@ from torchvision.models.convnext import (
     ConvNeXt_Small_Weights,
     ConvNeXt_Large_Weights,
 )
-from torch.utils.data.dataloader import DataLoader
 import sleap_io as sio
 from sleap_nn.architectures.model import Model
 from sleap_nn.data.custom_datasets import (
@@ -39,6 +38,7 @@ from sleap_nn.data.custom_datasets import (
     CenteredInstanceDataset,
     CentroidDataset,
     SingleInstanceDataset,
+    CyclerDataLoader,
 )
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
@@ -102,6 +102,8 @@ class ModelTrainer:
 
         # initialize attributes
         self.model = None
+        self.train_dataset = None
+        self.val_dataset = None
         self.train_data_loader = None
         self.val_data_loader = None
         self.bin_files_path = None
@@ -223,7 +225,7 @@ class ModelTrainer:
                 )
 
         if self.model_type == "bottomup":
-            train_dataset = BottomUpDataset(
+            self.train_dataset = BottomUpDataset(
                 labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
@@ -234,7 +236,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
             )
-            val_dataset = BottomUpDataset(
+            self.val_dataset = BottomUpDataset(
                 labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
@@ -247,7 +249,7 @@ class ModelTrainer:
             )
 
         elif self.model_type == "centered_instance":
-            train_dataset = CenteredInstanceDataset(
+            self.train_dataset = CenteredInstanceDataset(
                 labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
@@ -258,7 +260,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
             )
-            val_dataset = CenteredInstanceDataset(
+            self.val_dataset = CenteredInstanceDataset(
                 labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
@@ -271,7 +273,7 @@ class ModelTrainer:
             )
 
         elif self.model_type == "centroid":
-            train_dataset = CentroidDataset(
+            self.train_dataset = CentroidDataset(
                 labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
@@ -281,7 +283,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
             )
-            val_dataset = CentroidDataset(
+            self.val_dataset = CentroidDataset(
                 labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
@@ -293,7 +295,7 @@ class ModelTrainer:
             )
 
         elif self.model_type == "single_instance":
-            train_dataset = SingleInstanceDataset(
+            self.train_dataset = SingleInstanceDataset(
                 labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
@@ -303,7 +305,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
             )
-            val_dataset = SingleInstanceDataset(
+            self.val_dataset = SingleInstanceDataset(
                 labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
@@ -319,10 +321,16 @@ class ModelTrainer:
                 f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
             )
 
+        if self.steps_per_epoch is None:
+            self.steps_per_epoch = (
+                len(self.train_dataset)
+                // self.config.trainer_config.train_data_loader.batch_size
+            )
+
         # train
-        # TODO: cycler - to ensure minimum steps per epoch
-        self.train_data_loader = DataLoader(
-            train_dataset,
+        self.train_data_loader = CyclerDataLoader(
+            dataset=self.train_dataset,
+            steps_per_epoch=self.steps_per_epoch,
             shuffle=self.config.trainer_config.train_data_loader.shuffle,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
@@ -340,8 +348,10 @@ class ModelTrainer:
         )
 
         # val
-        self.val_data_loader = DataLoader(
-            val_dataset,
+        self.val_data_loader = CyclerDataLoader(
+            dataset=self.val_dataset,
+            steps_per_epoch=len(self.val_dataset)
+            // self.config.trainer_config.val_data_loader.batch_size,
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
