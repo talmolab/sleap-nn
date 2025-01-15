@@ -231,7 +231,7 @@ class BottomUpDataset(BaseDataset):
                         Image.fromarray(ex["image"])
                     ).unsqueeze(dim=0)
         else:
-            sample = self.cache[index]
+            sample = self.cache[index].copy()
 
         # apply augmentation
         if self.apply_aug:
@@ -453,7 +453,7 @@ class CenteredInstanceDataset(BaseDataset):
                         Image.fromarray(ex["instance_image"])
                     ).unsqueeze(dim=0)
         else:
-            sample = self.cache[index]
+            sample = self.cache[index].copy()
 
         # apply augmentation
         if self.apply_aug:
@@ -634,7 +634,7 @@ class CentroidDataset(BaseDataset):
                         Image.fromarray(ex["image"])
                     ).unsqueeze(dim=0)
         else:
-            sample = self.cache[index]
+            sample = self.cache[index].copy()
 
         # apply augmentation
         if self.apply_aug:
@@ -727,7 +727,7 @@ class SingleInstanceDataset(BaseDataset):
                         Image.fromarray(ex["image"])
                     ).unsqueeze(dim=0)
         else:
-            sample = self.cache[index]
+            sample = self.cache[index].copy()
 
         # apply augmentation
         if self.apply_aug:
