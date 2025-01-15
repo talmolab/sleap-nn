@@ -321,9 +321,16 @@ class ModelTrainer:
                 f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
             )
 
+        if self.steps_per_epoch is None:
+            self.steps_per_epoch = (
+                len(self.train_dataset)
+                // self.config.trainer_config.train_data_loader.batch_size
+            )
+
         # train
         self.train_data_loader = CyclerDataLoader(
-            self.train_dataset,
+            dataset=self.train_dataset,
+            steps_per_epoch=self.steps_per_epoch,
             shuffle=self.config.trainer_config.train_data_loader.shuffle,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
@@ -342,7 +349,9 @@ class ModelTrainer:
 
         # val
         self.val_data_loader = CyclerDataLoader(
-            self.val_dataset,
+            dataset=self.val_dataset,
+            steps_per_epoch=len(self.val_data_loader.dataset)
+            // self.config.trainer_config.val_data_loader.batch_size,
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
@@ -695,12 +704,6 @@ class ModelTrainer:
                 f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
             )
 
-        if self.steps_per_epoch is None:
-            self.steps_per_epoch = (
-                len(self.train_data_loader.dataset)
-                // self.config.trainer_config.train_data_loader.batch_size
-            )
-
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=logger,
@@ -710,8 +713,6 @@ class ModelTrainer:
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             limit_train_batches=self.steps_per_epoch,
-            limit_val_batches=len(self.val_data_loader.dataset)
-            // self.config.trainer_config.val_data_loader.batch_size,
         )
 
         try:

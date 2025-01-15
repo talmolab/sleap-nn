@@ -163,7 +163,7 @@ class BaseDataset(Dataset):
 
     def __getitem__(self, index) -> Dict:
         """Returns the sample dict for given index."""
-        return {}
+        raise NotImplementedError("Subclasses must implement __getitem__")
 
 
 class BottomUpDataset(BaseDataset):
@@ -761,15 +761,16 @@ class SingleInstanceDataset(BaseDataset):
 
 
 class _RepeatSampler:
-    """
-    Sampler that repeats forever.
+    """Sampler that cycles through the samples infintely.
+
+    Source: Ultralytics
 
     Args:
         sampler (Dataset.sampler): The sampler to repeat.
     """
 
     def __init__(self, sampler):
-        """Initializes an object that repeats a given sampler indefinitely."""
+        """Initializes the sampler object."""
         self.sampler = sampler
 
     def __iter__(self):
@@ -779,17 +780,26 @@ class _RepeatSampler:
 
 
 class CyclerDataLoader(DataLoader):
-    """DataLoader that cycles through the dataset infinitely."""
+    """DataLoader that cycles through the dataset infinitely.
 
-    def __init__(self, *args, **kwargs):
-        """Dataloader that infinitely recycles workers, inherits from DataLoader."""
+    Attributes:
+        steps_per_epoch: Number of steps to be run in an epoch. If not provided, the
+            length of the sampler is used (total_samples / batch_size)    .
+    """
+
+    def __init__(self, steps_per_epoch: Optional[int] = None, *args, **kwargs):
+        """Initialize the object."""
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
         self.iterator = super().__iter__()
+        self.steps_per_epoch = steps_per_epoch
 
     def __len__(self):
-        """Returns the length of the batch sampler's sampler."""
-        return int(1e6)
+        """Returns the length of the dataloader."""
+        if self.steps_per_epoch is not None:
+            return int(self.steps_per_epoch)
+        else:
+            return len(self.batch_sampler.sampler)
 
     def __iter__(self):
         """Creates a sampler that repeats indefinitely."""
@@ -798,9 +808,5 @@ class CyclerDataLoader(DataLoader):
                 yield next(self.iterator)
 
     def reset(self):
-        """
-        Reset iterator.
-
-        This is useful when we want to modify settings of dataset while training.
-        """
+        """Reset iterator."""
         self.iterator = self._get_iterator()

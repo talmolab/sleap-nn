@@ -751,7 +751,11 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
 
     assert len(list(iter(dataset))) == 1
 
-    dl = iter(CyclerDataLoader(dataset, batch_size=1, num_workers=0))
+    dl = iter(
+        CyclerDataLoader(
+            dataset=dataset, batch_size=1, num_workers=0, steps_per_epoch=10
+        )
+    )
 
     for _ in range(10):
-        ex = next(dl)
+        _ = next(dl)
