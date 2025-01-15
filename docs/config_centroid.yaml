@@ -120,6 +120,7 @@ trainer_config:
     wandb_mode: ''
     api_key: ''
     prv_runid:
+    group:
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
