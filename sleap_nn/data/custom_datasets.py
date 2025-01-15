@@ -1,6 +1,7 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
 from kornia.geometry.transform import crop_and_resize
+from itertools import cycle
 from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Tuple
 from omegaconf import DictConfig
@@ -759,23 +760,47 @@ class SingleInstanceDataset(BaseDataset):
         return sample
 
 
+class _RepeatSampler:
+    """
+    Sampler that repeats forever.
+
+    Args:
+        sampler (Dataset.sampler): The sampler to repeat.
+    """
+
+    def __init__(self, sampler):
+        """Initializes an object that repeats a given sampler indefinitely."""
+        self.sampler = sampler
+
+    def __iter__(self):
+        """Iterates over the 'sampler' and yields its contents."""
+        while True:
+            yield from iter(self.sampler)
+
+
 class CyclerDataLoader(DataLoader):
     """DataLoader that cycles through the dataset infinitely."""
 
     def __init__(self, *args, **kwargs):
-        """Initialize class attributes."""
+        """Dataloader that infinitely recycles workers, inherits from DataLoader."""
         super().__init__(*args, **kwargs)
+        object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
         self.iterator = super().__iter__()
 
     def __len__(self):
-        """Returns the length of the dataset."""
-        return len(self.dataset)
+        """Returns the length of the batch sampler's sampler."""
+        return len(self.batch_sampler.sampler)
 
     def __iter__(self):
         """Creates a sampler that repeats indefinitely."""
         while True:
-            try:
+            for _ in range(len(self)):
                 yield next(self.iterator)
-            except StopIteration:
-                self.iterator = self._get_iterator()
-                yield next(self.iterator)
+
+    def reset(self):
+        """
+        Reset iterator.
+
+        This is useful when we want to modify settings of dataset while training.
+        """
+        self.iterator = self._get_iterator()
