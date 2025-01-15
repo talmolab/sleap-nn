@@ -363,7 +363,7 @@ class Predictor(ABC):
             # Create SLEAP data structures from the predictions.
             pred_labels = self._make_labeled_frames_from_generator(generator)
             if save_path:
-                sio.io.slp.write_labels(save_path, pred_labels)
+                pred_labels.save(Path(save_path).as_posix())
             return pred_labels
 
         else:
