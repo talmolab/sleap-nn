@@ -13,6 +13,7 @@ def test_topdown_predictor(
     minimal_instance_ckpt,
     minimal_instance_centroid_ckpt,
     minimal_instance_bottomup_ckpt,
+    tmp_path,
 ):
     """Test TopDownPredictor class for running inference on centroid and centered instance models."""
     # for centered instance model
@@ -25,11 +26,14 @@ def test_topdown_predictor(
         return_confmaps=False,
         make_labels=True,
         peak_threshold=0.0,
+        save_path=f"{tmp_path}/test.pkg.slp",
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
     assert len(pred_labels[0].instances) == 2
     lf = pred_labels[0]
+
+    assert Path(f"{tmp_path}/test.pkg.slp").exists
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
     gt_labels = sio.load_slp(minimal_instance)
