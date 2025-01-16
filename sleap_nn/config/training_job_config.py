@@ -26,16 +26,16 @@ parameters are aggregated and documented for end users (as opposed to developers
 
 import os
 import attrs
-import cattr
-import sleap
-from sleap.nn.config.data_config import DataConfig
-from sleap.nn.config.model_config import ModelConfig
-from sleap.nn.config.trainer_config import TrainerConfig
+import sleap_nn
+from sleap_nn.config.data_config import DataConfig
+from sleap_nn.config.model_config import ModelConfig
+from sleap_nn.config.trainer_config import TrainerConfig
 import yaml
 from typing import Text, Dict, Any, Optional
+from omegaconf import OmegaConf
 
 
-@attrs
+@attrs.define
 class TrainingJobConfig:
     """Configuration of a training job.
 
@@ -45,16 +45,16 @@ class TrainingJobConfig:
         outputs: Configuration options related to outputs during training.
         name: Optional name for this configuration profile.
         description: Optional description of the configuration.
-        sleap_version: Version of SLEAP that generated this configuration.
+        sleap_nn_version: Version of SLEAP that generated this configuration.
         filename: Path to this config file if it was loaded from disk.
     """
 
-    data: DataConfig = attr.ib(factory=DataConfig)
-    model: ModelConfig = attr.ib(factory=ModelConfig)
-    outputs: OutputsConfig = attr.ib(factory=OutputsConfig)
+    data: DataConfig = attrs.field(factory=DataConfig)
+    model: ModelConfig = attrs.field(factory=ModelConfig)
+    trainer: TrainerConfig = attrs.field(factory=TrainerConfig)
     name: Optional[Text] = ""
     description: Optional[Text] = ""
-    sleap_version: Optional[Text] = sleap.__version__
+    sleap_nn_version: Optional[Text] = sleap_nn.__version__
     filename: Optional[Text] = ""
 
     @classmethod
@@ -67,8 +67,8 @@ class TrainingJobConfig:
         Returns:
             A TrainerConfig instance parsed from the YAML text.
         """
-        config = OmegaConf.create(yaml_data)
-        return OmegaConf.to_object(config, cls)
+        config_dict = OmegaConf.to_container(OmegaConf.create(yaml_data), resolve=True)
+        return cls(**config_dict)
 
     @classmethod
     def load_yaml(cls, filename: Text) -> "TrainerConfig":
@@ -90,8 +90,7 @@ class TrainingJobConfig:
         Returns:
             The YAML encoded string representation of the configuration.
         """
-        config = self.to_dict()
-        return OmegaConf.to_yaml(config)
+        return OmegaConf.to_yaml(OmegaConf.structured(self))
 
     def save_yaml(self, filename: Text):
         """Save the configuration to a YAML file.
@@ -101,7 +100,6 @@ class TrainingJobConfig:
         """
         with open(filename, "w") as f:
             f.write(self.to_yaml())
-
 
 
 def load_config(filename: Text, load_training_config: bool = True) -> TrainingJobConfig:
@@ -115,6 +113,6 @@ def load_config(filename: Text, load_training_config: bool = True) -> TrainingJo
     Returns:
         The parsed `TrainingJobConfig`.
     """
-    return TrainingJobConfig.load_json(
+    return TrainingJobConfig.load_yaml(
         filename, load_training_config=load_training_config
     )
