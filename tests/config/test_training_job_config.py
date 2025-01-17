@@ -50,40 +50,29 @@ def test_to_yaml(sample_config):
     assert parsed_yaml.trainer == sample_config["trainer"]
 
 
-# def test_save_and_load_yaml(sample_config):
-#     """Test saving and loading a TrainingJobConfig as a YAML file."""
-#     config = TrainingJobConfig(**sample_config)
+def test_save_and_load_yaml(sample_config):
+    """Test saving and loading a TrainingJobConfig as a YAML file."""
+    config = TrainingJobConfig(**sample_config)
 
-#     with tempfile.TemporaryDirectory() as tmpdir:
-#         file_path = os.path.join(tmpdir, "test_config.yaml")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = os.path.join(tmpdir, "test_config.yaml")
 
-#         # Save to file
-#         config.save_yaml(file_path)
-#         assert os.path.exists(file_path)
+        # Save to file
+        config.save_yaml(file_path)
+        assert os.path.exists(file_path)
 
-#         # Load from file
-#         loaded_config = TrainingJobConfig.load_yaml(file_path)
-#         assert loaded_config.name == config.name
-#         assert loaded_config.description == config.description
-#         assert loaded_config.data == config.data
-#         assert loaded_config.model == config.model
-#         assert loaded_config.trainer == config.trainer
-
-
-# def test_load_config(sample_config):
-#     """Test loading a TrainingJobConfig using the load_config function."""
-#     config = TrainingJobConfig(**sample_config)
-
-#     with tempfile.TemporaryDirectory() as tmpdir:
-#         file_path = os.path.join(tmpdir, "training_job.yaml")
-
-#         # Save to file
-#         config.save_yaml(file_path)
-
-#         # Load using the helper function
-#         loaded_config = TrainingJobConfig.load_yaml(file_path)
-#         assert loaded_config.name == config.name
-#         assert loaded_config.description == config.description
-#         assert loaded_config.data == config.data
-#         assert loaded_config.model == config.model
-#         assert loaded_config.trainer == config.trainer
+        # Load from file
+        loaded_config = TrainingJobConfig.load_yaml(file_path)
+        assert loaded_config.name == config.name
+        assert loaded_config.description == config.description
+        assert (
+            loaded_config.data["augmentation_config"] == config.data.augmentation_config
+        )
+        assert (
+            loaded_config.model["backbone_type"].lower()
+            == config.model.backbone_type.value
+        )
+        assert (
+            loaded_config.trainer["early_stopping"]["patience"]
+            == config.trainer.early_stopping.patience
+        )

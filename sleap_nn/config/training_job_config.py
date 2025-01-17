@@ -82,7 +82,7 @@ class TrainingJobConfig:
           A TrainerConfig instance parsed from the YAML file.
         """
         config = OmegaConf.load(filename)
-        return OmegaConf.to_object(config, cls)
+        return cls(**OmegaConf.to_container(config, resolve=True))
 
     def to_yaml(self) -> str:
         """Serialize the configuration into YAML-encoded string format.
