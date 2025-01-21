@@ -1,4 +1,4 @@
-import attrs
+from attrs import define, field, validators
 from omegaconf import MISSING
 from typing import Optional, Tuple, List, Dict, Any
 
@@ -10,7 +10,7 @@ the parameters required to initialize the data config.
 """
 
 
-@attrs.define
+@define
 class PreprocessingConfig:
     """Configuration of Preprocessing.
 
@@ -50,7 +50,7 @@ def validate_proportion(instance, attribute, value):
         raise ValueError(f"{attribute.name} must be between 0.0 and 1.0, got {value}")
 
 
-@attrs.define
+@define
 class IntensityConfig:
     """Configuration of Intensity (Optional):
 
@@ -68,24 +68,24 @@ class IntensityConfig:
         brightness_p: (float) Probability of applying random brightness. Default=0.0
     """
 
-    uniform_noise_min: float = attrs.field(
-        default=0.0, validator=attrs.validators.ge(0)
+    uniform_noise_min: float = field(
+        default=0.0, validator=validators.ge(0)
     )
-    uniform_noise_max: float = attrs.field(
-        default=1.0, validator=attrs.validators.le(1)
+    uniform_noise_max: float = field(
+        default=1.0, validator=validators.le(1)
     )
-    uniform_noise_p: float = attrs.field(default=0.0, validator=validate_proportion)
+    uniform_noise_p: float = field(default=0.0, validator=validate_proportion)
     gaussian_noise_mean: float = 0.0
     gaussian_noise_std: float = 1.0
-    gaussian_noise_p: float = attrs.field(default=0.0, validator=validate_proportion)
-    contrast_min: float = attrs.field(default=0.5, validator=attrs.validators.ge(0))
-    contrast_max: float = attrs.field(default=2.0, validator=attrs.validators.ge(0))
-    contrast_p: float = attrs.field(default=0.0, validator=validate_proportion)
+    gaussian_noise_p: float = field(default=0.0, validator=validate_proportion)
+    contrast_min: float = field(default=0.5, validator=validators.ge(0))
+    contrast_max: float = field(default=2.0, validator=validators.ge(0))
+    contrast_p: float = field(default=0.0, validator=validate_proportion)
     brightness: Tuple[float, float] = (1.0, 1.0)
-    brightness_p: float = attrs.field(default=0.0, validator=validate_proportion)
+    brightness_p: float = field(default=0.0, validator=validate_proportion)
 
 
-@attrs.define
+@define
 class GeometricConfig:
     """
     Configuration of Geometric (Optional)
@@ -113,21 +113,21 @@ class GeometricConfig:
     scale: Optional[Tuple[float, float, float, float]] = None
     translate_width: float = 0.0
     translate_height: float = 0.0
-    affine_p: float = attrs.field(default=0.0, validator=validate_proportion)
+    affine_p: float = field(default=0.0, validator=validate_proportion)
     erase_scale_min: float = 0.0001
     erase_scale_max: float = 0.01
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
-    erase_p: float = attrs.field(default=0.0, validator=validate_proportion)
+    erase_p: float = field(default=0.0, validator=validate_proportion)
     mixup_lambda: Optional[float] = None
-    mixup_p: float = attrs.field(default=0.0, validator=validate_proportion)
+    mixup_p: float = field(default=0.0, validator=validate_proportion)
     input_key: str = "image"
     random_crop_p: Optional[float] = None
     random_crop_height: Optional[int] = None
     random_crop_width: Optional[int] = None
 
 
-@attrs.define
+@define
 class AugmentationConfig:
     """Configuration of Augmentation
 
@@ -140,7 +140,7 @@ class AugmentationConfig:
     geometric: Optional[GeometricConfig] = GeometricConfig()
 
 
-@attrs.define
+@define
 class DataConfig:
     """Data configuration.
 
@@ -161,6 +161,6 @@ class DataConfig:
     val_labels_path: str = MISSING
     user_instances_only: bool = True
     chunk_size: int = 100
-    preprocessing: PreprocessingConfig = attrs.field(factory=PreprocessingConfig)
+    preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None

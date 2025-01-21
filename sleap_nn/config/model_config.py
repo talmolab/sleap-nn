@@ -1,4 +1,4 @@
-import attrs
+from attrs import define, field
 from enum import Enum
 from sleap_nn.config.utils import oneof
 from typing import Optional, List, Text, Any
@@ -12,7 +12,7 @@ the parameters required to initialize the model config.
 
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
-@attrs.define
+@define
 class UNetConfig:
     """unet config for backbone
 
@@ -41,7 +41,7 @@ class UNetConfig:
     convs_per_block: int = 2
 
 
-@attrs.define
+@define
 class ConvNextConfig:
     """convnext configuration for backbone
 
@@ -60,7 +60,7 @@ class ConvNextConfig:
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
-    arch: dict = attrs.field(
+    arch: dict = field(
         factory=lambda: {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]}
     )
     stem_patch_kernel: int = 4
@@ -72,7 +72,7 @@ class ConvNextConfig:
     up_interpolate: bool = True
 
 
-@attrs.define
+@define
 class SwinTConfig:
     """swinT configuration for backbone
 
@@ -90,16 +90,16 @@ class SwinTConfig:
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base
-    arch: dict = attrs.field(
+    arch: dict = field(
         factory=lambda: {
             "embed": 96,
             "depths": [2, 2, 6, 2],
             "channels": [3, 6, 12, 24],
         }
     )
-    patch_size: list = attrs.field(factory=lambda: [4, 4])
+    patch_size: list = field(factory=lambda: [4, 4])
     stem_patch_stride: int = 2
-    window_size: list = attrs.field(factory=lambda: [7, 7])
+    window_size: list = field(factory=lambda: [7, 7])
     in_channels: int = 1
     kernel_size: int = 3
     filters_rate: float = 1.5
@@ -107,7 +107,7 @@ class SwinTConfig:
     up_interpolate: bool = True
 
 
-@attrs.define
+@define
 class SingleInstanceConfMapsConfig:
     """Single Instance configuration map
 
@@ -122,7 +122,7 @@ class SingleInstanceConfMapsConfig:
     output_stride: Optional[float] = None
 
 
-@attrs.define
+@define
 class CentroidConfMapsConfig:
     """Centroid configuration map
 
@@ -137,7 +137,7 @@ class CentroidConfMapsConfig:
     output_stride: Optional[float] = None
 
 
-@attrs.define
+@define
 class CenteredInstanceConfMapsConfig:
     """Centered Instance configuration map
 
@@ -154,7 +154,7 @@ class CenteredInstanceConfMapsConfig:
     output_stride: Optional[float] = None
 
 
-@attrs.define
+@define
 class BottomUpConfMapsConfig:
     """Bottomup configuration map
 
@@ -171,7 +171,7 @@ class BottomUpConfMapsConfig:
     loss_weight: Optional[float] = None
 
 
-@attrs.define
+@define
 class PAFConfig:
     """PAF configuration map
 
@@ -189,32 +189,32 @@ class PAFConfig:
 
 
 # Head_config single instance
-@attrs.define
+@define
 class SingleInstanceConfig:
     confmaps: Optional[SingleInstanceConfMapsConfig] = None
 
 
 # Head_config centroid
-@attrs.define
+@define
 class CentroidConfig:
     confmaps: Optional[CentroidConfMapsConfig] = None
 
 
 # Head_config centered_instance
-@attrs.define
+@define
 class CenteredInstanceConfig:
     confmaps: Optional[CenteredInstanceConfMapsConfig] = None
 
 
 # Head_config bottomup
-@attrs.define
+@define
 class BottomUpConfig:
     confmaps: Optional[BottomUpConfMapsConfig] = None
     pafs: Optional[PAFConfig] = None
 
 
 @oneof
-@attrs.define
+@define
 class HeadConfig:
     """Configurations related to the model output head type.
 
@@ -236,7 +236,7 @@ class HeadConfig:
 
 
 @oneof
-@attrs.define
+@define
 class BackboneConfig:
     """Configurations related to model backbone configuration.
 
@@ -257,7 +257,7 @@ class BackboneType(Enum):
     SWINT = "swint"
 
 
-@attrs.define
+@define
 class ModelConfig:
     """Configurations related to model architecture.
 
@@ -271,8 +271,8 @@ class ModelConfig:
     backbone_type: BackboneType
     init_weight: str = "default"
     pre_trained_weights: Optional[str] = None
-    backbone_config: BackboneConfig = attrs.field(factory=BackboneConfig)
-    head_configs: HeadConfig = attrs.field(factory=HeadConfig)
+    backbone_config: BackboneConfig = field(factory=BackboneConfig)
+    head_configs: HeadConfig = field(factory=HeadConfig)
 
     # post-initialization
     def __attrs_post_init__(self):

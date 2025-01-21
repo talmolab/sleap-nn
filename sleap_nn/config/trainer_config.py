@@ -1,4 +1,4 @@
-import attrs
+from attrs import define, field
 from omegaconf import OmegaConf
 from typing import Optional, List, Text, Any
 
@@ -10,7 +10,7 @@ the parameters required to initialize the trainer config.
 """
 
 
-@attrs.define
+@define
 class DataLoaderConfig:
     """Train and val DataLoaderConfig:
 
@@ -27,7 +27,7 @@ class DataLoaderConfig:
     num_workers: int = 0
 
 
-@attrs.define
+@define
 class ModelCkptConfig:
     """Configuration for model checkpoint.
 
@@ -42,7 +42,7 @@ class ModelCkptConfig:
     save_last: Optional[bool] = None
 
 
-@attrs.define
+@define
 class WandBConfig:
     """Configuration for WandB
 
@@ -67,7 +67,7 @@ class WandBConfig:
     log_params: Optional[List[str]] = None
 
 
-@attrs.define
+@define
 class OptimizerConfig:
     """Configuration for optimizer
 
@@ -80,7 +80,7 @@ class OptimizerConfig:
     amsgrad: bool = False
 
 
-@attrs.define
+@define
 class LRSchedulerConfig:
     """Configuration for lr_scheduler
 
@@ -115,7 +115,7 @@ class LRSchedulerConfig:
         raise ValueError("min_lr must be a float or a list of floats.")
 
 
-@attrs.define
+@define
 class EarlyStoppingConfig:
     """Configuration for early_stopping
 
@@ -130,7 +130,7 @@ class EarlyStoppingConfig:
     patience: int = 1
 
 
-@attrs.define
+@define
 class TrainerConfig:
     """Configuration for trainer.
 
@@ -168,7 +168,7 @@ class TrainerConfig:
     save_ckpt: bool = False
     save_ckpt_path: str = "./"
     resume_ckpt_path: Optional[str] = None
-    wandb: Optional[WandBConfig] = attrs.field(init=False)
+    wandb: Optional[WandBConfig] = field(init=False)
     optimizer: Optional[OptimizerConfig] = OptimizerConfig()
     lr_scheduler: LRSchedulerConfig = LRSchedulerConfig()
     early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()

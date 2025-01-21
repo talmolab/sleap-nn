@@ -25,7 +25,7 @@ parameters are aggregated and documented for end users (as opposed to developers
 """
 
 import os
-import attrs
+from attrs import define, field
 import sleap_nn
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.model_config import ModelConfig
@@ -35,7 +35,7 @@ from typing import Text, Dict, Any, Optional
 from omegaconf import OmegaConf
 
 
-@attrs.define
+@define
 class TrainingJobConfig:
     """Configuration of a training job.
 
@@ -49,9 +49,9 @@ class TrainingJobConfig:
         filename: Path to this config file if it was loaded from disk.
     """
 
-    data: DataConfig = attrs.field(factory=DataConfig)
-    model: ModelConfig = attrs.field(factory=ModelConfig)
-    trainer: TrainerConfig = attrs.field(factory=TrainerConfig)
+    data: DataConfig = field(factory=DataConfig)
+    model: ModelConfig = field(factory=ModelConfig)
+    trainer: TrainerConfig = field(factory=TrainerConfig)
     name: Optional[Text] = ""
     description: Optional[Text] = ""
     sleap_nn_version: Optional[Text] = sleap_nn.__version__
