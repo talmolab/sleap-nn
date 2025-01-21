@@ -14,7 +14,9 @@ def sample_config():
     return {
         "name": "TestConfig",
         "description": "A sample configuration for testing.",
-        "data": DataConfig(),
+        "data": DataConfig(
+            train_labels_path="example_train_path", val_labels_path="example_val_path"
+        ),
         "model": ModelConfig(backbone_type=BackboneType.UNET),
         "trainer": TrainerConfig(),
     }

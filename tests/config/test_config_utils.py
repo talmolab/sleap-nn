@@ -2,10 +2,6 @@ import attr
 import pytest
 from typing import Optional, Text
 
-# from sleap_nn.system import use_cpu_only
-
-# use_cpu_only()  # hide GPUs for test
-
 from sleap_nn.config import utils
 
 
