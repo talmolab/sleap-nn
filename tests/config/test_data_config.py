@@ -23,11 +23,12 @@ def test_data_config_initialization():
 
 
 def test_data_config_missing_values():
-    # Test that DataConfig raises an error if required fields are missing.
-    # with pytest.raises(ValidationError):
-    config = OmegaConf.structured(DataConfig())
-    # with pytest.raises(ValidationError, match="train_labels_path"):
-    #     OmegaConf.to_container(config, resolve=True)
+    """Test that DataConfig initializes correctly with default values."""
+    with pytest.raises(
+        TypeError,
+        match="missing .* required positional argument.*train_labels_path.*val_labels_path",
+    ):
+        DataConfig()
 
 
 def test_preprocessing_config_initialization():

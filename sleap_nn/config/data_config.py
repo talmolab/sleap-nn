@@ -140,9 +140,9 @@ class AugmentationConfig:
 class DataConfig:
     """Data configuration.
 
-    provider: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
     train_labels_path: (str) Path to training data (.slp file)
     val_labels_path: (str) Path to validation data (.slp file)
+    provider: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
     user_instances_only: (bool) True if only user labeled instances should be used for training. If False, both user labeled and predicted instances would be used. Default: True.
     chunk_size: (int) Size of each chunk (in MB). Default: "100". #TODO: change in inference ckpts
     preprocessing: Configuration options related to data preprocessing.
@@ -152,9 +152,9 @@ class DataConfig:
         and topdown models.
     """
 
+    train_labels_path: str
+    val_labels_path: str
     provider: str = "LabelsReader"
-    train_labels_path: str = MISSING
-    val_labels_path: str = MISSING
     user_instances_only: bool = True
     chunk_size: int = 100
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
