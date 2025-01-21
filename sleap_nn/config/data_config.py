@@ -68,12 +68,8 @@ class IntensityConfig:
         brightness_p: (float) Probability of applying random brightness. Default=0.0
     """
 
-    uniform_noise_min: float = field(
-        default=0.0, validator=validators.ge(0)
-    )
-    uniform_noise_max: float = field(
-        default=1.0, validator=validators.le(1)
-    )
+    uniform_noise_min: float = field(default=0.0, validator=validators.ge(0))
+    uniform_noise_max: float = field(default=1.0, validator=validators.le(1))
     uniform_noise_p: float = field(default=0.0, validator=validate_proportion)
     gaussian_noise_mean: float = 0.0
     gaussian_noise_std: float = 1.0
