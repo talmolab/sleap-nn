@@ -98,7 +98,7 @@ class GeometricConfig:
         affine_p: (float) Probability of applying random affine transformations. Default=0.0
         erase_scale_min: (float) Minimum value of range of proportion of erased area against input image. Default: 0.0001.
         erase_scale_max: (float) Maximum value of range of proportion of erased area against input image. Default: 0.01.
-        erase_ration_min: (float) Minimum value of range of aspect ratio of erased area. Default: 1.
+        erase_ratio_min: (float) Minimum value of range of aspect ratio of erased area. Default: 1.
         erase_ratio_max: (float) Maximum value of range of aspect ratio of erased area. Default: 1.
         erase_p: (float) Probability of applying random erase. Default=0.0
         mixup_lambda: (float) min-max value of mixup strength. Default is 0-1. Default: None.
@@ -106,7 +106,7 @@ class GeometricConfig:
         input_key: (str) Can be image or instance. The input_key instance expects the KorniaAugmenter to follow the InstanceCropper else image otherwise for default.
         random_crop_p: (float) Probability of applying random crop.
         random_crop_height: (int) Desired output height of the random crop.
-        random_crop_width: (int) Desired output height of the random crop.
+        random_crop_width: (int) Desired output width of the random crop.
     """
 
     rotation: float = 0.0
