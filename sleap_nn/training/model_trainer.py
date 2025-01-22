@@ -190,6 +190,8 @@ class ModelTrainer:
             else:
                 self.crop_hw = self.crop_hw[0]
 
+        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
         train_labels = sio.load_slp(self.config.data_config.train_labels_path)
