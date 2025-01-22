@@ -1,3 +1,5 @@
+"""Tests for the utilities for config building and validation."""
+
 import attr
 import pytest
 from typing import Optional, Text
@@ -6,6 +8,8 @@ from sleap_nn.config import utils
 
 
 def test_one_of():
+    """Test of decorator."""
+
     @utils.oneof
     @attr.s(auto_attribs=True)
     class ExclusiveClass:
