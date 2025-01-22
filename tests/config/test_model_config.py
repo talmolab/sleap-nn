@@ -1,3 +1,9 @@
+"""Tests for the serializable configuration classes for specifying all model config parameters.
+
+These configuration classes are intended to specify all 
+the parameters required to initialize the model config.
+"""
+
 import pytest
 from omegaconf import OmegaConf, ValidationError
 from sleap_nn.config.model_config import (

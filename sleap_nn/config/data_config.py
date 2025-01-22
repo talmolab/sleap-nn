@@ -1,13 +1,12 @@
-from attrs import define, field, validators
-from omegaconf import MISSING
-from typing import Optional, Tuple, List, Dict, Any
-
-
 """Serializable configuration classes for specifying all data configuration parameters.
 
 These configuration classes are intended to specify all 
 the parameters required to initialize the data config.
 """
+
+from attrs import define, field, validators
+from omegaconf import MISSING
+from typing import Optional, Tuple, List, Dict, Any
 
 
 @define
@@ -31,9 +30,14 @@ class PreprocessingConfig:
     min_crop_size: int = 32  # to help app work incase of error
 
     def __attrs_post_init__(self):
+        """Post Initialization Validation."""
         self.validate_scale()
 
     def validate_scale(self):
+        """Scale Validation.
+
+        Ensures PreprocessingConfig's scale is a float>=0 or list of floats>=0
+        """
         if isinstance(self.scale, float) and self.scale >= 0:
             return
         if isinstance(self.scale, list) and all(
@@ -46,13 +50,17 @@ class PreprocessingConfig:
 
 
 def validate_proportion(instance, attribute, value):
+    """General Proportion Validation.
+
+    Ensures all proportions are a 0<=float<=1.0
+    """
     if not (0.0 <= value <= 1.0):
         raise ValueError(f"{attribute.name} must be between 0.0 and 1.0, got {value}")
 
 
 @define
 class IntensityConfig:
-    """Configuration of Intensity (Optional):
+    """Configuration of Intensity (Optional).
 
     Attributes:
         uniform_noise_min: (float) Minimum value for uniform noise (uniform_noise_min >=0).
@@ -83,8 +91,7 @@ class IntensityConfig:
 
 @define
 class GeometricConfig:
-    """
-    Configuration of Geometric (Optional)
+    """Configuration of Geometric (Optional).
 
     Attributes:
         rotation: (float) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
@@ -125,7 +132,7 @@ class GeometricConfig:
 
 @define
 class AugmentationConfig:
-    """Configuration of Augmentation
+    """Configuration of Augmentation.
 
     Attributes:
         intensity: (Optional)

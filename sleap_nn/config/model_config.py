@@ -1,20 +1,19 @@
-from attrs import define, field
-from enum import Enum
-from sleap_nn.config.utils import oneof
-from typing import Optional, List, Text, Any
-
-
 """Serializable configuration classes for specifying all model config parameters.
 
 These configuration classes are intended to specify all 
 the parameters required to initialize the model config.
 """
 
+from attrs import define, field
+from enum import Enum
+from sleap_nn.config.utils import oneof
+from typing import Optional, List, Text, Any
+
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
 @define
 class UNetConfig:
-    """unet config for backbone
+    """unet config for backbone.
 
     Attributes:
         in_channels: (int) Number of input channels. Default is 1.
@@ -43,7 +42,7 @@ class UNetConfig:
 
 @define
 class ConvNextConfig:
-    """convnext configuration for backbone
+    """convnext configuration for backbone.
 
     Attributes:
         arch: (Default is Tiny architecture config. No need to provide if model_type is provided)
@@ -74,7 +73,7 @@ class ConvNextConfig:
 
 @define
 class SwinTConfig:
-    """swinT configuration for backbone
+    """swinT configuration for backbone.
 
     Attributes:
         model_type: (str) One of the ConvNext architecture types: ["tiny", "small", "base"]. Default: "tiny".
@@ -109,7 +108,7 @@ class SwinTConfig:
 
 @define
 class SingleInstanceConfMapsConfig:
-    """Single Instance configuration map
+    """Single Instance configuration map.
 
     Attributes:
         part_names: (List[str]) None if nodes from sio.Labels file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
@@ -124,7 +123,7 @@ class SingleInstanceConfMapsConfig:
 
 @define
 class CentroidConfMapsConfig:
-    """Centroid configuration map
+    """Centroid configuration map.
 
     Attributes:
         anchor_part: (int) Note: Only for 'CenteredInstanceConfmapsHead'. Index of the anchor node to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image.
@@ -139,7 +138,7 @@ class CentroidConfMapsConfig:
 
 @define
 class CenteredInstanceConfMapsConfig:
-    """Centered Instance configuration map
+    """Centered Instance configuration map.
 
     Attributes:
         part_names: (List[str]) None if nodes from sio.Labels file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
@@ -156,7 +155,7 @@ class CenteredInstanceConfMapsConfig:
 
 @define
 class BottomUpConfMapsConfig:
-    """Bottomup configuration map
+    """Bottomup configuration map.
 
     Attributes:
         part_names: (List[str]) None if nodes from sio.Labels file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
@@ -173,7 +172,7 @@ class BottomUpConfMapsConfig:
 
 @define
 class PAFConfig:
-    """PAF configuration map
+    """PAF configuration map.
 
     Attributes:
         edges: (List[str]) None if edges from sio.Labels file can be used directly. Note: Only for 'PartAffinityFieldsHead'. List of indices (src, dest) that form an edge.
@@ -188,27 +187,31 @@ class PAFConfig:
     loss_weight: Optional[float] = None
 
 
-# Head_config single instance
 @define
 class SingleInstanceConfig:
+    """single instance head_config."""
+
     confmaps: Optional[SingleInstanceConfMapsConfig] = None
 
 
-# Head_config centroid
 @define
 class CentroidConfig:
+    """centroid head_config."""
+
     confmaps: Optional[CentroidConfMapsConfig] = None
 
 
-# Head_config centered_instance
 @define
 class CenteredInstanceConfig:
+    """centered_instance head_config."""
+
     confmaps: Optional[CenteredInstanceConfMapsConfig] = None
 
 
-# Head_config bottomup
 @define
 class BottomUpConfig:
+    """bottomup head_config."""
+
     confmaps: Optional[BottomUpConfMapsConfig] = None
     pafs: Optional[PAFConfig] = None
 
@@ -252,6 +255,11 @@ class BackboneConfig:
 
 
 class BackboneType(Enum):
+    """backbonetype.
+
+    backbonetype must be one of these 3 types.
+    """
+
     UNET = "unet"
     CONVNEXT = "convnext"
     SWINT = "swint"
@@ -276,10 +284,29 @@ class ModelConfig:
 
     # post-initialization
     def __attrs_post_init__(self):
+        """Post Initialization Validation."""
         self.validate_pre_trained_weights()
 
     # validate the pre-trained weights
     def validate_pre_trained_weights(self):
+        """pre_trained_weights validation.
+
+        check:
+        convnext_weights are one of
+        (
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        )
+        swint_weights are one of
+        (
+            "Swin_T_Weights",
+            "Swin_S_Weights",
+            "Swin_B_Weights"
+        )
+        unet weights is None
+        """
         convnext_weights = [
             "ConvNeXt_Base_Weights",
             "ConvNeXt_Tiny_Weights",

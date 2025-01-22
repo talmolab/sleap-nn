@@ -1,18 +1,17 @@
-from attrs import define, field
-from omegaconf import OmegaConf
-from typing import Optional, List, Text, Any
-
-
 """Serializable configuration classes for specifying all trainer config parameters.
 
 These configuration classes are intended to specify all 
 the parameters required to initialize the trainer config.
 """
 
+from attrs import define, field
+from omegaconf import OmegaConf
+from typing import Optional, List, Text, Any
+
 
 @define
 class DataLoaderConfig:
-    """Train and val DataLoaderConfig:
+    """Train and val DataLoaderConfig.
 
     Any parameters from Torch's DataLoader could be used.
 
@@ -44,7 +43,7 @@ class ModelCkptConfig:
 
 @define
 class WandBConfig:
-    """Configuration for WandB
+    """Configuration for WandB.
 
     Only if use_wandb is True, else skip this
 
@@ -69,7 +68,7 @@ class WandBConfig:
 
 @define
 class OptimizerConfig:
-    """Configuration for optimizer
+    """Configuration for optimizer.
 
     Attributes:
         lr: (float) Learning rate of type float. Default: 1e-3
@@ -82,7 +81,7 @@ class OptimizerConfig:
 
 @define
 class LRSchedulerConfig:
-    """Configuration for lr_scheduler
+    """Configuration for lr_scheduler.
 
     Attributes:
         mode: (str) One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. Default: "min".
@@ -103,9 +102,14 @@ class LRSchedulerConfig:
     min_lr: Any = 0.0
 
     def __attrs_post_init__(self):
+        """Post Initialization Validation."""
         self.validate_min_lr()
 
     def validate_min_lr(self):
+        """min_lr Validation.
+
+        check min_lr is a float or list of floats
+        """
         if isinstance(self.min_lr, float):
             return
         if isinstance(self.min_lr, list) and all(
@@ -117,7 +121,7 @@ class LRSchedulerConfig:
 
 @define
 class EarlyStoppingConfig:
-    """Configuration for early_stopping
+    """Configuration for early_stopping.
 
     Attributes:
         stop_training_on_plateau: (bool) True if early stopping should be enabled.
@@ -173,14 +177,16 @@ class TrainerConfig:
     lr_scheduler: LRSchedulerConfig = LRSchedulerConfig()
     early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
 
-    # post-initialization
     def __attrs_post_init__(self):
+        """Post Initialization Validation.
+
+        validate trainer devices,
+        initialize wandB configuration if use_wandB is set to True
+        """
         self.validate_trainer_devices()
-        # Set wandb configuration only if use_wandb is True
+
         if self.use_wandb:
-            self.wandb = (
-                WandBConfig()
-            )  # Initialize WandBConfig with defaults or passed parameters
+            self.wandb = WandBConfig()
         else:
             self.wandb = None
 

@@ -1,3 +1,9 @@
+"""Tests for the serializable configuration classes for specifying all data configuration parameters.
+
+These configuration classes are intended to specify all 
+the parameters required to initialize the data config.
+"""
+
 import pytest
 from omegaconf import OmegaConf, ValidationError
 from attrs import fields

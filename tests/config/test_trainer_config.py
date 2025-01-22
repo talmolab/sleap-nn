@@ -1,3 +1,9 @@
+"""Tests for the serializable configuration classes for specifying all trainer config parameters.
+
+These configuration classes are intended to specify all 
+the parameters required to initialize the trainer config.
+"""
+
 import pytest
 from omegaconf import OmegaConf
 from omegaconf import ValidationError
@@ -13,6 +19,10 @@ from sleap_nn.config.trainer_config import (
 
 
 def test_dataloader_config():
+    """dataloader_config tests.
+
+    Check default values and customization
+    """
     # Check default values
     conf = OmegaConf.structured(DataLoaderConfig)
     conf_instance = OmegaConf.structured(DataLoaderConfig())
@@ -31,6 +41,10 @@ def test_dataloader_config():
 
 
 def test_model_ckpt_config():
+    """model_ckpt_config tests.
+
+    Check default values and customization
+    """
     # Check default values
     conf = OmegaConf.structured(ModelCkptConfig)
     assert conf.save_top_k == 1
@@ -43,6 +57,10 @@ def test_model_ckpt_config():
 
 
 def test_wandb_config():
+    """wandb_config tests.
+
+    Check default values and customization
+    """
     # Check default values
     conf = OmegaConf.structured(WandBConfig)
     assert conf.entity is None
@@ -58,6 +76,10 @@ def test_wandb_config():
 
 
 def test_optimizer_config():
+    """optimizer_config tests.
+
+    Check default values and customization
+    """
     # Check default values
     conf = OmegaConf.structured(OptimizerConfig)
     assert conf.lr == 1e-3
@@ -70,6 +92,10 @@ def test_optimizer_config():
 
 
 def test_lr_scheduler_config():
+    """lr_scheduler_config tests.
+
+    Check default values and customization
+    """
     # Check default values
     conf = OmegaConf.structured(LRSchedulerConfig)
     assert conf.mode == "min"
@@ -86,6 +112,10 @@ def test_lr_scheduler_config():
 
 
 def test_early_stopping_config():
+    """early_stopping_config tests.
+
+    Check default values and customization
+    """
     # Check default values
     conf = OmegaConf.structured(EarlyStoppingConfig)
     assert conf.stop_training_on_plateau is False
@@ -101,6 +131,10 @@ def test_early_stopping_config():
 
 
 def test_trainer_config():
+    """trainer_config tests.
+
+    Check default values and customization
+    """
     # Check default values
     conf = OmegaConf.structured(TrainerConfig)
     assert conf.train_data_loader.batch_size == 1
