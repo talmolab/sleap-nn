@@ -65,7 +65,7 @@ class TrainingJobConfig:
             yaml_data: YAML-formatted string that specifies the configurations.
 
         Returns:
-            A TrainerConfig instance parsed from the YAML text.
+            A TrainingJobConfig instance parsed from the YAML text.
         """
         config_dict = OmegaConf.to_container(OmegaConf.create(yaml_data), resolve=True)
         return cls(**config_dict)
@@ -79,7 +79,7 @@ class TrainingJobConfig:
                 containing `"training_job.yaml"`.
 
         Returns:
-          A TrainerConfig instance parsed from the YAML file.
+          A TrainingJobConfig instance parsed from the YAML file.
         """
         config = OmegaConf.load(filename)
         return cls(**OmegaConf.to_container(config, resolve=True))

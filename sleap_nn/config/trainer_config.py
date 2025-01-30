@@ -5,7 +5,6 @@ the parameters required to initialize the trainer config.
 """
 
 from attrs import define, field
-from omegaconf import OmegaConf
 from typing import Optional, List, Text, Any
 
 
@@ -78,6 +77,10 @@ class OptimizerConfig:
     lr: float = 1e-3
     amsgrad: bool = False
 
+    def __attrs_post_init__(self):
+        if self.lr <= 0:
+            raise ValueError("Learning rate must be positive")
+
 
 @define
 class LRSchedulerConfig:
@@ -132,6 +135,12 @@ class EarlyStoppingConfig:
     stop_training_on_plateau: bool = False
     min_delta: float = 0.0
     patience: int = 1
+
+    def __attrs_post_init__(self):
+        if self.patience < 0:
+            raise ValueError("patience must be non-negative")
+        if self.min_delta < 0:
+            raise ValueError("min_delta must be non-negative")
 
 
 @define

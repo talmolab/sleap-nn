@@ -5,7 +5,7 @@ the parameters required to initialize the model config.
 """
 
 import pytest
-from omegaconf import OmegaConf, ValidationError
+from omegaconf import OmegaConf
 from sleap_nn.config.model_config import (
     ModelConfig,
     BackboneConfig,
