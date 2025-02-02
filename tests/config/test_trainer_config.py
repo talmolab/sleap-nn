@@ -92,7 +92,7 @@ def test_optimizer_config():
 
     # Test validation
     with pytest.raises(ValueError, match="Learning rate must be positive"):
-        OmegaConf.structured(OmegaConf.structured(OptimizerConfig(lr=-0.01)))  
+        OmegaConf.structured(OmegaConf.structured(OptimizerConfig(lr=-0.01)))
 
 
 def test_lr_scheduler_config():
@@ -116,9 +116,11 @@ def test_lr_scheduler_config():
 
     # Test validation
     with pytest.raises(ValueError, match="min_lr must be a float or a list of floats."):
-        OmegaConf.structured(OmegaConf.structured(LRSchedulerConfig(min_lr=1)))  
+        OmegaConf.structured(OmegaConf.structured(LRSchedulerConfig(min_lr=1)))
     with pytest.raises(ValueError, match="min_lr must be a float or a list of floats."):
-        OmegaConf.structured(OmegaConf.structured(LRSchedulerConfig(min_lr=[1.0, 0.7, 1])))  
+        OmegaConf.structured(
+            OmegaConf.structured(LRSchedulerConfig(min_lr=[1.0, 0.7, 1]))
+        )
 
 
 def test_early_stopping_config():
@@ -141,9 +143,9 @@ def test_early_stopping_config():
 
     # Test validation
     with pytest.raises(ValueError):
-        OmegaConf.structured(OmegaConf.structured(EarlyStoppingConfig(patience=-5)))  
+        OmegaConf.structured(OmegaConf.structured(EarlyStoppingConfig(patience=-5)))
     with pytest.raises(ValueError):
-        OmegaConf.structured(OmegaConf.structured(EarlyStoppingConfig(min_delta=-5)))  
+        OmegaConf.structured(OmegaConf.structured(EarlyStoppingConfig(min_delta=-5)))
 
 
 def test_trainer_config():
