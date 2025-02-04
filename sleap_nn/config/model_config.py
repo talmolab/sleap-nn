@@ -1,6 +1,6 @@
 """Serializable configuration classes for specifying all model config parameters.
 
-These configuration classes are intended to specify all 
+These configuration classes are intended to specify all
 the parameters required to initialize the model config.
 """
 

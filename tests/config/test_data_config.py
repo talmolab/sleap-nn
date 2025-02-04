@@ -1,6 +1,6 @@
 """Tests for the serializable configuration classes for specifying all data configuration parameters.
 
-These configuration classes are intended to specify all 
+These configuration classes are intended to specify all
 the parameters required to initialize the data config.
 """
 

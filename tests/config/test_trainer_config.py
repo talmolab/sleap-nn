@@ -1,6 +1,6 @@
 """Tests for the serializable configuration classes for specifying all trainer config parameters.
 
-These configuration classes are intended to specify all 
+These configuration classes are intended to specify all
 the parameters required to initialize the trainer config.
 """
 
