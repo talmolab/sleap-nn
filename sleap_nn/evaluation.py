@@ -369,7 +369,7 @@ def match_frame_pairs(
 
 
 def compute_dists(
-    positive_pairs: List[Tuple[sio.Instance, sio.PredictedInstance, Any]]
+    positive_pairs: List[Tuple[sio.Instance, sio.PredictedInstance, Any]],
 ) -> Dict[str, Union[np.ndarray, List[int], List[str]]]:
     """Compute Euclidean distances between matched pairs of instances.
 
