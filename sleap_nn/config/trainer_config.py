@@ -78,6 +78,7 @@ class OptimizerConfig:
     amsgrad: bool = False
 
     def __attrs_post_init__(self):
+        """Check learning rate is greater than or equal to 0."""
         if self.lr <= 0:
             raise ValueError("Learning rate must be positive")
 
@@ -137,6 +138,7 @@ class EarlyStoppingConfig:
     patience: int = 1
 
     def __attrs_post_init__(self):
+        """Check patience and min_delta greater than 0."""
         if self.patience < 0:
             raise ValueError("patience must be non-negative")
         if self.min_delta < 0:
