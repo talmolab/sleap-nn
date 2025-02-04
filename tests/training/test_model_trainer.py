@@ -38,8 +38,8 @@ def test_create_data_loader_torch_dataset(config, tmp_path):
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     model_trainer = ModelTrainer(config_copy, data_pipeline_fw="torch_dataset")
     model_trainer._create_data_loaders_torch_dataset()
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    assert len(list(iter(model_trainer.train_dataset))) == 2
+    assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
@@ -53,8 +53,8 @@ def test_create_data_loader_torch_dataset(config, tmp_path):
         np_chunks_path=f"{tmp_path}/np_chunks/",
     )
     model_trainer._create_data_loaders_torch_dataset()
-    assert len(list(iter(model_trainer.train_data_loader))) == 2
-    assert len(list(iter(model_trainer.val_data_loader))) == 2
+    assert len(list(iter(model_trainer.train_dataset))) == 2
+    assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
@@ -585,7 +585,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     # check exception for lr scheduler
     OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "ReduceLR")
     with pytest.raises(ValueError):
-        trainer = ModelTrainer(config)
+        trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
         trainer.train()
 
     OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")

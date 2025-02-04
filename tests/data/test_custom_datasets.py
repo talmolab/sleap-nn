@@ -5,6 +5,7 @@ from sleap_nn.data.custom_datasets import (
     CenteredInstanceDataset,
     CentroidDataset,
     SingleInstanceDataset,
+    CyclerDataLoader,
 )
 
 
@@ -715,3 +716,46 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     assert sample["image"].shape == (1, 1, 384, 384)
     assert sample["confidence_maps"].shape == (1, 2, 192, 192)
     assert sample["instances"].shape == (1, 1, 2, 2)
+
+
+def test_cycler_dataloader(minimal_instance, tmp_path):
+    labels = sio.load_slp(minimal_instance)
+
+    # Making our minimal 2-instance example into a single instance example.
+    for lf in labels:
+        lf.instances = lf.instances[:1]
+
+    base_singleinstance_data_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "is_rgb": True,
+            },
+            "use_augmentations_train": False,
+        }
+    )
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+
+    dataset = SingleInstanceDataset(
+        data_config=base_singleinstance_data_config,
+        max_stride=8,
+        confmap_head_config=confmap_head,
+        labels=labels,
+        apply_aug=base_singleinstance_data_config.use_augmentations_train,
+        np_chunks=False,
+    )
+
+    assert len(list(iter(dataset))) == 1
+
+    dl = iter(
+        CyclerDataLoader(
+            dataset=dataset, batch_size=1, num_workers=0, steps_per_epoch=10
+        )
+    )
+
+    for _ in range(10):
+        _ = next(dl)
