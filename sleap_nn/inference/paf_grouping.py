@@ -184,7 +184,7 @@ def make_line_subs(
     Y = torch.cat(
         (src_peaks[:, 1].unsqueeze(dim=-1), dst_peaks[:, 1].unsqueeze(dim=-1)), dim=-1
     ).to(torch.float64)
-    samples = torch.Tensor([0, 1], device=X.device).repeat(n_candidates, 1)
+    samples = torch.tensor([0, 1], device=X.device).repeat(n_candidates, 1)
     samples_new = torch.linspace(0, 1, steps=n_line_points, device=X.device).repeat(
         n_candidates, 1
     )
