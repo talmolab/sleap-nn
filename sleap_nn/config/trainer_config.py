@@ -103,7 +103,9 @@ class LRSchedulerConfig:
     cooldown: int = 0
     patience: int = 10
     factor: float = 0.1
-    min_lr: Any = field(default=0.0, validator=lambda instance, attr, value: instance.validate_min_lr())
+    min_lr: Any = field(
+        default=0.0, validator=lambda instance, attr, value: instance.validate_min_lr()
+    )
 
     def validate_min_lr(self):
         """min_lr Validation.
@@ -116,9 +118,7 @@ class LRSchedulerConfig:
             isinstance(x, float) and x >= 0 for x in self.min_lr
         ):
             return
-        raise ValueError(
-            "min_lr must be a float or a list of floats."
-        )
+        raise ValueError("min_lr must be a float or a list of floats.")
 
 
 @define
@@ -131,11 +131,9 @@ class EarlyStoppingConfig:
         patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch.
     """
 
-    
     min_delta: float = field(default=0.0, validator=validators.ge(0))
     patience: int = field(default=1, validator=validators.ge(0))
     stop_training_on_plateau: bool = False
-
 
 
 @define
@@ -166,7 +164,10 @@ class TrainerConfig:
     train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
     val_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
     model_ckpt: ModelCkptConfig = field(factory=ModelCkptConfig)
-    trainer_devices: Any = field(default="auto", validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val))
+    trainer_devices: Any = field(
+        default="auto",
+        validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val),
+    )
     trainer_accelerator: str = "auto"
     enable_progress_bar: bool = True
     steps_per_epoch: Optional[int] = None
@@ -190,6 +191,7 @@ class TrainerConfig:
             self.wandb = WandBConfig()
         else:
             self.wandb = None
+
     @staticmethod
     def validate_trainer_devices(value):
         """Validate the value of trainer_devices."""

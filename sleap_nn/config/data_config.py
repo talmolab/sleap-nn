@@ -25,7 +25,9 @@ class PreprocessingConfig:
     is_rgb: bool = True
     max_height: Optional[int] = None
     max_width: Optional[int] = None
-    scale: Any = field(default=1.0, validator=lambda instance, attr, value: instance.validate_scale())
+    scale: Any = field(
+        default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
+    )
     crop_hw: Optional[Tuple[int, int]] = None
     min_crop_size: int = 32  # to help app work incase of error
 
