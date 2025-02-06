@@ -100,6 +100,23 @@ class ModelTrainer:
             Path(np_chunks_path) / "val_chunks" if np_chunks_path is not None else None
         )
         self.use_existing_np_chunks = use_existing_np_chunks
+        if self.use_existing_np_chunks:
+            if not (
+                self.train_np_chunks_path.exists()
+                and self.train_np_chunks_path.is_dir()
+                and any(self.train_np_chunks_path.iterdir())
+            ):
+                raise Exception(
+                    f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
+                )
+            if not (
+                self.val_np_chunks_path.exists()
+                and self.val_np_chunks_path.is_dir()
+                and any(self.val_np_chunks_path.iterdir())
+            ):
+                raise Exception(
+                    f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
+                )
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
@@ -340,6 +357,13 @@ class ModelTrainer:
                 // self.config.trainer_config.train_data_loader.batch_size
             )
 
+        pin_memory = (
+            self.config.trainer_config.train_data_loader.pin_memory
+            if "pin_memory" in self.config.trainer_config.train_data_loader
+            and self.config.trainer_config.train_data_loader.pin_memory is not None
+            else True
+        )
+
         # train
         self.train_data_loader = CyclerDataLoader(
             dataset=self.train_dataset,
@@ -347,7 +371,7 @@ class ModelTrainer:
             shuffle=self.config.trainer_config.train_data_loader.shuffle,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
             persistent_workers=(
                 True
                 if self.config.trainer_config.train_data_loader.num_workers > 0
@@ -368,7 +392,7 @@ class ModelTrainer:
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
-            pin_memory=True,
+            pin_memory=pin_memory,
             persistent_workers=(
                 True
                 if self.config.trainer_config.val_data_loader.num_workers > 0
