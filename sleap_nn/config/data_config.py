@@ -25,13 +25,9 @@ class PreprocessingConfig:
     is_rgb: bool = True
     max_height: Optional[int] = None
     max_width: Optional[int] = None
-    scale: Any = 1.0
+    scale: Any = field(default=1.0, validator=lambda instance, attr, value: instance.validate_scale())
     crop_hw: Optional[Tuple[int, int]] = None
     min_crop_size: int = 32  # to help app work incase of error
-
-    def __attrs_post_init__(self):
-        """Post Initialization Validation."""
-        self.validate_scale()
 
     def validate_scale(self):
         """Scale Validation.

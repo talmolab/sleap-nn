@@ -92,7 +92,7 @@ class LRSchedulerConfig:
         threshold: (float) Threshold for measuring the new optimum, to only focus on significant changes. Default: 1e-4.
         threshold_mode: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. Default: "rel".
         cooldown: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. Default: 0
-        patience: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn’t improved then. Default: 10.
+        patience: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. Default: 10.
         factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. Default: 0.1.
         min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. Default: 0.
     """
@@ -103,21 +103,22 @@ class LRSchedulerConfig:
     cooldown: int = 0
     patience: int = 10
     factor: float = 0.1
-    min_lr: Any = field(default=0.0, validator=lambda inst, attr, val: LRSchedulerConfig.validate_min_lr(val))
+    min_lr: Any = field(default=0.0, validator=lambda instance, attr, value: instance.validate_min_lr())
 
-    @staticmethod
-    def validate_min_lr(value):
+    def validate_min_lr(self):
         """min_lr Validation.
 
-        check min_lr is a float or list of floats
+        Ensures min_lr is a float>=0 or list of floats>=0
         """
-        if isinstance(value, float):
+        if isinstance(self.min_lr, float) and self.min_lr >= 0:
             return
-        if isinstance(value, list) and all(
-            isinstance(x, float) for x in value
+        if isinstance(self.min_lr, list) and all(
+            isinstance(x, float) and x >= 0 for x in self.min_lr
         ):
             return
-        raise ValueError("min_lr must be a float or a list of floats.")
+        raise ValueError(
+            "min_lr must be a float or a list of floats."
+        )
 
 
 @define
