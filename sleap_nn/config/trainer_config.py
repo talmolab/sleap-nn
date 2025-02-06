@@ -4,7 +4,7 @@ These configuration classes are intended to specify all
 the parameters required to initialize the trainer config.
 """
 
-from attrs import define, field
+from attrs import define, field, validators
 from typing import Optional, List, Text, Any
 
 
@@ -103,21 +103,18 @@ class LRSchedulerConfig:
     cooldown: int = 0
     patience: int = 10
     factor: float = 0.1
-    min_lr: Any = 0.0
+    min_lr: Any = field(default=0.0, validator=lambda inst, attr, val: LRSchedulerConfig.validate_min_lr(val))
 
-    def __attrs_post_init__(self):
-        """Post Initialization Validation."""
-        self.validate_min_lr()
-
-    def validate_min_lr(self):
+    @staticmethod
+    def validate_min_lr(value):
         """min_lr Validation.
 
         check min_lr is a float or list of floats
         """
-        if isinstance(self.min_lr, float):
+        if isinstance(value, float):
             return
-        if isinstance(self.min_lr, list) and all(
-            isinstance(x, float) for x in self.min_lr
+        if isinstance(value, list) and all(
+            isinstance(x, float) for x in value
         ):
             return
         raise ValueError("min_lr must be a float or a list of floats.")
@@ -133,16 +130,11 @@ class EarlyStoppingConfig:
         patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch.
     """
 
+    
+    min_delta: float = field(default=0.0, validator=validators.ge(0))
+    patience: int = field(default=1, validator=validators.ge(0))
     stop_training_on_plateau: bool = False
-    min_delta: float = 0.0
-    patience: int = 1
 
-    def __attrs_post_init__(self):
-        """Check patience and min_delta greater than 0."""
-        if self.patience < 0:
-            raise ValueError("patience must be non-negative")
-        if self.min_delta < 0:
-            raise ValueError("min_delta must be non-negative")
 
 
 @define
@@ -173,7 +165,7 @@ class TrainerConfig:
     train_data_loader: DataLoaderConfig = DataLoaderConfig()
     val_data_loader: DataLoaderConfig = DataLoaderConfig()
     model_ckpt: ModelCkptConfig = ModelCkptConfig()
-    trainer_devices: Any = "auto"
+    trainer_devices: Any = field(default="auto", validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val))
     trainer_accelerator: str = "auto"
     enable_progress_bar: bool = True
     steps_per_epoch: Optional[int] = None
@@ -191,25 +183,22 @@ class TrainerConfig:
     def __attrs_post_init__(self):
         """Post Initialization Validation.
 
-        validate trainer devices,
         initialize wandB configuration if use_wandB is set to True
         """
-        self.validate_trainer_devices()
-
         if self.use_wandb:
             self.wandb = WandBConfig()
         else:
             self.wandb = None
-
-    def validate_trainer_devices(self):
+    @staticmethod
+    def validate_trainer_devices(value):
         """Validate the value of trainer_devices."""
-        if isinstance(self.trainer_devices, int) and self.trainer_devices >= 0:
+        if isinstance(value, int) and value >= 0:
             return
-        if isinstance(self.trainer_devices, list) and all(
-            isinstance(x, int) and x >= 0 for x in self.trainer_devices
+        if isinstance(value, list) and all(
+            isinstance(x, int) and x >= 0 for x in value
         ):
             return
-        if isinstance(self.trainer_devices, str) and self.trainer_devices == "auto":
+        if isinstance(value, str) and value == "auto":
             return
         raise ValueError(
             "trainer_devices must be an integer >= 0, a list of integers >= 0, or the string 'auto'."
