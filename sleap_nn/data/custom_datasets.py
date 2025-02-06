@@ -47,6 +47,7 @@ class BaseDataset(Dataset):
         np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
             these chunks during training. Else, in-memory caching is used.
         np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
+        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
     """
 
     def __init__(
@@ -58,6 +59,7 @@ class BaseDataset(Dataset):
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
+        use_existing_chunks: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
@@ -70,6 +72,7 @@ class BaseDataset(Dataset):
         self.max_instances = get_max_instances(self.labels)
         self.np_chunks = np_chunks
         self.np_chunks_path = np_chunks_path
+        self.use_existing_chunks = use_existing_chunks
         if self.np_chunks_path is None:
             self.np_chunks_path = "."
         path = (
@@ -188,6 +191,7 @@ class BottomUpDataset(BaseDataset):
         np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
             these chunks during training. Else, in-memory caching is used.
         np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
+        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
     """
 
     def __init__(
@@ -201,6 +205,7 @@ class BottomUpDataset(BaseDataset):
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
+        use_existing_chunks: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -211,12 +216,14 @@ class BottomUpDataset(BaseDataset):
             max_hw=max_hw,
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
+            use_existing_chunks=use_existing_chunks,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
 
         self.edge_inds = self.labels.skeletons[0].edge_inds
-        self._fill_cache()
+        if not self.use_existing_chunks:
+            self._fill_cache()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
@@ -297,6 +304,7 @@ class CenteredInstanceDataset(BaseDataset):
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         crop_hw: Height and width of the crop in pixels.
+        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -313,6 +321,7 @@ class CenteredInstanceDataset(BaseDataset):
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
+        use_existing_chunks: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -323,12 +332,14 @@ class CenteredInstanceDataset(BaseDataset):
             max_hw=max_hw,
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
+            use_existing_chunks=use_existing_chunks,
         )
         self.crop_hw = crop_hw
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list()
         self.cache_lf = [None, None]
-        self._fill_cache()
+        if not self.use_existing_chunks:
+            self._fill_cache()
 
     def _fill_cache(self):
         """Load all samples to cache."""
@@ -532,6 +543,7 @@ class CentroidDataset(BaseDataset):
         np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
     """
 
     def __init__(
@@ -544,6 +556,7 @@ class CentroidDataset(BaseDataset):
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
+        use_existing_chunks: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -554,9 +567,11 @@ class CentroidDataset(BaseDataset):
             max_hw=max_hw,
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
+            use_existing_chunks=use_existing_chunks,
         )
         self.confmap_head_config = confmap_head_config
-        self._fill_cache()
+        if not self.use_existing_chunks:
+            self._fill_cache()
 
     def _fill_cache(self):
         """Load all samples to cache."""
@@ -688,6 +703,7 @@ class SingleInstanceDataset(BaseDataset):
         np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
     """
 
     def __init__(
@@ -700,6 +716,7 @@ class SingleInstanceDataset(BaseDataset):
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
+        use_existing_chunks: bool = False,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -710,9 +727,11 @@ class SingleInstanceDataset(BaseDataset):
             max_hw=max_hw,
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
+            use_existing_chunks=use_existing_chunks,
         )
         self.confmap_head_config = confmap_head_config
-        self._fill_cache()
+        if not self.use_existing_chunks:
+            self._fill_cache()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""

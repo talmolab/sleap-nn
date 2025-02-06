@@ -77,6 +77,7 @@ class ModelTrainer:
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`]
         np_chunks_path: Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework.
+        use_existing_chunks: Use existing train and val chunks in the `np_chunks_path`.
     """
 
     def __init__(
@@ -84,6 +85,7 @@ class ModelTrainer:
         config: OmegaConf,
         data_pipeline_fw: str = "litdata",
         np_chunks_path: Optional[str] = None,
+        use_existing_np_chunks: bool = False,
     ):
         """Initialise the class with configs and set the seed and device as class attributes."""
         self.config = config
@@ -97,6 +99,7 @@ class ModelTrainer:
         self.val_np_chunks_path = (
             Path(np_chunks_path) / "val_chunks" if np_chunks_path is not None else None
         )
+        self.use_existing_np_chunks = use_existing_np_chunks
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
@@ -237,6 +240,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
             self.val_dataset = BottomUpDataset(
                 labels=val_labels,
@@ -248,6 +252,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
 
         elif self.model_type == "centered_instance":
@@ -261,6 +266,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
             self.val_dataset = CenteredInstanceDataset(
                 labels=val_labels,
@@ -272,6 +278,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
 
         elif self.model_type == "centroid":
@@ -284,6 +291,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
             self.val_dataset = CentroidDataset(
                 labels=val_labels,
@@ -294,6 +302,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
 
         elif self.model_type == "single_instance":
@@ -306,6 +315,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
             self.val_dataset = SingleInstanceDataset(
                 labels=val_labels,
@@ -316,6 +326,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
+                use_existing_chunks=self.use_existing_np_chunks,
             )
 
         else:
