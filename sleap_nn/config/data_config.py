@@ -133,8 +133,8 @@ class AugmentationConfig:
     """Configuration of Augmentation.
 
     Attributes:
-        intensity: (Optional)
-        geometric: (Optional)
+        intensity: Configuration options for intensity-based augmentations like brightness, contrast, etc. If None, no intensity augmentations will be applied.
+        geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
     """
 
     intensity: Optional[IntensityConfig] = field(factory=IntensityConfig)
