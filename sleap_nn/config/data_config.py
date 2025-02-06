@@ -135,8 +135,8 @@ class AugmentationConfig:
         geometric: (Optional)
     """
 
-    intensity: Optional[IntensityConfig] = IntensityConfig()
-    geometric: Optional[GeometricConfig] = GeometricConfig()
+    intensity: Optional[IntensityConfig] = field(factory=IntensityConfig)
+    geometric: Optional[GeometricConfig] = field(factory=GeometricConfig)
 
 
 @define
@@ -162,4 +162,4 @@ class DataConfig:
     chunk_size: int = 100
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
-    augmentation_config: Optional[AugmentationConfig] = None
+    augmentation_config: AugmentationConfig = field(factory=AugmentationConfig)

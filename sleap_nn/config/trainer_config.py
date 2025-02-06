@@ -163,9 +163,9 @@ class TrainerConfig:
         early_stopping: create an early_stopping configuration
     """
 
-    train_data_loader: DataLoaderConfig = DataLoaderConfig()
-    val_data_loader: DataLoaderConfig = DataLoaderConfig()
-    model_ckpt: ModelCkptConfig = ModelCkptConfig()
+    train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
+    val_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
+    model_ckpt: ModelCkptConfig = field(factory=ModelCkptConfig)
     trainer_devices: Any = field(default="auto", validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val))
     trainer_accelerator: str = "auto"
     enable_progress_bar: bool = True
@@ -177,9 +177,9 @@ class TrainerConfig:
     save_ckpt_path: str = "./"
     resume_ckpt_path: Optional[str] = None
     wandb: Optional[WandBConfig] = field(init=False)
-    optimizer: Optional[OptimizerConfig] = OptimizerConfig()
-    lr_scheduler: LRSchedulerConfig = LRSchedulerConfig()
-    early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
+    optimizer: OptimizerConfig = field(factory=OptimizerConfig)
+    lr_scheduler: LRSchedulerConfig = field(factory=LRSchedulerConfig)
+    early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
 
     def __attrs_post_init__(self):
         """Post Initialization Validation.
