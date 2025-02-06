@@ -278,16 +278,13 @@ class ModelConfig:
 
     backbone_type: BackboneType
     init_weight: str = "default"
-    pre_trained_weights: Optional[str] = None
+    pre_trained_weights: Optional[str] = field(
+        default=None, 
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights()
+    )
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)
 
-    # post-initialization
-    def __attrs_post_init__(self):
-        """Post Initialization Validation."""
-        self.validate_pre_trained_weights()
-
-    # validate the pre-trained weights
     def validate_pre_trained_weights(self):
         """pre_trained_weights validation.
 
@@ -295,25 +292,29 @@ class ModelConfig:
         convnext_weights are one of
         (
             "ConvNeXt_Base_Weights",
-            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Tiny_Weights", 
             "ConvNeXt_Small_Weights",
             "ConvNeXt_Large_Weights",
         )
         swint_weights are one of
         (
             "Swin_T_Weights",
-            "Swin_S_Weights",
+            "Swin_S_Weights", 
             "Swin_B_Weights"
         )
         unet weights is None
         """
+        if self.pre_trained_weights is None:
+            return
+
         convnext_weights = [
             "ConvNeXt_Base_Weights",
             "ConvNeXt_Tiny_Weights",
-            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Small_Weights", 
             "ConvNeXt_Large_Weights",
         ]
         swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
+
         if self.backbone_type == "convnext":
             if self.pre_trained_weights not in convnext_weights:
                 raise ValueError(
@@ -324,5 +325,5 @@ class ModelConfig:
                 raise ValueError(
                     f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
                 )
-        elif self.backbone_type == "unet" and self.pre_trained_weights is not None:
+        elif self.backbone_type == "unet":
             raise ValueError("UNet does not support pre-trained weights.")
