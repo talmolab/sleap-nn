@@ -228,7 +228,7 @@ class BottomUpDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
         if self.np_chunks:
-            ex = np.load(self.cache[index])
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
             sample = {}
             for k, v in ex.items():
                 if k != "image":
@@ -454,7 +454,7 @@ class CenteredInstanceDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
         if self.np_chunks:
-            ex = np.load(self.cache[index])
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
             sample = {}
             for k, v in ex.items():
                 if k != "instance_image":
@@ -639,7 +639,7 @@ class CentroidDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
         if self.np_chunks:
-            ex = np.load(self.cache[index])
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
             sample = {}
             for k, v in ex.items():
                 if k != "image":
@@ -736,7 +736,7 @@ class SingleInstanceDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
         if self.np_chunks:
-            ex = np.load(self.cache[index])
+            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
             sample = {}
             for k, v in ex.items():
                 if k != "image":
