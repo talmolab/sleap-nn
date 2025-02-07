@@ -25,7 +25,7 @@ parameters are aggregated and documented for end users (as opposed to developers
 """
 
 import os
-from attrs import define, field
+from attrs import define, field, asdict
 import sleap_nn
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.model_config import ModelConfig
@@ -56,6 +56,12 @@ class TrainingJobConfig:
     description: Optional[Text] = ""
     sleap_nn_version: Optional[Text] = sleap_nn.__version__
     filename: Optional[Text] = ""
+
+    # def resolve(self):
+    #     """Resolve any OmegaConf interpolations in the config."""
+    #     conf = OmegaConf.structured(self)
+    #     OmegaConf.resolve(conf)
+    #     return conf
 
     @classmethod
     def from_yaml(cls, yaml_data: Text) -> "TrainerConfig":
@@ -90,7 +96,14 @@ class TrainingJobConfig:
         Returns:
             The YAML encoded string representation of the configuration.
         """
-        return OmegaConf.to_yaml(OmegaConf.structured(self))
+        # Convert attrs objects to nested dictionaries
+        config_dict = asdict(self)
+
+        # Handle any special cases (like enums) that need manual conversion
+        if config_dict.get("model", {}).get("backbone_type"):
+            config_dict["model"]["backbone_type"] = self.model.backbone_type.value
+
+        return OmegaConf.to_yaml(config_dict)
 
     def save_yaml(self, filename: Text):
         """Save the configuration to a YAML file.
