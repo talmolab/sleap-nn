@@ -7,6 +7,7 @@ the parameters required to initialize the trainer config.
 import pytest
 from omegaconf import OmegaConf
 from omegaconf import ValidationError
+from attrs import asdict
 from sleap_nn.config.trainer_config import (
     DataLoaderConfig,
     ModelCkptConfig,
@@ -153,30 +154,34 @@ def test_trainer_config():
 
     Check default values and customization
     """
-    # Check default values
-    conf = OmegaConf.structured(TrainerConfig)
-    assert conf.train_data_loader.batch_size == 1
-    assert conf.val_data_loader.shuffle is False
-    assert conf.model_ckpt.save_top_k == 1
-    assert conf.optimizer.lr == 1e-3
-    assert conf.lr_scheduler.mode == "min"
-    assert conf.early_stopping.patience == 1
-    assert conf.use_wandb is False
-    assert conf.save_ckpt_path == "./"
+    # Check default values by creating an instance first
+    conf = TrainerConfig()
+    conf_dict = asdict(conf)  # Convert to dict for OmegaConf
+    conf_structured = OmegaConf.create(conf_dict)
+
+    assert conf_structured.train_data_loader.batch_size == 1
+    assert conf_structured.val_data_loader.shuffle is False
+    assert conf_structured.model_ckpt.save_top_k == 1
+    assert conf_structured.optimizer.lr == 1e-3
+    assert conf_structured.lr_scheduler.mode == "min"
+    assert conf_structured.early_stopping.patience == 1
+    assert conf_structured.use_wandb is False
+    assert conf_structured.save_ckpt_path == "./"
 
     # Test customization
-    custom_conf = OmegaConf.structured(
-        TrainerConfig(
-            max_epochs=20,
-            train_data_loader=DataLoaderConfig(batch_size=32),
-            optimizer=OptimizerConfig(lr=0.01),
-            use_wandb=True,
-        )
+    custom_conf = TrainerConfig(
+        max_epochs=20,
+        train_data_loader=DataLoaderConfig(batch_size=32),
+        optimizer=OptimizerConfig(lr=0.01),
+        use_wandb=True,
     )
-    assert custom_conf.max_epochs == 20
-    assert custom_conf.train_data_loader.batch_size == 32
-    assert custom_conf.optimizer.lr == 0.01
-    assert custom_conf.use_wandb is True
+    custom_dict = asdict(custom_conf)  # Convert to dict for OmegaConf
+    custom_structured = OmegaConf.create(custom_dict)
+
+    assert custom_structured.max_epochs == 20
+    assert custom_structured.train_data_loader.batch_size == 32
+    assert custom_structured.optimizer.lr == 0.01
+    assert custom_structured.use_wandb is True
 
     ### testing validation
 
