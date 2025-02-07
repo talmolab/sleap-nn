@@ -90,11 +90,12 @@ class TrainingJobConfig:
         config = OmegaConf.load(filename)
         return cls(**OmegaConf.to_container(config, resolve=True))
 
-    def to_yaml(self) -> str:
-        """Serialize the configuration into YAML-encoded string format.
+    def to_yaml(self, filename: Optional[Text] = None) -> None:
+        """Serialize and optionally save the configuration to YAML format.
 
-        Returns:
-            The YAML encoded string representation of the configuration.
+        Args:
+            filename: Optional path to save the YAML file to. If not provided,
+                     the configuration will only be converted to YAML format.
         """
         # Convert attrs objects to nested dictionaries
         config_dict = asdict(self)
@@ -103,16 +104,11 @@ class TrainingJobConfig:
         if config_dict.get("model", {}).get("backbone_type"):
             config_dict["model"]["backbone_type"] = self.model.backbone_type.value
 
-        return OmegaConf.to_yaml(config_dict)
-
-    def save_yaml(self, filename: Text):
-        """Save the configuration to a YAML file.
-
-        Arguments:
-            filename: Path to save the training job file to.
-        """
-        with open(filename, "w") as f:
-            f.write(self.to_yaml())
+        # Create OmegaConf object and save if filename provided
+        conf = OmegaConf.create(config_dict)
+        if filename is not None:
+            OmegaConf.save(conf, filename)
+        return
 
 
 def load_config(filename: Text, load_training_config: bool = True) -> TrainingJobConfig:

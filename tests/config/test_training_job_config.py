@@ -32,6 +32,7 @@ from sleap_nn.config.model_config import ModelConfig, BackboneType
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig
 from omegaconf import OmegaConf
+from dataclasses import asdict
 
 
 @pytest.fixture
@@ -108,8 +109,8 @@ def test_to_yaml(sample_config):
     assert parsed_yaml.trainer == sample_config["trainer"]
 
 
-def test_save_and_load_yaml(sample_config):
-    """Test saving and loading a TrainingJobConfig as a YAML file."""
+def test_load_yaml(sample_config):
+    """Test loading a TrainingJobConfig from a YAML file."""
     # Create proper config objects
     data_config = DataConfig(
         train_labels_path=sample_config["data"].train_labels_path,
@@ -137,8 +138,8 @@ def test_save_and_load_yaml(sample_config):
     with tempfile.TemporaryDirectory() as tmpdir:
         file_path = os.path.join(tmpdir, "test_config.yaml")
 
-        # Save to file
-        config.save_yaml(file_path)
+        # Use the to_yaml method to save the file
+        config.to_yaml(filename=file_path)
 
         # Load from file
         loaded_config = TrainingJobConfig.load_yaml(file_path)
