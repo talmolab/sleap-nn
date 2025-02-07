@@ -157,8 +157,8 @@ class DataConfig:
         and topdown models.
     """
 
-    train_labels_path: str
-    val_labels_path: str
+    train_labels_path: MISSING
+    val_labels_path: MISSING
     provider: str = "LabelsReader"
     user_instances_only: bool = True
     chunk_size: int = 100
