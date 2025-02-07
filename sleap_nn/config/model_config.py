@@ -7,7 +7,7 @@ the parameters required to initialize the model config.
 from attrs import define, field
 from enum import Enum
 from sleap_nn.config.utils import oneof
-from typing import Optional, List, Text, Any
+from typing import Optional, List
 
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
@@ -32,8 +32,8 @@ class UNetConfig:
     kernel_size: int = 3
     filters: int = 32
     filters_rate: float = 1.5
-    max_stride: int = None
-    stem_stride: int = None
+    max_stride: Optional[int] = None
+    stem_stride: Optional[int] = None
     middle_block: bool = True
     up_interpolate: bool = True
     stacks: int = 3

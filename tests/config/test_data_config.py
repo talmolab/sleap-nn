@@ -5,8 +5,7 @@ the parameters required to initialize the data config.
 """
 
 import pytest
-from omegaconf import OmegaConf, ValidationError
-from attrs import fields
+from omegaconf import OmegaConf
 
 from sleap_nn.config.data_config import (
     DataConfig,

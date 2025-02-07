@@ -5,7 +5,7 @@ the parameters required to initialize the trainer config.
 """
 
 from attrs import define, field, validators
-from typing import Optional, List, Text, Any
+from typing import Optional, List, Any
 
 
 @define
