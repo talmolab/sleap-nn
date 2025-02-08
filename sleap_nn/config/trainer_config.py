@@ -60,7 +60,7 @@ class WandBConfig:
     project: Optional[str] = None
     name: Optional[str] = None
     api_key: Optional[str] = None
-    wandb_mode: Optional[str] = "None"
+    wandb_mode: Optional[str] = None
     prv_runid: Optional[str] = None
     log_params: Optional[List[str]] = None
 

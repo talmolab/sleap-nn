@@ -66,7 +66,7 @@ def test_wandb_config():
     conf = OmegaConf.structured(WandBConfig)
     assert conf.entity is None
     assert conf.project is None
-    assert conf.wandb_mode == "None"
+    assert conf.wandb_mode == None
 
     # Test customization
     custom_conf = OmegaConf.structured(
