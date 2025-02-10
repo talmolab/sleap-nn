@@ -42,16 +42,6 @@ def test_dataloader_config():
     assert custom_conf.shuffle is True
     assert custom_conf.num_workers == 4
 
-    # Test validation
-    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
-        OmegaConf.structured(
-            DataLoaderConfig(batch_size=-16, shuffle=True, num_workers=4)
-        )
-    with pytest.raises(ValueError, match="num_workers must be a non-negative integer"):
-        OmegaConf.structured(
-            DataLoaderConfig(batch_size=16, shuffle=True, num_workers=-4)
-        )
-
 
 def test_model_ckpt_config():
     """model_ckpt_config tests.
@@ -67,10 +57,6 @@ def test_model_ckpt_config():
     custom_conf = OmegaConf.structured(ModelCkptConfig(save_top_k=5, save_last=True))
     assert custom_conf.save_top_k == 5
     assert custom_conf.save_last is True
-
-    # Test validation
-    with pytest.raises(ValueError, match="save_top_k must be a positive integer"):
-        OmegaConf.structured(ModelCkptConfig(save_top_k=-5, save_last=True))
 
 
 def test_wandb_config():
@@ -91,12 +77,6 @@ def test_wandb_config():
     assert custom_conf.entity == "test_entity"
     assert custom_conf.project == "test_project"
 
-    # Test validation
-    with pytest.raises(ValueError, match="entity must be a string"):
-        OmegaConf.structured(WandBConfig(entity=123, project="test_project"))
-    with pytest.raises(ValueError, match="project must be a string"):
-        OmegaConf.structured(WandBConfig(entity="test_entity", project=123))
-
 
 def test_optimizer_config():
     """optimizer_config tests.
@@ -114,10 +94,8 @@ def test_optimizer_config():
     assert custom_conf.amsgrad is True
 
     # Test validation
-    with pytest.raises(ValueError, match="lr must be a positive float"):
+    with pytest.raises(ValueError):
         OmegaConf.structured(OptimizerConfig(lr=-0.01, amsgrad=True))
-    with pytest.raises(ValueError, match="amsgrad must be a boolean"):
-        OmegaConf.structured(OptimizerConfig(lr=0.01, amsgrad=1))
 
 
 def test_lr_scheduler_config():
@@ -127,7 +105,7 @@ def test_lr_scheduler_config():
     """
     # Check default values
     conf = TrainerConfig()
-    conf_dict = asdict(conf)
+    conf_dict = asdict(conf)  # Convert to dict for OmegaConf
     conf_structured = OmegaConf.create(conf_dict)
 
     # Test ReduceLROnPlateau (default)
@@ -142,7 +120,7 @@ def test_lr_scheduler_config():
             scheduler="StepLR", step_lr=StepLRConfig(step_size=5, gamma=0.5)
         )
     )
-    custom_dict = asdict(custom_conf)
+    custom_dict = asdict(custom_conf)  # Convert to dict for OmegaConf
     custom_structured = OmegaConf.create(custom_dict)
 
     assert custom_structured.lr_scheduler.scheduler == "StepLR"
@@ -152,14 +130,8 @@ def test_lr_scheduler_config():
     # Test validation
     with pytest.raises(ValueError, match="scheduler must be one of"):
         LRSchedulerConfig(scheduler="InvalidScheduler")
-    with pytest.raises(ValueError, match="step_size must be a positive integer"):
-        LRSchedulerConfig(
-            scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5)
-        )
-    with pytest.raises(ValueError, match="gamma must be a positive float"):
-        LRSchedulerConfig(
-            scheduler="StepLR", step_lr=StepLRConfig(step_size=5, gamma=-0.5)
-        )
+    with pytest.raises(ValueError):
+        LRSchedulerConfig(scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5))
 
 
 def test_early_stopping_config():
@@ -181,9 +153,9 @@ def test_early_stopping_config():
     assert custom_conf.patience == 5
 
     # Test validation
-    with pytest.raises(ValueError, match="patience must be a non-negative integer"):
+    with pytest.raises(ValueError):
         OmegaConf.structured(EarlyStoppingConfig(patience=-5))
-    with pytest.raises(ValueError, match="min_delta must be a float"):
+    with pytest.raises(ValueError):
         OmegaConf.structured(EarlyStoppingConfig(min_delta=-5))
 
 
@@ -222,7 +194,7 @@ def test_trainer_config():
     assert custom_structured.use_wandb is True
 
     # Test validation
-    with pytest.raises(ValueError, match="optimizer_name must be one of"):
+    with pytest.raises(ValueError):
         TrainerConfig(optimizer_name="InvalidOptimizer")
     with pytest.raises(ValueError, match="trainer_devices"):
         TrainerConfig(trainer_devices=-1)

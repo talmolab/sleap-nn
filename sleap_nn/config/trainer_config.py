@@ -76,13 +76,8 @@ class OptimizerConfig:
         amsgrad: (bool) Enable AMSGrad with the optimizer. Default: False
     """
 
-    lr: float = 1e-3
+    lr: float = field(default=1e-3, validator=validators.gt(0))
     amsgrad: bool = False
-
-    def __attrs_post_init__(self):
-        """Check learning rate is greater than or equal to 0."""
-        if self.lr <= 0:
-            raise ValueError("Learning rate must be positive")
 
 
 @define
