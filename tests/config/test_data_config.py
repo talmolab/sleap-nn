@@ -27,15 +27,6 @@ def test_data_config_initialization():
     assert config.chunk_size == 100
 
 
-def test_data_config_missing_values():
-    """Test that DataConfig initializes correctly with default values."""
-    with pytest.raises(
-        TypeError,
-        match="missing .* required positional argument.*train_labels_path.*val_labels_path",
-    ):
-        DataConfig()
-
-
 def test_preprocessing_config_initialization():
     """Test PreprocessingConfig with valid values."""
     with pytest.raises(ValueError, match="scale"):

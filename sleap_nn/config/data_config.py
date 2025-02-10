@@ -149,8 +149,8 @@ class DataConfig:
     augmentation_config: Configurations related to augmentation  # Your list specifies "(only if use_augmentations is True)"
     """
 
-    train_labels_path: MISSING
-    val_labels_path: MISSING
+    train_labels_path: str = MISSING
+    val_labels_path: str = MISSING
     provider: str = "LabelsReader"
     user_instances_only: bool = True
     chunk_size: int = 100
