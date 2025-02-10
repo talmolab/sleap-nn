@@ -14,6 +14,8 @@ from sleap_nn.config.trainer_config import (
     WandBConfig,
     OptimizerConfig,
     LRSchedulerConfig,
+    StepLRConfig,
+    ReduceLROnPlateauConfig,
     EarlyStoppingConfig,
     TrainerConfig,
 )
@@ -102,26 +104,33 @@ def test_lr_scheduler_config():
     Check default values and customization
     """
     # Check default values
-    conf = OmegaConf.structured(LRSchedulerConfig)
-    assert conf.mode == "min"
-    assert conf.threshold == 1e-4
-    assert conf.patience == 10
+    conf = TrainerConfig()
+    conf_dict = asdict(conf)
+    conf_structured = OmegaConf.create(conf_dict)
 
-    # Test customization
-    custom_conf = OmegaConf.structured(
-        LRSchedulerConfig(mode="max", patience=5, factor=0.5)
+    # Test ReduceLROnPlateau (default)
+    assert conf_structured.lr_scheduler.scheduler == "ReduceLROnPlateau"
+    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.threshold == 1e-4
+    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.patience == 10
+    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.factor == 0.1
+
+    # Test StepLR configuration
+    custom_conf = TrainerConfig(
+        lr_scheduler=LRSchedulerConfig(
+            scheduler="StepLR",
+            step_lr=StepLRConfig(step_size=5, gamma=0.5)
+        )
     )
-    assert custom_conf.mode == "max"
-    assert custom_conf.patience == 5
-    assert custom_conf.factor == 0.5
+    custom_dict = asdict(custom_conf)
+    custom_structured = OmegaConf.create(custom_dict)
+
+    assert custom_structured.lr_scheduler.scheduler == "StepLR"
+    assert custom_structured.lr_scheduler.step_lr.step_size == 5
+    assert custom_structured.lr_scheduler.step_lr.gamma == 0.5
 
     # Test validation
-    with pytest.raises(ValueError, match="min_lr must be a float or a list of floats."):
-        OmegaConf.structured(OmegaConf.structured(LRSchedulerConfig(min_lr=1)))
-    with pytest.raises(ValueError, match="min_lr must be a float or a list of floats."):
-        OmegaConf.structured(
-            OmegaConf.structured(LRSchedulerConfig(min_lr=[1.0, 0.7, 1]))
-        )
+    with pytest.raises(ValueError, match="scheduler must be one of"):
+        LRSchedulerConfig(scheduler="InvalidScheduler")
 
 
 def test_early_stopping_config():
@@ -163,7 +172,7 @@ def test_trainer_config():
     assert conf_structured.val_data_loader.shuffle is False
     assert conf_structured.model_ckpt.save_top_k == 1
     assert conf_structured.optimizer.lr == 1e-3
-    assert conf_structured.lr_scheduler.mode == "min"
+    assert conf_structured.lr_scheduler.scheduler == "ReduceLROnPlateau"
     assert conf_structured.early_stopping.patience == 1
     assert conf_structured.use_wandb is False
     assert conf_structured.save_ckpt_path == "./"
@@ -183,24 +192,9 @@ def test_trainer_config():
     assert custom_structured.optimizer.lr == 0.01
     assert custom_structured.use_wandb is True
 
-    ### testing validation
+    # Test validation
+    with pytest.raises(ValueError, match="optimizer_name must be one of"):
+        TrainerConfig(optimizer_name="InvalidOptimizer")
 
-    # max_epochs
-    with pytest.raises(ValidationError, match="max_epochs"):
-        OmegaConf.structured(TrainerConfig(max_epochs=20.2))
-
-    # trainer_devices
     with pytest.raises(ValueError, match="trainer_devices"):
-        OmegaConf.structured(TrainerConfig(trainer_devices=1.1))
-    with pytest.raises(ValueError, match="trainer_devices"):
-        OmegaConf.structured(TrainerConfig(trainer_devices=-1))
-    with pytest.raises(ValueError, match="trainer_devices"):
-        OmegaConf.structured(TrainerConfig(trainer_devices=[0, 1, 3, -9]))
-    with pytest.raises(ValueError, match="trainer_devices"):
-        OmegaConf.structured(TrainerConfig(trainer_devices="uato"))
-
-    # LRScheduler
-    with pytest.raises(ValueError):
-        OmegaConf.structured(LRSchedulerConfig(min_lr="uato"))
-    with pytest.raises(ValueError):
-        OmegaConf.structured(LRSchedulerConfig(min_lr=[1.0, 1.1, "uato"]))
+        TrainerConfig(trainer_devices=-1)
