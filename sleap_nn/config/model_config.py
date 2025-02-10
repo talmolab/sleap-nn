@@ -76,7 +76,7 @@ class SwinTConfig:
     """swinT configuration for backbone.
 
     Attributes:
-        model_type: (str) One of the ConvNext architecture types: ["tiny", "small", "base"]. Default: "tiny".
+        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. Default: "tiny".
         arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}
         patch_size: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
         stem_patch_stride: (int) Stride for the patch. Default is 2.
@@ -270,10 +270,11 @@ class ModelConfig:
     """Configurations related to model architecture.
 
     Attributes:
+        backbone_type: (str) Backbone architecture for the model to be trained. One of "unet", "convnext" or "swint".
         init_weight: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
         pre_trained_weights: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
         backbone_config: initialize either UNetConfig, ConvNextConfig, or SwinTConfig based on input from backbone_type
-        head_config: head_configs: (Dict) Dictionary with the following keys having head configs for the model to be trained. Note: Configs should be provided only for the model to train and others should be None
+        head_configs: (Dict) Dictionary with the following keys having head configs for the model to be trained. Note: Configs should be provided only for the model to train and others should be None
     """
 
     backbone_type: BackboneType
