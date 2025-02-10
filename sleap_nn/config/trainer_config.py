@@ -159,19 +159,6 @@ class LRSchedulerConfig:
                 f"scheduler must be one of {valid_schedulers}, got {self.scheduler}"
             )
 
-    def validate_min_lr(self):
-        """min_lr Validation.
-
-        Ensures min_lr is a float>=0 or list of floats>=0
-        """
-        if isinstance(self.min_lr, float) and self.min_lr >= 0:
-            return
-        if isinstance(self.min_lr, list) and all(
-            isinstance(x, float) and x >= 0 for x in self.min_lr
-        ):
-            return
-        raise ValueError("min_lr must be a float or a list of floats.")
-
 
 @define
 class EarlyStoppingConfig:

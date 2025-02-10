@@ -19,6 +19,23 @@ from sleap_nn.config.trainer_config import (
     EarlyStoppingConfig,
     TrainerConfig,
 )
+def test_reduce_lr_on_plateau_config():
+    """reduce_lr_on_plateau_config tests.
+
+    Check default values and validators
+    """
+    # Check default values
+    conf = OmegaConf.structured(ReduceLROnPlateauConfig)
+    assert conf.factor == 0.1
+    assert conf.patience == 10
+    assert conf.threshold == 0.0001
+    assert conf.threshold_mode == 'rel'
+    assert conf.cooldown == 0
+    assert conf.min_lr == 0
+
+    # Test validators
+    with pytest.raises(ValueError):
+        OmegaConf.structured(ReduceLROnPlateauConfig(min_lr=-0.1))
 
 
 def test_dataloader_config():
