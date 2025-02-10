@@ -105,9 +105,6 @@ class GeometricConfig:
         mixup_lambda: (float) min-max value of mixup strength. Default is 0-1. Default: None.
         mixup_p: (float) Probability of applying random mixup v2. Default=0.0
         input_key: (str) Can be image or instance. The input_key instance expects the KorniaAugmenter to follow the InstanceCropper else image otherwise for default.
-        random_crop_p: (float) Probability of applying random crop.
-        random_crop_height: (int) Desired output height of the random crop.
-        random_crop_width: (int) Desired output width of the random crop.
     """
 
     rotation: float = 0.0
@@ -123,9 +120,6 @@ class GeometricConfig:
     mixup_lambda: Optional[float] = None
     mixup_p: float = field(default=0.0, validator=validate_proportion)
     input_key: str = "image"
-    random_crop_p: Optional[float] = None
-    random_crop_height: Optional[int] = None
-    random_crop_width: Optional[int] = None
 
 
 @define
@@ -149,12 +143,10 @@ class DataConfig:
     val_labels_path: (str) Path to validation data (.slp file)
     provider: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
     user_instances_only: (bool) True if only user labeled instances should be used for training. If False, both user labeled and predicted instances would be used. Default: True.
-    chunk_size: (int) Size of each chunk (in MB). Default: "100". #TODO: change in inference ckpts
+    chunk_size: (int) Size of each chunk (in MB). Default: 100.  # Your list shows "100" in quotes
     preprocessing: Configuration options related to data preprocessing.
     use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
-    augmentation_config: Configurations related to augmentation
-    instance_cropping: Configuration options related to instance cropping for centroid
-        and topdown models.
+    augmentation_config: Configurations related to augmentation  # Your list specifies "(only if use_augmentations is True)"
     """
 
     train_labels_path: MISSING
