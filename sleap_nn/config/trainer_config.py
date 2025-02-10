@@ -86,14 +86,22 @@ class OptimizerConfig:
 
 
 @define
-class LRSchedulerConfig:
-    """Configuration for lr_scheduler.
+class StepLRConfig:
+    """Configuration for StepLR scheduler.
 
     Attributes:
-        scheduler: (str) One of "ReduceLROnPlateau" or "StepLR". Default: "ReduceLROnPlateau".
-        step_size: (int) Step size for StepLR scheduler. Default: None.
-        gamma: (float) Gamma for StepLR scheduler. Default: 0.1.
-        mode: (str) One of "min", "max". In min mode, lr will be reduced when the quantity monitored has stopped decreasing; in max mode it will be reduced when the quantity monitored has stopped increasing. Default: "min".
+        step_size: (int) Period of learning rate decay. If step_size=10, then every 10 epochs, learning rate will be reduced by a factor of gamma.
+        gamma: (float) Multiplicative factor of learning rate decay. Default: 0.1.
+    """
+    step_size: int = field(default=10, validator=validators.gt(0))
+    gamma: float = 0.1
+
+
+@define
+class ReduceLROnPlateauConfig:
+    """Configuration for ReduceLROnPlateau scheduler.
+
+    Attributes:
         threshold: (float) Threshold for measuring the new optimum, to only focus on significant changes. Default: 1e-4.
         threshold_mode: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. Default: "rel".
         cooldown: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. Default: 0
@@ -101,14 +109,6 @@ class LRSchedulerConfig:
         factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. Default: 0.1.
         min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. Default: 0.
     """
-
-    scheduler: str = field(
-        default="ReduceLROnPlateau",
-        validator=lambda instance, attr, value: instance.validate_scheduler(),
-    )
-    step_size: Optional[int] = None
-    gamma: float = 0.1
-    mode: str = "min"
     threshold: float = 1e-4
     threshold_mode: str = "rel"
     cooldown: int = 0
@@ -117,6 +117,36 @@ class LRSchedulerConfig:
     min_lr: Any = field(
         default=0.0, validator=lambda instance, attr, value: instance.validate_min_lr()
     )
+
+    def validate_min_lr(self):
+        """min_lr Validation.
+
+        Ensures min_lr is a float>=0 or list of floats>=0
+        """
+        if isinstance(self.min_lr, float) and self.min_lr >= 0:
+            return
+        if isinstance(self.min_lr, list) and all(
+            isinstance(x, float) and x >= 0 for x in self.min_lr
+        ):
+            return
+        raise ValueError("min_lr must be a float or a list of floats.")
+
+
+@define
+class LRSchedulerConfig:
+    """Configuration for lr_scheduler.
+
+    Attributes:
+        scheduler: (str) Name of the scheduler to use. Valid schedulers: "StepLR", "ReduceLROnPlateau".
+        step_lr: Configuration for StepLR scheduler.
+        reduce_lr_on_plateau: Configuration for ReduceLROnPlateau scheduler.
+    """
+    scheduler: str = field(
+        default="ReduceLROnPlateau",
+        validator=lambda instance, attr, value: instance.validate_scheduler()
+    )
+    step_lr: StepLRConfig = field(factory=StepLRConfig)
+    reduce_lr_on_plateau: ReduceLROnPlateauConfig = field(factory=ReduceLROnPlateauConfig)
 
     def validate_scheduler(self):
         """Scheduler Validation.
@@ -204,7 +234,7 @@ class TrainerConfig:
     wandb: Optional[WandBConfig] = field(init=False)
     optimizer_name: str = field(
         default="Adam",
-        validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val),
+        validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val)
     )
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: LRSchedulerConfig = field(factory=LRSchedulerConfig)
