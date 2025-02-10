@@ -19,6 +19,8 @@ from sleap_nn.config.trainer_config import (
     EarlyStoppingConfig,
     TrainerConfig,
 )
+
+
 def test_reduce_lr_on_plateau_config():
     """reduce_lr_on_plateau_config tests.
 
@@ -29,7 +31,7 @@ def test_reduce_lr_on_plateau_config():
     assert conf.factor == 0.1
     assert conf.patience == 10
     assert conf.threshold == 0.0001
-    assert conf.threshold_mode == 'rel'
+    assert conf.threshold_mode == "rel"
     assert conf.cooldown == 0
     assert conf.min_lr == 0
 
