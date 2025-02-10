@@ -93,6 +93,7 @@ class StepLRConfig:
         step_size: (int) Period of learning rate decay. If step_size=10, then every 10 epochs, learning rate will be reduced by a factor of gamma.
         gamma: (float) Multiplicative factor of learning rate decay. Default: 0.1.
     """
+
     step_size: int = field(default=10, validator=validators.gt(0))
     gamma: float = 0.1
 
@@ -109,6 +110,7 @@ class ReduceLROnPlateauConfig:
         factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. Default: 0.1.
         min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. Default: 0.
     """
+
     threshold: float = 1e-4
     threshold_mode: str = "rel"
     cooldown: int = 0
@@ -141,12 +143,15 @@ class LRSchedulerConfig:
         step_lr: Configuration for StepLR scheduler.
         reduce_lr_on_plateau: Configuration for ReduceLROnPlateau scheduler.
     """
+
     scheduler: str = field(
         default="ReduceLROnPlateau",
-        validator=lambda instance, attr, value: instance.validate_scheduler()
+        validator=lambda instance, attr, value: instance.validate_scheduler(),
     )
     step_lr: StepLRConfig = field(factory=StepLRConfig)
-    reduce_lr_on_plateau: ReduceLROnPlateauConfig = field(factory=ReduceLROnPlateauConfig)
+    reduce_lr_on_plateau: ReduceLROnPlateauConfig = field(
+        factory=ReduceLROnPlateauConfig
+    )
 
     def validate_scheduler(self):
         """Scheduler Validation.
@@ -234,7 +239,7 @@ class TrainerConfig:
     wandb: Optional[WandBConfig] = field(init=False)
     optimizer_name: str = field(
         default="Adam",
-        validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val)
+        validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val),
     )
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: LRSchedulerConfig = field(factory=LRSchedulerConfig)

@@ -117,8 +117,7 @@ def test_lr_scheduler_config():
     # Test StepLR configuration
     custom_conf = TrainerConfig(
         lr_scheduler=LRSchedulerConfig(
-            scheduler="StepLR",
-            step_lr=StepLRConfig(step_size=5, gamma=0.5)
+            scheduler="StepLR", step_lr=StepLRConfig(step_size=5, gamma=0.5)
         )
     )
     custom_dict = asdict(custom_conf)
