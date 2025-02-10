@@ -131,7 +131,9 @@ def test_lr_scheduler_config():
     with pytest.raises(ValueError, match="scheduler must be one of"):
         LRSchedulerConfig(scheduler="InvalidScheduler")
     with pytest.raises(ValueError):
-        LRSchedulerConfig(scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5))
+        LRSchedulerConfig(
+            scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5)
+        )
 
 
 def test_early_stopping_config():
