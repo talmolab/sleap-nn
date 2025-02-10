@@ -44,9 +44,13 @@ def test_dataloader_config():
 
     # Test validation
     with pytest.raises(ValueError, match="batch_size must be a positive integer"):
-        OmegaConf.structured(DataLoaderConfig(batch_size=-16, shuffle=True, num_workers=4))
+        OmegaConf.structured(
+            DataLoaderConfig(batch_size=-16, shuffle=True, num_workers=4)
+        )
     with pytest.raises(ValueError, match="num_workers must be a non-negative integer"):
-        OmegaConf.structured(DataLoaderConfig(batch_size=16, shuffle=True, num_workers=-4))
+        OmegaConf.structured(
+            DataLoaderConfig(batch_size=16, shuffle=True, num_workers=-4)
+        )
 
 
 def test_model_ckpt_config():
@@ -149,9 +153,13 @@ def test_lr_scheduler_config():
     with pytest.raises(ValueError, match="scheduler must be one of"):
         LRSchedulerConfig(scheduler="InvalidScheduler")
     with pytest.raises(ValueError, match="step_size must be a positive integer"):
-        LRSchedulerConfig(scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5))
+        LRSchedulerConfig(
+            scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5)
+        )
     with pytest.raises(ValueError, match="gamma must be a positive float"):
-        LRSchedulerConfig(scheduler="StepLR", step_lr=StepLRConfig(step_size=5, gamma=-0.5))
+        LRSchedulerConfig(
+            scheduler="StepLR", step_lr=StepLRConfig(step_size=5, gamma=-0.5)
+        )
 
 
 def test_early_stopping_config():
