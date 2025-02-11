@@ -42,15 +42,15 @@ def sample_config():
         "name": "TestConfig",
         "description": "A sample configuration for testing.",
         "data": DataConfig(
-            train_labels_path="example_train_path", 
-            val_labels_path="example_val_path", 
-            provider="default"
+            train_labels_path="example_train_path",
+            val_labels_path="example_val_path",
+            provider="default",
         ),
         "model": ModelConfig(
-            backbone_type="unet", 
-            init_weight="default", 
+            backbone_type="unet",
+            init_weight="default",
             pre_trained_weights=None,
-            backbone_config="unet", 
+            backbone_config="unet",
         ),
         "trainer": TrainerConfig(),
     }
@@ -84,7 +84,10 @@ def test_from_yaml(sample_config):
     assert config.data["train_labels_path"] == sample_config["data"].train_labels_path
     assert config.data["val_labels_path"] == sample_config["data"].val_labels_path
     assert config.model["backbone_type"] == sample_config["model"].backbone_type
-    assert config.trainer["early_stopping"]["patience"] == sample_config["trainer"].early_stopping.patience
+    assert (
+        config.trainer["early_stopping"]["patience"]
+        == sample_config["trainer"].early_stopping.patience
+    )
 
 
 def test_to_yaml(sample_config):
@@ -112,8 +115,7 @@ def test_to_yaml(sample_config):
     assert parsed_yaml.data.val_labels_path == sample_config["data"].val_labels_path
     assert parsed_yaml.data.provider == sample_config["data"].provider
     assert (
-        parsed_yaml.model.backbone_type.lower()
-        == sample_config["model"].backbone_type
+        parsed_yaml.model.backbone_type.lower() == sample_config["model"].backbone_type
     )
     assert parsed_yaml.model.init_weight == sample_config["model"].init_weight
     assert parsed_yaml.trainer == sample_config["trainer"]

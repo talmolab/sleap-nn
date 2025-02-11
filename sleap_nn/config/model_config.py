@@ -273,7 +273,9 @@ class ModelConfig:
     init_weight: str = "default"
     pre_trained_weights: Optional[str] = field(
         default=None,
-        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(value),
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
     )
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)

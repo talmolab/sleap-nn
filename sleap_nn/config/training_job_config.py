@@ -57,7 +57,6 @@ class TrainingJobConfig:
     sleap_nn_version: Optional[Text] = sleap_nn.__version__
     filename: Optional[Text] = ""
 
-
     @classmethod
     def from_yaml(cls, yaml_data: Text) -> "TrainingJobConfig":
         """Create TrainingJobConfig from YAML-formatted string with schema validation.
