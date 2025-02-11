@@ -336,6 +336,18 @@ def test_trainer_torch_dataset(config, tmp_path: str):
             use_existing_np_chunks=True,
         )
 
+    Path.mkdir(Path(tmp_path) / "train_chunks", parents=True)
+    file_path = Path(tmp_path) / "train_chunks" / "sample.npz"
+    np.savez_compressed(file_path, {1: 10})
+
+    with pytest.raises(Exception):
+        model_trainer = ModelTrainer(
+            config,
+            data_pipeline_fw="torch_dataset_np_chunks",
+            np_chunks_path=tmp_path,
+            use_existing_np_chunks=True,
+        )
+
     #####
 
     # # for topdown centered instance model

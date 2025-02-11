@@ -77,7 +77,7 @@ class ModelTrainer:
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`]
         np_chunks_path: Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework.
-        use_existing_chunks: Use existing train and val chunks in the `np_chunks_path`.
+        use_existing_np_chunks: Use existing train and val chunks in the `np_chunks_path`.
     """
 
     def __init__(
@@ -104,7 +104,7 @@ class ModelTrainer:
             if not (
                 self.train_np_chunks_path.exists()
                 and self.train_np_chunks_path.is_dir()
-                and any(self.train_np_chunks_path.iterdir())
+                and any(self.train_np_chunks_path.glob("*.npz"))
             ):
                 raise Exception(
                     f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
@@ -112,7 +112,7 @@ class ModelTrainer:
             if not (
                 self.val_np_chunks_path.exists()
                 and self.val_np_chunks_path.is_dir()
-                and any(self.val_np_chunks_path.iterdir())
+                and any(self.val_np_chunks_path.glob("*.npz"))
             ):
                 raise Exception(
                     f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
