@@ -49,35 +49,32 @@ class TrainingJobConfig:
         filename: Path to this config file if it was loaded from disk.
     """
 
-    data: DataConfig = field(factory=DataConfig)
-    model: ModelConfig = field(factory=ModelConfig)
-    trainer: TrainerConfig = field(factory=TrainerConfig)
+    data: DataConfig = DataConfig()
+    model: ModelConfig = ModelConfig()
+    trainer: TrainerConfig = TrainerConfig()
     name: Optional[Text] = ""
     description: Optional[Text] = ""
     sleap_nn_version: Optional[Text] = sleap_nn.__version__
     filename: Optional[Text] = ""
 
-    # def resolve(self):
-    #     """Resolve any OmegaConf interpolations in the config."""
-    #     conf = OmegaConf.structured(self)
-    #     OmegaConf.resolve(conf)
-    #     return conf
 
     @classmethod
-    def from_yaml(cls, yaml_data: Text) -> "TrainerConfig":
-        """Create TrainerConfig from YAML-formatted string.
+    def from_yaml(cls, yaml_data: Text) -> "TrainingJobConfig":
+        """Create TrainingJobConfig from YAML-formatted string with schema validation.
 
         Arguments:
             yaml_data: YAML-formatted string that specifies the configurations.
 
         Returns:
-            A TrainingJobConfig instance parsed from the YAML text.
+            A TrainingJobConfig instance parsed from the YAML text, validated against the schema.
         """
-        config_dict = OmegaConf.to_container(OmegaConf.create(yaml_data), resolve=True)
-        return cls(**config_dict)
+        schema = OmegaConf.structured(cls)
+        config = OmegaConf.create(yaml_data)
+        OmegaConf.merge(schema, config)
+        return cls(**OmegaConf.to_container(config, resolve=True))
 
     @classmethod
-    def load_yaml(cls, filename: Text) -> "TrainerConfig":
+    def load_yaml(cls, filename: Text) -> "TrainingJobConfig":
         """Load a training job configuration from a yaml file.
 
         Arguments:
@@ -87,7 +84,9 @@ class TrainingJobConfig:
         Returns:
           A TrainingJobConfig instance parsed from the YAML file.
         """
+        schema = OmegaConf.structured(cls)
         config = OmegaConf.load(filename)
+        OmegaConf.merge(schema, config)
         return cls(**OmegaConf.to_container(config, resolve=True))
 
     def to_yaml(self, filename: Optional[Text] = None) -> None:
@@ -102,7 +101,7 @@ class TrainingJobConfig:
 
         # Handle any special cases (like enums) that need manual conversion
         if config_dict.get("model", {}).get("backbone_type"):
-            config_dict["model"]["backbone_type"] = self.model.backbone_type.value
+            config_dict["model"]["backbone_type"] = self.model.backbone_type
 
         # Create OmegaConf object and save if filename provided
         conf = OmegaConf.create(config_dict)

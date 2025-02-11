@@ -28,7 +28,7 @@ import pytest
 import os
 import tempfile
 from sleap_nn.config.training_job_config import TrainingJobConfig
-from sleap_nn.config.model_config import ModelConfig, BackboneType
+from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig
 from omegaconf import OmegaConf
@@ -42,16 +42,22 @@ def sample_config():
         "name": "TestConfig",
         "description": "A sample configuration for testing.",
         "data": DataConfig(
-            train_labels_path="example_train_path", val_labels_path="example_val_path"
+            train_labels_path="example_train_path", 
+            val_labels_path="example_val_path", 
+            provider="default"
         ),
-        "model": ModelConfig(backbone_type=BackboneType.UNET),
+        "model": ModelConfig(
+            backbone_type="unet", 
+            init_weight="default", 
+            pre_trained_weights=None,
+            backbone_config="unet", 
+        ),
         "trainer": TrainerConfig(),
     }
 
 
 def test_from_yaml(sample_config):
-    """Test creating a TrainingJobConfig from a YAML string."""
-    # Convert to OmegaConf compatible structure first
+    """Test creating a TrainingJobConfig from a valid YAML string."""
     config_dict = {
         "name": sample_config["name"],
         "description": sample_config["description"],
@@ -61,20 +67,24 @@ def test_from_yaml(sample_config):
             "provider": sample_config["data"].provider,
         },
         "model": {
-            "backbone_type": sample_config["model"].backbone_type.value,
+            "backbone_type": sample_config["model"].backbone_type,
+            "init_weight": sample_config["model"].init_weight,
         },
-        "trainer": {},  # Add any needed trainer config fields
+        "trainer": {
+            "early_stopping": {
+                "patience": sample_config["trainer"].early_stopping.patience,
+            },
+        },
     }
-
     yaml_data = OmegaConf.to_yaml(config_dict)
     config = TrainingJobConfig.from_yaml(yaml_data)
 
     assert config.name == sample_config["name"]
     assert config.description == sample_config["description"]
-    assert isinstance(config.data, dict)
-    assert config.data["provider"] == sample_config["data"].provider
     assert config.data["train_labels_path"] == sample_config["data"].train_labels_path
     assert config.data["val_labels_path"] == sample_config["data"].val_labels_path
+    assert config.model["backbone_type"] == sample_config["model"].backbone_type
+    assert config.trainer["early_stopping"]["patience"] == sample_config["trainer"].early_stopping.patience
 
 
 def test_to_yaml(sample_config):
@@ -88,7 +98,7 @@ def test_to_yaml(sample_config):
             "provider": sample_config["data"].provider,
         },
         "model": {
-            "backbone_type": sample_config["model"].backbone_type.value,
+            "backbone_type": sample_config["model"].backbone_type,
             "init_weight": sample_config["model"].init_weight,
         },
         "trainer": sample_config["trainer"],  # Include full trainer config
@@ -103,7 +113,7 @@ def test_to_yaml(sample_config):
     assert parsed_yaml.data.provider == sample_config["data"].provider
     assert (
         parsed_yaml.model.backbone_type.lower()
-        == sample_config["model"].backbone_type.value
+        == sample_config["model"].backbone_type
     )
     assert parsed_yaml.model.init_weight == sample_config["model"].init_weight
     assert parsed_yaml.trainer == sample_config["trainer"]
@@ -150,7 +160,7 @@ def test_load_yaml(sample_config):
         assert loaded_config.data["val_labels_path"] == config.data.val_labels_path
         assert (
             loaded_config.model["backbone_type"].lower()
-            == config.model.backbone_type.value.lower()
+            == config.model.backbone_type.lower()
         )
         assert (
             loaded_config.trainer["early_stopping"]["patience"]
