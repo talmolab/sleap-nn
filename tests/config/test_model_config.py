@@ -9,7 +9,6 @@ from omegaconf import OmegaConf
 from sleap_nn.config.model_config import (
     ModelConfig,
     BackboneConfig,
-    BackboneType,
     UNetConfig,
     ConvNextConfig,
     SwinTConfig,
@@ -52,21 +51,18 @@ def test_invalid_pre_trained_weights():
 
 def test_invalid_backbonetype():
     """Test validation failure with an invalid pre_trained_weights."""
-    with pytest.raises(AttributeError):
-        ModelConfig(backbone_type=BackboneType.NET)
+    with pytest.raises(ValueError):
+        ModelConfig(backbone_type="net")
 
 
 def test_update_config(default_config):
     """Test updating configuration attributes."""
     config = OmegaConf.structured(
         ModelConfig(
-            backbone_type=BackboneType.UNET,
+            backbone_type="unet",
             init_weight="default",
             pre_trained_weights=None,
             backbone_config=BackboneConfig(),
             head_configs=HeadConfig(),
         )
     )
-
-    with pytest.raises(AttributeError):
-        config.backbone_type = BackboneType.NET

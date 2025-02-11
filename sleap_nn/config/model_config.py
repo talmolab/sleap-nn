@@ -254,17 +254,6 @@ class BackboneConfig:
     swint: Optional[SwinTConfig] = None
 
 
-class BackboneType(Enum):
-    """backbonetype.
-
-    backbonetype must be one of these 3 types.
-    """
-
-    UNET = "unet"
-    CONVNEXT = "convnext"
-    SWINT = "swint"
-
-
 @define
 class ModelConfig:
     """Configurations related to model architecture.
@@ -277,19 +266,31 @@ class ModelConfig:
         head_configs: (Dict) Dictionary with the following keys having head configs for the model to be trained. Note: Configs should be provided only for the model to train and others should be None
     """
 
-    backbone_type: BackboneType
+    backbone_type: str = field(
+        default="unet",
+        validator=lambda instance, attr, value: instance.validate_backbone_type(value),
+    )
     init_weight: str = "default"
     pre_trained_weights: Optional[str] = field(
         default=None,
-        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(),
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(value),
     )
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)
 
-    def validate_pre_trained_weights(self):
-        """pre_trained_weights validation.
+    def validate_backbone_type(self, value):
+        """Validate backbone_type.
 
-        check:
+        Ensure backbone_type is one of "unet", "convnext", or "swint".
+        """
+        valid_types = ["unet", "convnext", "swint"]
+        if value not in valid_types:
+            raise ValueError(f"Invalid backbone_type. Must be one of {valid_types}")
+
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
         convnext_weights are one of
         (
             "ConvNeXt_Base_Weights",
@@ -305,7 +306,7 @@ class ModelConfig:
         )
         unet weights is None
         """
-        if self.pre_trained_weights is None:
+        if value is None:
             return
 
         convnext_weights = [
@@ -317,12 +318,12 @@ class ModelConfig:
         swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
 
         if self.backbone_type == "convnext":
-            if self.pre_trained_weights not in convnext_weights:
+            if value not in convnext_weights:
                 raise ValueError(
                     f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
                 )
         elif self.backbone_type == "swint":
-            if self.pre_trained_weights not in swint_weights:
+            if value not in swint_weights:
                 raise ValueError(
                     f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
                 )
