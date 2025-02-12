@@ -667,6 +667,13 @@ class ModelTrainer:
                 training. Else, the numpy chunks are deleted.
 
         """
+        self._initialize_model(
+            backbone_trained_ckpts_path=backbone_trained_ckpts_path,
+            head_trained_ckpts_path=head_trained_ckpts_path,
+        )
+        total_params = self._get_param_count()
+        self.config.model_config.total_params = total_params
+
         logger = []
 
         if self.config.trainer_config.save_ckpt:
@@ -718,12 +725,12 @@ class ModelTrainer:
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
 
-        self._initialize_model(
-            backbone_trained_ckpts_path=backbone_trained_ckpts_path,
-            head_trained_ckpts_path=head_trained_ckpts_path,
-        )
-        total_params = self._get_param_count()
-        self.config.model_config.total_params = total_params
+            wandb_logger.experiment.config.update({"run_name": wandb_config.name})
+            wandb_logger.experiment.config.update(
+                {"run_config": OmegaConf.to_container(self.config, resolve=True)}
+            )
+            wandb_logger.experiment.config.update({"model_params": total_params})
+
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
@@ -753,10 +760,6 @@ class ModelTrainer:
         )
 
         try:
-            if self.config.trainer_config.use_wandb:
-                wandb_logger.experiment.config.update({"run_name": wandb_config.name})
-                wandb_logger.experiment.config.update(dict(self.config))
-                wandb_logger.experiment.config.update({"model_params": total_params})
 
             self.trainer.fit(
                 self.model,
