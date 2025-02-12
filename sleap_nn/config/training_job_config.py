@@ -69,8 +69,9 @@ class TrainingJobConfig:
         """
         schema = OmegaConf.structured(cls)
         config = OmegaConf.create(yaml_data)
-        OmegaConf.merge(schema, config)
-        return cls(**OmegaConf.to_container(config, resolve=True))
+        config = OmegaConf.merge(schema, config)
+        OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        return config
 
     @classmethod
     def load_yaml(cls, filename: Text) -> "TrainingJobConfig":
@@ -86,7 +87,8 @@ class TrainingJobConfig:
         schema = OmegaConf.structured(cls)
         config = OmegaConf.load(filename)
         OmegaConf.merge(schema, config)
-        return cls(**OmegaConf.to_container(config, resolve=True))
+        OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        return config
 
     def to_yaml(self, filename: Optional[Text] = None) -> None:
         """Serialize and optionally save the configuration to YAML format.

@@ -31,7 +31,7 @@ from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, MissingMandatoryValue
 from dataclasses import asdict
 
 
@@ -168,3 +168,27 @@ def test_load_yaml(sample_config):
             loaded_config.trainer["early_stopping"]["patience"]
             == config.trainer.early_stopping.patience
         )
+
+
+def test_missing_attributes(sample_config):
+    """Test creating a TrainingJobConfig from a valid YAML string."""
+    config_dict = {
+        "name": sample_config["name"],
+        "description": sample_config["description"],
+        "data": {
+            "provider": sample_config["data"].provider,
+        },
+        "model": {
+            "backbone_type": sample_config["model"].backbone_type,
+            "init_weight": sample_config["model"].init_weight,
+        },
+        "trainer": {
+            "early_stopping": {
+                "patience": sample_config["trainer"].early_stopping.patience,
+            },
+        },
+    }
+    yaml_data = OmegaConf.to_yaml(config_dict)
+
+    with pytest.raises(MissingMandatoryValue):
+        config = TrainingJobConfig.from_yaml(yaml_data)
