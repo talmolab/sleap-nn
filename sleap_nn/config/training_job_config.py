@@ -49,9 +49,9 @@ class TrainingJobConfig:
         filename: Path to this config file if it was loaded from disk.
     """
 
-    data: DataConfig = DataConfig()
-    model: ModelConfig = ModelConfig()
-    trainer: TrainerConfig = TrainerConfig()
+    data_config: DataConfig = DataConfig()
+    model_config: ModelConfig = ModelConfig()
+    trainer_config: TrainerConfig = TrainerConfig()
     name: Optional[Text] = ""
     description: Optional[Text] = ""
     sleap_nn_version: Optional[Text] = sleap_nn.__version__

@@ -326,9 +326,7 @@ class HeadConfig:
         single_instance: An instance of `SingleInstanceConfmapsHeadConfig`.
         centroid: An instance of `CentroidsHeadConfig`.
         centered_instance: An instance of `CenteredInstanceConfmapsHeadConfig`.
-        multi_instance: An instance of `MultiInstanceConfig`.
-        multi_class_bottomup: An instance of `MultiClassBottomUpConfig`.
-        multi_class_topdown: An instance of `MultiClassTopDownConfig`.
+        bottomup: An instance of `BottomUpConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
