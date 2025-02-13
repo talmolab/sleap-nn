@@ -757,6 +757,11 @@ class ModelTrainer:
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             limit_train_batches=self.steps_per_epoch,
+            strategy=(
+                "ddp_find_unused_parameters_false"
+                if self.config.trainer_config.trainer_devices > 1
+                else "auto"
+            ),
         )
 
         try:
