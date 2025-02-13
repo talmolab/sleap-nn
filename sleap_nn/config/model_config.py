@@ -376,6 +376,10 @@ class ModelConfig:
             ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
             "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"].
             For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
+        pretrained_backbone_weights: Path of the `ckpt` file with which the backbone
+            is initialized. If `None`, random init is used.
+        pretrained_head_weights: Path of the `ckpt` file with which the head layers
+            are initialized. If `None`, random init is used.
         backbone_config: initialize either UNetConfig, ConvNextConfig, or SwinTConfig
             based on input from backbone_type
         head_configs: (Dict) Dictionary with the following keys having head configs for
@@ -394,8 +398,10 @@ class ModelConfig:
             value
         ),
     )
-    backbone_config: BackboneConfig = field(factory=BackboneConfig)
-    head_configs: HeadConfig = field(factory=HeadConfig)
+    pretrained_backbone_weights: Optional[str] = None
+    pretrained_head_weights: Optional[str] = None
+    backbone_config: BackboneConfig = BackboneConfig()
+    head_configs: HeadConfig = HeadConfig()
 
     def validate_backbone_type(self, value):
         """Validate backbone_type.
