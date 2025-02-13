@@ -24,14 +24,12 @@ Conveniently, this format also provides a single location where all user-facing
 parameters are aggregated and documented for end users (as opposed to developers).
 """
 
-import os
-from attrs import define, field, asdict
+from attrs import define, asdict
 import sleap_nn
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.trainer_config import TrainerConfig
-import yaml
-from typing import Text, Dict, Any, Optional
+from typing import Text, Optional
 from omegaconf import OmegaConf
 
 
@@ -58,14 +56,14 @@ class TrainingJobConfig:
     filename: Optional[Text] = ""
 
     @classmethod
-    def from_yaml(cls, yaml_data: Text) -> "TrainingJobConfig":
+    def from_yaml(cls, yaml_data: Text) -> OmegaConf:
         """Create TrainingJobConfig from YAML-formatted string with schema validation.
 
         Arguments:
             yaml_data: YAML-formatted string that specifies the configurations.
 
         Returns:
-            A TrainingJobConfig instance parsed from the YAML text, validated against the schema.
+            A OmegaConf instance parsed from the YAML text, validated against the schema.
         """
         schema = OmegaConf.structured(cls)
         config = OmegaConf.create(yaml_data)
@@ -74,7 +72,7 @@ class TrainingJobConfig:
         return config
 
     @classmethod
-    def load_yaml(cls, filename: Text) -> "TrainingJobConfig":
+    def load_yaml(cls, filename: Text) -> OmegaConf:
         """Load a training job configuration from a yaml file.
 
         Arguments:
@@ -82,11 +80,11 @@ class TrainingJobConfig:
                 containing `"training_job.yaml"`.
 
         Returns:
-          A TrainingJobConfig instance parsed from the YAML file.
+          A OmegaConf instance parsed from the YAML file.
         """
         schema = OmegaConf.structured(cls)
         config = OmegaConf.load(filename)
-        OmegaConf.merge(schema, config)
+        config = OmegaConf.merge(schema, config)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
         return config
 
@@ -111,7 +109,7 @@ class TrainingJobConfig:
         return
 
 
-def load_config(filename: Text, load_training_config: bool = True) -> TrainingJobConfig:
+def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
     """Load a training job configuration for a model run.
 
     Args:
@@ -120,7 +118,7 @@ def load_config(filename: Text, load_training_config: bool = True) -> TrainingJo
             `initial_config.yaml` if it is present in the same folder.
 
     Returns:
-        The parsed `TrainingJobConfig`.
+        The parsed `OmegaConf`.
     """
     return TrainingJobConfig.load_yaml(
         filename, load_training_config=load_training_config
