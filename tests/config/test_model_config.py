@@ -29,7 +29,7 @@ from sleap_nn.config.model_config import (
 def default_config():
     """Fixture for a default ModelConfig instance."""
     return ModelConfig(
-        init_weight="default",
+        init_weights="default",
         pre_trained_weights=None,
         backbone_type="unet",
         backbone_config=BackboneConfig(),
@@ -39,7 +39,7 @@ def default_config():
 
 def test_default_initialization(default_config):
     """Test default initialization of ModelConfig."""
-    assert default_config.init_weight == "default"
+    assert default_config.init_weights == "default"
     assert default_config.pre_trained_weights == None
 
 
@@ -60,7 +60,7 @@ def test_update_config(default_config):
     config = OmegaConf.structured(
         ModelConfig(
             backbone_type="unet",
-            init_weight="default",
+            init_weights="default",
             pre_trained_weights=None,
             backbone_config=BackboneConfig(),
             head_configs=HeadConfig(),

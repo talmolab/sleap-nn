@@ -111,8 +111,7 @@ class SwinTConfig:
             recover details from higher scales. Default: True.
     """
 
-    model_type: str = "tiny"  # Options: tiny, small, base
-    model_type = field(
+    model_type: str = field(
         default="tiny",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
