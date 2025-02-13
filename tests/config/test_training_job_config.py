@@ -48,7 +48,7 @@ def sample_config():
         ),
         "model_config": ModelConfig(
             backbone_type="unet",
-            init_weight="default",
+            init_weights="default",
             pre_trained_weights=None,
             backbone_config="unet",
         ),
@@ -68,7 +68,7 @@ def test_from_yaml(sample_config):
         },
         "model_config": {
             "backbone_type": sample_config["model_config"].backbone_type,
-            "init_weight": sample_config["model_config"].init_weight,
+            "init_weights": sample_config["model_config"].init_weights,
         },
         "trainer_config": {
             "early_stopping": {
@@ -110,7 +110,7 @@ def test_to_yaml(sample_config):
         },
         "model_config": {
             "backbone_type": sample_config["model_config"].backbone_type,
-            "init_weight": sample_config["model_config"].init_weight,
+            "init_weights": sample_config["model_config"].init_weights,
         },
         "trainer_config": sample_config[
             "trainer_config"
@@ -135,8 +135,8 @@ def test_to_yaml(sample_config):
         == sample_config["model_config"].backbone_type
     )
     assert (
-        parsed_yaml.model_config.init_weight
-        == sample_config["model_config"].init_weight
+        parsed_yaml.model_config.init_weights
+        == sample_config["model_config"].init_weights
     )
     assert parsed_yaml.trainer_config == sample_config["trainer_config"]
 
@@ -152,7 +152,7 @@ def test_load_yaml(sample_config):
 
     model_config = ModelConfig(
         backbone_type=sample_config["model_config"].backbone_type,
-        init_weight=sample_config["model_config"].init_weight,
+        init_weights=sample_config["model_config"].init_weights,
     )
 
     trainer_config = TrainerConfig(
@@ -206,7 +206,7 @@ def test_missing_attributes(sample_config):
         },
         "model_config": {
             "backbone_type": sample_config["model_config"].backbone_type,
-            "init_weight": sample_config["model_config"].init_weight,
+            "init_weights": sample_config["model_config"].init_weights,
         },
         "trainer_config": {
             "early_stopping": {

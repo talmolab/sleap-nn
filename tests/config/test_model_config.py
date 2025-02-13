@@ -66,3 +66,14 @@ def test_update_config(default_config):
             head_configs=HeadConfig(),
         )
     )
+
+def test_valid_model_type():
+    """Test valid model_type values."""
+    valid_types = ["tiny", "small", "base"]
+    for model_type in valid_types:
+        config = SwinTConfig(model_type=model_type)
+        
+def test_invalid_model_type():
+    """Test validation failure with an invalid model_type."""
+    with pytest.raises(ValueError):
+        SwinTConfig(model_type="invalid_model_type")
