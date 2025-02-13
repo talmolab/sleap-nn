@@ -753,7 +753,7 @@ class ModelTrainer:
             strategy=(
                 "ddp_find_unused_parameters_false"
                 if self.config.trainer_config.trainer_devices > 1
-                else None
+                else "auto"
             ),
         )
 
