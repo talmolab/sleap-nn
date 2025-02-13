@@ -112,6 +112,10 @@ class SwinTConfig:
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base
+    model_type = field(
+        default="tiny",
+        validator=lambda instance, attr, value: instance.validate_model_type(value),
+    )
     arch: dict = field(
         factory=lambda: {
             "embed": 96,
@@ -127,6 +131,15 @@ class SwinTConfig:
     filters_rate: float = 1.5
     convs_per_block: int = 2
     up_interpolate: bool = True
+
+    def validate_model_type(self, value):
+        """Validate model_type.
+
+        Ensure model_type is one of "tiny", "small", or "base".
+        """
+        valid_types = ["tiny", "small", "base"]
+        if value not in valid_types:
+            raise ValueError(f"Invalid model_type. Must be one of {valid_types}")
 
 
 @define
