@@ -358,7 +358,7 @@ class ModelConfig:
     Attributes:
         backbone_type: (str) Backbone architecture for the model to be trained. One of
             "unet", "convnext" or "swint".
-        init_weight: (str) model weights initialization method. "default" uses kaiming
+        init_weights: (str) model weights initialization method. "default" uses kaiming
             uniform initialization and "xavier" uses Xavier initialization method.
         pre_trained_weights: (str) Pretrained weights file name supported only for
             ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
@@ -375,7 +375,7 @@ class ModelConfig:
         default="unet",
         validator=lambda instance, attr, value: instance.validate_backbone_type(value),
     )
-    init_weight: str = "default"
+    init_weights: str = "default"
     pre_trained_weights: Optional[str] = field(
         default=None,
         validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
