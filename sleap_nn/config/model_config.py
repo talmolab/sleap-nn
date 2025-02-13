@@ -40,7 +40,7 @@ class UNetConfig:
     kernel_size: int = 3
     filters: int = 32
     filters_rate: float = 1.5
-    max_stride: Optional[int] = None
+    max_stride: int = 16
     stem_stride: Optional[int] = None
     middle_block: bool = True
     up_interpolate: bool = True
@@ -153,8 +153,8 @@ class SingleInstanceConfMapsConfig:
     """
 
     part_names: Optional[List[str]] = None
-    sigma: Optional[float] = None
-    output_stride: Optional[float] = None
+    sigma: float = 5.0
+    output_stride: int = 1
 
 
 @define
@@ -183,8 +183,8 @@ class CentroidConfMapsConfig:
     """
 
     anchor_part: Optional[int] = None
-    sigma: Optional[float] = None
-    output_stride: Optional[float] = None
+    sigma: float = 5.0
+    output_stride: int = 1
 
 
 @define
@@ -219,8 +219,8 @@ class CenteredInstanceConfMapsConfig:
 
     part_names: Optional[List[str]] = None
     anchor_part: Optional[int] = None
-    sigma: Optional[float] = None
-    output_stride: Optional[float] = None
+    sigma: float = 5.0
+    output_stride: int = 1
 
 
 @define
@@ -250,8 +250,8 @@ class BottomUpConfMapsConfig:
     """
 
     part_names: Optional[List[str]] = None
-    sigma: Optional[float] = None
-    output_stride: Optional[float] = None
+    sigma: float = 5.0
+    output_stride: int = 1
     loss_weight: Optional[float] = None
 
 
@@ -281,8 +281,8 @@ class PAFConfig:
     """
 
     edges: Optional[List[str]] = None
-    sigma: Optional[float] = None
-    output_stride: Optional[float] = None
+    sigma: float = 15.0
+    output_stride: int = 1
     loss_weight: Optional[float] = None
 
 
