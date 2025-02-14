@@ -708,6 +708,11 @@ def test_reuse_bin_files(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
     OmegaConf.update(centroid_config, "data_config.delete_chunks_after_training", False)
+    OmegaConf.update(
+        centroid_config,
+        "data_config.litdata_chunks_path",
+        Path(tmp_path) / "new_chunks",
+    )
 
     # test reusing bin files
     trainer1 = ModelTrainer(centroid_config)
@@ -717,6 +722,11 @@ def test_reuse_bin_files(config, tmp_path: str):
         centroid_config,
         "data_config.chunks_dir_path",
         (trainer1.train_litdata_chunks_path).split("train_chunks")[0],
+    )
+    OmegaConf.update(
+        centroid_config,
+        "data_config.use_existing_chunks",
+        True,
     )
     trainer2 = ModelTrainer(centroid_config)
     trainer2.train()
