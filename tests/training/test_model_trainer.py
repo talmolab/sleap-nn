@@ -89,8 +89,8 @@ def test_create_data_loader_litdata(config, tmp_path: str):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
+    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # test exception
     config_copy = config.copy()
@@ -335,7 +335,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     ##### test for reusing np chunks path
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
     OmegaConf.update(config, "data_config.np_chunks_path", tmp_path)
-    OmegaConf.update(config, "data_config.use_existing_np_chunks", True)
+    OmegaConf.update(config, "data_config.use_existing_chunks", True)
     with pytest.raises(Exception):
         model_trainer = ModelTrainer(config)
 
@@ -345,7 +345,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
 
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
     OmegaConf.update(config, "data_config.np_chunks_path", tmp_path)
-    OmegaConf.update(config, "data_config.use_existing_np_chunks", True)
+    OmegaConf.update(config, "data_config.use_existing_chunks", True)
 
     with pytest.raises(Exception):
         model_trainer = ModelTrainer(config)
@@ -358,7 +358,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
     OmegaConf.update(config, "data_config.np_chunks_path", f"{tmp_path}/np_chunks/")
-    OmegaConf.update(config, "data_config.use_existing_np_chunks", False)
+    OmegaConf.update(config, "data_config.use_existing_chunks", False)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -716,7 +716,7 @@ def test_reuse_bin_files(config, tmp_path: str):
     OmegaConf.update(
         centroid_config,
         "data_config.chunks_dir_path",
-        (trainer1.train_input_dir).split("train_chunks")[0],
+        (trainer1.train_litdata_chunks_path).split("train_chunks")[0],
     )
     trainer2 = ModelTrainer(centroid_config)
     trainer2.train()
@@ -729,6 +729,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
 
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders_litdata()
@@ -743,8 +744,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
+    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # convnext with pretrained weights
     OmegaConf.update(
@@ -788,8 +789,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         < 1e-4
     )
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
+    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
 
 def test_centroid_model(config, tmp_path: str):
@@ -821,8 +822,8 @@ def test_centroid_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
+    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # torch dataset
     model = CentroidModel(config, None, "centroid")
@@ -887,8 +888,8 @@ def test_single_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
+    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # torch dataset
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
@@ -955,8 +956,8 @@ def test_bottomup_model(config, tmp_path: str):
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
 
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "train_chunks").as_posix())
-    shutil.rmtree((Path(model_trainer.bin_files_path) / "val_chunks").as_posix())
+    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
+    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # with edges as None
     config = config_copy

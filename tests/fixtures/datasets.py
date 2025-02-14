@@ -54,8 +54,8 @@ def config(sleap_data_dir):
                 "user_instances_only": True,
                 "data_pipeline_fw": "torch_dataset",
                 "np_chunks_path": None,
-                "chunks_dir_path": None,
-                "use_existing_np_chunks": False,
+                "litdata_chunks_path": None,
+                "use_existing_chunks": False,
                 "delete_chunks_after_training": True,
                 "chunk_size": 100,
                 "preprocessing": {
@@ -143,7 +143,6 @@ def config(sleap_data_dir):
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",
-                "bin_files_path": None,
                 "resume_ckpt_path": None,
                 "wandb": {
                     "entity": None,

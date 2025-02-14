@@ -16,7 +16,12 @@ The config file has three main sections:
     - `train_labels_path`: (str) Path to training data (`.slp` file)
     - `val_labels_path`: (str) Path to validation data (`.slp` file)
     - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
-    - `chunk_size`: (int) Size of each chunk (in MB). *Default*: "100". 
+    - `data_pipeline_fw`: (str) Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`].
+    - `np_chunks_path`: (str) Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_chunks` and `val_chunks` dirs are created inside this path.
+    - `litdata_chunks_path`: (str) Path to save `.bin` files created with `litdata` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_chunks` and `val_chunks` dirs are created inside this path.
+    - `use_existing_chunks`: (bool) Use existing train and val chunks in the `np_chunks_path` or `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks. If `True`, the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs.
+    - `chunk_size`: (int) Size of each chunk (in MB). *Default*: "100".
+    - `delete_chunks_after_training`: (bool) If `False`, the chunks (numpy or litdata chunks) are retained after training. Else, the chunks are deleted.
     #TODO: change in inference ckpts
     - `preprocessing`:
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
@@ -158,7 +163,6 @@ The config file has three main sections:
     - `use_wandb`: (bool) True to enable wandb logging.
     - `save_ckpt`: (bool) True to enable checkpointing. 
     - `save_ckpt_path`: (str) Directory path to save the training config and checkpoint files. *Default*: "./"
-    - `bin_files_path`: (str) Temp directory to save the `.bin` files while training. This dir need not be unique for each model as this creates a unique sub-folder with timestamp (`<bin_files_path>/chunks_<timestamp>`) in the specified directory. If `None`, it uses the `save_ckpt_path`.
     - `resume_ckpt_path`: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
     - `wandb`: (Only if `use_wandb` is `True`, else skip this)
         - `entity`: (str) Entity of wandb project.

@@ -148,17 +148,21 @@ class DataConfig:
     data_pipeline_fw: (str) Framework to create the data loaders.
         One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`].
     np_chunks_path: (str) Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework.
-        If `None`, the working dir is used.
-    use_existing_np_chunks: (bool) Use existing train and val chunks in the `np_chunks_path`.
-    chunks_dir_path: Path to chunks dir (this dir should contain `train_chunks`
-                and `val_chunks` folder.). If `None`, `bin` files are generated.
+        If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used).
+        The `train_chunks` and `val_chunks` dirs are created inside this path.
+    litdata_chunks_path: (str) Path to save `.bin` files created with `litdata` data pipeline framework.
+        If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used).
+        The `train_chunks` and `val_chunks` dirs are created inside this path.
+    use_existing_chunks: (bool) Use existing train and val chunks in the `np_chunks_path`
+        or `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks.
+        If `True`, the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs.
     chunk_size: (int) Size of each chunk (in MB). Default: 100.  # Your list shows "100" in quotes.
     delete_chunks_after_training: (bool) If `False`, the chunks (numpy or litdata chunks)
         are retained after training. Else, the chunks are deleted.
     preprocessing: Configuration options related to data preprocessing.
     use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
     augmentation_config: Configurations related to augmentation.
-        # Your list specifies "(only if use_augmentations is True)"
+        # Your list specifies "(only if use_augmentations_train is True)"
     """
 
     train_labels_path: str = MISSING
@@ -167,8 +171,8 @@ class DataConfig:
     user_instances_only: bool = True
     data_pipeline_fw: str = "torch_dataset"
     np_chunks_path: Optional[str] = None
-    use_existing_np_chunks: bool = False
-    chunks_dir_path: Optional[str] = None
+    litdata_chunks_path: Optional[str] = None
+    use_existing_chunks: bool = False
     chunk_size: int = 100
     delete_chunks_after_training: bool = True
     preprocessing: PreprocessingConfig = PreprocessingConfig()
