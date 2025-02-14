@@ -6,7 +6,7 @@ the parameters required to initialize the model config.
 
 from attrs import define, field
 from enum import Enum
-from sleap_nn.config.utils import oneof
+from sleap_nn.config.utils import oneof, get_output_strides_from_heads
 from typing import Optional, List
 
 
@@ -34,6 +34,7 @@ class UNetConfig:
             recover details from higher scales. Default: True.
         stacks: (int) Number of upsampling blocks in the decoder. Default is 3.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        output_stride: (int) Determines the number of upsampling blocks in the network.
     """
 
     in_channels: int = 1
@@ -46,6 +47,7 @@ class UNetConfig:
     up_interpolate: bool = True
     stacks: int = 3
     convs_per_block: int = 2
+    output_stride: int = 1
 
 
 @define
@@ -72,6 +74,7 @@ class ConvNextConfig:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
+        output_stride: (int) Determines the number of upsampling blocks in the network.
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
@@ -85,6 +88,7 @@ class ConvNextConfig:
     filters_rate: float = 1.5
     convs_per_block: int = 2
     up_interpolate: bool = True
+    output_stride: int = 1
 
 
 @define
@@ -109,6 +113,7 @@ class SwinTConfig:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
+        output_stride: (int) Determines the number of upsampling blocks in the network.
     """
 
     model_type: str = field(
@@ -130,6 +135,7 @@ class SwinTConfig:
     filters_rate: float = 1.5
     convs_per_block: int = 2
     up_interpolate: bool = True
+    output_stride: int = 1
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -402,6 +408,10 @@ class ModelConfig:
     pretrained_head_weights: Optional[str] = None
     backbone_config: BackboneConfig = BackboneConfig()
     head_configs: HeadConfig = HeadConfig()
+    output_strides = get_output_strides_from_heads(head_configs)
+    backbone_config.output_stride = min(output_strides)
+    if backbone_config.max_stride < max(output_strides):
+        backbone_config.max_stride = max(output_strides)
 
     def validate_backbone_type(self, value):
         """Validate backbone_type.

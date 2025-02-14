@@ -1,5 +1,18 @@
 """Utilities for config building and validation."""
 
+from sleap_nn.config.model_config import ModelConfig, HeadConfig, BackboneConfig
+
+
+def get_output_strides_from_heads(head_config: HeadConfig):
+    """Get list of strides from head configs."""
+    output_strides_from_heads = []
+    for head_type in head_config:
+        for head_layer in head_type:
+            output_strides_from_heads.append(
+                head_type[f"{head_layer}"]["output_stride"]
+            )
+    return output_strides_from_heads
+
 
 def oneof(attrs_cls, must_be_set: bool = False):
     """Ensure that the decorated attrs class only has a single attribute set.

@@ -22,13 +22,13 @@ def test_get_backbone():
             "stem_stride": None,
             "middle_block": True,
             "up_interpolate": True,
+            "output_stride": 1,
         }
     )
 
     backbone = get_backbone(
         "unet",
         base_unet_model_config,
-        output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
@@ -44,18 +44,18 @@ def test_get_backbone():
             "up_interpolate": True,
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
+            "output_stride": 1,
         }
     )
 
     backbone = get_backbone(
         "convnext",
         base_convnext_model_config,
-        output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
     with pytest.raises(KeyError):
-        _ = get_backbone("invalid_input", base_unet_model_config, 1)
+        _ = get_backbone("invalid_input", base_unet_model_config)
 
     # swint
     base_convnext_model_config = OmegaConf.create(
@@ -70,18 +70,18 @@ def test_get_backbone():
             "convs_per_block": 2,
             "up_interpolate": True,
             "stem_patch_stride": 4,
+            "output_stride": 1,
         }
     )
 
     backbone = get_backbone(
         "swint",
         base_convnext_model_config,
-        output_stride=1,
     )
     assert isinstance(backbone, torch.nn.Module)
 
     with pytest.raises(KeyError):
-        _ = get_backbone("invalid_input", base_unet_model_config, output_stride=1)
+        _ = get_backbone("invalid_input", base_unet_model_config)
 
 
 def test_get_head():
@@ -118,6 +118,7 @@ def test_unet_model():
             "stem_stride": None,
             "middle_block": True,
             "up_interpolate": True,
+            "output_stride": 1,
         }
     )
 
@@ -167,6 +168,7 @@ def test_unet_model():
             "stem_stride": None,
             "middle_block": True,
             "up_interpolate": True,
+            "output_stride": 1,
         }
     )
 
@@ -216,6 +218,7 @@ def test_unet_model():
             "stem_stride": None,
             "middle_block": True,
             "up_interpolate": False,
+            "output_stride": 1,
         }
     )
 
@@ -267,6 +270,7 @@ def test_convnext_model():
             "up_interpolate": True,
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
+            "output_stride": 1,
         }
     )
 
@@ -334,6 +338,7 @@ def test_convnext_model():
             "up_interpolate": True,
             "stem_patch_kernel": 4,
             "stem_patch_stride": 4,
+            "output_stride": 1,
         }
     )
 
@@ -401,6 +406,7 @@ def test_convnext_model():
             "up_interpolate": False,
             "stem_patch_kernel": 4,
             "stem_patch_stride": 4,
+            "output_stride": 1,
         }
     )
 
@@ -473,6 +479,7 @@ def test_swint_model():
             "convs_per_block": 2,
             "up_interpolate": True,
             "stem_patch_stride": 4,
+            "output_stride": 1,
         }
     )
 
@@ -542,6 +549,7 @@ def test_swint_model():
             "up_interpolate": False,
             "stem_patch_stride": 4,
             "stem_stride": None,
+            "output_stride": 1,
         }
     )
 

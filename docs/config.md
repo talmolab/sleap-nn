@@ -84,6 +84,7 @@ The config file has three main sections:
         recover details from higher scales. Default: True.
         - `stacks`: (int) Number of upsampling blocks in the decoder. Default is 3.
         - `convs_per_block`: (int) Number of convolutional layers per block. Default is 2.
+        - `output_stride`: (int) Determines the number of upsampling blocks in the network.
     - `backbone_config`: (for ConvNext)
         - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
             - `depths`: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
@@ -99,6 +100,7 @@ The config file has three main sections:
         convolutions for upsampling. Interpolation is faster but transposed
         convolutions may be able to learn richer or more complex upsampling to
         recover details from higher scales. Default: True.
+        - `output_stride`: (int) Determines the number of upsampling blocks in the network.
     - `backbone_config`: (for SwinT. Default is `Tiny` architecture.)
         - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base"]. Default: "tiny". 
         - `arch`: Dictionary of embed dimension, depths and number of heads in each layer.
@@ -115,6 +117,7 @@ The config file has three main sections:
         convolutions for upsampling. Interpolation is faster but transposed
         convolutions may be able to learn richer or more complex upsampling to
         recover details from higher scales. Default: True.
+        - `output_stride`: (int) Determines the number of upsampling blocks in the network.
     - `head_configs`: (Dict) Dictionary with the following keys having head configs for the model to be trained. **Note**: Configs should be provided only for the model to train and others should be `None`.
         - `single_instance`: 
             - `confmaps`:

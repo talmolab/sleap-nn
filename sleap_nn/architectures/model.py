@@ -28,9 +28,7 @@ from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
 
 
-def get_backbone(
-    backbone: str, backbone_config: DictConfig, output_stride: int
-) -> nn.Module:
+def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
     """Get a backbone model `nn.Module` based on the provided name.
 
     This function returns an instance of a PyTorch `nn.Module`
@@ -39,7 +37,6 @@ def get_backbone(
     Args:
         backbone (str): Name of the backbone. Supported values are 'unet'.
         backbone_config (DictConfig): A config for the backbone.
-        output_stride (int): Output stride to compute the number of down blocks.
 
     Returns:
         nn.Module: An instance of the requested backbone model.
@@ -54,9 +51,7 @@ def get_backbone(
             f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
         )
 
-    backbone = backbones[backbone].from_config(
-        backbone_config, output_stride=output_stride
-    )
+    backbone = backbones[backbone].from_config(backbone_config)
 
     return backbone
 
@@ -139,7 +134,6 @@ class Model(nn.Module):
         self.backbone = get_backbone(
             self.backbone_type,
             backbone_config,
-            min_output_stride,
         )
 
         strides = self.backbone.dec.current_strides
