@@ -75,67 +75,18 @@ class ModelTrainer:
                 (i) data_config: data loading pre-processing configs to be passed to `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`]
-        np_chunks_path: Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework.
-        use_existing_np_chunks: Use existing train and val chunks in the `np_chunks_path`.
     """
 
     def __init__(
         self,
         config: OmegaConf,
-        data_pipeline_fw: str = "litdata",
-        np_chunks_path: Optional[str] = None,
-        use_existing_np_chunks: bool = False,
     ):
         """Initialise the class with configs and set the seed and device as class attributes."""
         self.config = config
-        self.data_pipeline_fw = data_pipeline_fw
-        self.np_chunks = True if "np_chunks" in self.data_pipeline_fw else False
-        self.train_np_chunks_path = (
-            Path(np_chunks_path) / "train_chunks"
-            if np_chunks_path is not None
-            else None
-        )
-        self.val_np_chunks_path = (
-            Path(np_chunks_path) / "val_chunks" if np_chunks_path is not None else None
-        )
-        self.use_existing_np_chunks = use_existing_np_chunks
-        if self.use_existing_np_chunks:
-            if not (
-                self.train_np_chunks_path.exists()
-                and self.train_np_chunks_path.is_dir()
-                and any(self.train_np_chunks_path.glob("*.npz"))
-            ):
-                raise Exception(
-                    f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
-                )
-            if not (
-                self.val_np_chunks_path.exists()
-                and self.val_np_chunks_path.is_dir()
-                and any(self.val_np_chunks_path.glob("*.npz"))
-            ):
-                raise Exception(
-                    f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
-                )
-        self.seed = self.config.trainer_config.seed
-        self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
+        self.data_pipeline_fw = self.config.data_config.data_pipeline_fw
+        self.use_existing_chunks = self.config.data_config.use_existing_chunks
 
-        # initialize attributes
-        self.model = None
-        self.train_dataset = None
-        self.val_dataset = None
-        self.train_data_loader = None
-        self.val_data_loader = None
-        self.bin_files_path = None
-        self.trainer = None
-        self.crop_hw = -1
-
-        # check which head type to choose the model
-        for k, v in self.config.model_config.head_configs.items():
-            if v is not None:
-                self.model_type = k
-                break
-
+        # Get ckpt dir path
         self.dir_path = self.config.trainer_config.save_ckpt_path
         if self.dir_path is None:
             self.dir_path = "."
@@ -147,6 +98,77 @@ class ModelTrainer:
                 raise OSError(
                     f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                 )
+
+        if self.data_pipeline_fw == "litdata":
+            # Get litdata chunks path
+            self.litdata_chunks_path = (
+                Path(self.config.data_config.litdata_chunks_path)
+                if self.config.data_config.litdata_chunks_path is not None
+                else Path(self.dir_path)
+            )
+
+            if not Path(self.litdata_chunks_path).exists():
+                Path(self.litdata_chunks_path).mkdir(parents=True, exist_ok=True)
+
+            self.train_litdata_chunks_path = (
+                Path(self.litdata_chunks_path) / "train_chunks"
+            ).as_posix()
+            self.val_litdata_chunks_path = (
+                Path(self.litdata_chunks_path) / "val_chunks"
+            ).as_posix()
+
+        elif (
+            self.data_pipeline_fw == "torch_dataset"
+            or self.data_pipeline_fw == "torch_dataset_np_chunks"
+        ):
+            self.train_dataset = None
+            self.val_dataset = None
+            # Get np chunks path
+            self.np_chunks = True if "np_chunks" in self.data_pipeline_fw else False
+            self.train_np_chunks_path = (
+                Path(self.config.data_config.np_chunks_path) / "train_chunks"
+                if self.config.data_config.np_chunks_path is not None
+                else Path(self.dir_path) / "train_chunks"
+            )
+            self.val_np_chunks_path = (
+                Path(self.config.data_config.np_chunks_path) / "val_chunks"
+                if self.config.data_config.np_chunks_path is not None
+                else Path(self.dir_path) / "val_chunks"
+            )
+            if self.use_existing_chunks:
+                if not (
+                    self.train_np_chunks_path.exists()
+                    and self.train_np_chunks_path.is_dir()
+                    and any(self.train_np_chunks_path.glob("*.npz"))
+                ):
+                    raise Exception(
+                        f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
+                    )
+                if not (
+                    self.val_np_chunks_path.exists()
+                    and self.val_np_chunks_path.is_dir()
+                    and any(self.val_np_chunks_path.glob("*.npz"))
+                ):
+                    raise Exception(
+                        f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
+                    )
+
+        self.seed = self.config.trainer_config.seed
+        self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
+
+        # initialize attributes
+        self.model = None
+
+        self.train_data_loader = None
+        self.val_data_loader = None
+        self.trainer = None
+        self.crop_hw = -1
+
+        # check which head type to choose the model
+        for k, v in self.config.model_config.head_configs.items():
+            if v is not None:
+                self.model_type = k
+                break
 
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
@@ -257,7 +279,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
             self.val_dataset = BottomUpDataset(
                 labels=val_labels,
@@ -269,7 +291,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
 
         elif self.model_type == "centered_instance":
@@ -283,7 +305,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
             self.val_dataset = CenteredInstanceDataset(
                 labels=val_labels,
@@ -295,7 +317,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
 
         elif self.model_type == "centroid":
@@ -308,7 +330,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
             self.val_dataset = CentroidDataset(
                 labels=val_labels,
@@ -319,7 +341,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
 
         elif self.model_type == "single_instance":
@@ -332,7 +354,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
             self.val_dataset = SingleInstanceDataset(
                 labels=val_labels,
@@ -343,7 +365,7 @@ class ModelTrainer:
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_np_chunks,
+                use_existing_chunks=self.use_existing_chunks,
             )
 
         else:
@@ -405,10 +427,7 @@ class ModelTrainer:
             ),
         )
 
-    def _create_data_loaders_litdata(
-        self,
-        chunks_dir_path: Optional[str] = None,
-    ):
+    def _create_data_loaders_litdata(self):
         """Create a StreamingDataLoader for train, validation and test sets using the data_config."""
         self.chunk_size = (
             self.config.data_config.chunk_size
@@ -426,7 +445,7 @@ class ModelTrainer:
                     "--dir_path",
                     f"{self.dir_path}",
                     "--bin_files_path",
-                    f"{self.bin_files_path}",
+                    f"{self.litdata_chunks_path}",
                     "--user_instances_only",
                     "1" if self.user_instances_only else "0",
                     "--model_type",
@@ -456,49 +475,26 @@ class ModelTrainer:
             print("Standard Output:\n", stdout)
             print("Standard Error:\n", stderr)
 
-        if chunks_dir_path is None:
+        if not self.use_existing_chunks:
             try:
-                self.bin_files_path = self.config.trainer_config.bin_files_path
-                if self.bin_files_path is None:
-                    self.bin_files_path = self.dir_path
-
-                self.bin_files_path = f"{self.bin_files_path}/chunks_{datetime.strftime(datetime.now(), '%Y%m%d_%H-%M-%S-%f')}"
-                print(
-                    f"New dir is created and `.bin` files are saved in {self.bin_files_path}"
-                )
-
-                if not Path(self.bin_files_path).exists():
-                    try:
-                        Path(self.bin_files_path).mkdir(parents=True, exist_ok=True)
-                    except OSError as e:
-                        raise OSError(
-                            f"Cannot create a new folder in {self.bin_files_path}. Check the permissions to the given Checkpoint directory. \n {e}"
-                        )
-
-                self.config.trainer_config.saved_bin_files_path = self.bin_files_path
-
-                self.train_input_dir = (
-                    Path(self.bin_files_path) / "train_chunks"
-                ).as_posix()
-                self.val_input_dir = (
-                    Path(self.bin_files_path) / "val_chunks"
-                ).as_posix()
-
                 run_subprocess()
 
             except Exception as e:
                 raise Exception(f"Error while creating the `.bin` files... {e}")
 
         else:
-            print(f"Using `.bin` files from {chunks_dir_path}.")
-            self.train_input_dir = (Path(chunks_dir_path) / "train_chunks").as_posix()
-            self.val_input_dir = (Path(chunks_dir_path) / "val_chunks").as_posix()
-            self.config.trainer_config.saved_bin_files_path = chunks_dir_path
+            print(f"Using `.bin` files from {self.litdata_chunks_path}.")
+            self.train_litdata_chunks_path = (
+                Path(self.litdata_chunks_path) / "train_chunks"
+            ).as_posix()
+            self.val_litdata_chunks_path = (
+                Path(self.litdata_chunks_path) / "val_chunks"
+            ).as_posix()
 
         if self.model_type == "single_instance":
 
             train_dataset = SingleInstanceStreamingDataset(
-                input_dir=self.train_input_dir,
+                input_dir=self.train_litdata_chunks_path,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -507,7 +503,7 @@ class ModelTrainer:
             )
 
             val_dataset = SingleInstanceStreamingDataset(
-                input_dir=self.val_input_dir,
+                input_dir=self.val_litdata_chunks_path,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.single_instance.confmaps,
@@ -517,7 +513,7 @@ class ModelTrainer:
         elif self.model_type == "centered_instance":
 
             train_dataset = CenteredInstanceStreamingDataset(
-                input_dir=self.train_input_dir,
+                input_dir=self.train_litdata_chunks_path,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -528,7 +524,7 @@ class ModelTrainer:
             )
 
             val_dataset = CenteredInstanceStreamingDataset(
-                input_dir=self.val_input_dir,
+                input_dir=self.val_litdata_chunks_path,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centered_instance.confmaps,
@@ -539,7 +535,7 @@ class ModelTrainer:
 
         elif self.model_type == "centroid":
             train_dataset = CentroidStreamingDataset(
-                input_dir=self.train_input_dir,
+                input_dir=self.train_litdata_chunks_path,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -548,7 +544,7 @@ class ModelTrainer:
             )
 
             val_dataset = CentroidStreamingDataset(
-                input_dir=self.val_input_dir,
+                input_dir=self.val_litdata_chunks_path,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.centroid.confmaps,
@@ -557,7 +553,7 @@ class ModelTrainer:
 
         elif self.model_type == "bottomup":
             train_dataset = BottomUpStreamingDataset(
-                input_dir=self.train_input_dir,
+                input_dir=self.train_litdata_chunks_path,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -568,7 +564,7 @@ class ModelTrainer:
             )
 
             val_dataset = BottomUpStreamingDataset(
-                input_dir=self.val_input_dir,
+                input_dir=self.val_litdata_chunks_path,
                 shuffle=False,
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
@@ -624,8 +620,8 @@ class ModelTrainer:
 
     def _initialize_model(
         self,
-        backbone_trained_ckpts_path: Optional[str] = None,
-        head_trained_ckpts_path: Optional[str] = None,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
     ):
         models = {
             "single_instance": SingleInstanceModel,
@@ -637,39 +633,18 @@ class ModelTrainer:
             self.config,
             self.skeletons,
             self.model_type,
-            backbone_trained_ckpts_path=backbone_trained_ckpts_path,
-            head_trained_ckpts_path=head_trained_ckpts_path,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
         )
 
     def _get_param_count(self):
         return sum(p.numel() for p in self.model.parameters())
 
-    def train(
-        self,
-        backbone_trained_ckpts_path: Optional[str] = None,
-        head_trained_ckpts_path: Optional[str] = None,
-        delete_bin_files_after_training: bool = True,
-        chunks_dir_path: Optional[str] = None,
-        delete_np_chunks_after_training: bool = True,
-    ):
-        """Initiate the training by calling the fit method of Trainer.
-
-        Args:
-            backbone_trained_ckpts_path: Path of the `ckpt` file with which the backbone
-                 is initialized. If `None`, random init is used.
-            head_trained_ckpts_path: Path of the `ckpt` file with which the head layers
-                 are initialized. If `None`, random init is used.
-            delete_bin_files_after_training: If `False`, the `bin` files are retained after
-                training. Else, the `bin` files are deleted.
-            chunks_dir_path: Path to chunks dir (this dir should contain `train_chunks`
-                and `val_chunks` folder.). If `None`, `bin` files are generated.
-            delete_np_chunks_after_training: If `False`, the numpy chunks are retained after
-                training. Else, the numpy chunks are deleted.
-
-        """
+    def train(self):
+        """Initiate the training by calling the fit method of Trainer."""
         self._initialize_model(
-            backbone_trained_ckpts_path=backbone_trained_ckpts_path,
-            head_trained_ckpts_path=head_trained_ckpts_path,
+            pretrained_backbone_weights=self.config.model_config.pretrained_backbone_weights,
+            pretrained_head_weights=self.config.model_config.pretrained_head_weights,
         )
         total_params = self._get_param_count()
         self.config.model_config.total_params = total_params
@@ -735,7 +710,7 @@ class ModelTrainer:
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
         if self.data_pipeline_fw == "litdata":
-            self._create_data_loaders_litdata(chunks_dir_path)
+            self._create_data_loaders_litdata()
 
         elif (
             self.data_pipeline_fw == "torch_dataset"
@@ -786,7 +761,10 @@ class ModelTrainer:
                 config=self.config, f=f"{self.dir_path}/training_config.yaml"
             )
 
-            if self.np_chunks and delete_np_chunks_after_training:
+            if (
+                self.data_pipeline_fw == "torch_dataset_np_chunks"
+                and self.config.data_config.delete_chunks_after_training
+            ):
                 if (self.train_np_chunks_path).exists():
                     shutil.rmtree(
                         (self.train_np_chunks_path).as_posix(),
@@ -800,21 +778,19 @@ class ModelTrainer:
                     )
 
             # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
-            if self.data_pipeline_fw == "litdata" and delete_bin_files_after_training:
+            if (
+                self.data_pipeline_fw == "litdata"
+                and self.config.data_config.delete_chunks_after_training
+            ):
                 print("Deleting training and validation files...")
-                if (Path(self.train_input_dir)).exists():
+                if (Path(self.train_litdata_chunks_path)).exists():
                     shutil.rmtree(
-                        (Path(self.train_input_dir)).as_posix(),
+                        (Path(self.train_litdata_chunks_path)).as_posix(),
                         ignore_errors=True,
                     )
-                if (Path(self.val_input_dir)).exists():
+                if (Path(self.val_litdata_chunks_path)).exists():
                     shutil.rmtree(
-                        (Path(self.val_input_dir)).as_posix(),
-                        ignore_errors=True,
-                    )
-                if self.bin_files_path is not None:
-                    shutil.rmtree(
-                        (Path(self.bin_files_path)).as_posix(),
+                        (Path(self.val_litdata_chunks_path)).as_posix(),
                         ignore_errors=True,
                     )
 
@@ -832,8 +808,8 @@ class TrainingModel(L.LightningModule):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        backbone_trained_ckpts_path: Path to trained ckpts for backbone.
-        head_trained_ckpts_path: Path to trained ckpts for head layer.
+        pretrained_backbone_weights: Path to trained ckpts for backbone.
+        pretrained_head_weights: Path to trained ckpts for head layer.
     """
 
     def __init__(
@@ -841,8 +817,8 @@ class TrainingModel(L.LightningModule):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
-        backbone_trained_ckpts_path: Optional[str] = None,
-        head_trained_ckpts_path: Optional[str] = None,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__()
@@ -852,8 +828,8 @@ class TrainingModel(L.LightningModule):
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
         self.model_type = model_type
-        self.backbone_trained_ckpts_path = backbone_trained_ckpts_path
-        self.head_trained_ckpts_path = head_trained_ckpts_path
+        self.pretrained_backbone_weights = pretrained_backbone_weights
+        self.pretrained_head_weights = pretrained_head_weights
         self.input_expand_channels = self.model_config.backbone_config.in_channels
         if self.model_config.pre_trained_weights:  # only for swint and convnext
             ckpt = MODEL_WEIGHTS[
@@ -912,9 +888,9 @@ class TrainingModel(L.LightningModule):
 
         # TODO: Handling different input channels
         # Initializing backbone (encoder + decoder) with trained ckpts
-        if backbone_trained_ckpts_path is not None:
-            print(f"Loading backbone weights from `{backbone_trained_ckpts_path}` ...")
-            ckpt = torch.load(backbone_trained_ckpts_path)
+        if pretrained_backbone_weights is not None:
+            print(f"Loading backbone weights from `{pretrained_backbone_weights}` ...")
+            ckpt = torch.load(pretrained_backbone_weights)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
                 for k in ckpt["state_dict"].keys()
@@ -923,9 +899,9 @@ class TrainingModel(L.LightningModule):
             self.load_state_dict(ckpt["state_dict"], strict=False)
 
         # Initializing head layers with trained ckpts.
-        if head_trained_ckpts_path is not None:
-            print(f"Loading head weights from `{head_trained_ckpts_path}` ...")
-            ckpt = torch.load(head_trained_ckpts_path)
+        if pretrained_head_weights is not None:
+            print(f"Loading head weights from `{pretrained_head_weights}` ...")
+            ckpt = torch.load(pretrained_head_weights)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
                 for k in ckpt["state_dict"].keys()
@@ -1047,8 +1023,8 @@ class SingleInstanceModel(TrainingModel):
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        backbone_trained_ckpts_path: Path to trained ckpts for backbone.
-        head_trained_ckpts_path: Path to trained ckpts for head layer.
+        pretrained_backbone_weights: Path to trained ckpts for backbone.
+        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1057,16 +1033,16 @@ class SingleInstanceModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
-        backbone_trained_ckpts_path: Optional[str] = None,
-        head_trained_ckpts_path: Optional[str] = None,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config,
             skeletons,
             model_type,
-            backbone_trained_ckpts_path,
-            head_trained_ckpts_path,
+            pretrained_backbone_weights,
+            pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1128,8 +1104,8 @@ class TopDownCenteredInstanceModel(TrainingModel):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        backbone_trained_ckpts_path: Path to trained ckpts for backbone.
-        head_trained_ckpts_path: Path to trained ckpts for head layer.
+        pretrained_backbone_weights: Path to trained ckpts for backbone.
+        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1138,16 +1114,16 @@ class TopDownCenteredInstanceModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
-        backbone_trained_ckpts_path: Optional[str] = None,
-        head_trained_ckpts_path: Optional[str] = None,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config,
             skeletons,
             model_type,
-            backbone_trained_ckpts_path,
-            head_trained_ckpts_path,
+            pretrained_backbone_weights,
+            pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1209,8 +1185,8 @@ class CentroidModel(TrainingModel):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        backbone_trained_ckpts_path: Path to trained ckpts for backbone.
-        head_trained_ckpts_path: Path to trained ckpts for head layer.
+        pretrained_backbone_weights: Path to trained ckpts for backbone.
+        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1219,16 +1195,16 @@ class CentroidModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
-        backbone_trained_ckpts_path: Optional[str] = None,
-        head_trained_ckpts_path: Optional[str] = None,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config,
             skeletons,
             model_type,
-            backbone_trained_ckpts_path,
-            head_trained_ckpts_path,
+            pretrained_backbone_weights,
+            pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1290,8 +1266,8 @@ class BottomUpModel(TrainingModel):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        backbone_trained_ckpts_path: Path to trained ckpts for backbone.
-        head_trained_ckpts_path: Path to trained ckpts for head layer.
+        pretrained_backbone_weights: Path to trained ckpts for backbone.
+        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1300,16 +1276,16 @@ class BottomUpModel(TrainingModel):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
-        backbone_trained_ckpts_path: Optional[str] = None,
-        head_trained_ckpts_path: Optional[str] = None,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config,
             skeletons,
             model_type,
-            backbone_trained_ckpts_path,
-            head_trained_ckpts_path,
+            pretrained_backbone_weights,
+            pretrained_head_weights,
         )
 
     def forward(self, img):

@@ -143,10 +143,8 @@ class LRSchedulerConfig:
         default="ReduceLROnPlateau",
         validator=lambda instance, attr, value: instance.validate_scheduler(),
     )
-    step_lr: StepLRConfig = field(factory=StepLRConfig)
-    reduce_lr_on_plateau: ReduceLROnPlateauConfig = field(
-        factory=ReduceLROnPlateauConfig
-    )
+    step_lr: StepLRConfig = StepLRConfig()
+    reduce_lr_on_plateau: ReduceLROnPlateauConfig = ReduceLROnPlateauConfig()
 
     def validate_scheduler(self):
         """Scheduler Validation.
@@ -201,9 +199,9 @@ class TrainerConfig:
         early_stopping: create an early_stopping configuration
     """
 
-    train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
-    val_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
-    model_ckpt: ModelCkptConfig = field(factory=ModelCkptConfig)
+    train_data_loader: DataLoaderConfig = DataLoaderConfig()
+    val_data_loader: DataLoaderConfig = DataLoaderConfig()
+    model_ckpt: ModelCkptConfig = ModelCkptConfig()
     trainer_devices: Any = field(
         default="auto",
         validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val),
@@ -223,9 +221,9 @@ class TrainerConfig:
         default="Adam",
         validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val),
     )
-    optimizer: OptimizerConfig = field(factory=OptimizerConfig)
-    lr_scheduler: LRSchedulerConfig = field(factory=LRSchedulerConfig)
-    early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
+    optimizer: OptimizerConfig = OptimizerConfig()
+    lr_scheduler: LRSchedulerConfig = LRSchedulerConfig()
+    early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
 
     def __attrs_post_init__(self):
         """Post Initialization Validation.

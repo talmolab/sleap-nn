@@ -131,8 +131,8 @@ class AugmentationConfig:
         geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
     """
 
-    intensity: Optional[IntensityConfig] = field(factory=IntensityConfig)
-    geometric: Optional[GeometricConfig] = field(factory=GeometricConfig)
+    intensity: Optional[IntensityConfig] = IntensityConfig()
+    geometric: Optional[GeometricConfig] = GeometricConfig()
 
 
 @define
@@ -141,19 +141,40 @@ class DataConfig:
 
     train_labels_path: (str) Path to training data (.slp file)
     val_labels_path: (str) Path to validation data (.slp file)
-    provider: (str) Provider class to read the input sleap files. Only "LabelsReader" supported for the training pipeline.
-    user_instances_only: (bool) True if only user labeled instances should be used for training. If False, both user labeled and predicted instances would be used. Default: True.
-    chunk_size: (int) Size of each chunk (in MB). Default: 100.  # Your list shows "100" in quotes
+    provider: (str) Provider class to read the input sleap files. Only "LabelsReader"
+        supported for the training pipeline.
+    user_instances_only: (bool) True if only user labeled instances should be used for
+        training. If False, both user labeled and predicted instances would be used. Default: True.
+    data_pipeline_fw: (str) Framework to create the data loaders.
+        One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`].
+    np_chunks_path: (str) Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework.
+        If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used).
+        The `train_chunks` and `val_chunks` dirs are created inside this path.
+    litdata_chunks_path: (str) Path to save `.bin` files created with `litdata` data pipeline framework.
+        If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used).
+        The `train_chunks` and `val_chunks` dirs are created inside this path.
+    use_existing_chunks: (bool) Use existing train and val chunks in the `np_chunks_path`
+        or `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks.
+        If `True`, the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs.
+    chunk_size: (int) Size of each chunk (in MB). Default: 100.  # Your list shows "100" in quotes.
+    delete_chunks_after_training: (bool) If `False`, the chunks (numpy or litdata chunks)
+        are retained after training. Else, the chunks are deleted.
     preprocessing: Configuration options related to data preprocessing.
     use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
-    augmentation_config: Configurations related to augmentation  # Your list specifies "(only if use_augmentations is True)"
+    augmentation_config: Configurations related to augmentation.
+        # Your list specifies "(only if use_augmentations_train is True)"
     """
 
     train_labels_path: str = MISSING
     val_labels_path: str = MISSING
     provider: str = "LabelsReader"
     user_instances_only: bool = True
+    data_pipeline_fw: str = "torch_dataset"
+    np_chunks_path: Optional[str] = None
+    litdata_chunks_path: Optional[str] = None
+    use_existing_chunks: bool = False
     chunk_size: int = 100
-    preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
+    delete_chunks_after_training: bool = True
+    preprocessing: PreprocessingConfig = PreprocessingConfig()
     use_augmentations_train: bool = False
-    augmentation_config: AugmentationConfig = field(factory=AugmentationConfig)
+    augmentation_config: AugmentationConfig = AugmentationConfig()

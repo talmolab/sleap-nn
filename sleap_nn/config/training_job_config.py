@@ -38,8 +38,9 @@ class TrainingJobConfig:
     """Configuration of a training job.
 
     Attributes:
-        data: Configuration options related to the training data.
-        model: Configuration options related to the model architecture.
+        data_config: Configuration options related to the training data.
+        model_config: Configuration options related to the model architecture.
+        trainer_config: Configuration ooptions related to model training.
         outputs: Configuration options related to outputs during training.
         name: Optional name for this configuration profile.
         description: Optional description of the configuration.
@@ -65,7 +66,7 @@ class TrainingJobConfig:
         Returns:
             A OmegaConf instance parsed from the YAML text, validated against the schema.
         """
-        schema = OmegaConf.structured(cls)
+        schema = OmegaConf.structured(cls())
         config = OmegaConf.create(yaml_data)
         config = OmegaConf.merge(schema, config)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
@@ -82,7 +83,7 @@ class TrainingJobConfig:
         Returns:
           A OmegaConf instance parsed from the YAML file.
         """
-        schema = OmegaConf.structured(cls)
+        schema = OmegaConf.structured(cls())
         config = OmegaConf.load(filename)
         config = OmegaConf.merge(schema, config)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
@@ -100,7 +101,7 @@ class TrainingJobConfig:
 
         # Handle any special cases (like enums) that need manual conversion
         if config_dict.get("model", {}).get("backbone_type"):
-            config_dict["model"]["backbone_type"] = self.model.backbone_type
+            config_dict["model"]["backbone_type"] = self.model_config.backbone_type
 
         # Create OmegaConf object and save if filename provided
         conf = OmegaConf.create(config_dict)
