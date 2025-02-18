@@ -49,6 +49,7 @@ from sleap_nn.data.streaming_datasets import (
     SingleInstanceStreamingDataset,
 )
 from sleap_nn.training.utils import check_memory, xavier_init_weights
+from loguru import logger
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -242,7 +243,7 @@ class ModelTrainer:
                 self.np_chunks = True
                 self.train_np_chunks_path = Path("./train_chunks")
                 self.val_np_chunks_path = Path("./val_chunks")
-                print(
+                logger.info(
                     f"Insufficient memory for in-memory caching. `npz` files will be created."
                 )
 
@@ -452,9 +453,9 @@ class ModelTrainer:
             # Use communicate() to read output and avoid hanging
             stdout, stderr = process.communicate()
 
-            # Print the logs
-            print("Standard Output:\n", stdout)
-            print("Standard Error:\n", stderr)
+            # logger.info the logs
+            logger.info("Standard Output:\n", stdout)
+            logger.info("Standard Error:\n", stderr)
 
         if chunks_dir_path is None:
             try:
@@ -463,7 +464,7 @@ class ModelTrainer:
                     self.bin_files_path = self.dir_path
 
                 self.bin_files_path = f"{self.bin_files_path}/chunks_{datetime.strftime(datetime.now(), '%Y%m%d_%H-%M-%S-%f')}"
-                print(
+                logger.info(
                     f"New dir is created and `.bin` files are saved in {self.bin_files_path}"
                 )
 
@@ -490,7 +491,7 @@ class ModelTrainer:
                 raise Exception(f"Error while creating the `.bin` files... {e}")
 
         else:
-            print(f"Using `.bin` files from {chunks_dir_path}.")
+            logger.info(f"Using `.bin` files from {chunks_dir_path}.")
             self.train_input_dir = (Path(chunks_dir_path) / "train_chunks").as_posix()
             self.val_input_dir = (Path(chunks_dir_path) / "val_chunks").as_posix()
             self.config.trainer_config.saved_bin_files_path = chunks_dir_path
@@ -674,7 +675,7 @@ class ModelTrainer:
         total_params = self._get_param_count()
         self.config.model_config.total_params = total_params
 
-        logger = []
+        training_loggers = []
 
         if self.config.trainer_config.save_ckpt:
 
@@ -690,7 +691,7 @@ class ModelTrainer:
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs
             csv_logger = CSVLogger(self.dir_path)
-            logger.append(csv_logger)
+            training_loggers.append(csv_logger)
 
         else:
             callbacks = []
@@ -720,7 +721,7 @@ class ModelTrainer:
                 id=self.config.trainer_config.wandb.prv_runid,
                 group=self.config.trainer_config.wandb.group,
             )
-            logger.append(wandb_logger)
+            training_loggers.append(wandb_logger)
 
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
@@ -750,7 +751,7 @@ class ModelTrainer:
 
         self.trainer = L.Trainer(
             callbacks=callbacks,
-            logger=logger,
+            logger=training_loggers,
             enable_checkpointing=self.config.trainer_config.save_ckpt,
             devices=self.config.trainer_config.trainer_devices,
             max_epochs=self.config.trainer_config.max_epochs,
@@ -774,7 +775,7 @@ class ModelTrainer:
             )
 
         except KeyboardInterrupt:
-            print("Stopping training...")
+            logger.info("Stopping training...")
 
         finally:
             if self.config.trainer_config.use_wandb:
@@ -801,7 +802,7 @@ class ModelTrainer:
 
             # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
             if self.data_pipeline_fw == "litdata" and delete_bin_files_after_training:
-                print("Deleting training and validation files...")
+                logger.info("Deleting training and validation files...")
                 if (Path(self.train_input_dir)).exists():
                     shutil.rmtree(
                         (Path(self.train_input_dir)).as_posix(),
@@ -913,7 +914,7 @@ class TrainingModel(L.LightningModule):
         # TODO: Handling different input channels
         # Initializing backbone (encoder + decoder) with trained ckpts
         if backbone_trained_ckpts_path is not None:
-            print(f"Loading backbone weights from `{backbone_trained_ckpts_path}` ...")
+            logger.info(f"Loading backbone weights from `{backbone_trained_ckpts_path}` ...")
             ckpt = torch.load(backbone_trained_ckpts_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -924,7 +925,7 @@ class TrainingModel(L.LightningModule):
 
         # Initializing head layers with trained ckpts.
         if head_trained_ckpts_path is not None:
-            print(f"Loading head weights from `{head_trained_ckpts_path}` ...")
+            logger.info(f"Loading head weights from `{head_trained_ckpts_path}` ...")
             ckpt = torch.load(head_trained_ckpts_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
