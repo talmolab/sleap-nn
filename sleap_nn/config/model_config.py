@@ -5,8 +5,7 @@ the parameters required to initialize the model config.
 """
 
 from attrs import define, field
-from enum import Enum
-from sleap_nn.config.utils import oneof, get_output_strides_from_heads
+from sleap_nn.config.utils import oneof
 from typing import Optional, List
 
 
@@ -408,10 +407,6 @@ class ModelConfig:
     pretrained_head_weights: Optional[str] = None
     backbone_config: BackboneConfig = BackboneConfig()
     head_configs: HeadConfig = HeadConfig()
-    output_strides = get_output_strides_from_heads(head_configs)
-    backbone_config.output_stride = min(output_strides)
-    if backbone_config.max_stride < max(output_strides):
-        backbone_config.max_stride = max(output_strides)
 
     def validate_backbone_type(self, value):
         """Validate backbone_type.
