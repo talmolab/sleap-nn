@@ -8,7 +8,7 @@ def get_output_strides_from_heads(head_configs: DictConfig):
     output_strides_from_heads = []
     for head_type in head_configs:
         if head_configs[head_type] is not None:
-            for head_layer in head_type:
+            for head_layer in head_configs[head_type]:
                 output_strides_from_heads.append(
                     head_configs[head_type][head_layer]["output_stride"]
                 )
