@@ -9,6 +9,7 @@ from threading import Thread
 import torch
 import copy
 from torch.utils.data.datapipes.datapipe import IterDataPipe
+from loguru import logger
 
 
 def get_max_instances(labels: sio.Labels):
@@ -282,7 +283,7 @@ class VideoReader(Thread):
                 )
 
         except Exception as e:
-            print(f"Error when reading video frame. Stopping video reader.\n{e}")
+            logger.error(f"Error when reading video frame. Stopping video reader.\n{e}")
 
         finally:
             self.frame_buffer.put(
@@ -388,7 +389,9 @@ class LabelsReader(Thread):
                 self.frame_buffer.put(sample)
 
         except Exception as e:
-            print(f"Error when reading labelled frame. Stopping labels reader.\n{e}")
+            logger.error(
+                f"Error when reading labelled frame. Stopping labels reader.\n{e}"
+            )
 
         finally:
             self.frame_buffer.put(
