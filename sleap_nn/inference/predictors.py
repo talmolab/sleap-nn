@@ -596,7 +596,7 @@ class TopDownPredictor(Predictor):
             )
 
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
-                logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -606,12 +606,12 @@ class TopDownPredictor(Predictor):
                 centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif backbone_ckpt_path is not None:
-                logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
+                print(f"Loading weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             if head_ckpt_path is not None:
-                logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
+                print(f"Loading head weights from `{head_ckpt_path}` ...")
                 ckpt = torch.load(head_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -638,7 +638,7 @@ class TopDownPredictor(Predictor):
                 model_type="centered_instance",
             )
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
-                logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -648,12 +648,12 @@ class TopDownPredictor(Predictor):
                 confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif backbone_ckpt_path is not None:
-                logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
+                print(f"Loading weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             if head_ckpt_path is not None:
-                logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
+                print(f"Loading head weights from `{head_ckpt_path}` ...")
                 ckpt = torch.load(head_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -990,7 +990,7 @@ class SingleInstancePredictor(Predictor):
             model_type="single_instance",
         )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
-            logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+            print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1000,12 +1000,12 @@ class SingleInstancePredictor(Predictor):
             confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         elif backbone_ckpt_path is not None:
-            logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
+            print(f"Loading weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         if head_ckpt_path is not None:
-            logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
+            print(f"Loading head weights from `{head_ckpt_path}` ...")
             ckpt = torch.load(head_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1351,7 +1351,7 @@ class BottomUpPredictor(Predictor):
             model_type="bottomup",
         )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
-            logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+            print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1361,12 +1361,12 @@ class BottomUpPredictor(Predictor):
             bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         elif backbone_ckpt_path is not None:
-            logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
+            print(f"Loading weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         if head_ckpt_path is not None:
-            logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
+            print(f"Loading head weights from `{head_ckpt_path}` ...")
             ckpt = torch.load(head_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
