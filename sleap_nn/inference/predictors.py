@@ -204,9 +204,10 @@ class Predictor(ABC):
                 preprocess_config=preprocess_config,
             )
         else:
-            raise ValueError(
-                f"Could not create predictor from model paths:\n{model_paths}"
+            logger.error(
+                "Could not create predictor from model paths:\n{}", model_paths
             )
+            raise ValueError()
         return predictor
 
     @classmethod
@@ -754,10 +755,11 @@ class TopDownPredictor(Predictor):
         # VideoReader provider
         elif self.provider == "VideoReader":
             if self.centroid_config is None:
-                raise ValueError(
+                logger.error(
                     "Ground truth data was not detected... "
                     "Please load both models when predicting on non-ground-truth data."
                 )
+                raise ValueError()
 
             provider = VideoReader
             self.preprocess = False
@@ -789,9 +791,10 @@ class TopDownPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            raise Exception(
+            logger.error(
                 "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
+            raise Exception()
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1119,9 +1122,10 @@ class SingleInstancePredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            raise Exception(
+            logger.error(
                 "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
+            raise Exception()
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1478,9 +1482,10 @@ class BottomUpPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            raise Exception(
+            logger.error(
                 "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
+            raise Exception()
 
     def _make_labeled_frames_from_generator(
         self,

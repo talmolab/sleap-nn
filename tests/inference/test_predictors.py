@@ -135,7 +135,6 @@ def test_topdown_predictor(
     # Unrecognized provider
     with pytest.raises(
         Exception,
-        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
     ):
         pred_labels = main(
             model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
@@ -164,7 +163,6 @@ def test_topdown_predictor(
 
     with pytest.raises(
         ValueError,
-        match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
     ):
         pred_labels = main(
             model_paths=[minimal_instance_ckpt],
@@ -782,7 +780,6 @@ def test_single_instance_predictor(
         # check if labels are created from ckpt
         with pytest.raises(
             Exception,
-            match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
         ):
             preds = main(
                 model_paths=[minimal_instance_ckpt],
@@ -997,7 +994,6 @@ def test_bottomup_predictor(
     # unrecognized provider
     with pytest.raises(
         Exception,
-        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
     ):
         preds = main(
             model_paths=[minimal_instance_bottomup_ckpt],

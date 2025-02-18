@@ -107,17 +107,19 @@ class ModelTrainer:
                 and self.train_np_chunks_path.is_dir()
                 and any(self.train_np_chunks_path.glob("*.npz"))
             ):
-                raise Exception(
+                logger.error(
                     f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
                 )
+                raise Exception()
             if not (
                 self.val_np_chunks_path.exists()
                 and self.val_np_chunks_path.is_dir()
                 and any(self.val_np_chunks_path.glob("*.npz"))
             ):
-                raise Exception(
+                logger.error(
                     f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
                 )
+                raise Exception()
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
 
@@ -145,9 +147,10 @@ class ModelTrainer:
             try:
                 Path(self.dir_path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                raise OSError(
+                logger.error(
                     f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                 )
+                raise OSError()
 
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
@@ -348,9 +351,10 @@ class ModelTrainer:
             )
 
         else:
-            raise ValueError(
+            logger.error(
                 f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
             )
+            raise ValueError()
 
         if self.steps_per_epoch is None:
             self.steps_per_epoch = (
@@ -472,9 +476,10 @@ class ModelTrainer:
                     try:
                         Path(self.bin_files_path).mkdir(parents=True, exist_ok=True)
                     except OSError as e:
-                        raise OSError(
+                        logger.error(
                             f"Cannot create a new folder in {self.bin_files_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                         )
+                        raise OSError()
 
                 self.config.trainer_config.saved_bin_files_path = self.bin_files_path
 
@@ -488,7 +493,8 @@ class ModelTrainer:
                 run_subprocess()
 
             except Exception as e:
-                raise Exception(f"Error while creating the `.bin` files... {e}")
+                logger.error(f"Error while creating the `.bin` files... {e}")
+                raise Exception()
 
         else:
             logger.info(f"Using `.bin` files from {chunks_dir_path}.")
@@ -579,9 +585,10 @@ class ModelTrainer:
             )
 
         else:
-            raise Exception(
+            logger.error(
                 f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
             )
+            raise Exception()
 
         # train
         # TODO: cycler - to ensure minimum steps per epoch
@@ -745,9 +752,10 @@ class ModelTrainer:
             self._create_data_loaders_torch_dataset()
 
         else:
-            raise ValueError(
+            logger.error(
                 f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
             )
+            raise ValueError()
 
         self.trainer = L.Trainer(
             callbacks=callbacks,
@@ -1018,9 +1026,10 @@ class TrainingModel(L.LightningModule):
             )
 
         elif self.trainer_config.lr_scheduler.scheduler is not None:
-            raise ValueError(
+            logger.error(
                 f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
             )
+            raise ValueError()
 
         if self.trainer_config.lr_scheduler.scheduler is None:
             return {
