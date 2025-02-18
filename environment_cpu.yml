@@ -17,7 +17,7 @@ dependencies:
   - simplejson
   - scipy
   - attrs
-  - opencv
+  # - opencv
   - ffmpeg<6.1.0
   - imageio
   - imageio-ffmpeg
@@ -33,4 +33,5 @@ dependencies:
   - pip
   - pip:
     - "--editable=.[dev]"
+    - opencv-python-headless
     - litdata
