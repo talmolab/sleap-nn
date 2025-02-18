@@ -17,7 +17,7 @@ dependencies:
   - simplejson
   - scipy
   - attrs
-  - opencv-contrib-python
+  - opencv-python
   - ffmpeg<6.1.0
   - imageio
   - imageio-ffmpeg
