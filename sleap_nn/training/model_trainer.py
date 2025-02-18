@@ -914,7 +914,9 @@ class TrainingModel(L.LightningModule):
         # TODO: Handling different input channels
         # Initializing backbone (encoder + decoder) with trained ckpts
         if backbone_trained_ckpts_path is not None:
-            logger.info(f"Loading backbone weights from `{backbone_trained_ckpts_path}` ...")
+            logger.info(
+                f"Loading backbone weights from `{backbone_trained_ckpts_path}` ..."
+            )
             ckpt = torch.load(backbone_trained_ckpts_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
