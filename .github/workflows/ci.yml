@@ -90,6 +90,17 @@ jobs:
           conda list
           pip freeze
 
+      # - name: Check opencv dependency
+      #   if: ${{ startsWith(matrix.os, 'windows') }}
+      #   run: |
+      #     dir C:\Users\runneradmin\miniconda3\envs\sleap-nn\Lib\site-packages\cv2
+
+      - name: Reinstall OpenCV
+        if: ${{ startsWith(matrix.os, 'windows') }}
+        run: |
+          pip uninstall -y opencv-python opencv-contrib-python py-opencv
+          pip install --no-cache-dir opencv-contrib-python-headless
+
       - name: Test with pytest (with coverage)
         shell: bash -l {0}
         run: |
