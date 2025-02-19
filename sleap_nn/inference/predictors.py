@@ -204,10 +204,9 @@ class Predictor(ABC):
                 preprocess_config=preprocess_config,
             )
         else:
-            logger.error(
-                "Could not create predictor from model paths:\n{}", model_paths
-            )
-            raise ValueError()
+            message = f"Could not create predictor from model paths:\n{model_paths}"
+            logger.error(message)
+            raise ValueError(message)
         return predictor
 
     @classmethod
@@ -755,11 +754,12 @@ class TopDownPredictor(Predictor):
         # VideoReader provider
         elif self.provider == "VideoReader":
             if self.centroid_config is None:
-                logger.error(
+                message = (
                     "Ground truth data was not detected... "
                     "Please load both models when predicting on non-ground-truth data."
                 )
-                raise ValueError()
+                logger.error(message)
+                raise ValueError(message)
 
             provider = VideoReader
             self.preprocess = False
@@ -791,10 +791,11 @@ class TopDownPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            logger.error(
+            message = (
                 "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
-            raise Exception()
+            logger.error(message)
+            raise Exception(message)    
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1122,10 +1123,11 @@ class SingleInstancePredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            logger.error(
+            message = (
                 "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
-            raise Exception()
+            logger.error(message)
+            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1482,10 +1484,11 @@ class BottomUpPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            logger.error(
+            message = (
                 "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             )
-            raise Exception()
+            logger.error(message)
+            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,

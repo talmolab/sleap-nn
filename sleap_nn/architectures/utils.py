@@ -2,7 +2,7 @@
 
 import torch
 from torch import nn
-
+from loguru import logger
 
 def get_act_fn(activation: str) -> nn.Module:
     """Get an instance of an activation function module based on the provided name.
@@ -36,9 +36,9 @@ def get_act_fn(activation: str) -> nn.Module:
     }
 
     if activation not in activations:
-        raise KeyError(
-            f"Unsupported activation function: {activation}. Supported activations are: {', '.join(activations.keys())}"
-        )
+        message = f"Unsupported activation function: {activation}. Supported activations are: {', '.join(activations.keys())}"
+        logger.error(message)
+        raise KeyError(message)
 
     return activations[activation]
 

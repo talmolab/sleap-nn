@@ -8,7 +8,7 @@ from sleap_nn.tracking.track_instance import (
     TrackedInstanceFeature,
 )
 from collections import defaultdict, deque
-
+from loguru import logger
 
 class LocalQueueCandidates:
     """Track local queues method for candidate generation.
@@ -94,7 +94,9 @@ class LocalQueueCandidates:
         else:
             new_track_id = max(self.current_tracks) + 1
             if self.max_tracks is not None and new_track_id > self.max_tracks:  # TODO
-                raise Exception("Exceeding max tracks")
+                message = "Exceeding max tracks"
+                logger.error(message)
+                raise Exception(message)
         self.tracker_queue[new_track_id] = deque(maxlen=self.window_size)
         return new_track_id
 

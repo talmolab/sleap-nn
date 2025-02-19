@@ -11,7 +11,7 @@ import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
 import math
-
+from loguru import logger
 from sleap_nn.architectures.heads import (
     Head,
     CentroidConfmapsHead,
@@ -50,9 +50,9 @@ def get_backbone(
     backbones = {"unet": UNet, "convnext": ConvNextWrapper, "swint": SwinTWrapper}
 
     if backbone not in backbones:
-        raise KeyError(
-            f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
-        )
+        message = f"Unsupported backbone: {backbone}. Supported backbones are: {', '.join(backbones.keys())}"
+        logger.error(message)
+        raise KeyError(message)
 
     backbone = backbones[backbone].from_config(
         backbone_config, output_stride=output_stride
@@ -93,9 +93,9 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         heads.append(PartAffinityFieldsHead(**head_config.pafs))
 
     else:
-        raise Exception(
-            f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
-        )
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
+        logger.error(message)
+        raise Exception(message)
 
     return heads
 

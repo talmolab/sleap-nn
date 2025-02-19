@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from sleap_nn.data.providers import LabelsReaderDP, VideoReader
 import torchvision.transforms.v2.functional as tvf
 from torch.utils.data.datapipes.datapipe import IterDataPipe
-
+from loguru import logger
 
 def find_padding_for_stride(
     image_height: int, image_width: int, max_stride: int
@@ -116,13 +116,13 @@ def apply_sizematcher(
     if max_width is None:
         max_width = img_width
     if img_height > max_height:
-        raise ValueError(
-            f"Max height {max_height} should be greater than the current image height: {img_height}"
-        )
+        message = f"Max height {max_height} should be greater than the current image height: {img_height}"
+        logger.error(message)
+        raise ValueError(message)
     if img_width > max_width:
-        raise ValueError(
-            f"Max width {max_width} should be greater than the current image width: {img_width}"
-        )
+        message = f"Max width {max_width} should be greater than the current image width: {img_width}"
+        logger.error(message)
+        raise ValueError(message)
     if img_height < max_height or img_width < max_width:
         hratio = max_height / img_height
         wratio = max_width / img_width
@@ -272,13 +272,13 @@ class SizeMatcher(IterDataPipe):
             pad_height = self.max_height - img_height
             pad_width = self.max_width - img_width
             if pad_height < 0:
-                raise Exception(
-                    f"Max height {self.max_height} should be greater than the current image height: {img_height}"
-                )
+                message = f"Max height {self.max_height} should be greater than the current image height: {img_height}"
+                logger.error(message)
+                raise Exception(message)
             if pad_width < 0:
-                raise Exception(
-                    f"Max width {self.max_width} should be greater than the current image width: {img_width}"
-                )
+                message = f"Max width {self.max_width} should be greater than the current image width: {img_width}"
+                logger.error(message)
+                raise Exception(message)
             ex["image"] = F.pad(
                 ex["image"],
                 (0, pad_width, 0, pad_height),

@@ -5,6 +5,7 @@ from collections import defaultdict
 import attrs
 import cv2
 import numpy as np
+from loguru import logger
 
 import sleap_io as sio
 from sleap_nn.evaluation import compute_oks
@@ -149,9 +150,11 @@ class Tracker:
             is_local_queue = True
 
         else:
-            raise ValueError(
+            message = (
                 f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
             )
+            logger.error(message)
+            raise ValueError(message)
 
         if use_flow:
             return FlowShiftTracker(
@@ -266,9 +269,11 @@ class Tracker:
             assigned for the untracked instances and track_id set as `None`.
         """
         if self.features not in self._feature_methods:
-            raise ValueError(
+            message = (
                 "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
             )
+            logger.error(message)
+            raise ValueError(message)
 
         feature_method = self._feature_methods[self.features]
         feature_list = []
@@ -325,14 +330,18 @@ class Tracker:
             scores: Score matrix of shape (num_new_instances, num_existing_tracks)
         """
         if self.scoring_method not in self._scoring_functions:
-            raise ValueError(
+            message = (
                 "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
             )
+            logger.error(message)
+            raise ValueError(message)
 
         if self.scoring_reduction not in self._scoring_reduction_methods:
-            raise ValueError(
+            message = (
                 "Invalid `scoring_reduction` argument. Please provide one of `mean`, `max`, and `weighted`."
             )
+            logger.error(message)
+            raise ValueError(message)
 
         scoring_method = self._scoring_functions[self.scoring_method]
         scoring_reduction = self._scoring_reduction_methods[self.scoring_reduction]
@@ -381,9 +390,11 @@ class Tracker:
                 track IDs assigned.
         """
         if self.track_matching_method not in self._track_matching_methods:
-            raise ValueError(
+            message = (
                 "Invalid `track_matching_method` argument. Please provide one of `hungarian`, and `greedy`."
             )
+            logger.error(message)
+            raise ValueError(message)
 
         matching_method = self._track_matching_methods[self.track_matching_method]
 
@@ -589,9 +600,11 @@ class FlowShiftTracker(Tracker):
         """
         # get feature method for the shifted instances
         if self.features not in self._feature_methods:
-            raise ValueError(
+            message = (
                 "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
             )
+            logger.error(message)
+            raise ValueError(message)
         feature_method = self._feature_methods[self.features]
 
         # get shifted instances from optical flow

@@ -13,8 +13,8 @@ https://github.com/pytorch/data/blob/6355127638b18354386914161b9b2161f7c17787/to
 from typing import Iterator, Optional, TypeVar
 
 from torch.utils.data import functional_datapipe
-from torch.utils.data.datapipes.datapipe import IterDataPipe
-
+from torch.utils.data.datapipes.datapipe import IterDataPipe   
+from loguru import logger
 T_co = TypeVar("T_co", covariant=True)
 
 
@@ -47,7 +47,9 @@ class CyclerIterDataPipe(IterDataPipe[T_co]):
         self.source_datapipe: IterDataPipe[T_co] = source_datapipe
         self.count: Optional[int] = count
         if count is not None and count < 0:
-            raise ValueError(f"Expected non-negative count, got {count}")
+            message = f"Expected non-negative count, got {count}"
+            logger.error(message)
+            raise ValueError(message)
 
     def __iter__(self) -> Iterator[T_co]:
         """Iterates through the source DataPipe."""
@@ -59,9 +61,9 @@ class CyclerIterDataPipe(IterDataPipe[T_co]):
     def __len__(self) -> int:
         """Returns the length of the CyclerIterDataPipe."""
         if self.count is None:
-            raise TypeError(
-                f"This {type(self).__name__} instance cycles forever, and therefore doesn't have valid length"
-            )
+            message = f"This {type(self).__name__} instance cycles forever, and therefore doesn't have valid length"
+            logger.error(message)
+            raise TypeError(message)
         else:
             return self.count * len(self.source_datapipe)
 
@@ -93,7 +95,9 @@ class RepeaterIterDataPipe(IterDataPipe[T_co]):
         self.source_datapipe: IterDataPipe[T_co] = source_datapipe
         self.times: int = times
         if times <= 1:
-            raise ValueError(f"The number of repetition must be > 1, got {times}")
+            message = f"The number of repetition must be > 1, got {times}"
+            logger.error(message)
+            raise ValueError(message)
 
     def __iter__(self) -> Iterator[T_co]:
         """Iterates through the source DataPipe."""

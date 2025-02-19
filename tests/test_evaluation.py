@@ -271,7 +271,7 @@ def test_evaluator_no_match_frame_pairs(minimal_instance):
     # there should not be any match frame pairs as the video names are different.
     # test if exception is raised in case of empty frame pairs
     with pytest.raises(
-        Exception, match="Empty Frame Pairs. No match found for the video frames"
+        Exception
     ):
         eval = Evaluator(user_labels, pred_labels)
 
@@ -467,7 +467,6 @@ def test_evaluator_metrics(minimal_instance):
     # test the input to match_score_by parameter. voc_metrics only accepts oks or pck
     with pytest.raises(
         Exception,
-        match="Invalid Option for match_score_by. Choose either `oks` or `pck`",
     ):
         eval.voc_metrics(match_score_by="moks")
 

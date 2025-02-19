@@ -6,7 +6,7 @@ the parameters required to initialize the trainer config.
 
 from attrs import define, field, validators
 from typing import Optional, List, Any
-
+from loguru import logger
 
 @define
 class DataLoaderConfig:
@@ -126,7 +126,9 @@ class ReduceLROnPlateauConfig:
             isinstance(x, float) and x >= 0 for x in self.min_lr
         ):
             return
-        raise ValueError("min_lr must be a float or a list of floats.")
+        message = "min_lr must be a float or a list of floats."
+        logger.error(message)
+        raise ValueError(message)
 
 
 @define
@@ -155,9 +157,9 @@ class LRSchedulerConfig:
         """
         valid_schedulers = ["ReduceLROnPlateau", "StepLR"]
         if self.scheduler not in valid_schedulers:
-            raise ValueError(
-                f"scheduler must be one of {valid_schedulers}, got {self.scheduler}"
-            )
+            message = f"scheduler must be one of {valid_schedulers}, got {self.scheduler}"
+            logger.error(message)
+            raise ValueError(message)
 
 
 @define
@@ -241,7 +243,9 @@ class TrainerConfig:
     def validate_optimizer_name(value):
         """Validate that optimizer_name is one of the allowed values."""
         if value not in ["Adam", "AdamW"]:
-            raise ValueError("optimizer_name must be one of: Adam, AdamW")
+            message = "optimizer_name must be one of: Adam, AdamW"
+            logger.error(message)
+            raise ValueError(message)
         return True
 
     @staticmethod
@@ -255,6 +259,6 @@ class TrainerConfig:
             return
         if isinstance(value, str) and value == "auto":
             return
-        raise ValueError(
-            "trainer_devices must be an integer >= 0, a list of integers >= 0, or the string 'auto'."
-        )
+        message = "trainer_devices must be an integer >= 0, a list of integers >= 0, or the string 'auto'."
+        logger.error(message)
+        raise ValueError(message)

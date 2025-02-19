@@ -150,7 +150,8 @@ if __name__ == "__main__":
         )
 
     else:
-        logger.error(
+        message = (
             f"{args.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
         )
-        raise ValueError()
+        logger.error(message)
+        raise ValueError(message)

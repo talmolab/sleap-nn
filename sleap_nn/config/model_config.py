@@ -8,7 +8,7 @@ from attrs import define, field
 from enum import Enum
 from sleap_nn.config.utils import oneof
 from typing import Optional, List
-
+from loguru import logger
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
 @define
@@ -138,7 +138,9 @@ class SwinTConfig:
         """
         valid_types = ["tiny", "small", "base"]
         if value not in valid_types:
-            raise ValueError(f"Invalid model_type. Must be one of {valid_types}")
+            message = f"Invalid model_type. Must be one of {valid_types}"
+            logger.error(message)
+            raise ValueError(message)
 
 
 @define
@@ -404,7 +406,9 @@ class ModelConfig:
         """
         valid_types = ["unet", "convnext", "swint"]
         if value not in valid_types:
-            raise ValueError(f"Invalid backbone_type. Must be one of {valid_types}")
+            message = f"Invalid backbone_type. Must be one of {valid_types}"
+            logger.error(message)
+            raise ValueError(message)
 
     def validate_pre_trained_weights(self, value):
         """Validate pre_trained_weights.
@@ -438,13 +442,15 @@ class ModelConfig:
 
         if self.backbone_type == "convnext":
             if value not in convnext_weights:
-                raise ValueError(
-                    f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
-                )
+                message = f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
+                logger.error(message)
+                raise ValueError(message)
         elif self.backbone_type == "swint":
             if value not in swint_weights:
-                raise ValueError(
-                    f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
-                )
+                message = f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
+                logger.error(message)
+                raise ValueError(message)
         elif self.backbone_type == "unet":
-            raise ValueError("UNet does not support pre-trained weights.")
+            message = "UNet does not support pre-trained weights."
+            logger.error(message)
+            raise ValueError(message)

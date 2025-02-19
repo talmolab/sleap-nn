@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import attrs
 import sleap_io as sio
-
+from loguru import logger
 
 @attrs.define(auto_attribs=True, slots=True)
 class MatchInstance:
@@ -451,7 +451,9 @@ class Evaluator:
             self.ground_truth_instances, self.predicted_instances, self.user_labels_only
         )
         if not self.frame_pairs:
-            raise Exception("Empty Frame Pairs. No match found for the video frames")
+            message = "Empty Frame Pairs. No match found for the video frames"
+            logger.error(message)
+            raise Exception(message)
 
         self.positive_pairs, self.false_negatives = match_frame_pairs(
             self.frame_pairs,
@@ -489,9 +491,9 @@ class Evaluator:
             match_scores = pck_metrics["pcks"].mean(axis=-1).mean(axis=-1)
             name = "pck_voc"
         else:
-            raise Exception(
-                "Invalid Option for match_score_by. Choose either `oks` or `pck`"
-            )
+            message = "Invalid Option for match_score_by. Choose either `oks` or `pck`"
+            logger.error(message)
+            raise Exception(message)
 
         detection_scores = np.array(
             [pp[1].instance.score for pp in self.positive_pairs]

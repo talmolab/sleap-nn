@@ -1,5 +1,5 @@
 """Utilities for config building and validation."""
-
+from loguru import logger
 
 def oneof(attrs_cls, must_be_set: bool = False):
     """Ensure that the decorated attrs class only has a single attribute set.
@@ -17,7 +17,9 @@ def oneof(attrs_cls, must_be_set: bool = False):
     """
     # Check if the class is an attrs class at all.
     if not hasattr(attrs_cls, "__attrs_attrs__"):
-        raise ValueError("Classes decorated with oneof must also be attr.s decorated.")
+        message = "Classes decorated with oneof must also be attr.s decorated."
+        logger.error(message)
+        raise ValueError(message)
 
     # Pull out attrs generated class attributes.
     attribs = attrs_cls.__attrs_attrs__
@@ -35,11 +37,15 @@ def oneof(attrs_cls, must_be_set: bool = False):
 
         if len(attribs_with_value) > 1:
             # Raise error if more than one attribute is set.
-            raise ValueError("Only one attribute of this class can be set (not None).")
+            message = "Only one attribute of this class can be set (not None)."
+            logger.error(message)
+            raise ValueError(message)
 
         if len(attribs_with_value) == 0 and must_be_set:
             # Raise error if none are set.
-            raise ValueError("At least one attribute of this class must be set.")
+            message = "At least one attribute of this class must be set."
+            logger.error(message)
+            raise ValueError(message)
 
     # Replace with wrapped __init__.
     attrs_cls.__init__ = new_init_fn
@@ -52,12 +58,16 @@ def oneof(attrs_cls, must_be_set: bool = False):
 
         if len(attribs_with_value) > 1:
             # Raise error if more than one attribute is set.
-            raise ValueError("Only one attribute of this class can be set (not None).")
+            message = "Only one attribute of this class can be set (not None)."
+            logger.error(message)
+            raise ValueError(message)
 
         if len(attribs_with_value) == 0:
             if must_be_set:
                 # Raise error if none are set.
-                raise ValueError("At least one attribute of this class must be set.")
+                message = "At least one attribute of this class must be set."
+                logger.error(message)
+                raise ValueError(message)
             else:
                 return None
 
