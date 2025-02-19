@@ -3,7 +3,6 @@ name: sleap-nn
 channels:
   - pytorch
   - conda-forge
-  - defaults
 
 dependencies:
   - python=3.9
@@ -29,6 +28,7 @@ dependencies:
   - matplotlib
   - rich
   - pynwb
+  - sleap-io
   - ndx-pose
   - pip
   - pip:

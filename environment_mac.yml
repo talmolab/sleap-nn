@@ -3,7 +3,6 @@ name: sleap-nn
 channels:
   - pytorch
   - conda-forge
-  - defaults
 
 dependencies:
   - python=3.9
@@ -26,6 +25,7 @@ dependencies:
   - ffmpeg
   - kornia
   - matplotlib
+  - sleap-io
   - rich
   - pynwb
   - ndx-pose

@@ -4,7 +4,6 @@ channels:
   - pytorch
   - nvidia
   - conda-forge
-  - defaults
 
 dependencies:
   - python=3.9
@@ -27,6 +26,7 @@ dependencies:
   - omegaconf
   - wandb
   - kornia
+  - sleap-io
   - matplotlib
   - rich
   - pynwb
