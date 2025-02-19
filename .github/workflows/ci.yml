@@ -90,13 +90,6 @@ jobs:
           conda list
           pip freeze
 
-      - name: Install graphics dependencies on Ubuntu
-        # https://github.com/conda-forge/opencv-feedstock/issues/401
-        if: ${{ startsWith(matrix.os, 'windows') }}
-        shell: bash -l {0}
-        run: |
-          sudo apt-get update && sudo apt-get install libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
-
       - name: Test with pytest (with coverage)
         shell: bash -l {0}
         run: |
