@@ -98,7 +98,6 @@ jobs:
       - name: Reinstall OpenCV
         if: ${{ startsWith(matrix.os, 'windows') }}
         run: |
-          pip uninstall -y opencv-python opencv-contrib-python py-opencv
           pip install --no-cache-dir opencv-contrib-python-headless
 
       - name: Test with pytest (with coverage)
