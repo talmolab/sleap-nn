@@ -6,6 +6,8 @@ channels:
 
 dependencies:
   - python=3.9
+  - numpy
+  - sleap-io
   - pytorch
   - pydantic
   - lightning
@@ -16,20 +18,16 @@ dependencies:
   - simplejson
   - scipy
   - attrs
-  - opencv
   - ffmpeg
+  - opencv
   - imageio
-  - imageio-ffmpeg >=0.5.0
   - av
   - omegaconf
   - wandb
-  - ffmpeg
   - kornia
   - matplotlib
   - rich
   - pynwb
-  - sleap-io
-  - ndx-pose<0.2.0
   - pip
   - pip:
     - "--editable=.[dev]"
