@@ -975,7 +975,7 @@ def group_instances_sample(
 
         `predicted_instances`: The grouped coordinates for each instance as an array of
         shape `(n_instances, n_nodes, 2)` and dtype `float32`. Missing peaks are
-        represented by `np.NaN`s.
+        represented by `np.nan`s.
 
         `predicted_peak_scores`: The confidence map values for each peak as an array of
         `(n_instances, n_nodes)` and dtype `float32`.

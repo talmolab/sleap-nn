@@ -89,6 +89,11 @@ jobs:
           conda list
           pip freeze
 
+      # - name: Reinstall OpenCV
+      #   if: ${{ startsWith(matrix.os, 'windows') }}
+      #   run: |
+      #     pip install --no-cache-dir opencv-contrib-python-headless
+
       - name: Test with pytest (with coverage)
         shell: bash -l {0}
         run: |

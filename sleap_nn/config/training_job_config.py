@@ -25,12 +25,13 @@ parameters are aggregated and documented for end users (as opposed to developers
 """
 
 from attrs import define, asdict
+from typing import Text, Optional
+from omegaconf import OmegaConf
 import sleap_nn
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.trainer_config import TrainerConfig
-from typing import Text, Optional
-from omegaconf import OmegaConf
+from sleap_nn.config.utils import get_output_strides_from_heads
 
 
 @define
@@ -57,6 +58,16 @@ class TrainingJobConfig:
     filename: Optional[Text] = ""
 
     @classmethod
+    def check_output_strides(cls, config: OmegaConf) -> OmegaConf:
+        """Check max_stride and output_stride in backbone_config with head_config."""
+        output_strides = get_output_strides_from_heads(config.model_config.head_configs)
+        if output_strides:
+            config.model_config.backbone_config.output_stride = min(output_strides)
+            if config.model_config.backbone_config.max_stride < max(output_strides):
+                config.model_config.backbone_config.max_stride = max(output_strides)
+        return config
+
+    @classmethod
     def from_yaml(cls, yaml_data: Text) -> OmegaConf:
         """Create TrainingJobConfig from YAML-formatted string with schema validation.
 
@@ -70,6 +81,7 @@ class TrainingJobConfig:
         config = OmegaConf.create(yaml_data)
         config = OmegaConf.merge(schema, config)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        config = TrainingJobConfig.check_output_strides(config)
         return config
 
     @classmethod
@@ -87,6 +99,7 @@ class TrainingJobConfig:
         config = OmegaConf.load(filename)
         config = OmegaConf.merge(schema, config)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        config = TrainingJobConfig.check_output_strides(config)
         return config
 
     def to_yaml(self, filename: Optional[Text] = None) -> None:
@@ -121,6 +134,4 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
     Returns:
         The parsed `OmegaConf`.
     """
-    return TrainingJobConfig.load_yaml(
-        filename, load_training_config=load_training_config
-    )
+    return TrainingJobConfig.load_yaml(filename)

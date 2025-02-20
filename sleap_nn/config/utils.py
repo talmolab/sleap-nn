@@ -1,5 +1,19 @@
 """Utilities for config building and validation."""
 
+from omegaconf import DictConfig
+
+
+def get_output_strides_from_heads(head_configs: DictConfig):
+    """Get list of output strides from head configs."""
+    output_strides_from_heads = []
+    for head_type in head_configs:
+        if head_configs[head_type] is not None:
+            for head_layer in head_configs[head_type]:
+                output_strides_from_heads.append(
+                    head_configs[head_type][head_layer]["output_stride"]
+                )
+    return output_strides_from_heads
+
 
 def oneof(attrs_cls, must_be_set: bool = False):
     """Ensure that the decorated attrs class only has a single attribute set.
