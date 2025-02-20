@@ -373,8 +373,6 @@ class ModelConfig:
     """Configurations related to model architecture.
 
     Attributes:
-        backbone_type: (str) Backbone architecture for the model to be trained. One of
-            "unet", "convnext" or "swint".
         init_weights: (str) model weights initialization method. "default" uses kaiming
             uniform initialization and "xavier" uses Xavier initialization method.
         pre_trained_weights: (str) Pretrained weights file name supported only for
@@ -392,10 +390,6 @@ class ModelConfig:
             to train and others should be None
     """
 
-    backbone_type: str = field(
-        default="unet",
-        validator=lambda instance, attr, value: instance.validate_backbone_type(value),
-    )
     init_weights: str = "default"
     pre_trained_weights: Optional[str] = field(
         default=None,
@@ -407,15 +401,6 @@ class ModelConfig:
     pretrained_head_weights: Optional[str] = None
     backbone_config: BackboneConfig = BackboneConfig()
     head_configs: HeadConfig = HeadConfig()
-
-    def validate_backbone_type(self, value):
-        """Validate backbone_type.
-
-        Ensure backbone_type is one of "unet", "convnext", or "swint".
-        """
-        valid_types = ["unet", "convnext", "swint"]
-        if value not in valid_types:
-            raise ValueError(f"Invalid backbone_type. Must be one of {valid_types}")
 
     def validate_pre_trained_weights(self, value):
         """Validate pre_trained_weights.
@@ -447,15 +432,15 @@ class ModelConfig:
         ]
         swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
 
-        if self.backbone_type == "convnext":
+        if self.backbone_config.convnext is not None:
             if value not in convnext_weights:
                 raise ValueError(
                     f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
                 )
-        elif self.backbone_type == "swint":
+        elif self.backbone_config.swint is not None:
             if value not in swint_weights:
                 raise ValueError(
                     f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
                 )
-        elif self.backbone_type == "unet":
+        elif self.backbone_config.unet is not None:
             raise ValueError("UNet does not support pre-trained weights.")

@@ -735,7 +735,12 @@ def test_reuse_bin_files(config, tmp_path: str):
 def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # unet
-    model = TopDownCenteredInstanceModel(config, None, "centered_instance")
+    model = TopDownCenteredInstanceModel(
+        config=config,
+        skeletons=None,
+        model_type="centered_instance",
+        backbone_type="unet",
+    )
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
@@ -762,10 +767,10 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         config, "model_config.pre_trained_weights", "ConvNeXt_Tiny_Weights"
     )
     OmegaConf.update(config, "data_config.preprocessing.is_rgb", True)
-    OmegaConf.update(config, "model_config.backbone_type", "convnext")
+    OmegaConf.update(config, "model_config.backbone_config.unet", None)
     OmegaConf.update(
         config,
-        "model_config.backbone_config",
+        "model_config.backbone_config.convnext",
         {
             "in_channels": 3,
             "model_type": "tiny",
@@ -776,9 +781,16 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "up_interpolate": True,
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
+            "output_stride": 2,
+            "max_stride": 16,
         },
     )
-    model = TopDownCenteredInstanceModel(config, None, "centered_instance")
+    model = TopDownCenteredInstanceModel(
+        config=config,
+        skeletons=None,
+        model_type="centered_instance",
+        backbone_type="convnext",
+    )
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
@@ -813,7 +825,9 @@ def test_centroid_model(config, tmp_path: str):
     del config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centroid["confmaps"].part_names
 
-    model = CentroidModel(config, None, "centroid")
+    model = CentroidModel(
+        config=config, skeletons=None, model_type="centroid", backbone_type="unet"
+    )
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -836,7 +850,9 @@ def test_centroid_model(config, tmp_path: str):
     shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # torch dataset
-    model = CentroidModel(config, None, "centroid")
+    model = CentroidModel(
+        config=config, skeletons=None, backbone_type="unet", model_type="centroid"
+    )
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -873,7 +889,12 @@ def test_single_instance_model(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders_litdata()
     input_ = next(iter(model_trainer.train_data_loader))
-    model = SingleInstanceModel(config, None, "single_instance")
+    model = SingleInstanceModel(
+        config=config,
+        skeletons=None,
+        backbone_type="unet",
+        model_type="single_instance",
+    )
 
     img = input_["image"]
     img_shape = img.shape[-2:]
@@ -906,7 +927,12 @@ def test_single_instance_model(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders_torch_dataset()
     input_ = next(iter(model_trainer.train_data_loader))
-    model = SingleInstanceModel(config, None, "single_instance")
+    model = SingleInstanceModel(
+        config=config,
+        skeletons=None,
+        backbone_type="unet",
+        model_type="single_instance",
+    )
 
     img = input_["image"]
     img_shape = img.shape[-2:]
@@ -957,7 +983,9 @@ def test_bottomup_model(config, tmp_path: str):
     model_trainer._create_data_loaders_litdata()
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(config, None, "bottomup")
+    model = BottomUpModel(
+        config=config, skeletons=None, backbone_type="unet", model_type="bottomup"
+    )
 
     preds = model(input_["image"])
 
@@ -993,7 +1021,9 @@ def test_bottomup_model(config, tmp_path: str):
     skeletons = model_trainer.skeletons
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(config, skeletons, "bottomup")
+    model = BottomUpModel(
+        config=config, skeletons=skeletons, backbone_type="unet", model_type="bottomup"
+    )
 
     preds = model(input_["image"])
 

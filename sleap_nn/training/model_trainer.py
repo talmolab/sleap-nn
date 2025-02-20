@@ -164,6 +164,12 @@ class ModelTrainer:
         self.trainer = None
         self.crop_hw = -1
 
+        # check which backbone architecture
+        for k, v in self.config.model_config.backbone_config.items():
+            if v is not None:
+                self.backbone_type = k
+                break
+
         # check which head type to choose the model
         for k, v in self.config.model_config.head_configs.items():
             if v is not None:
@@ -197,7 +203,9 @@ class ModelTrainer:
                 "symmetries": symm,
             }
 
-        self.max_stride = self.config.model_config.backbone_config.max_stride
+        self.max_stride = self.config.model_config.backbone_config[
+            f"{self.backbone_type}"
+        ]["max_stride"]
         self.edge_inds = train_labels.skeletons[0].edge_inds
 
         self.max_height, self.max_width = get_max_height_width(train_labels)
@@ -274,7 +282,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -286,7 +294,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -299,7 +307,7 @@ class ModelTrainer:
                 labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
@@ -311,7 +319,7 @@ class ModelTrainer:
                 labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=False,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
@@ -325,7 +333,7 @@ class ModelTrainer:
                 labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -336,7 +344,7 @@ class ModelTrainer:
                 labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -349,7 +357,7 @@ class ModelTrainer:
                 labels=train_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -360,7 +368,7 @@ class ModelTrainer:
                 labels=val_labels,
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
-                max_stride=self.config.model_config.backbone_config.max_stride,
+                max_stride=self.max_stride,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -462,6 +470,8 @@ class ModelTrainer:
                     f"{self.max_height}",
                     "--max_width",
                     f"{self.max_width}",
+                    "--backbone_type",
+                    f"{self.backbone_type}",
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -630,9 +640,10 @@ class ModelTrainer:
             "bottomup": BottomUpModel,
         }
         self.model = models[self.model_type](
-            self.config,
-            self.skeletons,
-            self.model_type,
+            config=self.config,
+            skeletons=self.skeletons,
+            model_type=self.model_type,
+            backbone_type=self.backbone_type,
             pretrained_backbone_weights=pretrained_backbone_weights,
             pretrained_head_weights=pretrained_head_weights,
         )
@@ -808,6 +819,7 @@ class TrainingModel(L.LightningModule):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         pretrained_backbone_weights: Path to trained ckpts for backbone.
         pretrained_head_weights: Path to trained ckpts for head layer.
     """
@@ -817,6 +829,7 @@ class TrainingModel(L.LightningModule):
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
+        backbone_type: str,
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
     ):
@@ -828,19 +841,23 @@ class TrainingModel(L.LightningModule):
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
         self.model_type = model_type
+        self.backbone_type = backbone_type
         self.pretrained_backbone_weights = pretrained_backbone_weights
         self.pretrained_head_weights = pretrained_head_weights
-        self.input_expand_channels = self.model_config.backbone_config.in_channels
+        self.in_channels = self.model_config.backbone_config[f"{self.backbone_type}"][
+            "in_channels"
+        ]
+        self.input_expand_channels = self.in_channels
         if self.model_config.pre_trained_weights:  # only for swint and convnext
             ckpt = MODEL_WEIGHTS[
                 self.model_config.pre_trained_weights
             ].DEFAULT.get_state_dict(progress=True, check_hash=True)
             input_channels = ckpt["features.0.0.weight"].shape[-3]
-            if self.model_config.backbone_config.in_channels != input_channels:
+            if self.in_channels != input_channels:
                 self.input_expand_channels = input_channels
                 OmegaConf.update(
                     self.model_config,
-                    "backbone_config.in_channels",
+                    f"backbone_config.{self.backbone_type}.in_channels",
                     input_channels,
                 )
 
@@ -861,8 +878,8 @@ class TrainingModel(L.LightningModule):
                     head_config[key]["edges"] = edges
 
         self.model = Model(
-            backbone_type=self.model_config.backbone_type,
-            backbone_config=self.model_config.backbone_config,
+            backbone_type=self.backbone_type,
+            backbone_config=self.model_config.backbone_config[f"{self.backbone_type}"],
             head_configs=head_config,
             input_expand_channels=self.input_expand_channels,
             model_type=self.model_type,
@@ -1022,6 +1039,7 @@ class SingleInstanceModel(TrainingModel):
             (ii) model_config: backbone and head configs to be passed to `Model` class.
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
         pretrained_backbone_weights: Path to trained ckpts for backbone.
         pretrained_head_weights: Path to trained ckpts for head layer.
@@ -1032,17 +1050,19 @@ class SingleInstanceModel(TrainingModel):
         self,
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
+        backbone_type: str,
         model_type: str,
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config,
-            skeletons,
-            model_type,
-            pretrained_backbone_weights,
-            pretrained_head_weights,
+            config=config,
+            skeletons=skeletons,
+            model_type=model_type,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            backbone_type=backbone_type,
         )
 
     def forward(self, img):
@@ -1103,6 +1123,7 @@ class TopDownCenteredInstanceModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
         pretrained_backbone_weights: Path to trained ckpts for backbone.
         pretrained_head_weights: Path to trained ckpts for head layer.
@@ -1113,17 +1134,19 @@ class TopDownCenteredInstanceModel(TrainingModel):
         self,
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
+        backbone_type: str,
         model_type: str,
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config,
-            skeletons,
-            model_type,
-            pretrained_backbone_weights,
-            pretrained_head_weights,
+            config=config,
+            skeletons=skeletons,
+            backbone_type=backbone_type,
+            model_type=model_type,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1184,6 +1207,7 @@ class CentroidModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
         pretrained_backbone_weights: Path to trained ckpts for backbone.
         pretrained_head_weights: Path to trained ckpts for head layer.
@@ -1194,17 +1218,19 @@ class CentroidModel(TrainingModel):
         self,
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
+        backbone_type: str,
         model_type: str,
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config,
-            skeletons,
-            model_type,
-            pretrained_backbone_weights,
-            pretrained_head_weights,
+            config=config,
+            skeletons=skeletons,
+            backbone_type=backbone_type,
+            model_type=model_type,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1265,6 +1291,7 @@ class BottomUpModel(TrainingModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
         pretrained_backbone_weights: Path to trained ckpts for backbone.
         pretrained_head_weights: Path to trained ckpts for head layer.
@@ -1275,17 +1302,19 @@ class BottomUpModel(TrainingModel):
         self,
         config: OmegaConf,
         skeletons: Optional[List[sio.Skeleton]],
+        backbone_type: str,
         model_type: str,
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config,
-            skeletons,
-            model_type,
-            pretrained_backbone_weights,
-            pretrained_head_weights,
+            config=config,
+            skeletons=skeletons,
+            backbone_type=backbone_type,
+            model_type=model_type,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
         )
 
     def forward(self, img):

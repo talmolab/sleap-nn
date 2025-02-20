@@ -47,7 +47,6 @@ def sample_config():
             provider="default",
         ),
         "model_config": ModelConfig(
-            backbone_type="unet",
             init_weights="default",
             pre_trained_weights=None,
             backbone_config="unet",
@@ -67,7 +66,6 @@ def test_from_yaml(sample_config):
             "provider": sample_config["data_config"].provider,
         },
         "model_config": {
-            "backbone_type": sample_config["model_config"].backbone_type,
             "init_weights": sample_config["model_config"].init_weights,
         },
         "trainer_config": {
@@ -90,9 +88,6 @@ def test_from_yaml(sample_config):
         == sample_config["data_config"].val_labels_path
     )
     assert (
-        config.model_config.backbone_type == sample_config["model_config"].backbone_type
-    )
-    assert (
         config.trainer_config.early_stopping.patience
         == sample_config["trainer_config"].early_stopping.patience
     )
@@ -109,7 +104,6 @@ def test_to_yaml(sample_config):
             "provider": sample_config["data_config"].provider,
         },
         "model_config": {
-            "backbone_type": sample_config["model_config"].backbone_type,
             "init_weights": sample_config["model_config"].init_weights,
         },
         "trainer_config": sample_config[
@@ -130,10 +124,7 @@ def test_to_yaml(sample_config):
         == sample_config["data_config"].val_labels_path
     )
     assert parsed_yaml.data_config.provider == sample_config["data_config"].provider
-    assert (
-        parsed_yaml.model_config.backbone_type.lower()
-        == sample_config["model_config"].backbone_type
-    )
+
     assert (
         parsed_yaml.model_config.init_weights
         == sample_config["model_config"].init_weights
@@ -151,7 +142,6 @@ def test_load_yaml(sample_config):
     )
 
     model_config = ModelConfig(
-        backbone_type=sample_config["model_config"].backbone_type,
         init_weights=sample_config["model_config"].init_weights,
     )
 
@@ -187,10 +177,6 @@ def test_load_yaml(sample_config):
             == config.data_config.val_labels_path
         )
         assert (
-            loaded_config.model_config.backbone_type.lower()
-            == config.model_config.backbone_type.lower()
-        )
-        assert (
             loaded_config.trainer_config.early_stopping.patience
             == config.trainer_config.early_stopping.patience
         )
@@ -205,7 +191,6 @@ def test_missing_attributes(sample_config):
             "provider": sample_config["data_config"].provider,
         },
         "model_config": {
-            "backbone_type": sample_config["model_config"].backbone_type,
             "init_weights": sample_config["model_config"].init_weights,
         },
         "trainer_config": {
