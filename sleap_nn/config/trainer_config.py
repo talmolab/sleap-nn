@@ -228,6 +228,8 @@ class TrainerConfig:
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: LRSchedulerConfig = field(factory=LRSchedulerConfig)
     early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
+    # TODO: add logger output sys.stderr(console) or file(file_name.log) something like this
+    # logger_output: str = field(default="stderr")
 
     def __attrs_post_init__(self):
         """Post Initialization Validation.
