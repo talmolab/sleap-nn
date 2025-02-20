@@ -27,6 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--crop_hw", type=int, default=None)
     parser.add_argument("--max_height", type=int)
     parser.add_argument("--max_width", type=int)
+    parser.add_argument("--backbone_type", type=str)
     args = parser.parse_args()
 
     config = OmegaConf.load(f"{args.dir_path}/initial_config.yaml")
@@ -35,7 +36,9 @@ if __name__ == "__main__":
     val_labels = sio.load_slp(config.data_config.val_labels_path)
     user_instances_only = False if args.user_instances_only == 0 else True
 
-    max_stride = config.model_config.backbone_config.max_stride
+    max_stride = config.model_config.backbone_config[f"{args.backbone_type}"][
+        "max_stride"
+    ]
     max_instances = get_max_instances(train_labels)
 
     print("Starting data-chunk generation...")

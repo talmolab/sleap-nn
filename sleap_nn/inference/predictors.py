@@ -391,6 +391,8 @@ class TopDownPredictor(Predictor):
                         for centroid model.
         confmap_model: A LightningModule instance created from the trained weights
                        for centered-instance model.
+        centroid_backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        centered_instance_backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         videos: List of `sio.Video` objects for creating the `sio.Labels` object from
                         the output predictions.
         skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
@@ -426,6 +428,8 @@ class TopDownPredictor(Predictor):
     confmap_config: Optional[OmegaConf] = None
     centroid_model: Optional[L.LightningModule] = None
     confmap_model: Optional[L.LightningModule] = None
+    centroid_backbone_type: Optional[str] = None
+    centered_instance_backbone_type: Optional[str] = None
     videos: Optional[List[sio.Video]] = None
     skeletons: Optional[List[sio.Skeleton]] = None
     peak_threshold: Union[float, List[float]] = 0.2
@@ -471,7 +475,9 @@ class TopDownPredictor(Predictor):
             )
 
         else:
-            max_stride = self.centroid_config.model_config.backbone_config.max_stride
+            max_stride = self.centroid_config.model_config.backbone_config[
+                f"{self.centroid_backbone_type}"
+            ]["max_stride"]
             # initialize centroid crop layer
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
@@ -494,7 +500,9 @@ class TopDownPredictor(Predictor):
             self.instances_key = True
         else:
 
-            max_stride = self.confmap_config.model_config.backbone_config.max_stride
+            max_stride = self.confmap_config.model_config.backbone_config[
+                f"{self.centered_instance_backbone_type}"
+            ]["max_stride"]
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=centered_instance_peak_threshold,
@@ -580,6 +588,8 @@ class TopDownPredictor(Predictor):
             truth data. This will only work with `LabelsReader` as the provider.
 
         """
+        centered_instance_backbone_type = None
+        centroid_backbone_type = None
         if centroid_ckpt_path is not None:
             # Load centroid model.
             centroid_config = OmegaConf.load(
@@ -587,11 +597,19 @@ class TopDownPredictor(Predictor):
             )
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
             ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
+
+            # check which backbone architecture
+            for k, v in centroid_config.model_config.backbone_config.items():
+                if v is not None:
+                    centroid_backbone_type = k
+                    break
+
             centroid_model = CentroidModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=centroid_config,
                 skeletons=skeletons,
                 model_type="centroid",
+                backbone_type=centroid_backbone_type,
             )
 
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
@@ -630,11 +648,18 @@ class TopDownPredictor(Predictor):
             confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
             ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+
+            # check which backbone architecture
+            for k, v in confmap_config.model_config.backbone_config.items():
+                if v is not None:
+                    centered_instance_backbone_type = k
+                    break
             confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
                 skeletons=skeletons,
                 model_type="centered_instance",
+                backbone_type=centered_instance_backbone_type,
             )
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
@@ -673,6 +698,8 @@ class TopDownPredictor(Predictor):
             centroid_model=centroid_model,
             confmap_config=confmap_config,
             confmap_model=confmap_model,
+            centroid_backbone_type=centroid_backbone_type,
+            centered_instance_backbone_type=centered_instance_backbone_type,
             skeletons=skeletons,
             peak_threshold=peak_threshold,
             integral_refinement=integral_refinement,
@@ -711,12 +738,16 @@ class TopDownPredictor(Predictor):
         """
         self.provider = provider
         if self.centroid_config is not None:
-            max_stride = self.centroid_config.model_config.backbone_config.max_stride
+            max_stride = self.centroid_config.model_config.backbone_config[
+                f"{self.centroid_backbone_type}"
+            ]["max_stride"]
             scale = self.centroid_config.data_config.preprocessing.scale
             max_height = self.centroid_config.data_config.preprocessing.max_height
             max_width = self.centroid_config.data_config.preprocessing.max_width
         else:
-            max_stride = self.confmap_config.model_config.backbone_config.max_stride
+            max_stride = self.confmap_config.model_config.backbone_config[
+                f"{self.centered_instance_backbone_type}"
+            ]["max_stride"]
             scale = self.confmap_config.data_config.preprocessing.scale
             max_height = self.confmap_config.data_config.preprocessing.max_height
             max_width = self.confmap_config.data_config.preprocessing.max_width
@@ -765,7 +796,9 @@ class TopDownPredictor(Predictor):
                 "scale": self.centroid_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
-                    self.centroid_config.model_config.backbone_config.max_stride
+                    self.centroid_config.model_config.backbone_config[
+                        f"{self.centroid_backbone_type}"
+                    ]["max_stride"]
                 ),
                 "max_height": (
                     self.data_config.max_height
@@ -882,6 +915,7 @@ class SingleInstancePredictor(Predictor):
                         single-instance model.
         confmap_model: A LightningModule instance created from the trained weights for
                        single-instance model.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         videos: List of `sio.Video` objects for creating the `sio.Labels` object from
                         the output predictions.
         skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
@@ -906,6 +940,7 @@ class SingleInstancePredictor(Predictor):
 
     confmap_config: Optional[OmegaConf] = attrs.field(default=None)
     confmap_model: Optional[L.LightningModule] = attrs.field(default=None)
+    backbone_type: str = "unet"
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
     peak_threshold: float = 0.2
@@ -982,11 +1017,19 @@ class SingleInstancePredictor(Predictor):
         confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
         ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+
+        # check which backbone architecture
+        for k, v in confmap_config.model_config.backbone_config.items():
+            if v is not None:
+                backbone_type = k
+                break
+
         confmap_model = SingleInstanceModel.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             config=confmap_config,
             skeletons=skeletons,
             model_type="single_instance",
+            backbone_type=backbone_type,
         )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
             print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
@@ -1018,6 +1061,7 @@ class SingleInstancePredictor(Predictor):
         obj = cls(
             confmap_config=confmap_config,
             confmap_model=confmap_model,
+            backbone_type=backbone_type,
             skeletons=skeletons,
             peak_threshold=peak_threshold,
             integral_refinement=integral_refinement,
@@ -1060,7 +1104,9 @@ class SingleInstancePredictor(Predictor):
         if self.provider == "LabelsReader":
             provider = LabelsReader
 
-            max_stride = self.confmap_config.model_config.backbone_config.max_stride
+            max_stride = self.confmap_config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ]["max_stride"]
 
             self.preprocess = False
             self.preprocess_config = {
@@ -1094,7 +1140,9 @@ class SingleInstancePredictor(Predictor):
                 "scale": self.confmap_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
-                    self.confmap_config.model_config.backbone_config.max_stride
+                    self.confmap_config.model_config.backbone_config[
+                        f"{self.backbone_type}"
+                    ]["max_stride"]
                 ),
                 "max_height": (
                     self.data_config.max_height
@@ -1195,6 +1243,7 @@ class BottomUpPredictor(Predictor):
                         bottom-up model.
         bottomup_model: A LightningModule instance created from the trained weights for
                        bottom-up model.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         max_edge_length_ratio: The maximum expected length of a connected pair of points
             as a fraction of the image size. Candidate connections longer than this
             length will be penalized during matching.
@@ -1236,6 +1285,7 @@ class BottomUpPredictor(Predictor):
 
     bottomup_config: Optional[OmegaConf] = attrs.field(default=None)
     bottomup_model: Optional[L.LightningModule] = attrs.field(default=None)
+    backbone_type: str = "unet"
     max_edge_length_ratio: float = 0.25
     dist_penalty_weight: float = 1.0
     n_points: int = 10
@@ -1343,10 +1393,18 @@ class BottomUpPredictor(Predictor):
         bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
         ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
+
+        # check which backbone architecture
+        for k, v in bottomup_config.model_config.backbone_config.items():
+            if v is not None:
+                backbone_type = k
+                break
+
         bottomup_model = BottomUpModel.load_from_checkpoint(
-            ckpt_path,
+            checkpoint_path=ckpt_path,
             config=bottomup_config,
             skeletons=skeletons,
+            backbone_type=backbone_type,
             model_type="bottomup",
         )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
@@ -1378,6 +1436,7 @@ class BottomUpPredictor(Predictor):
         # create an instance of SingleInstancePredictor class
         obj = cls(
             bottomup_config=bottomup_config,
+            backbone_type=backbone_type,
             bottomup_model=bottomup_model,
             skeletons=skeletons,
             peak_threshold=peak_threshold,
@@ -1419,7 +1478,9 @@ class BottomUpPredictor(Predictor):
         if self.provider == "LabelsReader":
             provider = LabelsReader
 
-            max_stride = self.bottomup_config.model_config.backbone_config.max_stride
+            max_stride = self.bottomup_config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ]["max_stride"]
 
             self.preprocess = False
             self.preprocess_config = {
@@ -1453,7 +1514,9 @@ class BottomUpPredictor(Predictor):
                 "scale": self.bottomup_config.data_config.preprocessing.scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
-                    self.bottomup_config.model_config.backbone_config.max_stride
+                    self.bottomup_config.model_config.backbone_config[
+                        f"{self.backbone_type}"
+                    ]["max_stride"]
                 ),
                 "max_height": (
                     self.data_config.max_height

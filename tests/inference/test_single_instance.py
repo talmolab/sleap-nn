@@ -34,6 +34,7 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
         config=training_config,
         skeletons=sio.load_slp(minimal_instance).skeletons,
         model_type="single_instance",
+        backbone_type="unet",
     )
 
     labels = sio.load_slp(minimal_instance)

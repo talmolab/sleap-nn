@@ -31,7 +31,6 @@ def default_config():
     return ModelConfig(
         init_weights="default",
         pre_trained_weights=None,
-        backbone_type="unet",
         backbone_config=BackboneConfig(),
         head_configs=HeadConfig(),
     )
@@ -46,23 +45,19 @@ def test_default_initialization(default_config):
 def test_invalid_pre_trained_weights():
     """Test validation failure with an invalid pre_trained_weights."""
     with pytest.raises(ValueError):
-        ModelConfig(pre_trained_weights="here", backbone_type="unet")
-
-
-def test_invalid_backbonetype():
-    """Test validation failure with an invalid pre_trained_weights."""
-    with pytest.raises(ValueError):
-        ModelConfig(backbone_type="net")
+        ModelConfig(
+            pre_trained_weights="here",
+            backbone_config=BackboneConfig(unet=UNetConfig()),
+        )
 
 
 def test_update_config(default_config):
     """Test updating configuration attributes."""
     config = OmegaConf.structured(
         ModelConfig(
-            backbone_type="unet",
             init_weights="default",
             pre_trained_weights=None,
-            backbone_config=BackboneConfig(),
+            backbone_config=BackboneConfig(unet=UNetConfig()),
             head_configs=HeadConfig(),
         )
     )
