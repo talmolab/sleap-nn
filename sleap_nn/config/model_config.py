@@ -10,6 +10,7 @@ from sleap_nn.config.utils import oneof
 from typing import Optional, List
 from loguru import logger
 
+
 # Define configuration for each backbone type (unet, convnext, swint) configurations
 @define
 class UNetConfig:

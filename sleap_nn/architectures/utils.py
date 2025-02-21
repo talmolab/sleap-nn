@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from loguru import logger
 
+
 def get_act_fn(activation: str) -> nn.Module:
     """Get an instance of an activation function module based on the provided name.
 

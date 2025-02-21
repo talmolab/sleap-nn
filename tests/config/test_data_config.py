@@ -6,6 +6,9 @@ the parameters required to initialize the data config.
 
 import pytest
 from omegaconf import OmegaConf
+from loguru import logger
+
+from _pytest.logging import LogCaptureFixture
 
 from sleap_nn.config.data_config import (
     DataConfig,
@@ -15,6 +18,19 @@ from sleap_nn.config.data_config import (
     GeometricConfig,
     validate_proportion,
 )
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def test_data_config_initialization():
@@ -27,16 +43,18 @@ def test_data_config_initialization():
     assert config.chunk_size == 100
 
 
-def test_preprocessing_config_initialization():
+def test_preprocessing_config_initialization(caplog):
     """Test PreprocessingConfig with valid values."""
     with pytest.raises(ValueError):
         config = PreprocessingConfig(max_height=256, max_width=256, scale=(0.5, 0.5))
+    assert "PreprocessingConfig's scale" in caplog.text
 
 
-def test_preprocessing_config_invalid_scale():
+def test_preprocessing_config_invalid_scale(caplog):
     """Test that PreprocessingConfig raises an error for invalid scale values."""
     with pytest.raises(ValueError):
         PreprocessingConfig(scale=-1.0)
+    assert "PreprocessingConfig's scale" in caplog.text
 
 
 def test_augmentation_config_initialization():
@@ -46,7 +64,7 @@ def test_augmentation_config_initialization():
     assert config.geometric is not None
 
 
-def test_intensity_config_validation():
+def test_intensity_config_validation(caplog):
     """Test validation rules in IntensityConfig."""
     with pytest.raises(ValueError):
         IntensityConfig(uniform_noise_min=-0.1)
@@ -56,6 +74,7 @@ def test_intensity_config_validation():
 
     with pytest.raises(ValueError):
         IntensityConfig(uniform_noise_p=1.5)
+    assert "uniform_noise_p" in caplog.text
 
 
 def test_intensity_config_initialization():
@@ -72,13 +91,15 @@ def test_intensity_config_initialization():
     assert config.contrast_p == 0.5
 
 
-def test_geometric_config_validation():
+def test_geometric_config_validation(caplog):
     """Test validation rules in GeometricConfig."""
     with pytest.raises(ValueError):
         GeometricConfig(affine_p=1.5)
+    assert "affine_p" in caplog.text
 
     with pytest.raises(ValueError):
         GeometricConfig(erase_p=-0.5)
+    assert "erase_p" in caplog.text
 
 
 def test_geometric_config_initialization():
@@ -88,13 +109,15 @@ def test_geometric_config_initialization():
     assert config.scale == (0.8, 1.2, 0.8, 1.2)
 
 
-def test_validate_proportion():
+def test_validate_proportion(caplog):
     """Test the validate_proportion helper function."""
     with pytest.raises(ValueError):
         IntensityConfig(uniform_noise_p=1.1)
+    assert "uniform_noise_p" in caplog.text
 
     with pytest.raises(ValueError):
         IntensityConfig(uniform_noise_p=-100)
+    assert "uniform_noise_p" in caplog.text
 
     # Should pass
     validate_proportion(None, None, 0.5)

@@ -115,7 +115,9 @@ class ModelTrainer:
                 and self.val_np_chunks_path.is_dir()
                 and any(self.val_np_chunks_path.glob("*.npz"))
             ):
-                message = f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
+                message = (
+                    f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
+                )
                 logger.error(message)
                 raise Exception(message)
         self.seed = self.config.trainer_config.seed
@@ -145,9 +147,7 @@ class ModelTrainer:
             try:
                 Path(self.dir_path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                message = (
-                    f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
-                )
+                message = f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                 logger.error(message)
                 raise OSError(message)
 
@@ -350,9 +350,7 @@ class ModelTrainer:
             )
 
         else:
-            message = (
-                f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
-            )
+            message = f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
             logger.error(message)
             raise ValueError(message)
 
@@ -476,9 +474,7 @@ class ModelTrainer:
                     try:
                         Path(self.bin_files_path).mkdir(parents=True, exist_ok=True)
                     except OSError as e:
-                        message = (
-                            f"Cannot create a new folder in {self.bin_files_path}. Check the permissions to the given Checkpoint directory. \n {e}"
-                        )
+                        message = f"Cannot create a new folder in {self.bin_files_path}. Check the permissions to the given Checkpoint directory. \n {e}"
                         logger.error(message)
                         raise OSError(message)
 
@@ -587,9 +583,7 @@ class ModelTrainer:
             )
 
         else:
-            message = (
-                f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
-            )
+            message = f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
             logger.error(message)
             raise ValueError(message)
 
@@ -755,9 +749,7 @@ class ModelTrainer:
             self._create_data_loaders_torch_dataset()
 
         else:
-            message = (
-                f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
-            )
+            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
             logger.error(message)
             raise ValueError(message)
 
@@ -1030,9 +1022,7 @@ class TrainingModel(L.LightningModule):
             )
 
         elif self.trainer_config.lr_scheduler.scheduler is not None:
-            message = (
-                f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
-            )
+            message = f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
             logger.error(message)
             raise ValueError(message)
 

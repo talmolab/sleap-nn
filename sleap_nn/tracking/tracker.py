@@ -150,9 +150,7 @@ class Tracker:
             is_local_queue = True
 
         else:
-            message = (
-                f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
-            )
+            message = f"{candidates_method} is not a valid method. Please choose one of [`fixed_window`, `local_queues`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -269,9 +267,7 @@ class Tracker:
             assigned for the untracked instances and track_id set as `None`.
         """
         if self.features not in self._feature_methods:
-            message = (
-                "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
-            )
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
             logger.error(message)
             raise ValueError(message)
 
@@ -330,16 +326,12 @@ class Tracker:
             scores: Score matrix of shape (num_new_instances, num_existing_tracks)
         """
         if self.scoring_method not in self._scoring_functions:
-            message = (
-                "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
-            )
+            message = "Invalid `scoring_method` argument. Please provide one of `oks`, `cosine_sim`, `iou`, and `euclidean_dist`."
             logger.error(message)
             raise ValueError(message)
 
         if self.scoring_reduction not in self._scoring_reduction_methods:
-            message = (
-                "Invalid `scoring_reduction` argument. Please provide one of `mean`, `max`, and `weighted`."
-            )
+            message = "Invalid `scoring_reduction` argument. Please provide one of `mean`, `max`, and `weighted`."
             logger.error(message)
             raise ValueError(message)
 
@@ -390,9 +382,7 @@ class Tracker:
                 track IDs assigned.
         """
         if self.track_matching_method not in self._track_matching_methods:
-            message = (
-                "Invalid `track_matching_method` argument. Please provide one of `hungarian`, and `greedy`."
-            )
+            message = "Invalid `track_matching_method` argument. Please provide one of `hungarian`, and `greedy`."
             logger.error(message)
             raise ValueError(message)
 
@@ -600,9 +590,7 @@ class FlowShiftTracker(Tracker):
         """
         # get feature method for the shifted instances
         if self.features not in self._feature_methods:
-            message = (
-                "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
-            )
+            message = "Invalid `features` argument. Please provide one of `keypoints`, `centroids`, `bboxes` and `image`"
             logger.error(message)
             raise ValueError(message)
         feature_method = self._feature_methods[self.features]

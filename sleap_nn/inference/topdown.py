@@ -14,6 +14,7 @@ from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
 from loguru import logger
 
+
 class CentroidCrop(L.LightningModule):
     """Lightning Module for running inference for a centroid model.
 

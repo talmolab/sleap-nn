@@ -6,6 +6,7 @@ import attrs
 import sleap_io as sio
 from loguru import logger
 
+
 @attrs.define(auto_attribs=True, slots=True)
 class MatchInstance:
     """Class to have a new structure for sio.Instance object."""

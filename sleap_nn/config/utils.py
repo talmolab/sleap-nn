@@ -1,5 +1,7 @@
 """Utilities for config building and validation."""
+
 from loguru import logger
+
 
 def oneof(attrs_cls, must_be_set: bool = False):
     """Ensure that the decorated attrs class only has a single attribute set.

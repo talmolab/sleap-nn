@@ -9,6 +9,7 @@ from omegaconf import MISSING
 from typing import Optional, Tuple, Any
 from loguru import logger
 
+
 @define
 class PreprocessingConfig:
     """Configuration of Preprocessing.

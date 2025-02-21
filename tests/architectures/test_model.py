@@ -2,12 +2,28 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 from omegaconf.omegaconf import DictConfig
+from loguru import logger
+
+from _pytest.logging import LogCaptureFixture
 
 from sleap_nn.architectures.model import Model, get_backbone, get_head
 from sleap_nn.architectures.heads import Head
 
 
-def test_get_backbone():
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def test_get_backbone(caplog):
     """Test `get_backbone` function."""
     # unet
     base_unet_model_config = OmegaConf.create(
@@ -56,6 +72,7 @@ def test_get_backbone():
 
     with pytest.raises(KeyError):
         _ = get_backbone("invalid_input", base_unet_model_config, 1)
+    assert "invalid_input" in caplog.text
 
     # swint
     base_convnext_model_config = OmegaConf.create(
@@ -82,6 +99,7 @@ def test_get_backbone():
 
     with pytest.raises(KeyError):
         _ = get_backbone("invalid_input", base_unet_model_config, output_stride=1)
+    assert "invalid_input" in caplog.text
 
 
 def test_get_head():

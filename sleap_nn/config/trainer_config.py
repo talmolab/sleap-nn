@@ -8,6 +8,7 @@ from attrs import define, field, validators
 from typing import Optional, List, Any
 from loguru import logger
 
+
 @define
 class DataLoaderConfig:
     """Train and val DataLoaderConfig.
@@ -157,7 +158,9 @@ class LRSchedulerConfig:
         """
         valid_schedulers = ["ReduceLROnPlateau", "StepLR"]
         if self.scheduler not in valid_schedulers:
-            message = f"scheduler must be one of {valid_schedulers}, got {self.scheduler}"
+            message = (
+                f"scheduler must be one of {valid_schedulers}, got {self.scheduler}"
+            )
             logger.error(message)
             raise ValueError(message)
 

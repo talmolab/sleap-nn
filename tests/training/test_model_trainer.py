@@ -23,9 +23,24 @@ import os
 import wandb
 from lightning.pytorch.loggers import WandbLogger
 import shutil
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
 
 
-def test_create_data_loader_torch_dataset(config, tmp_path):
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def test_create_data_loader_torch_dataset(caplog, config, tmp_path):
     """Test _create_data_loader function of ModelTrainer class."""
     # test centered-instance pipeline
 
@@ -66,9 +81,10 @@ def test_create_data_loader_torch_dataset(config, tmp_path):
     model_trainer = ModelTrainer(config_copy, data_pipeline_fw="torch_dataset")
     with pytest.raises(ValueError):
         model_trainer._create_data_loaders_torch_dataset()
+    assert "Model type: topdown. Ensure the heads config" in caplog.text
 
 
-def test_create_data_loader_litdata(config, tmp_path: str):
+def test_create_data_loader_litdata(caplog, config, tmp_path: str):
     """Test _create_data_loader function of ModelTrainer class."""
     # test centered-instance pipeline
 
@@ -97,6 +113,7 @@ def test_create_data_loader_litdata(config, tmp_path: str):
     model_trainer = ModelTrainer(config_copy)
     with pytest.raises(Exception):
         model_trainer._create_data_loaders_litdata()
+    assert "topdown is not defined." in caplog.text
 
 
 def test_wandb():
@@ -113,7 +130,7 @@ def test_wandb():
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_trainer_litdata(config, tmp_path: str):
+def test_trainer_litdata(caplog, config, tmp_path: str):
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     model_trainer = ModelTrainer(config)
     assert model_trainer.dir_path == "."
@@ -123,6 +140,7 @@ def test_trainer_litdata(config, tmp_path: str):
     with pytest.raises(ValueError):
         model_trainer = ModelTrainer(config, data_pipeline_fw="torch")
         model_trainer.train()
+    assert "torch is not a valid option." in caplog.text
 
     #####
 
@@ -322,7 +340,7 @@ def test_trainer_litdata(config, tmp_path: str):
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_trainer_torch_dataset(config, tmp_path: str):
+def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     model_trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
     assert model_trainer.dir_path == "."
@@ -335,6 +353,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
             np_chunks_path=tmp_path,
             use_existing_np_chunks=True,
         )
+    assert "There are no numpy chunks in the path" in caplog.text
 
     Path.mkdir(Path(tmp_path) / "train_chunks", parents=True)
     file_path = Path(tmp_path) / "train_chunks" / "sample.npz"
@@ -347,6 +366,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
             np_chunks_path=tmp_path,
             use_existing_np_chunks=True,
         )
+    assert "There are no numpy chunks in the path" in caplog.text
 
     #####
 
@@ -608,6 +628,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     with pytest.raises(ValueError):
         trainer = ModelTrainer(config, data_pipeline_fw="torch_dataset")
         trainer.train()
+    assert "ReduceLR is not a valid scheduler." in caplog.text
 
     OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
 

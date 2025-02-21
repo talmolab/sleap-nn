@@ -9,6 +9,7 @@ import torchvision.transforms.v2.functional as tvf
 from torch.utils.data.datapipes.datapipe import IterDataPipe
 from loguru import logger
 
+
 def find_padding_for_stride(
     image_height: int, image_width: int, max_stride: int
 ) -> Tuple[int, int]:

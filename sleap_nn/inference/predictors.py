@@ -791,11 +791,9 @@ class TopDownPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            message = (
-                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            )
+            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             logger.error(message)
-            raise Exception(message)    
+            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1123,9 +1121,7 @@ class SingleInstancePredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            message = (
-                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            )
+            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             logger.error(message)
             raise Exception(message)
 
@@ -1484,9 +1480,7 @@ class BottomUpPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            message = (
-                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            )
+            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
             logger.error(message)
             raise Exception(message)
 

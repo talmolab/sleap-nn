@@ -13,8 +13,9 @@ https://github.com/pytorch/data/blob/6355127638b18354386914161b9b2161f7c17787/to
 from typing import Iterator, Optional, TypeVar
 
 from torch.utils.data import functional_datapipe
-from torch.utils.data.datapipes.datapipe import IterDataPipe   
+from torch.utils.data.datapipes.datapipe import IterDataPipe
 from loguru import logger
+
 T_co = TypeVar("T_co", covariant=True)
 
 

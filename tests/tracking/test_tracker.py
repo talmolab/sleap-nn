@@ -8,6 +8,21 @@ from sleap_nn.tracking.track_instance import (
     TrackInstances,
 )
 import math
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def get_pred_instances(minimal_instance_ckpt):
@@ -29,7 +44,7 @@ def get_pred_instances(minimal_instance_ckpt):
     return pred_instances, imgs
 
 
-def test_tracker(minimal_instance_ckpt):
+def test_tracker(caplog, minimal_instance_ckpt):
     """Test `Tracker` module."""
     # Test for the first two instances (high instance threshold)
     # no new tracks should be created
@@ -194,28 +209,33 @@ def test_tracker(minimal_instance_ckpt):
         tracker = Tracker.from_config(
             max_tracks=30, window_size=10, candidates_method="tracking"
         )
+    assert "tracking is not a valid method" in caplog.text
 
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(features="centered")
         track_instances = tracker.track(pred_instances, 0)
+    assert "Invalid `features` argument." in caplog.text
 
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(scoring_method="dist")
         track_instances = tracker.track(pred_instances, 0)
 
         track_instances = tracker.track(pred_instances, 0)
+    assert "Invalid `scoring_method` argument." in caplog.text
 
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(scoring_reduction="min")
         track_instances = tracker.track(pred_instances, 0)
 
         track_instances = tracker.track(pred_instances, 0)
+    assert "Invalid `scoring_reduction` argument." in caplog.text
 
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(track_matching_method="min")
         track_instances = tracker.track(pred_instances, 0)
 
         track_instances = tracker.track(pred_instances, 0)
+    assert "Invalid `track_matching_method` argument." in caplog.text
 
 
 def test_flowshifttracker(minimal_instance_ckpt):

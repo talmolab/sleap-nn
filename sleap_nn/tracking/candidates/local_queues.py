@@ -10,6 +10,7 @@ from sleap_nn.tracking.track_instance import (
 from collections import defaultdict, deque
 from loguru import logger
 
+
 class LocalQueueCandidates:
     """Track local queues method for candidate generation.
 

@@ -12,9 +12,24 @@ from sleap_nn.data.resizing import (
 import numpy as np
 import sleap_io as sio
 import pytest
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
 
 
-def test_sizematcher(minimal_instance):
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def test_sizematcher(caplog, minimal_instance):
     """Test SizeMatcher module for pad images to specified dimensions."""
     l = LabelsReaderDP.from_filename(minimal_instance)
     pipe = SizeMatcher(l, provider=l)
@@ -38,6 +53,7 @@ def test_sizematcher(minimal_instance):
         match=f"Max height {100} should be greater than the current image height: {384}",
     ):
         sample = next(iter(pipe))
+    assert "Max height" in caplog.text
 
     pipe = SizeMatcher(l, max_height=500, max_width=100)
     with pytest.raises(
@@ -45,6 +61,7 @@ def test_sizematcher(minimal_instance):
         match=f"Max width {100} should be greater than the current image width: {384}",
     ):
         sample = next(iter(pipe))
+    assert "Max width" in caplog.text
 
 
 def test_resizer(minimal_instance):
@@ -106,7 +123,7 @@ def test_apply_pad_to_stride(minimal_instance):
     assert image.shape == torch.Size([1, 1, 400, 400])
 
 
-def test_apply_sizematcher(minimal_instance):
+def test_apply_sizematcher(caplog, minimal_instance):
     """Test `apply_sizematcher` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
@@ -126,9 +143,11 @@ def test_apply_sizematcher(minimal_instance):
         match=f"Max height {100} should be greater than the current image height: {384}",
     ):
         image = apply_sizematcher(ex["image"], max_height=100, max_width=500)
+    assert "Max height" in caplog.text
 
     with pytest.raises(
         Exception,
         match=f"Max width {100} should be greater than the current image width: {384}",
     ):
         image = apply_sizematcher(ex["image"], max_height=500, max_width=100)
+    assert "Max width" in caplog.text

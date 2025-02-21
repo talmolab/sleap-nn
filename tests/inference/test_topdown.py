@@ -3,6 +3,9 @@ from omegaconf import OmegaConf
 import numpy as np
 import torch
 from torch.utils.data.dataloader import DataLoader
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
+
 import sleap_io as sio
 from sleap_nn.data.providers import process_lf, LabelsReaderDP
 from sleap_nn.data.resizing import resize_image
@@ -21,6 +24,19 @@ from sleap_nn.inference.topdown import (
     TopDownInferenceModel,
     CentroidCrop,
 )
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def initialize_model(config, minimal_instance, minimal_instance_ckpt):
@@ -256,7 +272,11 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
 
 
 def test_topdown_inference_model(
-    config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
+    caplog,
+    config,
+    minimal_instance,
+    minimal_instance_ckpt,
+    minimal_instance_centroid_ckpt,
 ):
     """Test TopDownInferenceModel class for centroid and cenetered model inferences."""
     # for centered instance model
@@ -301,7 +321,7 @@ def test_topdown_inference_model(
         match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
     ):
         topdown_inf_layer(example)
-
+    assert "Ground truth data was not detected." in caplog.text
     # centroid layer and find peaks
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     torch_model = CentroidModel.load_from_checkpoint(
@@ -340,3 +360,4 @@ def test_topdown_inference_model(
         match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
     ):
         outputs = topdown_inf_layer(example)
+    assert "Ground truth data was not detected." in caplog.text
