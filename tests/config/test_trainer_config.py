@@ -123,11 +123,16 @@ def test_lr_scheduler_config():
     Check default values and customization
     """
     # Check default values
-    conf = TrainerConfig()
+    conf = TrainerConfig(
+        lr_scheduler=LRSchedulerConfig(
+            scheduler="ReduceLROnPlateau",
+            reduce_lr_on_plateau=ReduceLROnPlateauConfig(),
+        )
+    )
     conf_dict = asdict(conf)  # Convert to dict for OmegaConf
     conf_structured = OmegaConf.create(conf_dict)
 
-    # Test ReduceLROnPlateau (default)
+    # Test ReduceLROnPlateau
     assert conf_structured.lr_scheduler.scheduler == "ReduceLROnPlateau"
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau.threshold == 1e-4
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau.patience == 10
@@ -194,10 +199,10 @@ def test_trainer_config():
     assert conf_structured.val_data_loader.shuffle is False
     assert conf_structured.model_ckpt.save_top_k == 1
     assert conf_structured.optimizer.lr == 1e-3
-    assert conf_structured.lr_scheduler.scheduler == "ReduceLROnPlateau"
-    assert conf_structured.early_stopping.patience == 1
+    assert conf_structured.lr_scheduler is None
+    assert conf_structured.early_stopping is None
     assert conf_structured.use_wandb is False
-    assert conf_structured.save_ckpt_path == "./"
+    assert conf_structured.save_ckpt_path is None
 
     # Test customization
     custom_conf = TrainerConfig(

@@ -33,7 +33,7 @@ The config file has three main sections:
         original image size will be retained. Default: None.
         - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
         original image size will be retained. Default: None.
-        - `scale`: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor. 
+        - `scale`: (float) Factor to resize the image dimensions by, specified as a float. 
         - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
         - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`.
     - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. 
@@ -67,6 +67,8 @@ The config file has three main sections:
 - `model_config`: 
     - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method.
     - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
+    - `pretrained_backbone_weights`: (str) Path of the `ckpt` file with which the backbone is initialized. If `None`, random init is used.
+    - `pretrained_head_weights`: (str) Path of the `ckpt` file with which the head layers are initialized. If `None`, random init is used.
     - `backbone_config`: (Dict) Dictionary with the following keys having backbone configs for the model to be trained. **Note**: Configs should be provided only for the model to train and others should be `None`.
         - `unet`: (for UNet)
             - `in_channels`: (int) Number of input channels. Default is 1.
@@ -150,11 +152,11 @@ The config file has three main sections:
 
 - `trainer_config`: 
     - `train_data_loader`: (**Note**: Any parameters from [Torch's DataLoader](https://pytorch.org/docs/stable/data.html#torch.utils.data.DataLoader) could be used.)
-        - `batch_size`: (int) Number of samples per batch or batch size for training data. *Default* = 1.
+        - `batch_size`: (int) Number of samples per batch or batch size for training data. *Default* = 4.
         - `shuffle`: (bool) True to have the data reshuffled at every epoch. *Default*: False.
         - `num_workers`: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: 0.
     - `val_data_loader`: (Similar to `train_data_loader`)
-    - `model_ckpt`: (**Note**: Any parameters from [Lightning's ModelCheckpoint](https://lightning.ai/docs/pytorch/stable/api/lightning.pytorch.callbacks.ModelCheckpoint.html) could be used.)
+    - `model_ckpt`:
         - `save_top_k`: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False.
         - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: None.
     - `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.

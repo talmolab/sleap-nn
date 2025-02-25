@@ -17,6 +17,7 @@ from sleap_nn.training.model_trainer import (
     SingleInstanceModel,
     CentroidModel,
     BottomUpModel,
+    train,
 )
 from torch.nn.functional import mse_loss
 import os
@@ -1031,3 +1032,13 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+
+
+def test_train_method(minimal_instance, tmp_path: str):
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+    )

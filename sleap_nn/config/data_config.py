@@ -29,7 +29,7 @@ class PreprocessingConfig:
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
     )
     crop_hw: Optional[Tuple[int, int]] = None
-    min_crop_size: int = 32  # to help app work incase of error
+    min_crop_size: int = 100  # to help app work incase of error
 
     def validate_scale(self):
         """Scale Validation.
@@ -163,6 +163,8 @@ class DataConfig:
     use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
     augmentation_config: Configurations related to augmentation.
         # Your list specifies "(only if use_augmentations_train is True)"
+    skeletons: skeleton configuration for the `.slp` file. This will be pulled from the
+        train dataset and saved to the `training_config.yaml`
     """
 
     train_labels_path: str = MISSING
@@ -177,4 +179,5 @@ class DataConfig:
     delete_chunks_after_training: bool = True
     preprocessing: PreprocessingConfig = PreprocessingConfig()
     use_augmentations_train: bool = False
-    augmentation_config: AugmentationConfig = AugmentationConfig()
+    augmentation_config: Optional[AugmentationConfig] = None
+    skeletons: Optional[dict] = None

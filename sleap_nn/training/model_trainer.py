@@ -1,8 +1,7 @@
 """This module is to train a sleap-nn model using Lightning."""
 
-from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Tuple, Union, Any
 import time
 from torch import nn
 import os
@@ -33,6 +32,20 @@ from torchvision.models.convnext import (
 )
 import sleap_io as sio
 from sleap_nn.architectures.model import Model
+from sleap_nn.config.data_config import DataConfig, PreprocessingConfig
+from sleap_nn.config.model_config import ModelConfig
+from sleap_nn.config.trainer_config import (
+    TrainerConfig,
+    DataLoaderConfig,
+    ModelCkptConfig,
+    OptimizerConfig,
+    LRSchedulerConfig,
+    WandBConfig,
+    EarlyStoppingConfig,
+    StepLRConfig,
+    ReduceLROnPlateauConfig,
+)
+from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
     CenteredInstanceDataset,
@@ -48,7 +61,13 @@ from sleap_nn.data.streaming_datasets import (
     CentroidStreamingDataset,
     SingleInstanceStreamingDataset,
 )
-from sleap_nn.training.utils import check_memory, xavier_init_weights
+from sleap_nn.training.utils import (
+    check_memory,
+    get_aug_config,
+    xavier_init_weights,
+    get_backbone_config,
+    get_head_configs,
+)
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -630,8 +649,6 @@ class ModelTrainer:
 
     def _initialize_model(
         self,
-        pretrained_backbone_weights: Optional[str] = None,
-        pretrained_head_weights: Optional[str] = None,
     ):
         models = {
             "single_instance": SingleInstanceModel,
@@ -644,8 +661,6 @@ class ModelTrainer:
             skeletons=self.skeletons,
             model_type=self.model_type,
             backbone_type=self.backbone_type,
-            pretrained_backbone_weights=pretrained_backbone_weights,
-            pretrained_head_weights=pretrained_head_weights,
         )
 
     def _get_param_count(self):
@@ -653,10 +668,7 @@ class ModelTrainer:
 
     def train(self):
         """Initiate the training by calling the fit method of Trainer."""
-        self._initialize_model(
-            pretrained_backbone_weights=self.config.model_config.pretrained_backbone_weights,
-            pretrained_head_weights=self.config.model_config.pretrained_head_weights,
-        )
+        self._initialize_model()
         total_params = self._get_param_count()
         self.config.model_config.total_params = total_params
 
@@ -745,7 +757,8 @@ class ModelTrainer:
             limit_train_batches=self.steps_per_epoch,
             strategy=(
                 "ddp_find_unused_parameters_false"
-                if self.config.trainer_config.trainer_devices > 1
+                if isinstance(self.config.trainer_config.trainer_devices, int)
+                and self.config.trainer_config.trainer_devices > 1
                 else "auto"
             ),
         )
@@ -820,8 +833,6 @@ class TrainingModel(L.LightningModule):
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        pretrained_backbone_weights: Path to trained ckpts for backbone.
-        pretrained_head_weights: Path to trained ckpts for head layer.
     """
 
     def __init__(
@@ -830,8 +841,6 @@ class TrainingModel(L.LightningModule):
         skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
         backbone_type: str,
-        pretrained_backbone_weights: Optional[str] = None,
-        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__()
@@ -842,8 +851,10 @@ class TrainingModel(L.LightningModule):
         self.data_config = self.config.data_config
         self.model_type = model_type
         self.backbone_type = backbone_type
-        self.pretrained_backbone_weights = pretrained_backbone_weights
-        self.pretrained_head_weights = pretrained_head_weights
+        self.pretrained_backbone_weights = (
+            self.config.model_config.pretrained_backbone_weights
+        )
+        self.pretrained_head_weights = self.config.model_config.pretrained_head_weights
         self.in_channels = self.model_config.backbone_config[f"{self.backbone_type}"][
             "in_channels"
         ]
@@ -905,9 +916,11 @@ class TrainingModel(L.LightningModule):
 
         # TODO: Handling different input channels
         # Initializing backbone (encoder + decoder) with trained ckpts
-        if pretrained_backbone_weights is not None:
-            print(f"Loading backbone weights from `{pretrained_backbone_weights}` ...")
-            ckpt = torch.load(pretrained_backbone_weights)
+        if self.pretrained_backbone_weights is not None:
+            print(
+                f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
+            )
+            ckpt = torch.load(self.pretrained_backbone_weights)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
                 for k in ckpt["state_dict"].keys()
@@ -916,9 +929,9 @@ class TrainingModel(L.LightningModule):
             self.load_state_dict(ckpt["state_dict"], strict=False)
 
         # Initializing head layers with trained ckpts.
-        if pretrained_head_weights is not None:
-            print(f"Loading head weights from `{pretrained_head_weights}` ...")
-            ckpt = torch.load(pretrained_head_weights)
+        if self.pretrained_head_weights is not None:
+            print(f"Loading head weights from `{self.pretrained_head_weights}` ...")
+            ckpt = torch.load(self.pretrained_head_weights)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
                 for k in ckpt["state_dict"].keys()
@@ -988,34 +1001,36 @@ class TrainingModel(L.LightningModule):
             amsgrad=self.trainer_config.optimizer.amsgrad,
         )
 
-        if self.trainer_config.lr_scheduler.scheduler == "StepLR":
-            scheduler = torch.optim.lr_scheduler.StepLR(
-                optimizer=optimizer,
-                step_size=self.trainer_config.lr_scheduler.step_lr.step_size,
-                gamma=self.trainer_config.lr_scheduler.step_lr.gamma,
-            )
-
-        elif self.trainer_config.lr_scheduler.scheduler == "ReduceLROnPlateau":
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer,
-                mode="min",
-                threshold=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold,
-                threshold_mode=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
-                cooldown=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.cooldown,
-                patience=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.patience,
-                factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
-                min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
-            )
-
-        elif self.trainer_config.lr_scheduler.scheduler is not None:
-            raise ValueError(
-                f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
-            )
-
-        if self.trainer_config.lr_scheduler.scheduler is None:
+        if self.trainer_config.lr_scheduler is None:
             return {
                 "optimizer": optimizer,
             }
+
+        else:
+
+            if self.trainer_config.lr_scheduler.scheduler == "StepLR":
+                scheduler = torch.optim.lr_scheduler.StepLR(
+                    optimizer=optimizer,
+                    step_size=self.trainer_config.lr_scheduler.step_lr.step_size,
+                    gamma=self.trainer_config.lr_scheduler.step_lr.gamma,
+                )
+
+            elif self.trainer_config.lr_scheduler.scheduler == "ReduceLROnPlateau":
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer,
+                    mode="min",
+                    threshold=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold,
+                    threshold_mode=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+                    cooldown=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.cooldown,
+                    patience=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.patience,
+                    factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
+                    min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
+                )
+
+            elif self.trainer_config.lr_scheduler.scheduler is not None:
+                raise ValueError(
+                    f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
+                )
 
         return {
             "optimizer": optimizer,
@@ -1041,8 +1056,6 @@ class SingleInstanceModel(TrainingModel):
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        pretrained_backbone_weights: Path to trained ckpts for backbone.
-        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1052,16 +1065,12 @@ class SingleInstanceModel(TrainingModel):
         skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
-        pretrained_backbone_weights: Optional[str] = None,
-        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config=config,
             skeletons=skeletons,
             model_type=model_type,
-            pretrained_backbone_weights=pretrained_backbone_weights,
-            pretrained_head_weights=pretrained_head_weights,
             backbone_type=backbone_type,
         )
 
@@ -1125,8 +1134,6 @@ class TopDownCenteredInstanceModel(TrainingModel):
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        pretrained_backbone_weights: Path to trained ckpts for backbone.
-        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1136,8 +1143,6 @@ class TopDownCenteredInstanceModel(TrainingModel):
         skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
-        pretrained_backbone_weights: Optional[str] = None,
-        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1145,8 +1150,6 @@ class TopDownCenteredInstanceModel(TrainingModel):
             skeletons=skeletons,
             backbone_type=backbone_type,
             model_type=model_type,
-            pretrained_backbone_weights=pretrained_backbone_weights,
-            pretrained_head_weights=pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1209,8 +1212,6 @@ class CentroidModel(TrainingModel):
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        pretrained_backbone_weights: Path to trained ckpts for backbone.
-        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1220,8 +1221,6 @@ class CentroidModel(TrainingModel):
         skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
-        pretrained_backbone_weights: Optional[str] = None,
-        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1229,8 +1228,6 @@ class CentroidModel(TrainingModel):
             skeletons=skeletons,
             backbone_type=backbone_type,
             model_type=model_type,
-            pretrained_backbone_weights=pretrained_backbone_weights,
-            pretrained_head_weights=pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1293,8 +1290,6 @@ class BottomUpModel(TrainingModel):
         skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        pretrained_backbone_weights: Path to trained ckpts for backbone.
-        pretrained_head_weights: Path to trained ckpts for head layer.
 
     """
 
@@ -1304,8 +1299,6 @@ class BottomUpModel(TrainingModel):
         skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
-        pretrained_backbone_weights: Optional[str] = None,
-        pretrained_head_weights: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -1313,8 +1306,6 @@ class BottomUpModel(TrainingModel):
             skeletons=skeletons,
             backbone_type=backbone_type,
             model_type=model_type,
-            pretrained_backbone_weights=pretrained_backbone_weights,
-            pretrained_head_weights=pretrained_head_weights,
         )
 
     def forward(self, img):
@@ -1375,3 +1366,310 @@ class BottomUpModel(TrainingModel):
             on_epoch=True,
             logger=True,
         )
+
+
+def train(
+    train_labels_path: str,
+    val_labels_path: str,
+    provider: str = "LabelsReader",
+    user_instances_only: bool = True,
+    data_pipeline_fw: str = "torch_dataset",
+    np_chunks_path: Optional[str] = None,
+    litdata_chunks_path: Optional[str] = None,
+    use_existing_chunks: bool = False,
+    chunk_size: int = 100,
+    delete_chunks_after_training: bool = True,
+    is_rgb: bool = False,
+    scale: float = 1.0,
+    max_height: Optional[int] = None,
+    max_width: Optional[int] = None,
+    crop_hw: Optional[Tuple[int, int]] = None,
+    min_crop_size: int = 100,
+    use_augmentations_train: bool = False,
+    intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+    geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+    init_weight: str = "default",
+    pre_trained_weights: Optional[str] = None,
+    pretrained_backbone_weights: Optional[str] = None,
+    pretrained_head_weights: Optional[str] = None,
+    backbone_config: Union[str, Dict[str, Any]] = "unet",
+    head_configs: Union[str, Dict[str, Any]] = None,
+    batch_size: int = 4,
+    shuffle_train: bool = True,
+    num_workers: int = 2,
+    ckpt_save_top_k: int = 1,
+    ckpt_save_last: bool = False,
+    trainer_num_devices: Union[str, int] = "auto",
+    trainer_accelerator: str = "auto",
+    enable_progress_bar: bool = False,
+    steps_per_epoch: Optional[int] = None,
+    max_epochs: int = 100,
+    seed: int = 1000,
+    use_wandb: bool = False,
+    save_ckpt: bool = False,
+    save_ckpt_path: Optional[str] = None,
+    resume_ckpt_path: Optional[str] = None,
+    wandb_entity: Optional[str] = None,
+    wandb_project: Optional[str] = None,
+    wandb_name: Optional[str] = None,
+    wandb_api_key: Optional[str] = None,
+    wandb_mode: Optional[str] = None,
+    wandb_resume_prv_runid: Optional[str] = None,
+    wandb_group_name: Optional[str] = None,
+    optimizer: str = "Adam",
+    learning_rate: float = 1e-3,
+    amsgrad: bool = False,
+    lr_scheduler: Optional[
+        Union[str, Dict[str, Any]]
+    ] = None,  # {"lr_scheduler": {"step_lr": {}, "reduce_lr_on_plateau": {}}}
+    early_stopping: bool = False,
+    early_stopping_min_delta: float = 0.0,
+    early_stopping_patience: int = 1,
+):
+    """
+    Train a pose-estimation model with SLEAP-NN framework.
+
+    This method creates a config object based on the parameters provided by the user,
+    and starts training by passing this config to the `ModelTrainer` class.
+
+    Args:
+        train_labels_path: Path to training data (`.slp` file).
+        val_labels_path: Path to validation data (`.slp` file).
+        provider: Provider class to read the input sleap files. Only "LabelsReader"
+            supported for the training pipeline. Default: "LabelsReader".
+        user_instances_only: `True` if only user labeled instances should be used for
+            training. If `False`, both user labeled and predicted instances would be used.
+            Default: `True`.
+        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`,
+            `torch_dataset`, `torch_dataset_np_chunks`]. Default: "torch_dataset".
+        np_chunks_path: Path to save `.npz` chunks created with `torch_dataset_np_chunks`
+            data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt`
+            is used (else working dir is used). The `train_chunks` and `val_chunks` dirs
+            are created inside this path. Default: None.
+        litdata_chunks_path: Path to save `.bin` files created with `litdata` data pipeline
+            framework. If `None`, the path provided in `trainer_config.save_ckpt` is used
+            (else working dir is used). The `train_chunks` and `val_chunks` dirs are created
+            inside this path. Default: None.
+        use_existing_chunks: Use existing train and val chunks in the `np_chunks_path` or
+            `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks. If `True`,
+            the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs.
+            Default: False.
+        chunk_size: Size of each chunk (in MB). Default: 100.
+        delete_chunks_after_training: If `False`, the chunks (numpy or litdata chunks) are
+            retained after training. Else, the chunks are deleted. Default: True.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image. Default: False.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
+        max_height: Maximum height the image should be padded to. If not provided, the
+            original image size will be retained. Default: None.
+        max_width: Maximum width the image should be padded to. If not provided, the
+            original image size will be retained. Default: None.
+        crop_hw: Crop height and width of each instance (h, w) for centered-instance model.
+            If `None`, this would be automatically computed based on the largest instance
+            in the `sio.Labels` file. Default: None.
+        min_crop_size: Minimum crop size to be used if `crop_hw` is `None`. Default: 100.
+        use_augmentations_train: True if the data augmentation should be applied to the
+            training data, else False. Default: False.
+        intensity_aug: One of ["uniform_noise", "gaussian_noise", "contrast", "brightness"]
+            or list of strings from the above allowed values. To have custom values, pass
+            a dict with the structure in `sleap_nn.config.data_config.IntensityConfig`.
+            For eg: {"intensity": {"uniform_noise_min": 1.0, "uniform_noise_p": 1.0}}
+        geometry_aug: One of ["rotation", "scale", "translate", "erase_scale", "mixup"].
+            or list of strings from the above allowed values. To have custom values, pass
+            a dict with the structure in `sleap_nn.config.data_config.GeometryConfig`.
+            For eg: {"geometric": {"rotation": 45, "affine_p": 1.0}}
+        init_weight: model weights initialization method. "default" uses kaiming uniform
+            initialization and "xavier" uses Xavier initialization method. Default: "default".
+        pre_trained_weights: Pretrained weights file name supported only for ConvNext and
+            SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights",
+            "Swin_S_Weights", "Swin_B_Weights"]. Default: None.
+        pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is
+            initialized. If `None`, random init is used. Default: None.
+        pretrained_head_weights: Path of the `ckpt` file with which the head layers are
+            initialized. If `None`, random init is used. Default: None.
+        backbone_config: One of ["unet", "unet_medium_rf", "unet_large_rf", "convnext",
+            "convnext_tiny", "convnext_small", "convnext_base", "convnext_large", "swint",
+            "swint_tiny", "swint_small", "swint_base"]. If custom values need to be set,
+            then pass a dictionary with the structure: {"unet((or) convnext (or)swint)":
+            {(params in the corresponding architecture given in `sleap_nn.config.model_config.backbone_config`)}}.
+            For eg: {"unet": {"in_channels": 3, "filters": 64, "max_stride": 32, "output_stride": 2}}
+        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance"].
+            The default `sigma` and `output_strides` are used if a string is passed. To
+            set custom parameters, pass in a dictionary with the structure:
+            {"bottomup" (or "centroid" or "single_instance" or "centered_instance"):
+            {"confmaps": {# params in the corresponding head type given in `sleap_nn.config.model_config.head_configs`},
+            "pafs": {# only for bottomup}}}.
+            For eg: {"single_instance": "confmaps": {{"part_names": None, "sigma": 2.5, "output_stride": 2}}}
+        batch_size: Number of samples per batch or batch size for training data. Default: 4.
+        shuffle_train: True to have the train data reshuffled at every epoch. Default: False.
+        num_workers: Number of subprocesses to use for data loading. 0 means that the data
+            will be loaded in the main process. Default: 2.
+        ckpt_save_top_k: If save_top_k == k, the best k models according to the quantity
+            monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1,
+            all models are saved. Please note that the monitors are checked every every_n_epochs
+            epochs. if save_top_k >= 2 and the callback is called multiple times inside an
+            epoch, the name of the saved file will be appended with a version count starting
+            with v1 unless enable_version_counter is set to False. Default: 1.
+        ckpt_save_last: When True, saves a last.ckpt whenever a checkpoint file gets saved.
+            On a local filesystem, this will be a symbolic link, and otherwise a copy of
+            the checkpoint file. This allows accessing the latest checkpoint in a deterministic
+            manner. Default: False.
+        trainer_num_devices: Number of devices to train on (int), which devices to train
+            on (list or str), or "auto" to select automatically. Default: "auto".
+        trainer_accelerator: One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises
+            the machine the model is running on and chooses the appropriate accelerator for
+            the `Trainer` to be connected to. Default: "auto".
+        enable_progress_bar: When True, enables printing the logs during training. Default: False.
+        steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
+            is trained with very few data points). Refer `limit_train_batches` parameter
+            of Torch `Trainer`. If `None`, the number of iterations depends on the number
+            of samples in the train dataset. Default: None.
+        max_epochs: Maxinum number of epochs to run. Default: 100.
+        seed: Seed value for the current experiment. default: 1000.
+        save_ckpt: True to enable checkpointing. Default: False.
+        save_ckpt_path: Directory path to save the training config and checkpoint files.
+            If `None` and `save_ckpt` is `True`, then the current working dir is used as
+            the ckpt path. Default: None
+        resume_ckpt_path: Path to `.ckpt` file from which training is resumed. Default: None.
+        use_wandb: True to enable wandb logging. Default: False.
+        wandb_entity: Entity of wandb project. Default: None.
+            (The default entity in the user profile settings is used)
+        wandb_project: Project name for the current wandb run. Default: None.
+        wandb_name: Name of the current wandb run. Default: None.
+        wandb_api_key: API key. The API key is masked when saved to config files. Default: None.
+        wandb_mode: "offline" if only local logging is required. Default: None.
+        wandb_resume_prv_runid: Previous run ID if training should be resumed from a previous
+            ckpt. Default: None
+        wandb_group_name: Group name fo the wandb run. Default: None.
+        optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
+        learning_rate: Learning rate of type float. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Defaul: False.
+        lr_scheduler: One of ["StepLR", "ReduceLROnPlateau"] (the default values in
+            `sleap_nn.config.trainer_config` are used). To use custom values, pass a
+            dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
+            For eg, {"scheduler": "StepLR", "step_lr": {(params in `sleap_nn.config.trainer_config.StepLRConfig`)}}
+        early_stopping: True if early stopping should be enabled. Default: False.
+        early_stopping_min_delta: Minimum change in the monitored quantity to qualify as
+            an improvement, i.e. an absolute change of less than or equal to min_delta,
+            will count as no improvement. Default: 0.0.
+        early_stopping_patience: Number of checks with no improvement after which training
+            will be stopped. Under the default configuration, one check happens after every
+            training epoch. Default: 1.
+    """
+    preprocessing_config = PreprocessingConfig(
+        is_rgb=is_rgb,
+        max_height=max_height,
+        max_width=max_width,
+        scale=scale,
+        crop_hw=crop_hw,
+        min_crop_size=min_crop_size,
+    )
+    augmentation_config = None
+    if use_augmentations_train:
+        augmentation_config = get_aug_config(
+            intensity_aug=intensity_aug, geometric_aug=geometry_aug
+        )
+
+    # construct data config
+    data_config = DataConfig(
+        train_labels_path=train_labels_path,
+        val_labels_path=val_labels_path,
+        provider=provider,
+        user_instances_only=user_instances_only,
+        data_pipeline_fw=data_pipeline_fw,
+        np_chunks_path=np_chunks_path,
+        litdata_chunks_path=litdata_chunks_path,
+        use_existing_chunks=use_existing_chunks,
+        chunk_size=chunk_size,
+        delete_chunks_after_training=delete_chunks_after_training,
+        preprocessing=preprocessing_config,
+        use_augmentations_train=use_augmentations_train,
+        augmentation_config=augmentation_config,
+    )
+
+    # construct model config
+    backbone_config = get_backbone_config(backbone_cfg=backbone_config)
+    head_configs = get_head_configs(head_cfg=head_configs)
+    model_config = ModelConfig(
+        init_weights=init_weight,
+        pre_trained_weights=pre_trained_weights,
+        pretrained_backbone_weights=pretrained_backbone_weights,
+        pretrained_head_weights=pretrained_head_weights,
+        backbone_config=backbone_config,
+        head_configs=head_configs,
+    )
+
+    # constrict trainer config
+    train_dataloader_cfg = DataLoaderConfig(
+        batch_size=batch_size, shuffle=shuffle_train, num_workers=num_workers
+    )
+    val_dataloader_cfg = DataLoaderConfig(
+        batch_size=batch_size, shuffle=False, num_workers=num_workers
+    )
+
+    lr_scheduler_cfg = None
+    if isinstance(lr_scheduler, str):
+        lr_scheduler_cfg = LRSchedulerConfig(scheduler=lr_scheduler)
+        if lr_scheduler == "StepLR":
+            lr_scheduler_cfg.step_lr = StepLRConfig()
+        if lr_scheduler == "ReduceLROnPlateau":
+            lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
+    elif isinstance(lr_scheduler, dict):
+        lr_scheduler_cfg = LRSchedulerConfig(**lr_scheduler)
+
+    trainer_config = TrainerConfig(
+        train_data_loader=train_dataloader_cfg,
+        val_data_loader=val_dataloader_cfg,
+        model_ckpt=ModelCkptConfig(
+            save_top_k=ckpt_save_top_k, save_last=ckpt_save_last
+        ),
+        trainer_devices=trainer_num_devices,
+        trainer_accelerator=trainer_accelerator,
+        enable_progress_bar=enable_progress_bar,
+        steps_per_epoch=steps_per_epoch,
+        max_epochs=max_epochs,
+        seed=seed,
+        use_wandb=use_wandb,
+        wandb=WandBConfig(
+            entity=wandb_entity,
+            project=wandb_project,
+            name=wandb_name,
+            api_key=wandb_api_key,
+            wandb_mode=wandb_mode,
+            prv_runid=wandb_resume_prv_runid,
+            group=wandb_group_name,
+        ),
+        save_ckpt=save_ckpt,
+        save_ckpt_path=save_ckpt_path,
+        resume_ckpt_path=resume_ckpt_path,
+        optimizer_name=optimizer,
+        optimizer=OptimizerConfig(lr=learning_rate, amsgrad=amsgrad),
+        lr_scheduler=lr_scheduler_cfg,
+        early_stopping=EarlyStoppingConfig(
+            min_delta=early_stopping_min_delta,
+            patience=early_stopping_patience,
+            stop_training_on_plateau=early_stopping,
+        ),
+    )
+
+    # create omegaconf object (or attrs class object)
+    training_job_config = TrainingJobConfig(
+        data_config=data_config,
+        model_config=model_config,
+        trainer_config=trainer_config,
+    )
+
+    omegaconf_config = OmegaConf.structured(training_job_config)
+    print(f"omegaconf: {omegaconf_config}")
+
+    # create an instance of the ModelTrainer class
+    trainer = ModelTrainer(omegaconf_config)
+    trainer.train()
+
+    print(f"Training completed!")
+
+    # compute metrics on train and val set
