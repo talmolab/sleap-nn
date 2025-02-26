@@ -124,7 +124,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
                 },
                 "geometric": {
                     "rotation": 15.0,
-                    "scale": 0.05,
+                    "scale": (0.05, 0.05),
                     "translate_width": 0.02,
                     "translate_height": 0.02,
                     "affine_p": 0.5,
@@ -306,7 +306,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
                 },
                 "geometric": {
                     "rotation": 15.0,
-                    "scale": 0.05,
+                    "scale": (0.05, 0.05),
                     "translate_width": 0.02,
                     "translate_height": 0.02,
                     "affine_p": 0.5,
@@ -378,7 +378,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
                 },
                 "geometric": {
                     "rotation": 15.0,
-                    "scale": 0.05,
+                    "scale": (0.05, 0.05),
                     "translate_width": 0.02,
                     "translate_height": 0.02,
                     "affine_p": 0.5,
@@ -524,7 +524,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
                 },
                 "geometric": {
                     "rotation": 15.0,
-                    "scale": 0.05,
+                    "scale": (0.05, 0.05),
                     "translate_width": 0.02,
                     "translate_height": 0.02,
                     "affine_p": 0.5,
@@ -675,7 +675,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
                 },
                 "geometric": {
                     "rotation": 15.0,
-                    "scale": 0.05,
+                    "scale": (0.05, 0.05),
                     "translate_width": 0.02,
                     "translate_height": 0.02,
                     "affine_p": 0.5,

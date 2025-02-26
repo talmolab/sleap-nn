@@ -1,0 +1,109 @@
+data_config:
+  train_labels_path: C:\Users\TalmoLab\Desktop\Divya\sleap-nn\tests\assets\minimal_instance.pkg.slp
+  val_labels_path: C:\Users\TalmoLab\Desktop\Divya\sleap-nn\tests\assets\minimal_instance.pkg.slp
+  provider: LabelsReader
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  np_chunks_path: null
+  litdata_chunks_path: null
+  use_existing_chunks: false
+  chunk_size: 100
+  delete_chunks_after_training: true
+  preprocessing:
+    is_rgb: false
+    max_height: 384
+    max_width: 384
+    scale: 1.0
+    crop_hw:
+    - 112
+    - 112
+    min_crop_size: 100
+  use_augmentations_train: false
+  augmentation_config: null
+  skeletons:
+    Skeleton-0:
+      nodes:
+      - name: A
+      - name: B
+      edges:
+      - source:
+          name: A
+        destination:
+          name: B
+      symmetries: null
+model_config:
+  init_weights: default
+  pre_trained_weights: null
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet:
+      in_channels: 1
+      kernel_size: 3
+      filters: 32
+      filters_rate: 1.5
+      max_stride: 16
+      stem_stride: null
+      middle_block: true
+      up_interpolate: true
+      stacks: 1
+      convs_per_block: 2
+      output_stride: 1
+    convnext: null
+    swint: null
+  head_configs:
+    single_instance: null
+    centroid: null
+    centered_instance:
+      confmaps:
+        part_names:
+        - A
+        - B
+        anchor_part: null
+        sigma: 5.0
+        output_stride: 1
+    bottomup: null
+  total_params: 1145574
+trainer_config:
+  train_data_loader:
+    batch_size: 4
+    shuffle: true
+    num_workers: 2
+  val_data_loader:
+    batch_size: 4
+    shuffle: false
+    num_workers: 2
+  model_ckpt:
+    save_top_k: 1
+    save_last: false
+  trainer_devices: auto
+  trainer_accelerator: cpu
+  enable_progress_bar: false
+  steps_per_epoch: null
+  max_epochs: 1
+  seed: 1000
+  use_wandb: false
+  save_ckpt: true
+  save_ckpt_path: null
+  resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    api_key: null
+    wandb_mode: null
+    prv_runid: null
+    group: null
+  optimizer_name: Adam
+  optimizer:
+    lr: 0.001
+    amsgrad: false
+  lr_scheduler: null
+  early_stopping:
+    min_delta: 0.0
+    patience: 1
+    stop_training_on_plateau: false
+name: ''
+description: ''
+sleap_nn_version: 0.0.1
+filename: ''

@@ -26,14 +26,14 @@ from sleap_nn.config.model_config import (
     SingleInstanceConfig,
     SingleInstanceConfMapsConfig,
     CentroidConfig,
+    CentroidConfMapsConfig,
     CenteredInstanceConfMapsConfig,
     CenteredInstanceConfig,
-    CenteredInstanceConfMapsConfig,
     BottomUpConfig,
     BottomUpConfMapsConfig,
     PAFConfig,
 )
-from sleap_nn.data.providers import get_max_instances, get_max_height_width
+from sleap_nn.data.providers import get_max_instances
 
 
 def get_aug_config(intensity_aug, geometric_aug):
@@ -73,6 +73,8 @@ def get_aug_config(intensity_aug, geometric_aug):
                 aug_config.geometric.translate_height = 0
                 aug_config.geometric.translate_width = 0
             elif g == "translate":
+                aug_config.geometric.translate_height = 0.2
+                aug_config.geometric.translate_width = 0.2
                 aug_config.geometric.affine_p = 1.0
                 aug_config.geometric.rotation = 0
                 aug_config.geometric.scale = (1.0, 1.0)
@@ -151,9 +153,7 @@ def get_head_configs(head_cfg):
             )
         elif "centroid" in head_cfg:
             head_configs.centroid = CentroidConfig(
-                confmaps=CenteredInstanceConfMapsConfig(
-                    **head_cfg["centroid"]["confmaps"]
-                )
+                confmaps=CentroidConfMapsConfig(**head_cfg["centroid"]["confmaps"])
             )
         elif "centered_instance" in head_cfg:
             head_configs.centered_instance = CenteredInstanceConfig(
