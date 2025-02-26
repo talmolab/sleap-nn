@@ -117,7 +117,7 @@ class GeometricConfig:
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
     erase_p: float = field(default=0.0, validator=validate_proportion)
-    mixup_lambda: Optional[float] = None
+    mixup_lambda: Optional[float] = 0.1
     mixup_p: float = field(default=0.0, validator=validate_proportion)
     input_key: str = "image"
 

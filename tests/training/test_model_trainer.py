@@ -1048,6 +1048,34 @@ def test_train_method(minimal_instance, tmp_path: str):
     )
 
     # with augmentations
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            trainer_accelerator="cpu",
+            head_configs="centered_instance",
+            use_augmentations_train=True,
+            intensity_aug="intensity",
+            geometry_aug=["rotation", "scale"],
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
+
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            trainer_accelerator="cpu",
+            head_configs="centered_instance",
+            use_augmentations_train=True,
+            intensity_aug="uniform_noise",
+            geometry_aug="rotate",
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
+
     train(
         train_labels_path=minimal_instance,
         val_labels_path=minimal_instance,
@@ -1112,8 +1140,31 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert config.data_config.augmentation_config.geometric.rotation == 180.0
 
     # backbone configs #TODO
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            backbone_config="resnet",
+            trainer_accelerator="cpu",
+            head_configs="centroid",
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
 
     # head configs
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            backbone_config="unet",
+            trainer_accelerator="cpu",
+            head_configs="center",
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
+
     train(
         train_labels_path=minimal_instance,
         val_labels_path=minimal_instance,
