@@ -495,9 +495,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     )
     OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
-    OmegaConf.update(
-        config_early_stopping, "trainer_config.lr_scheduler.scheduler", None
-    )
+    OmegaConf.update(config_early_stopping, "trainer_config.lr_scheduler", None)
     OmegaConf.update(
         config_early_stopping,
         "trainer_config.save_ckpt_path",
@@ -635,6 +633,16 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(
+        config,
+        "model_config.pretrained_backbone_weights",
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+    )
+    OmegaConf.update(
+        config,
+        "model_config.pretrained_head_weights",
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+    )
 
     # check loading trained weights for backbone
     load_weights_config = config.copy()
@@ -649,12 +657,7 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     ].numpy()
 
     trainer = ModelTrainer(load_weights_config)
-    trainer._initialize_model(
-        pretrained_backbone_weights=(
-            Path(minimal_instance_ckpt) / "best.ckpt"
-        ).as_posix(),
-        pretrained_head_weights=(Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
-    )
+    trainer._initialize_model()
     model_ckpt = next(trainer.model.parameters())[0, 0, :].detach().numpy()
 
     assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-6)

@@ -31,7 +31,7 @@ class UNetConfig:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-        stacks: (int) Number of upsampling blocks in the decoder. Default is 3.
+        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         output_stride: (int) The stride of the output confidence maps relative to the
             input image. This is the reciprocal of the resolution, e.g., an output stride
@@ -74,7 +74,7 @@ class UNetLargeRFConfig:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-        stacks: (int) Number of upsampling blocks in the decoder. Default is 3.
+        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         output_stride: (int) The stride of the output confidence maps relative to the
             input image. This is the reciprocal of the resolution, e.g., an output stride
@@ -117,7 +117,7 @@ class UNetMediumRFConfig:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-        stacks: (int) Number of upsampling blocks in the decoder. Default is 3.
+        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         output_stride: (int) The stride of the output confidence maps relative to the
             input image. This is the reciprocal of the resolution, e.g., an output stride
@@ -157,7 +157,7 @@ class ConvNextConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
@@ -202,7 +202,7 @@ class ConvNextSmallConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
@@ -247,7 +247,7 @@ class ConvNextBaseConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
@@ -292,7 +292,7 @@ class ConvNextLargeConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
@@ -335,7 +335,7 @@ class SwinTConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
@@ -395,7 +395,7 @@ class SwinTSmallConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
@@ -455,7 +455,7 @@ class SwinTBaseConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
@@ -469,7 +469,7 @@ class SwinTBaseConfig:
     """
 
     model_type: str = field(
-        default="tiny",
+        default="base",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
     arch: dict = field(
@@ -484,7 +484,7 @@ class SwinTBaseConfig:
     window_size: list = field(factory=lambda: [7, 7])
     in_channels: int = 1
     kernel_size: int = 3
-    filters_rate: float = 1.5
+    filters_rate: float = 2
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
@@ -674,7 +674,7 @@ class CentroidConfig:
 class CenteredInstanceConfig:
     """centered_instance head_config."""
 
-    confmaps: CenteredInstanceConfMapsConfig = CenteredInstanceConfMapsConfig
+    confmaps: CenteredInstanceConfMapsConfig = CenteredInstanceConfMapsConfig()
 
 
 @define

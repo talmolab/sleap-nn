@@ -1,0 +1,117 @@
+data_config:
+  provider: LabelsReader
+  train_labels_path: C:\Users\TalmoLab\Desktop\Divya\sleap-nn\tests\assets/minimal_instance.pkg.slp
+  val_labels_path: C:\Users\TalmoLab\Desktop\Divya\sleap-nn\tests\assets/minimal_instance.pkg.slp
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  np_chunks_path: null
+  litdata_chunks_path: null
+  use_existing_chunks: false
+  delete_chunks_after_training: true
+  chunk_size: 100
+  preprocessing:
+    is_rgb: false
+    max_width: 384
+    max_height: 384
+    scale: 1.0
+    crop_hw:
+    - 160
+    - 160
+    min_crop_size: null
+  use_augmentations_train: true
+  augmentation_config:
+    intensity:
+      contrast_p: 1.0
+    geometric:
+      rotation: 180.0
+      scale: null
+      translate_width: 0
+      translate_height: 0
+      affine_p: 0.5
+  skeletons:
+    Skeleton-0:
+      nodes:
+      - name: A
+      - name: B
+      edges:
+      - source:
+          name: A
+        destination:
+          name: B
+      symmetries: null
+model_config:
+  init_weights: default
+  pre_trained_weights: null
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet:
+      in_channels: 1
+      kernel_size: 3
+      filters: 16
+      filters_rate: 1.5
+      max_stride: 8
+      convs_per_block: 2
+      stacks: 1
+      stem_stride: null
+      middle_block: true
+      up_interpolate: false
+      output_stride: 2
+  head_configs:
+    single_instance: null
+    centroid: null
+    bottomup: null
+    centered_instance:
+      confmaps:
+        part_names:
+        - '0'
+        - '1'
+        anchor_part: 1
+        sigma: 1.5
+        output_stride: 2
+trainer_config:
+  train_data_loader:
+    batch_size: 1
+    shuffle: true
+    num_workers: 2
+  val_data_loader:
+    batch_size: 1
+    num_workers: 0
+  model_ckpt:
+    save_top_k: 1
+    save_last: true
+  early_stopping:
+    stop_training_on_plateau: true
+    min_delta: 1.0e-08
+    patience: 20
+  trainer_devices: 1
+  trainer_accelerator: cpu
+  enable_progress_bar: false
+  steps_per_epoch: null
+  max_epochs: 2
+  seed: 1000
+  use_wandb: false
+  save_ckpt: false
+  save_ckpt_path: null
+  resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: test
+    name: test_run
+    wandb_mode: offline
+    api_key: ''
+    prv_runid: null
+    group: null
+  optimizer_name: Adam
+  optimizer:
+    lr: 0.0001
+    amsgrad: false
+  lr_scheduler:
+    scheduler: ReduceLROnPlateau
+    reduce_lr_on_plateau:
+      threshold: 1.0e-07
+      threshold_mode: rel
+      cooldown: 3
+      patience: 5
+      factor: 0.5
+      min_lr: 1.0e-08
