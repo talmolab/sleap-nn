@@ -1476,11 +1476,17 @@ def train(
         intensity_aug: One of ["uniform_noise", "gaussian_noise", "contrast", "brightness"]
             or list of strings from the above allowed values. To have custom values, pass
             a dict with the structure in `sleap_nn.config.data_config.IntensityConfig`.
-            For eg: {"intensity": {"uniform_noise_min": 1.0, "uniform_noise_p": 1.0}}
+            For eg: {
+                        "uniform_noise_min": 1.0,
+                        "uniform_noise_p": 1.0
+                    }
         geometry_aug: One of ["rotation", "scale", "translate", "erase_scale", "mixup"].
             or list of strings from the above allowed values. To have custom values, pass
             a dict with the structure in `sleap_nn.config.data_config.GeometryConfig`.
-            For eg: {"geometric": {"rotation": 45, "affine_p": 1.0}}
+            For eg: {
+                        "rotation": 45,
+                        "affine_p": 1.0
+                    }
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
         pre_trained_weights: Pretrained weights file name supported only for ConvNext and
@@ -1494,16 +1500,48 @@ def train(
         backbone_config: One of ["unet", "unet_medium_rf", "unet_large_rf", "convnext",
             "convnext_tiny", "convnext_small", "convnext_base", "convnext_large", "swint",
             "swint_tiny", "swint_small", "swint_base"]. If custom values need to be set,
-            then pass a dictionary with the structure: {"unet((or) convnext (or)swint)":
-            {(params in the corresponding architecture given in `sleap_nn.config.model_config.backbone_config`)}}.
-            For eg: {"unet": {"in_channels": 3, "filters": 64, "max_stride": 32, "output_stride": 2}}
+            then pass a dictionary with the structure:
+            {
+                "unet((or) convnext (or)swint)":
+                    {(params in the corresponding architecture given in `sleap_nn.config.model_config.backbone_config`)
+                    }
+            }.
+            For eg: {
+                        "unet":
+                            {
+                                "in_channels": 3,
+                                "filters": 64,
+                                "max_stride": 32,
+                                "output_stride": 2
+                            }
+                    }
         head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance"].
             The default `sigma` and `output_strides` are used if a string is passed. To
             set custom parameters, pass in a dictionary with the structure:
-            {"bottomup" (or "centroid" or "single_instance" or "centered_instance"):
-            {"confmaps": {# params in the corresponding head type given in `sleap_nn.config.model_config.head_configs`},
-            "pafs": {# only for bottomup}}}.
-            For eg: {"single_instance": "confmaps": {{"part_names": None, "sigma": 2.5, "output_stride": 2}}}
+            {
+                "bottomup" (or "centroid" or "single_instance" or "centered_instance"):
+                    {
+                        "confmaps":
+                            {
+                                # params in the corresponding head type given in `sleap_nn.config.model_config.head_configs`
+                            },
+                        "pafs":
+                            {
+                                # only for bottomup
+                            }
+                    }
+            }.
+            For eg: {
+                        "single_instance":
+                            {
+                                "confmaps":
+                                    {
+                                        "part_names": None,
+                                        "sigma": 2.5,
+                                        "output_stride": 2
+                                    }
+                            }
+                    }
         batch_size: Number of samples per batch or batch size for training data. Default: 4.
         shuffle_train: True to have the train data reshuffled at every epoch. Default: False.
         num_workers: Number of subprocesses to use for data loading. 0 means that the data
@@ -1551,7 +1589,13 @@ def train(
         lr_scheduler: One of ["StepLR", "ReduceLROnPlateau"] (the default values in
             `sleap_nn.config.trainer_config` are used). To use custom values, pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
-            For eg, {"scheduler": "StepLR", "step_lr": {(params in `sleap_nn.config.trainer_config.StepLRConfig`)}}
+            For eg, {
+                        "scheduler": "StepLR",
+                        "step_lr":
+                            {
+                                (params in `sleap_nn.config.trainer_config.StepLRConfig`)
+                            }
+                    }
         early_stopping: True if early stopping should be enabled. Default: False.
         early_stopping_min_delta: Minimum change in the monitored quantity to qualify as
             an improvement, i.e. an absolute change of less than or equal to min_delta,
@@ -1619,7 +1663,14 @@ def train(
         if lr_scheduler == "ReduceLROnPlateau":
             lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
     elif isinstance(lr_scheduler, dict):
-        lr_scheduler_cfg = LRSchedulerConfig(**lr_scheduler)
+        lr_scheduler_cfg = LRSchedulerConfig()
+        lr_scheduler_cfg.scheduler = lr_scheduler["scheduler"]
+        if lr_scheduler_cfg.scheduler == "StepLR":
+            lr_scheduler_cfg.step_lr = StepLRConfig(**lr_scheduler["step_lr"])
+        elif lr_scheduler_cfg.scheduler == "ReduceLROnPlateau":
+            lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig(
+                **lr_scheduler["reduce_lr_on_plateau"]
+            )
 
     trainer_config = TrainerConfig(
         train_data_loader=train_dataloader_cfg,
@@ -1664,7 +1715,6 @@ def train(
     )
 
     omegaconf_config = OmegaConf.structured(training_job_config)
-    print(f"omegaconf: {omegaconf_config}")
 
     # create an instance of the ModelTrainer class
     trainer = ModelTrainer(omegaconf_config)

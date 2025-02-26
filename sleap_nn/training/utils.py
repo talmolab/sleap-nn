@@ -24,9 +24,14 @@ from sleap_nn.config.model_config import (
     SwinTBaseConfig,
     SwinTSmallConfig,
     SingleInstanceConfig,
+    SingleInstanceConfMapsConfig,
     CentroidConfig,
+    CenteredInstanceConfMapsConfig,
     CenteredInstanceConfig,
+    CenteredInstanceConfMapsConfig,
     BottomUpConfig,
+    BottomUpConfMapsConfig,
+    PAFConfig,
 )
 from sleap_nn.data.providers import get_max_instances, get_max_height_width
 
@@ -34,46 +39,49 @@ from sleap_nn.data.providers import get_max_instances, get_max_height_width
 def get_aug_config(intensity_aug, geometric_aug):
     """Returns `AugmentationConfig` object based on the user-provided parameters."""
     aug_config = AugmentationConfig()
-    if isinstance(intensity_aug, str):
-        intensity_aug = [intensity_aug]
+    if isinstance(intensity_aug, str) or isinstance(intensity_aug, list):
+        if isinstance(intensity_aug, str):
+            intensity_aug = [intensity_aug]
 
-    for i in intensity_aug:
-        if i == "uniform_noise":
-            aug_config.intensity.uniform_noise_p = 1.0
-        if i == "gaussian_noise":
-            aug_config.intensity.gaussian_noise_p = 1.0
-        if i == "contrast":
-            aug_config.intensity.contrast_p = 1.0
-        if i == "brightness":
-            aug_config.intensity.brightness_p = 1.0
+        for i in intensity_aug:
+            if i == "uniform_noise":
+                aug_config.intensity.uniform_noise_p = 1.0
+            elif i == "gaussian_noise":
+                aug_config.intensity.gaussian_noise_p = 1.0
+            elif i == "contrast":
+                aug_config.intensity.contrast_p = 1.0
+            elif i == "brightness":
+                aug_config.intensity.brightness_p = 1.0
 
-    if isinstance(intensity_aug, dict):
+    elif isinstance(intensity_aug, dict):
         aug_config.intensity = IntensityConfig(**intensity_aug)
 
-    if isinstance(geometric_aug, str):
-        geometric_aug = [geometric_aug]
+    if isinstance(geometric_aug, str) or isinstance(geometric_aug, list):
+        if isinstance(geometric_aug, str):
+            geometric_aug = [geometric_aug]
 
-    for g in geometric_aug:
-        if g == "rotation":
-            aug_config.geometric.affine_p = 1.0
-            aug_config.geometric.scale = 1.0
-            aug_config.geometric.translate_height = 0
-            aug_config.geometric.translate_width = 0
-        if g == "scale":
-            aug_config.geometric.affine_p = 1.0
-            aug_config.geometric.rotation = 0
-            aug_config.geometric.translate_height = 0
-            aug_config.geometric.translate_width = 0
-        if g == "translate":
-            aug_config.geometric.affine_p = 1.0
-            aug_config.geometric.rotation = 0
-            aug_config.geometric.scale = 1.0
-        if g == "erase_scale":
-            aug_config.geometric.erase_p = 1.0
-        if g == "mixup":
-            aug_config.geometric.mixup_p = 1.0
+        for g in geometric_aug:
+            if g == "rotation":
+                aug_config.geometric.affine_p = 1.0
+                aug_config.geometric.scale = (1.0, 1.0)
+                aug_config.geometric.translate_height = 0
+                aug_config.geometric.translate_width = 0
+            elif g == "scale":
+                aug_config.geometric.scale = (0.9, 1.1)
+                aug_config.geometric.affine_p = 1.0
+                aug_config.geometric.rotation = 0
+                aug_config.geometric.translate_height = 0
+                aug_config.geometric.translate_width = 0
+            elif g == "translate":
+                aug_config.geometric.affine_p = 1.0
+                aug_config.geometric.rotation = 0
+                aug_config.geometric.scale = (1.0, 1.0)
+            elif g == "erase_scale":
+                aug_config.geometric.erase_p = 1.0
+            elif g == "mixup":
+                aug_config.geometric.mixup_p = 1.0
 
-    if isinstance(geometric_aug, dict):
+    elif isinstance(geometric_aug, dict):
         aug_config.geometric = GeometricConfig(**geometric_aug)
 
     return aug_config
@@ -109,7 +117,14 @@ def get_backbone_config(backbone_cfg):
             backbone_config.swint = swint_config_mapper[backbone_cfg]
 
     elif isinstance(backbone_cfg, dict):
-        backbone_config = BackboneConfig(**backbone_cfg)
+        backbone_config = BackboneConfig()
+        if "unet" in backbone_cfg:
+            backbone_config.unet = UNetConfig(**backbone_cfg["unet"])
+        elif "convnext" in backbone_cfg:
+            backbone_config.convnext = ConvNextConfig(**backbone_cfg["convnext"])
+        elif "swint" in backbone_cfg:
+            backbone_config.swint = SwinTConfig(**backbone_cfg["swint"])
+
     return backbone_config
 
 
@@ -127,7 +142,32 @@ def get_head_configs(head_cfg):
             head_configs.bottomup = BottomUpConfig()
 
     elif isinstance(head_cfg, dict):
-        head_configs = HeadConfig(**head_cfg)
+        head_configs = HeadConfig()
+        if "single_instance" in head_cfg:
+            head_configs.single_instance = SingleInstanceConfig(
+                confmaps=SingleInstanceConfMapsConfig(
+                    **head_cfg["single_instance"]["confmaps"]
+                )
+            )
+        elif "centroid" in head_cfg:
+            head_configs.centroid = CentroidConfig(
+                confmaps=CenteredInstanceConfMapsConfig(
+                    **head_cfg["centroid"]["confmaps"]
+                )
+            )
+        elif "centered_instance" in head_cfg:
+            head_configs.centered_instance = CenteredInstanceConfig(
+                confmaps=CenteredInstanceConfMapsConfig(
+                    **head_cfg["centered_instance"]["confmaps"]
+                )
+            )
+        elif "bottomup" in head_cfg:
+            head_configs.bottomup = BottomUpConfig(
+                confmaps=BottomUpConfMapsConfig(
+                    **head_cfg["bottomup"]["confmaps"],
+                ),
+                pafs=PAFConfig(**head_cfg["bottomup"]["pafs"]),
+            )
 
     return head_configs
 

@@ -660,29 +660,31 @@ class PAFConfig:
 class SingleInstanceConfig:
     """single instance head_config."""
 
-    confmaps: SingleInstanceConfMapsConfig = SingleInstanceConfMapsConfig()
+    confmaps: SingleInstanceConfMapsConfig = field(factory=SingleInstanceConfMapsConfig)
 
 
 @define
 class CentroidConfig:
     """centroid head_config."""
 
-    confmaps: CentroidConfMapsConfig = CentroidConfMapsConfig()
+    confmaps: CentroidConfMapsConfig = field(factory=CentroidConfMapsConfig)
 
 
 @define
 class CenteredInstanceConfig:
     """centered_instance head_config."""
 
-    confmaps: CenteredInstanceConfMapsConfig = CenteredInstanceConfMapsConfig()
+    confmaps: CenteredInstanceConfMapsConfig = field(
+        factory=CenteredInstanceConfMapsConfig
+    )
 
 
 @define
 class BottomUpConfig:
     """bottomup head_config."""
 
-    confmaps: BottomUpConfMapsConfig = BottomUpConfMapsConfig()
-    pafs: PAFConfig = PAFConfig()
+    confmaps: BottomUpConfMapsConfig = field(factory=BottomUpConfMapsConfig)
+    pafs: PAFConfig = field(factory=PAFConfig)
 
 
 @oneof
@@ -754,8 +756,8 @@ class ModelConfig:
     )
     pretrained_backbone_weights: Optional[str] = None
     pretrained_head_weights: Optional[str] = None
-    backbone_config: BackboneConfig = BackboneConfig()
-    head_configs: HeadConfig = HeadConfig()
+    backbone_config: BackboneConfig = field(factory=BackboneConfig)
+    head_configs: HeadConfig = field(factory=HeadConfig)
     total_params: Optional[int] = None
 
     def validate_pre_trained_weights(self, value):

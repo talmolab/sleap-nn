@@ -208,11 +208,12 @@ def test_trainer_config():
     custom_conf = TrainerConfig(
         max_epochs=20,
         train_data_loader=DataLoaderConfig(batch_size=32),
+        val_data_loader=DataLoaderConfig(batch_size=32),
         optimizer=OptimizerConfig(lr=0.01),
         use_wandb=True,
     )
     custom_dict = asdict(custom_conf)  # Convert to dict for OmegaConf
-    custom_structured = OmegaConf.create(custom_dict)
+    custom_structured = OmegaConf.structured(custom_dict)
 
     assert custom_structured.max_epochs == 20
     assert custom_structured.train_data_loader.batch_size == 32

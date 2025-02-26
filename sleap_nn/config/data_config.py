@@ -93,7 +93,7 @@ class GeometricConfig:
 
     Attributes:
         rotation: (float) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
-        scale: (float) scaling factor interval. If (a, b) represents isotropic scaling, the scale is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d Default: None.
+        scale: (List[float]) scaling factor interval. If (a, b) represents isotropic scaling, the scale is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d Default: None.
         translate_width: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default.
         translate_height: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default.
         affine_p: (float) Probability of applying random affine transformations. Default=0.0
@@ -107,8 +107,8 @@ class GeometricConfig:
         input_key: (str) Can be image or instance. The input_key instance expects the KorniaAugmenter to follow the InstanceCropper else image otherwise for default.
     """
 
-    rotation: float = 0.0
-    scale: Optional[float] = None
+    rotation: float = 15.0
+    scale: Optional[List[float]] = None
     translate_width: float = 0.0
     translate_height: float = 0.0
     affine_p: float = field(default=0.0, validator=validate_proportion)
@@ -131,8 +131,8 @@ class AugmentationConfig:
         geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
     """
 
-    intensity: Optional[IntensityConfig] = IntensityConfig()
-    geometric: Optional[GeometricConfig] = GeometricConfig()
+    intensity: Optional[IntensityConfig] = field(factory=IntensityConfig)
+    geometric: Optional[GeometricConfig] = field(factory=GeometricConfig)
 
 
 @define
@@ -177,7 +177,7 @@ class DataConfig:
     use_existing_chunks: bool = False
     chunk_size: int = 100
     delete_chunks_after_training: bool = True
-    preprocessing: PreprocessingConfig = PreprocessingConfig()
+    preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None
     skeletons: Optional[dict] = None
