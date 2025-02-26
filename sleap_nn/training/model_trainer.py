@@ -886,6 +886,7 @@ class TrainingModel(L.LightningModule):
                         (x.source.name, x.destination.name)
                         for x in self.skeletons[0].edges
                     ]
+                    print(f"edges: {edges}")
                     head_config[key]["edges"] = edges
 
         self.model = Model(
@@ -1426,8 +1427,7 @@ def train(
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
 ):
-    """
-    Train a pose-estimation model with SLEAP-NN framework.
+    """Train a pose-estimation model with SLEAP-NN framework.
 
     This method creates a config object based on the parameters provided by the user,
     and starts training by passing this config to the `ModelTrainer` class.

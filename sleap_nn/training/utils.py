@@ -88,7 +88,7 @@ def get_backbone_config(backbone_cfg):
         "unet_large_rf": UNetLargeRFConfig(),
     }
     convnext_config_mapper = {
-        "convenxt": ConvNextConfig(),
+        "convnext": ConvNextConfig(),
         "convnext_tiny": ConvNextConfig(),
         "convnext_small": ConvNextSmallConfig(),
         "convnext_base": ConvNextBaseConfig(),
@@ -104,9 +104,9 @@ def get_backbone_config(backbone_cfg):
         if backbone_cfg.startswith("unet"):
             backbone_config.unet = unet_config_mapper[backbone_cfg]
         elif backbone_cfg.startswith("convnext"):
-            backbone_config = convnext_config_mapper[backbone_cfg]
+            backbone_config.convnext = convnext_config_mapper[backbone_cfg]
         elif backbone_cfg.startswith("swint"):
-            backbone_config = swint_config_mapper[backbone_cfg]
+            backbone_config.swint = swint_config_mapper[backbone_cfg]
 
     elif isinstance(backbone_cfg, dict):
         backbone_config = BackboneConfig(**backbone_cfg)

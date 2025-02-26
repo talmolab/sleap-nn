@@ -6,7 +6,7 @@ the parameters required to initialize the model config.
 
 from attrs import define, field
 from sleap_nn.config.utils import oneof
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 
 # Define configuration for each backbone type (unet, convnext, swint) configurations
@@ -650,7 +650,7 @@ class PAFConfig:
             improving this specific output in multi-head models.
     """
 
-    edges: Optional[List[str]] = None
+    edges: Optional[List[List[str]]] = None
     sigma: float = 15.0
     output_stride: int = 1
     loss_weight: Optional[float] = None

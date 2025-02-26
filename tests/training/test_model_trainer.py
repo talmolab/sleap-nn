@@ -1042,3 +1042,64 @@ def test_train_method(minimal_instance, tmp_path: str):
         trainer_accelerator="cpu",
         head_configs="centered_instance",
     )
+
+    # with augmentations
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+        use_augmentations_train=True,
+        intensity_aug=["uniform_noise", "gaussian_noise", "contrast"],
+        geometry_aug=["rotation", "scale"],
+        save_ckpt_path=f"{tmp_path}/test_aug",
+    )
+
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.data_config.augmentation_config.intensity.uniform_noise_p == 1.0
+    assert config.data_config.augmentation_config.intensity.gaussian_noise_p == 1.0
+    assert config.data_config.augmentation_config.intensity.contrast_p == 1.0
+    assert config.data_config.augmentation_config.intensity.brightness_p != 1.0
+    assert config.data_config.augmentation_config.geometric.affine_p == 1.0
+
+    # backbone configs #TODO
+
+    # head configs
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centroid",
+        save_ckpt_path=f"{tmp_path}/test_aug",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.model_config.head_configs.centroid is not None
+    assert config.model_config.head_configs.bottomup is None
+
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="single_instance",
+        save_ckpt_path=f"{tmp_path}/test_aug",
+        lr_scheduler="ReduceLROnPlateau",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.model_config.head_configs.single_instance is not None
+    assert config.model_config.head_configs.bottomup is None
+
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="bottomup",
+        save_ckpt_path=f"{tmp_path}/test_aug",
+        lr_scheduler="StepLR",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.model_config.head_configs.bottomup is not None
+    assert config.model_config.head_configs.centroid is None

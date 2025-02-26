@@ -6,7 +6,7 @@ the parameters required to initialize the data config.
 
 from attrs import define, field, validators
 from omegaconf import MISSING
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Union, List
 
 
 @define
@@ -25,9 +25,9 @@ class PreprocessingConfig:
     is_rgb: bool = True
     max_height: Optional[int] = None
     max_width: Optional[int] = None
-    scale: Any = field(
+    scale: float = field(
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
-    )
+    )  # TODO
     crop_hw: Optional[Tuple[int, int]] = None
     min_crop_size: int = 100  # to help app work incase of error
 
@@ -108,7 +108,7 @@ class GeometricConfig:
     """
 
     rotation: float = 0.0
-    scale: Optional[Tuple[float, float, float, float]] = None
+    scale: Optional[float] = None
     translate_width: float = 0.0
     translate_height: float = 0.0
     affine_p: float = field(default=0.0, validator=validate_proportion)
