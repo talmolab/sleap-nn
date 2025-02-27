@@ -22,12 +22,12 @@ class PreprocessingConfig:
         min_crop_size: (int) Minimum crop size to be used if crop_hw is None.
     """
 
-    is_rgb: bool = True
+    is_rgb: bool = False
     max_height: Optional[int] = None
     max_width: Optional[int] = None
     scale: float = field(
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
-    )  # TODO
+    )
     crop_hw: Optional[Tuple[int, int]] = None
     min_crop_size: int = 100  # to help app work incase of error
 
@@ -108,16 +108,16 @@ class GeometricConfig:
     """
 
     rotation: float = 15.0
-    scale: Optional[List[float]] = None
-    translate_width: float = 0.0
-    translate_height: float = 0.0
+    scale: List[float] = (0.9, 1.1)
+    translate_width: float = 0.2
+    translate_height: float = 0.2
     affine_p: float = field(default=0.0, validator=validate_proportion)
     erase_scale_min: float = 0.0001
     erase_scale_max: float = 0.01
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
     erase_p: float = field(default=0.0, validator=validate_proportion)
-    mixup_lambda: Optional[float] = 0.1
+    mixup_lambda: float = 0.1
     mixup_p: float = field(default=0.0, validator=validate_proportion)
     input_key: str = "image"
 

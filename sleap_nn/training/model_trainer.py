@@ -1397,7 +1397,7 @@ def train(
     head_configs: Union[str, Dict[str, Any]] = None,
     batch_size: int = 4,
     shuffle_train: bool = True,
-    num_workers: int = 2,
+    num_workers: int = 0,
     ckpt_save_top_k: int = 1,
     ckpt_save_last: bool = False,
     trainer_num_devices: Union[str, int] = "auto",
@@ -1545,7 +1545,7 @@ def train(
         batch_size: Number of samples per batch or batch size for training data. Default: 4.
         shuffle_train: True to have the train data reshuffled at every epoch. Default: False.
         num_workers: Number of subprocesses to use for data loading. 0 means that the data
-            will be loaded in the main process. Default: 2.
+            will be loaded in the main process. Default: 0.
         ckpt_save_top_k: If save_top_k == k, the best k models according to the quantity
             monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1,
             all models are saved. Please note that the monitors are checked every every_n_epochs
