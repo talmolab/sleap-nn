@@ -10,6 +10,7 @@ dependencies:
   - pydantic
   - lightning
   - pytorch
+  - loguru
   - torchvision
   - h5py
   - pandas

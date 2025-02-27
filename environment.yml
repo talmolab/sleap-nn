@@ -13,6 +13,7 @@ dependencies:
   - lightning
   - cudnn
   - pytorch
+  - loguru
   - torchvision
   - h5py
   - pandas
