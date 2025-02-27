@@ -24,7 +24,7 @@ Conveniently, this format also provides a single location where all user-facing
 parameters are aggregated and documented for end users (as opposed to developers).
 """
 
-from attrs import define, asdict
+from attrs import define, asdict, field
 from typing import Text, Optional
 from omegaconf import OmegaConf
 import sleap_nn
@@ -49,9 +49,9 @@ class TrainingJobConfig:
         filename: Path to this config file if it was loaded from disk.
     """
 
-    data_config: DataConfig = DataConfig()
-    model_config: ModelConfig = ModelConfig()
-    trainer_config: TrainerConfig = TrainerConfig()
+    data_config: DataConfig = field(factory=DataConfig)
+    model_config: ModelConfig = field(factory=ModelConfig)
+    trainer_config: TrainerConfig = field(factory=TrainerConfig)
     name: Optional[Text] = ""
     description: Optional[Text] = ""
     sleap_nn_version: Optional[Text] = sleap_nn.__version__

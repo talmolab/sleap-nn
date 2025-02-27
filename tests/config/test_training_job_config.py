@@ -30,7 +30,7 @@ import tempfile
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
-from sleap_nn.config.trainer_config import TrainerConfig
+from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
 from omegaconf import OmegaConf, MissingMandatoryValue
 from dataclasses import asdict
 
@@ -51,7 +51,7 @@ def sample_config():
             pre_trained_weights=None,
             backbone_config="unet",
         ),
-        "trainer_config": TrainerConfig(),
+        "trainer_config": TrainerConfig(early_stopping=EarlyStoppingConfig()),
     }
 
 

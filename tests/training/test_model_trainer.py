@@ -17,6 +17,7 @@ from sleap_nn.training.model_trainer import (
     SingleInstanceModel,
     CentroidModel,
     BottomUpModel,
+    train,
 )
 from torch.nn.functional import mse_loss
 import os
@@ -494,9 +495,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     )
     OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
-    OmegaConf.update(
-        config_early_stopping, "trainer_config.lr_scheduler.scheduler", None
-    )
+    OmegaConf.update(config_early_stopping, "trainer_config.lr_scheduler", None)
     OmegaConf.update(
         config_early_stopping,
         "trainer_config.save_ckpt_path",
@@ -634,6 +633,16 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(
+        config,
+        "model_config.pretrained_backbone_weights",
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+    )
+    OmegaConf.update(
+        config,
+        "model_config.pretrained_head_weights",
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+    )
 
     # check loading trained weights for backbone
     load_weights_config = config.copy()
@@ -648,12 +657,7 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     ].numpy()
 
     trainer = ModelTrainer(load_weights_config)
-    trainer._initialize_model(
-        pretrained_backbone_weights=(
-            Path(minimal_instance_ckpt) / "best.ckpt"
-        ).as_posix(),
-        pretrained_head_weights=(Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
-    )
+    trainer._initialize_model()
     model_ckpt = next(trainer.model.parameters())[0, 0, :].detach().numpy()
 
     assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-6)
@@ -1031,3 +1035,213 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+
+
+def test_train_method(minimal_instance, tmp_path: str):
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+        save_ckpt=True,
+    )
+
+    # with augmentations
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            trainer_accelerator="cpu",
+            head_configs="centered_instance",
+            use_augmentations_train=True,
+            intensity_aug="intensity",
+            geometry_aug=["rotation", "scale"],
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
+
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            trainer_accelerator="cpu",
+            head_configs="centered_instance",
+            use_augmentations_train=True,
+            intensity_aug="uniform_noise",
+            geometry_aug="rotate",
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
+
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+        use_augmentations_train=True,
+        intensity_aug=["uniform_noise", "gaussian_noise", "contrast"],
+        geometry_aug=["rotation", "scale"],
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+    )
+
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.data_config.augmentation_config.intensity.uniform_noise_p == 1.0
+    assert config.data_config.augmentation_config.intensity.gaussian_noise_p == 1.0
+    assert config.data_config.augmentation_config.intensity.contrast_p == 1.0
+    assert config.data_config.augmentation_config.intensity.brightness_p != 1.0
+    assert config.data_config.augmentation_config.geometric.affine_p == 1.0
+
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+        use_augmentations_train=True,
+        intensity_aug="brightness",
+        geometry_aug=["translate", "erase_scale", "mixup"],
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+    )
+
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.data_config.augmentation_config.intensity.uniform_noise_p == 0.0
+    assert config.data_config.augmentation_config.intensity.brightness_p == 1.0
+    assert config.data_config.augmentation_config.geometric.affine_p == 1.0
+    assert config.data_config.augmentation_config.geometric.erase_p == 1.0
+    assert config.data_config.augmentation_config.geometric.mixup_p == 1.0
+
+    ## test with passing dicts for aug
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+        use_augmentations_train=True,
+        intensity_aug={
+            "uniform_noise_min": 0.0,
+            "uniform_noise_max": 1.0,
+            "uniform_noise_p": 1.0,
+        },
+        geometry_aug={"rotation": 180.0, "affine_p": 1.0},
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+    )
+
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.data_config.augmentation_config.intensity.uniform_noise_p == 1.0
+    assert config.data_config.augmentation_config.geometric.affine_p == 1.0
+    assert config.data_config.augmentation_config.geometric.rotation == 180.0
+
+    # backbone configs #TODO
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            backbone_config="resnet",
+            trainer_accelerator="cpu",
+            head_configs="centroid",
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
+
+    # head configs
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            backbone_config="unet",
+            trainer_accelerator="cpu",
+            head_configs="center",
+            save_ckpt=True,
+            save_ckpt_path=f"{tmp_path}/test_aug",
+        )
+
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centroid",
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.model_config.head_configs.centroid is not None
+    assert config.model_config.head_configs.bottomup is None
+
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="single_instance",
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+        lr_scheduler="ReduceLROnPlateau",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.model_config.head_configs.single_instance is not None
+    assert config.model_config.head_configs.bottomup is None
+
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="bottomup",
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+        lr_scheduler="StepLR",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.model_config.head_configs.bottomup is not None
+    assert config.model_config.head_configs.centroid is None
+
+    ## pass dict for head_configs
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs={
+            "single_instance": {
+                "confmaps": {"part_names": None, "sigma": 2.5, "output_stride": 2}
+            }
+        },
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+        lr_scheduler="StepLR",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.model_config.head_configs.single_instance is not None
+    assert config.model_config.head_configs.centroid is None
+
+    ## pass dict for scheduler
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs={
+            "centroid": {
+                "confmaps": {"anchor_part": None, "sigma": 2.5, "output_stride": 2}
+            }
+        },
+        save_ckpt=True,
+        save_ckpt_path=f"{tmp_path}/test_aug",
+        lr_scheduler={
+            "scheduler": "StepLR",
+            "step_lr": {"step_size": 10, "gamma": 0.1},
+        },
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    assert config.trainer_config.lr_scheduler.step_lr.step_size == 10

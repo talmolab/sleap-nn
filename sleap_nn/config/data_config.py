@@ -6,7 +6,7 @@ the parameters required to initialize the data config.
 
 from attrs import define, field, validators
 from omegaconf import MISSING
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Union, List
 
 
 @define
@@ -22,14 +22,14 @@ class PreprocessingConfig:
         min_crop_size: (int) Minimum crop size to be used if crop_hw is None.
     """
 
-    is_rgb: bool = True
+    is_rgb: bool = False
     max_height: Optional[int] = None
     max_width: Optional[int] = None
-    scale: Any = field(
+    scale: float = field(
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
     )
     crop_hw: Optional[Tuple[int, int]] = None
-    min_crop_size: int = 32  # to help app work incase of error
+    min_crop_size: int = 100  # to help app work incase of error
 
     def validate_scale(self):
         """Scale Validation.
@@ -93,7 +93,7 @@ class GeometricConfig:
 
     Attributes:
         rotation: (float) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation.
-        scale: (float) scaling factor interval. If (a, b) represents isotropic scaling, the scale is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d Default: None.
+        scale: (List[float]) scaling factor interval. If (a, b) represents isotropic scaling, the scale is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d Default: None.
         translate_width: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default.
         translate_height: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default.
         affine_p: (float) Probability of applying random affine transformations. Default=0.0
@@ -107,17 +107,17 @@ class GeometricConfig:
         input_key: (str) Can be image or instance. The input_key instance expects the KorniaAugmenter to follow the InstanceCropper else image otherwise for default.
     """
 
-    rotation: float = 0.0
-    scale: Optional[Tuple[float, float, float, float]] = None
-    translate_width: float = 0.0
-    translate_height: float = 0.0
+    rotation: float = 15.0
+    scale: List[float] = (0.9, 1.1)
+    translate_width: float = 0.2
+    translate_height: float = 0.2
     affine_p: float = field(default=0.0, validator=validate_proportion)
     erase_scale_min: float = 0.0001
     erase_scale_max: float = 0.01
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
     erase_p: float = field(default=0.0, validator=validate_proportion)
-    mixup_lambda: Optional[float] = None
+    mixup_lambda: float = 0.1
     mixup_p: float = field(default=0.0, validator=validate_proportion)
     input_key: str = "image"
 
@@ -131,8 +131,8 @@ class AugmentationConfig:
         geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
     """
 
-    intensity: Optional[IntensityConfig] = IntensityConfig()
-    geometric: Optional[GeometricConfig] = GeometricConfig()
+    intensity: Optional[IntensityConfig] = field(factory=IntensityConfig)
+    geometric: Optional[GeometricConfig] = field(factory=GeometricConfig)
 
 
 @define
@@ -163,6 +163,8 @@ class DataConfig:
     use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
     augmentation_config: Configurations related to augmentation.
         # Your list specifies "(only if use_augmentations_train is True)"
+    skeletons: skeleton configuration for the `.slp` file. This will be pulled from the
+        train dataset and saved to the `training_config.yaml`
     """
 
     train_labels_path: str = MISSING
@@ -175,6 +177,7 @@ class DataConfig:
     use_existing_chunks: bool = False
     chunk_size: int = 100
     delete_chunks_after_training: bool = True
-    preprocessing: PreprocessingConfig = PreprocessingConfig()
+    preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
-    augmentation_config: AugmentationConfig = AugmentationConfig()
+    augmentation_config: Optional[AugmentationConfig] = None
+    skeletons: Optional[dict] = None

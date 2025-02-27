@@ -20,6 +20,8 @@ data_config:
 model_config:
   init_weights: xavier
   pre_trained_weights: null
+  pretrained_backbone_weights:
+  pretrained_head_weights:
   backbone_config:
     unet:
       in_channels: 1

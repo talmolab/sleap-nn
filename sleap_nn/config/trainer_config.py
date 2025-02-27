@@ -53,7 +53,6 @@ class WandBConfig:
         api_key: (str) API key. The API key is masked when saved to config files.
         wandb_mode: (str) "offline" if only local logging is required. Default: "None".
         prv_runid: (str) Previous run ID if training should be resumed from a previous ckpt. Default: None.
-        log_params: (List[str]) List of config parameters to save it in wandb logs. For example, to save learning rate from trainer config section, use "trainer_config.optimizer.lr" (provide the full path to the specific config parameter).
         group: (str) Group for wandb logging.
     """
 
@@ -63,7 +62,6 @@ class WandBConfig:
     api_key: Optional[str] = None
     wandb_mode: Optional[str] = None
     prv_runid: Optional[str] = None
-    log_params: Optional[List[str]] = None
     group: Optional[str] = None
 
 
@@ -143,8 +141,8 @@ class LRSchedulerConfig:
         default="ReduceLROnPlateau",
         validator=lambda instance, attr, value: instance.validate_scheduler(),
     )
-    step_lr: StepLRConfig = StepLRConfig()
-    reduce_lr_on_plateau: ReduceLROnPlateauConfig = ReduceLROnPlateauConfig()
+    step_lr: Optional[StepLRConfig] = None
+    reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = None
 
     def validate_scheduler(self):
         """Scheduler Validation.
@@ -190,7 +188,6 @@ class TrainerConfig:
         use_wandb: (bool) True to enable wandb logging.
         save_ckpt: (bool) True to enable checkpointing.
         save_ckpt_path: (str) Directory path to save the training config and checkpoint files. Default: "./"
-        bin_files_path: (str) Directory path to save binary files. Default: None.
         resume_ckpt_path: (str) Path to .ckpt file from which training is resumed. Default: None.
         wandb: (Only if use_wandb is True, else skip this)
         optimizer_name: (str) Optimizer to be used. One of ["Adam", "AdamW"].
@@ -199,9 +196,9 @@ class TrainerConfig:
         early_stopping: create an early_stopping configuration
     """
 
-    train_data_loader: DataLoaderConfig = DataLoaderConfig()
-    val_data_loader: DataLoaderConfig = DataLoaderConfig()
-    model_ckpt: ModelCkptConfig = ModelCkptConfig()
+    train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
+    val_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
+    model_ckpt: ModelCkptConfig = field(factory=ModelCkptConfig)
     trainer_devices: Any = field(
         default="auto",
         validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val),
@@ -213,27 +210,16 @@ class TrainerConfig:
     seed: Optional[int] = None
     use_wandb: bool = False
     save_ckpt: bool = False
-    save_ckpt_path: str = "./"
-    bin_files_path: Optional[str] = None
+    save_ckpt_path: Optional[str] = None
     resume_ckpt_path: Optional[str] = None
-    wandb: Optional[WandBConfig] = field(init=False)
+    wandb: WandBConfig = field(factory=WandBConfig)
     optimizer_name: str = field(
         default="Adam",
         validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val),
     )
     optimizer: OptimizerConfig = OptimizerConfig()
-    lr_scheduler: LRSchedulerConfig = LRSchedulerConfig()
-    early_stopping: EarlyStoppingConfig = EarlyStoppingConfig()
-
-    def __attrs_post_init__(self):
-        """Post Initialization Validation.
-
-        initialize wandB configuration if use_wandB is set to True
-        """
-        if self.use_wandb:
-            self.wandb = WandBConfig()
-        else:
-            self.wandb = None
+    lr_scheduler: Optional[LRSchedulerConfig] = None
+    early_stopping: Optional[EarlyStoppingConfig] = None
 
     @staticmethod
     def validate_optimizer_name(value):
