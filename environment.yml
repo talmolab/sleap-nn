@@ -13,7 +13,6 @@ dependencies:
   - lightning
   - cudnn
   - pytorch
-  - loguru
   - torchvision
   - h5py
   - pandas
@@ -35,4 +34,5 @@ dependencies:
   - pip
   - pip:
     - "--editable=.[dev]"
+    - loguru
     - litdata

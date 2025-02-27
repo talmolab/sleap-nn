@@ -8,7 +8,6 @@ channels:
 dependencies:
   - python=3.9
   - pytorch
-  - loguru
   - pydantic
   - lightning
   - cpuonly
@@ -35,3 +34,4 @@ dependencies:
   - pip:
     - "--editable=.[dev]"
     - litdata
+    - loguru
