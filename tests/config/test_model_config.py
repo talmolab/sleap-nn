@@ -62,7 +62,10 @@ def test_default_initialization(default_config):
 def test_invalid_pre_trained_weights(caplog):
     """Test validation failure with an invalid pre_trained_weights."""
     with pytest.raises(ValueError):
-        ModelConfig(pre_trained_weights="here", backbone_config=BackboneConfig(unet=UNetConfig())
+        ModelConfig(
+            pre_trained_weights="here",
+            backbone_config=BackboneConfig(unet=UNetConfig()),
+        )
     assert "UNet" in caplog.text
 
 
@@ -89,4 +92,4 @@ def test_invalid_model_type(caplog):
     """Test validation failure with an invalid model_type."""
     with pytest.raises(ValueError):
         SwinTConfig(model_type="invalid_model_type")
-    assert "Invalid model_type." in caplog.text
+    assert "Invalid model_type" in caplog.text

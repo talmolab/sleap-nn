@@ -161,9 +161,7 @@ class ModelTrainer:
                     and self.train_np_chunks_path.is_dir()
                     and any(self.train_np_chunks_path.glob("*.npz"))
                 ):
-                    message = (
-                        f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
-                    )
+                    message = f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
                     logger.error(message)
                     raise Exception(message)
 
@@ -172,9 +170,7 @@ class ModelTrainer:
                     and self.val_np_chunks_path.is_dir()
                     and any(self.val_np_chunks_path.glob("*.npz"))
                 ):
-                    message = (
-                        f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
-                    )
+                    message = f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
                     logger.error(message)
                     raise Exception(message)
 
@@ -938,7 +934,9 @@ class TrainingModel(L.LightningModule):
 
         # Initializing head layers with trained ckpts.
         if self.pretrained_head_weights is not None:
-            logger.info(f"Loading head weights from `{self.pretrained_head_weights}` ...")
+            logger.info(
+                f"Loading head weights from `{self.pretrained_head_weights}` ..."
+            )
             ckpt = torch.load(self.pretrained_head_weights)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]

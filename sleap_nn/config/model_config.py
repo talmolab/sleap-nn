@@ -377,7 +377,9 @@ class SwinTConfig:
         """
         valid_types = ["tiny", "small", "base"]
         if value not in valid_types:
-            raise ValueError(f"Invalid model_type. Must be one of {valid_types}")
+            message = f"Invalid model_type. Must be one of {valid_types}"
+            logger.error(message)
+            raise ValueError(message)
 
 
 @define
@@ -762,7 +764,6 @@ class ModelConfig:
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)
     total_params: Optional[int] = None
-
 
     def validate_pre_trained_weights(self, value):
         """Validate pre_trained_weights.

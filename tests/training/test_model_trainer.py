@@ -361,7 +361,6 @@ def test_trainer_torch_dataset(config, tmp_path: str):
         )
     assert "There are no numpy chunks in the path" in caplog.text
 
-
     Path.mkdir(Path(tmp_path) / "train_chunks", parents=True)
     file_path = Path(tmp_path) / "train_chunks" / "sample.npz"
     np.savez_compressed(file_path, {1: 10})
@@ -371,8 +370,7 @@ def test_trainer_torch_dataset(config, tmp_path: str):
     OmegaConf.update(config, "data_config.use_existing_chunks", True)
 
     with pytest.raises(Exception):
-        model_trainer = ModelTrainer(
-            config )
+        model_trainer = ModelTrainer(config)
     assert "There are no numpy chunks in the path" in caplog.text
 
     #####
