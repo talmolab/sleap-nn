@@ -36,7 +36,7 @@ The config file has three main sections:
         original image size will be retained. *Default*: `None`.
         - `scale`: (float) Factor to resize the image dimensions by, specified as a float. *Default*: `1.0`.
         - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. *Default*: `None`.
-        - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`. *Default*: `100`.
+        - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`. *Default*: `None`.
     - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. *Default*: `False`.
     - `augmentation_config`: (only if `use_augmentations` is `True`)
         - `intensity`: (Optional)
@@ -64,9 +64,8 @@ The config file has three main sections:
             - `erase_p`: (float) Probability of applying random erase. *Default*: `1.0`.
             - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `0.1`.
             - `mixup_p`: (float) Probability of applying random mixup v2. *Default*: `0.0`.
-            - `input_key`: (str) Can be `image` or `instance`. The input_key `instance` expects the KorniaAugmenter to follow the InstanceCropper else `image` otherwise for default.
 - `model_config`: 
-    - `init_weight`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. *Default*: `"default"`.
+    - `init_weights`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. *Default*: `"default"`.
     - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]. *Default*: `None`.
     - `pretrained_backbone_weights`: (str) Path of the `ckpt` file with which the backbone is initialized. If `None`, random init is used. *Default*: `None`.
     - `pretrained_head_weights`: (str) Path of the `ckpt` file with which the head layers are initialized. If `None`, random init is used. *Default*: `None`.

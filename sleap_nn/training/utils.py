@@ -161,23 +161,26 @@ def get_head_configs(head_cfg):
 
     elif isinstance(head_cfg, dict):
         head_configs = HeadConfig()
-        if "single_instance" in head_cfg:
+        if "single_instance" in head_cfg and head_cfg["single_instance"] is not None:
             head_configs.single_instance = SingleInstanceConfig(
                 confmaps=SingleInstanceConfMapsConfig(
                     **head_cfg["single_instance"]["confmaps"]
                 )
             )
-        elif "centroid" in head_cfg:
+        elif "centroid" in head_cfg and head_cfg["centroid"] is not None:
             head_configs.centroid = CentroidConfig(
                 confmaps=CentroidConfMapsConfig(**head_cfg["centroid"]["confmaps"])
             )
-        elif "centered_instance" in head_cfg:
+        elif (
+            "centered_instance" in head_cfg
+            and head_cfg["centered_instance"] is not None
+        ):
             head_configs.centered_instance = CenteredInstanceConfig(
                 confmaps=CenteredInstanceConfMapsConfig(
                     **head_cfg["centered_instance"]["confmaps"]
                 )
             )
-        elif "bottomup" in head_cfg:
+        elif "bottomup" in head_cfg and head_cfg["bottomup"] is not None:
             head_configs.bottomup = BottomUpConfig(
                 confmaps=BottomUpConfMapsConfig(
                     **head_cfg["bottomup"]["confmaps"],
