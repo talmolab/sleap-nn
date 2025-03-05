@@ -1385,7 +1385,7 @@ def train(
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
     crop_hw: Optional[Tuple[int, int]] = None,
-    min_crop_size: int = 100,
+    min_crop_size: Optional[int] = 100,
     use_augmentations_train: bool = False,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
