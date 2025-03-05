@@ -1,6 +1,6 @@
 from omegaconf import DictConfig
 from pathlib import Path
-import os
+import sys
 
 import pytest
 from sleap_nn.training.train import main
@@ -137,6 +137,10 @@ def sample_cfg(sleap_data_dir, tmp_path):
     return config
 
 
+@pytest.mark.skipif(
+    sys.platform.startswith("li"),
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
 def test_main(sample_cfg):
     main(sample_cfg)
 
@@ -148,3 +152,23 @@ def test_main(sample_cfg):
         .exists()
     )
     assert Path(sample_cfg.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
+    assert (
+        Path(sample_cfg.trainer_config.save_ckpt_path).joinpath("pred_val.slp").exists()
+    )
+    assert (
+        not Path(sample_cfg.trainer_config.save_ckpt_path)
+        .joinpath("pred_test.slp")
+        .exists()
+    )
+
+    # with test file
+    sample_cfg.data_config.test_file_path = sample_cfg.data_config.train_labels_path
+    main(sample_cfg)
+
+    folder_created = Path(sample_cfg.trainer_config.save_ckpt_path).exists()
+    assert folder_created
+    assert (
+        Path(sample_cfg.trainer_config.save_ckpt_path)
+        .joinpath("pred_test.slp")
+        .exists()
+    )

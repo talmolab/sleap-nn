@@ -139,6 +139,8 @@ class DataConfig:
 
     train_labels_path: (str) Path to training data (.slp file)
     val_labels_path: (str) Path to validation data (.slp file)
+    test_labels_path: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only
+        with CLI to get evaluation on test set after training is completed.
     provider: (str) Provider class to read the input sleap files. Only "LabelsReader"
         supported for the training pipeline.
     user_instances_only: (bool) True if only user labeled instances should be used for
@@ -167,6 +169,7 @@ class DataConfig:
 
     train_labels_path: str = MISSING
     val_labels_path: str = MISSING
+    test_file_path: Optional[str] = None
     provider: str = "LabelsReader"
     user_instances_only: bool = True
     data_pipeline_fw: str = "torch_dataset"

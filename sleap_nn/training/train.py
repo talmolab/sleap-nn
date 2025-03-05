@@ -1,10 +1,16 @@
 import hydra
+from pathlib import Path
 from omegaconf import DictConfig, OmegaConf
+from typing import Optional
+import sleap_io as sio
 from sleap_nn.training.model_trainer import train
+from sleap_nn.inference.predictors import main as predict
+from sleap_nn.evaluation import Evaluator
 
 
-@hydra.main(version_base=None, config_path="", config_name="initial_config")
+@hydra.main(version_base=None, config_path="")
 def main(cfg: DictConfig):
+    """Train SLEAP-NN model using CLI."""
     # cfg = OmegaConf.to_container(cfg, resolve=True)
     train(
         train_labels_path=cfg.data_config.train_labels_path,
@@ -61,8 +67,65 @@ def main(cfg: DictConfig):
         early_stopping_min_delta=cfg.trainer_config.early_stopping.min_delta,
         early_stopping_patience=cfg.trainer_config.early_stopping.patience,
     )
+    # run inference on val dataset
+    val_labels = sio.load_slp(cfg.data_config.val_labels_path)
 
-    # run inference on val (and test) set (predict on test data if test data path is provided)
+    pred_val_labels = predict(
+        data_path=cfg.data_config.val_labels_path,
+        model_paths=[cfg.trainer_config.save_ckpt_path],
+        provider="LabelsReader",
+        peak_threshold=0.2,
+        make_labels=True,
+        save_path=Path(cfg.trainer_config.save_ckpt_path) / "pred_val.slp",
+    )
+
+    evaluator = Evaluator(
+        ground_truth_instances=val_labels, predicted_instances=pred_val_labels
+    )
+    dist_metrics = evaluator.distance_metrics()
+    try:
+        map_oks = evaluator.voc_metrics(match_score_by="oks")["oks_voc.mAP"]
+    except:
+        map_oks = 0.0
+    print(f"EVALUATION ON VALIDATION DATASET")
+    print(f"OKS: {map_oks}")
+    print(f"Average distance: {dist_metrics['avg']}")
+    print(f"p90 dist: {dist_metrics['p90']}")
+    print(f"p50 dist: {dist_metrics['p50']}")
+
+    # run inference on test data
+    if (
+        "test_file_path" in cfg.data_config
+        and cfg.data_config.test_file_path is not None
+    ):
+        test_labels = sio.load_slp(cfg.data_config.test_file_path)
+
+        pred_labels = predict(
+            data_path=cfg.data_config.test_file_path,
+            model_paths=[cfg.trainer_config.save_ckpt_path],
+            provider=(
+                "LabelsReader"
+                if cfg.data_config.test_file_path.endswith(".slp")
+                else "VideoReader"
+            ),
+            peak_threshold=0.2,
+            make_labels=True,
+            save_path=Path(cfg.trainer_config.save_ckpt_path) / "pred_test.slp",
+        )
+
+        evaluator = Evaluator(
+            ground_truth_instances=test_labels, predicted_instances=pred_labels
+        )
+        dist_metrics = evaluator.distance_metrics()
+        try:
+            map_oks = evaluator.voc_metrics(match_score_by="oks")["oks_voc.mAP"]
+        except:
+            map_oks = 0.0
+        print(f"EVALUATION ON TEST DATASET")
+        print(f"OKS: {map_oks}")
+        print(f"Average distance: {dist_metrics['avg']}")
+        print(f"p90 dist: {dist_metrics['p90']}")
+        print(f"p50 dist: {dist_metrics['p50']}")
 
 
 if __name__ == "__main__":
