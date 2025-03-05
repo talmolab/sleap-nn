@@ -24,13 +24,14 @@ Conveniently, this format also provides a single location where all user-facing
 parameters are aggregated and documented for end users (as opposed to developers).
 """
 
-from attrs import define, asdict
+from attrs import define, asdict, field
+from typing import Text, Optional
+from omegaconf import OmegaConf
 import sleap_nn
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.trainer_config import TrainerConfig
-from typing import Text, Optional
-from omegaconf import OmegaConf
+from sleap_nn.config.utils import get_output_strides_from_heads
 
 
 @define
@@ -38,8 +39,9 @@ class TrainingJobConfig:
     """Configuration of a training job.
 
     Attributes:
-        data: Configuration options related to the training data.
-        model: Configuration options related to the model architecture.
+        data_config: Configuration options related to the training data.
+        model_config: Configuration options related to the model architecture.
+        trainer_config: Configuration ooptions related to model training.
         outputs: Configuration options related to outputs during training.
         name: Optional name for this configuration profile.
         description: Optional description of the configuration.
@@ -47,13 +49,34 @@ class TrainingJobConfig:
         filename: Path to this config file if it was loaded from disk.
     """
 
-    data_config: DataConfig = DataConfig()
-    model_config: ModelConfig = ModelConfig()
-    trainer_config: TrainerConfig = TrainerConfig()
+    data_config: DataConfig = field(factory=DataConfig)
+    model_config: ModelConfig = field(factory=ModelConfig)
+    trainer_config: TrainerConfig = field(factory=TrainerConfig)
     name: Optional[Text] = ""
     description: Optional[Text] = ""
     sleap_nn_version: Optional[Text] = sleap_nn.__version__
     filename: Optional[Text] = ""
+
+    @classmethod
+    def check_output_strides(cls, config: OmegaConf) -> OmegaConf:
+        """Check max_stride and output_stride in backbone_config with head_config."""
+        output_strides = get_output_strides_from_heads(config.model_config.head_configs)
+        # check which backbone architecture
+        for k, v in config.model_config.backbone_config.items():
+            if v is not None:
+                backbone_type = k
+                break
+        if output_strides:
+            config.model_config.backbone_config[f"{backbone_type}"]["output_stride"] = (
+                min(output_strides)
+            )
+            if config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ] < max(output_strides):
+                config.model_config.backbone_config[f"{backbone_type}"][
+                    "max_stride"
+                ] = max(output_strides)
+        return config
 
     @classmethod
     def from_yaml(cls, yaml_data: Text) -> OmegaConf:
@@ -65,10 +88,11 @@ class TrainingJobConfig:
         Returns:
             A OmegaConf instance parsed from the YAML text, validated against the schema.
         """
-        schema = OmegaConf.structured(cls)
+        schema = OmegaConf.structured(cls())
         config = OmegaConf.create(yaml_data)
         config = OmegaConf.merge(schema, config)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        config = TrainingJobConfig.check_output_strides(config)
         return config
 
     @classmethod
@@ -82,10 +106,11 @@ class TrainingJobConfig:
         Returns:
           A OmegaConf instance parsed from the YAML file.
         """
-        schema = OmegaConf.structured(cls)
+        schema = OmegaConf.structured(cls())
         config = OmegaConf.load(filename)
         config = OmegaConf.merge(schema, config)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+        config = TrainingJobConfig.check_output_strides(config)
         return config
 
     def to_yaml(self, filename: Optional[Text] = None) -> None:
@@ -100,7 +125,7 @@ class TrainingJobConfig:
 
         # Handle any special cases (like enums) that need manual conversion
         if config_dict.get("model", {}).get("backbone_type"):
-            config_dict["model"]["backbone_type"] = self.model.backbone_type
+            config_dict["model"]["backbone_type"] = self.model_config.backbone_type
 
         # Create OmegaConf object and save if filename provided
         conf = OmegaConf.create(config_dict)
@@ -120,6 +145,4 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
     Returns:
         The parsed `OmegaConf`.
     """
-    return TrainingJobConfig.load_yaml(
-        filename, load_training_config=load_training_config
-    )
+    return TrainingJobConfig.load_yaml(filename)

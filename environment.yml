@@ -4,11 +4,12 @@ channels:
   - pytorch
   - nvidia
   - conda-forge
-  - defaults
 
 dependencies:
   - python=3.9
   - pytorch-cuda=11.8
+  - numpy
+  - sleap-io
   - pydantic
   - lightning
   - cudnn
@@ -19,10 +20,9 @@ dependencies:
   - simplejson
   - scipy
   - attrs
+  - ffmpeg
   - opencv
-  - ffmpeg<6.1.0
   - imageio
-  - imageio-ffmpeg
   - av
   - omegaconf
   - wandb
@@ -30,7 +30,6 @@ dependencies:
   - matplotlib
   - rich
   - pynwb
-  - ndx-pose
   - pip
   - pip:
     - "--editable=.[dev]"

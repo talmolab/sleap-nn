@@ -52,6 +52,11 @@ def config(sleap_data_dir):
                 "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "user_instances_only": True,
+                "data_pipeline_fw": "torch_dataset",
+                "np_chunks_path": None,
+                "litdata_chunks_path": None,
+                "use_existing_chunks": False,
+                "delete_chunks_after_training": True,
                 "chunk_size": 100,
                 "preprocessing": {
                     "is_rgb": False,
@@ -78,18 +83,22 @@ def config(sleap_data_dir):
             "model_config": {
                 "init_weights": "default",
                 "pre_trained_weights": None,
-                "backbone_type": "unet",
+                "pretrained_backbone_weights": None,
+                "pretrained_head_weights": None,
                 "backbone_config": {
-                    "in_channels": 1,
-                    "kernel_size": 3,
-                    "filters": 16,
-                    "filters_rate": 1.5,
-                    "max_stride": 8,
-                    "convs_per_block": 2,
-                    "stacks": 1,
-                    "stem_stride": None,
-                    "middle_block": True,
-                    "up_interpolate": False,
+                    "unet": {
+                        "in_channels": 1,
+                        "kernel_size": 3,
+                        "filters": 16,
+                        "filters_rate": 1.5,
+                        "max_stride": 8,
+                        "convs_per_block": 2,
+                        "stacks": 1,
+                        "stem_stride": None,
+                        "middle_block": True,
+                        "up_interpolate": False,
+                        "output_stride": 2,
+                    }
                 },
                 "head_configs": {
                     "single_instance": None,
@@ -136,7 +145,6 @@ def config(sleap_data_dir):
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",
-                "bin_files_path": None,
                 "resume_ckpt_path": None,
                 "wandb": {
                     "entity": None,

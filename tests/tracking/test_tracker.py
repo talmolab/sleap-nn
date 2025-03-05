@@ -139,7 +139,7 @@ def test_tracker(caplog, minimal_instance_ckpt):
 
     # Test with NaNs
     tracker.candidate.tracker_queue[0].features[0] = np.full(
-        tracker.candidate.tracker_queue[0].features[0].shape, np.NaN
+        tracker.candidate.tracker_queue[0].features[0].shape, np.nan
     )
     tracked_instances = tracker.track(pred_instances, 0)
     assert len(tracker.candidate.current_tracks) == 2

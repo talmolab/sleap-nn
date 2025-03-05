@@ -5,7 +5,6 @@ the parameters required to initialize the model config.
 """
 
 from attrs import define, field
-from enum import Enum
 from sleap_nn.config.utils import oneof
 from typing import Optional, List
 from loguru import logger
@@ -14,7 +13,7 @@ from loguru import logger
 # Define configuration for each backbone type (unet, convnext, swint) configurations
 @define
 class UNetConfig:
-    """unet config for backbone.
+    """UNet config for backbone.
 
     Attributes:
         in_channels: (int) Number of input channels. Default is 1.
@@ -33,8 +32,13 @@ class UNetConfig:
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
-        stacks: (int) Number of upsampling blocks in the decoder. Default is 3.
+        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
     """
 
     in_channels: int = 1
@@ -45,13 +49,100 @@ class UNetConfig:
     stem_stride: Optional[int] = None
     middle_block: bool = True
     up_interpolate: bool = True
-    stacks: int = 3
+    stacks: int = 1
     convs_per_block: int = 2
+    output_stride: int = 1
+
+
+@define
+class UNetLargeRFConfig:
+    """UNet config for backbone with large receptive field.
+
+    Attributes:
+        in_channels: (int) Number of input channels. Default is 1.
+        kernel_size: (int) Size of the convolutional kernels. Default is 3.
+        filters: (int) Base number of filters in the network. Default is 32
+        filters_rate: (float) Factor to adjust the number of filters per block.
+            Default is 1.5.
+        max_stride: (int) Scalar integer specifying the maximum stride that the image
+            must be divisible by.
+        stem_stride: (int) If not None, will create additional "down" blocks for initial
+            downsampling based on the stride. These will be configured identically to
+            the down blocks below.
+        middle_block: (bool) If True, add an additional block at the end of the encoder.
+            default: True
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
+        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+    """
+
+    in_channels: int = 1
+    kernel_size: int = 3
+    filters: int = 24
+    filters_rate: float = 1.5
+    max_stride: int = 32
+    stem_stride: Optional[int] = None
+    middle_block: bool = True
+    up_interpolate: bool = True
+    stacks: int = 1
+    convs_per_block: int = 2
+    output_stride: int = 4
+
+
+@define
+class UNetMediumRFConfig:
+    """UNet config for backbone with medium receptive field.
+
+    Attributes:
+        in_channels: (int) Number of input channels. Default is 1.
+        kernel_size: (int) Size of the convolutional kernels. Default is 3.
+        filters: (int) Base number of filters in the network. Default is 32
+        filters_rate: (float) Factor to adjust the number of filters per block.
+            Default is 1.5.
+        max_stride: (int) Scalar integer specifying the maximum stride that the image
+            must be divisible by.
+        stem_stride: (int) If not None, will create additional "down" blocks for initial
+            downsampling based on the stride. These will be configured identically to
+            the down blocks below.
+        middle_block: (bool) If True, add an additional block at the end of the encoder.
+            default: True
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
+        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+    """
+
+    in_channels: int = 1
+    kernel_size: int = 3
+    filters: int = 32
+    filters_rate: float = 2
+    max_stride: int = 16
+    stem_stride: Optional[int] = None
+    middle_block: bool = True
+    up_interpolate: bool = True
+    stacks: int = 1
+    convs_per_block: int = 2
+    output_stride: int = 4
 
 
 @define
 class ConvNextConfig:
-    """convnext configuration for backbone.
+    """Convnext configuration for backbone.
 
     Attributes:
         arch: (Default is Tiny architecture config. No need to provide if model_type
@@ -67,12 +158,17 @@ class ConvNextConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
@@ -83,14 +179,150 @@ class ConvNextConfig:
     stem_patch_stride: int = 2
     in_channels: int = 1
     kernel_size: int = 3
-    filters_rate: float = 1.5
+    filters_rate: float = 2
     convs_per_block: int = 2
     up_interpolate: bool = True
+    output_stride: int = 1
+
+
+@define
+class ConvNextSmallConfig:
+    """Convnext configuration for backbone.
+
+    Attributes:
+        arch: (Default is Tiny architecture config. No need to provide if model_type
+            is provided)
+            depths: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
+            channels: (List(int)) Number of channels in each block. Default:
+                [96, 192, 384, 768].
+        model_type: (str) One of the ConvNext architecture types:
+            ["tiny", "small", "base", "large"]. Default: "tiny".
+        stem_patch_kernel: (int) Size of the convolutional kernels in the stem layer.
+            Default is 4.
+        stem_patch_stride: (int) Convolutional stride in the stem layer. Default is 2.
+        in_channels: (int) Number of input channels. Default is 1.
+        kernel_size: (int) Size of the convolutional kernels. Default is 3.
+        filters_rate: (float) Factor to adjust the number of filters per block.
+            Default is 2.
+        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+    """
+
+    model_type: str = "small"  # Options: tiny, small, base, large
+    arch: dict = field(
+        factory=lambda: {"depths": [3, 3, 27, 3], "channels": [96, 192, 384, 768]}
+    )
+    stem_patch_kernel: int = 4
+    stem_patch_stride: int = 2
+    in_channels: int = 1
+    kernel_size: int = 3
+    filters_rate: float = 2
+    convs_per_block: int = 2
+    up_interpolate: bool = True
+    output_stride: int = 1
+
+
+@define
+class ConvNextBaseConfig:
+    """Convnext configuration for backbone.
+
+    Attributes:
+        arch: (Default is Tiny architecture config. No need to provide if model_type
+            is provided)
+            depths: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
+            channels: (List(int)) Number of channels in each block. Default:
+                [96, 192, 384, 768].
+        model_type: (str) One of the ConvNext architecture types:
+            ["tiny", "small", "base", "large"]. Default: "tiny".
+        stem_patch_kernel: (int) Size of the convolutional kernels in the stem layer.
+            Default is 4.
+        stem_patch_stride: (int) Convolutional stride in the stem layer. Default is 2.
+        in_channels: (int) Number of input channels. Default is 1.
+        kernel_size: (int) Size of the convolutional kernels. Default is 3.
+        filters_rate: (float) Factor to adjust the number of filters per block.
+            Default is 2.
+        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+    """
+
+    model_type: str = "base"  # Options: tiny, small, base, large
+    arch: dict = field(
+        factory=lambda: {"depths": [3, 3, 27, 3], "channels": [128, 256, 512, 1024]}
+    )
+    stem_patch_kernel: int = 4
+    stem_patch_stride: int = 2
+    in_channels: int = 1
+    kernel_size: int = 3
+    filters_rate: float = 2
+    convs_per_block: int = 2
+    up_interpolate: bool = True
+    output_stride: int = 1
+
+
+@define
+class ConvNextLargeConfig:
+    """Convnext configuration for backbone.
+
+    Attributes:
+        arch: (Default is Tiny architecture config. No need to provide if model_type
+            is provided)
+            depths: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
+            channels: (List(int)) Number of channels in each block. Default:
+                [96, 192, 384, 768].
+        model_type: (str) One of the ConvNext architecture types:
+            ["tiny", "small", "base", "large"]. Default: "tiny".
+        stem_patch_kernel: (int) Size of the convolutional kernels in the stem layer.
+            Default is 4.
+        stem_patch_stride: (int) Convolutional stride in the stem layer. Default is 2.
+        in_channels: (int) Number of input channels. Default is 1.
+        kernel_size: (int) Size of the convolutional kernels. Default is 3.
+        filters_rate: (float) Factor to adjust the number of filters per block.
+            Default is 2.
+        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+    """
+
+    model_type: str = "large"  # Options: tiny, small, base, large
+    arch: dict = field(
+        factory=lambda: {"depths": [3, 3, 27, 3], "channels": [192, 384, 768, 1536]}
+    )
+    stem_patch_kernel: int = 4
+    stem_patch_stride: int = 2
+    in_channels: int = 1
+    kernel_size: int = 3
+    filters_rate: float = 2
+    convs_per_block: int = 2
+    up_interpolate: bool = True
+    output_stride: int = 1
 
 
 @define
 class SwinTConfig:
-    """swinT configuration for backbone.
+    """SwinT configuration (tiny) for backbone.
 
     Attributes:
         model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"].
@@ -104,12 +336,17 @@ class SwinTConfig:
         in_channels: (int) Number of input channels. Default is 1.
         kernel_size: (int) Size of the convolutional kernels. Default is 3.
         filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
+            Default is 2.
         convs_per_block: (int) Number of convolutional layers per block. Default is 2.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales. Default: True.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
     """
 
     model_type: str = field(
@@ -128,9 +365,130 @@ class SwinTConfig:
     window_size: list = field(factory=lambda: [7, 7])
     in_channels: int = 1
     kernel_size: int = 3
-    filters_rate: float = 1.5
+    filters_rate: float = 2
     convs_per_block: int = 2
     up_interpolate: bool = True
+    output_stride: int = 1
+
+    def validate_model_type(self, value):
+        """Validate model_type.
+
+        Ensure model_type is one of "tiny", "small", or "base".
+        """
+        valid_types = ["tiny", "small", "base"]
+        if value not in valid_types:
+            raise ValueError(f"Invalid model_type. Must be one of {valid_types}")
+
+
+@define
+class SwinTSmallConfig:
+    """SwinT configuration (small) for backbone.
+
+    Attributes:
+        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"].
+            Default: "tiny".
+        arch: Dictionary of embed dimension, depths and number of heads in each layer.
+            Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2],
+            'channels':[3, 6, 12, 24]}
+        patch_size: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
+        stem_patch_stride: (int) Stride for the patch. Default is 2.
+        window_size: (List[int]) Window size. Default: [7,7].
+        in_channels: (int) Number of input channels. Default is 1.
+        kernel_size: (int) Size of the convolutional kernels. Default is 3.
+        filters_rate: (float) Factor to adjust the number of filters per block.
+            Default is 2.
+        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+    """
+
+    model_type: str = field(
+        default="small",
+        validator=lambda instance, attr, value: instance.validate_model_type(value),
+    )
+    arch: dict = field(
+        factory=lambda: {
+            "embed": 96,
+            "depths": [2, 2, 18, 2],
+            "channels": [3, 6, 12, 24],
+        }
+    )
+    patch_size: list = field(factory=lambda: [4, 4])
+    stem_patch_stride: int = 2
+    window_size: list = field(factory=lambda: [7, 7])
+    in_channels: int = 1
+    kernel_size: int = 3
+    filters_rate: float = 2
+    convs_per_block: int = 2
+    up_interpolate: bool = True
+    output_stride: int = 1
+
+    def validate_model_type(self, value):
+        """Validate model_type.
+
+        Ensure model_type is one of "tiny", "small", or "base".
+        """
+        valid_types = ["tiny", "small", "base"]
+        if value not in valid_types:
+            raise ValueError(f"Invalid model_type. Must be one of {valid_types}")
+
+
+@define
+class SwinTBaseConfig:
+    """SwinT configuration for backbone.
+
+    Attributes:
+        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"].
+            Default: "tiny".
+        arch: Dictionary of embed dimension, depths and number of heads in each layer.
+            Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2],
+            'channels':[3, 6, 12, 24]}
+        patch_size: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
+        stem_patch_stride: (int) Stride for the patch. Default is 2.
+        window_size: (List[int]) Window size. Default: [7,7].
+        in_channels: (int) Number of input channels. Default is 1.
+        kernel_size: (int) Size of the convolutional kernels. Default is 3.
+        filters_rate: (float) Factor to adjust the number of filters per block.
+            Default is 2.
+        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
+            convolutions for upsampling. Interpolation is faster but transposed
+            convolutions may be able to learn richer or more complex upsampling to
+            recover details from higher scales. Default: True.
+        output_stride: (int) The stride of the output confidence maps relative to the
+            input image. This is the reciprocal of the resolution, e.g., an output stride
+            of 2 results in confidence maps that are 0.5x the size of the input.
+            Increasing this value can considerably speed up model performance and
+            decrease memory requirements, at the cost of decreased spatial resolution.
+    """
+
+    model_type: str = field(
+        default="base",
+        validator=lambda instance, attr, value: instance.validate_model_type(value),
+    )
+    arch: dict = field(
+        factory=lambda: {
+            "embed": 128,
+            "depths": [2, 2, 18, 2],
+            "channels": [4, 8, 16, 32],
+        }
+    )
+    patch_size: list = field(factory=lambda: [4, 4])
+    stem_patch_stride: int = 2
+    window_size: list = field(factory=lambda: [7, 7])
+    in_channels: int = 1
+    kernel_size: int = 3
+    filters_rate: float = 2
+    convs_per_block: int = 2
+    up_interpolate: bool = True
+    output_stride: int = 1
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -160,7 +518,7 @@ class SingleInstanceConfMapsConfig:
             easier to learn but are less precise with respect to the peak coordinate.
             This spread is in units of pixels of the model input image,
             i.e., the image resolution after any input scaling is applied.
-        output_stride: (float) The stride of the output confidence maps relative to the
+        output_stride: (int) The stride of the output confidence maps relative to the
             input image. This is the reciprocal of the resolution, e.g., an output
             stride of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
@@ -190,7 +548,7 @@ class CentroidConfMapsConfig:
             learn but are less precise with respect to the peak coordinate. This spread is
             in units of pixels of the model input image, i.e., the image resolution after
             any input scaling is applied.
-        output_stride: (float) The stride of the output confidence maps relative to the
+        output_stride: (int) The stride of the output confidence maps relative to the
             input image. This is the reciprocal of the resolution, e.g., an output
             stride of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
@@ -225,7 +583,7 @@ class CenteredInstanceConfMapsConfig:
             easier to learn but are less precise with respect to the peak coordinate.
             This spread is in units of pixels of the model input image, i.e., the image
             resolution after any input scaling is applied.
-        output_stride: (float) The stride of the output confidence maps relative to the
+        output_stride: (int) The stride of the output confidence maps relative to the
             input image. This is the reciprocal of the resolution, e.g., an output
             stride of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
@@ -254,7 +612,7 @@ class BottomUpConfMapsConfig:
             to learn but are less precise with respect to the peak coordinate. This spread
             is in units of pixels of the model input image, i.e., the image resolution
             after any input scaling is applied.
-        output_stride: (float) The stride of the output confidence maps relative to the
+        output_stride: (int) The stride of the output confidence maps relative to the
             input image. This is the reciprocal of the resolution, e.g., an output stride
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
@@ -284,7 +642,7 @@ class PAFConfig:
             are easier to learn but are less precise with respect to the peak
             coordinate. This spread is in units of pixels of the model input image,
             i.e., the image resolution after any input scaling is applied.
-        output_stride: (float) The stride of the output confidence maps relative to
+        output_stride: (int) The stride of the output confidence maps relative to
             the input image. This is the reciprocal of the resolution, e.g., an output
             stride of 2 results in confidence maps that are 0.5x the size of the
             input. Increasing this value can considerably speed up model performance
@@ -295,7 +653,7 @@ class PAFConfig:
             improving this specific output in multi-head models.
     """
 
-    edges: Optional[List[str]] = None
+    edges: Optional[List[List[str]]] = None
     sigma: float = 15.0
     output_stride: int = 1
     loss_weight: Optional[float] = None
@@ -305,29 +663,31 @@ class PAFConfig:
 class SingleInstanceConfig:
     """single instance head_config."""
 
-    confmaps: Optional[SingleInstanceConfMapsConfig] = None
+    confmaps: SingleInstanceConfMapsConfig = field(factory=SingleInstanceConfMapsConfig)
 
 
 @define
 class CentroidConfig:
     """centroid head_config."""
 
-    confmaps: Optional[CentroidConfMapsConfig] = None
+    confmaps: CentroidConfMapsConfig = field(factory=CentroidConfMapsConfig)
 
 
 @define
 class CenteredInstanceConfig:
     """centered_instance head_config."""
 
-    confmaps: Optional[CenteredInstanceConfMapsConfig] = None
+    confmaps: CenteredInstanceConfMapsConfig = field(
+        factory=CenteredInstanceConfMapsConfig
+    )
 
 
 @define
 class BottomUpConfig:
     """bottomup head_config."""
 
-    confmaps: Optional[BottomUpConfMapsConfig] = None
-    pafs: Optional[PAFConfig] = None
+    confmaps: BottomUpConfMapsConfig = field(factory=BottomUpConfMapsConfig)
+    pafs: PAFConfig = field(factory=PAFConfig)
 
 
 @oneof
@@ -371,25 +731,25 @@ class ModelConfig:
     """Configurations related to model architecture.
 
     Attributes:
-        backbone_type: (str) Backbone architecture for the model to be trained. One of
-            "unet", "convnext" or "swint".
         init_weights: (str) model weights initialization method. "default" uses kaiming
             uniform initialization and "xavier" uses Xavier initialization method.
         pre_trained_weights: (str) Pretrained weights file name supported only for
             ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
             "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"].
             For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
+        pretrained_backbone_weights: Path of the `ckpt` file with which the backbone
+            is initialized. If `None`, random init is used.
+        pretrained_head_weights: Path of the `ckpt` file with which the head layers
+            are initialized. If `None`, random init is used.
         backbone_config: initialize either UNetConfig, ConvNextConfig, or SwinTConfig
             based on input from backbone_type
         head_configs: (Dict) Dictionary with the following keys having head configs for
             the model to be trained. Note: Configs should be provided only for the model
             to train and others should be None
+        total_params: (int) Total number of parameters in the model. This is automatically
+            computed when the training starts.
     """
 
-    backbone_type: str = field(
-        default="unet",
-        validator=lambda instance, attr, value: instance.validate_backbone_type(value),
-    )
     init_weights: str = "default"
     pre_trained_weights: Optional[str] = field(
         default=None,
@@ -397,19 +757,12 @@ class ModelConfig:
             value
         ),
     )
+    pretrained_backbone_weights: Optional[str] = None
+    pretrained_head_weights: Optional[str] = None
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)
+    total_params: Optional[int] = None
 
-    def validate_backbone_type(self, value):
-        """Validate backbone_type.
-
-        Ensure backbone_type is one of "unet", "convnext", or "swint".
-        """
-        valid_types = ["unet", "convnext", "swint"]
-        if value not in valid_types:
-            message = f"Invalid backbone_type. Must be one of {valid_types}"
-            logger.error(message)
-            raise ValueError(message)
 
     def validate_pre_trained_weights(self, value):
         """Validate pre_trained_weights.
@@ -441,17 +794,17 @@ class ModelConfig:
         ]
         swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
 
-        if self.backbone_type == "convnext":
+        if self.backbone_config.convnext is not None:
             if value not in convnext_weights:
                 message = f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
                 logger.error(message)
                 raise ValueError(message)
-        elif self.backbone_type == "swint":
+        elif self.backbone_config.swint is not None:
             if value not in swint_weights:
                 message = f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
                 logger.error(message)
                 raise ValueError(message)
-        elif self.backbone_type == "unet":
+        elif self.backbone_config.unet is not None:
             message = "UNet does not support pre-trained weights."
             logger.error(message)
             raise ValueError(message)

@@ -110,9 +110,7 @@ def apply_geometric_augmentation(
     image: torch.Tensor,
     instances: torch.Tensor,
     rotation: Optional[float] = 15.0,
-    scale: Union[
-        Optional[float], Tuple[float, float], Tuple[float, float, float, float]
-    ] = None,
+    scale: Union[Tuple[float, float], Tuple[float, float, float, float]] = None,
     translate_width: Optional[float] = 0.02,
     translate_height: Optional[float] = 0.02,
     affine_p: float = 0.0,
@@ -155,8 +153,6 @@ def apply_geometric_augmentation(
     Returns:
         Returns tuple: (image, instances) with augmentation applied.
     """
-    if isinstance(scale, float):
-        scale = (scale, scale)
     aug_stack = []
     if affine_p > 0:
         aug_stack.append(

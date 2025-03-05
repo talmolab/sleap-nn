@@ -89,7 +89,7 @@ trainer_config:
     save_top_k: 1
     save_last: true
   trainer_devices: 1
-  trainer_accelerator: gpu # TODO: redo device + trainer_accelerator!
+  trainer_accelerator: gpu
   enable_progress_bar: false
   steps_per_epoch: 
   max_epochs: 10

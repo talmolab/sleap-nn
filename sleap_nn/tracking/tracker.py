@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Union, Deque, DefaultDict, Optional
 from collections import defaultdict
 import attrs
 import cv2
+
+print(f"############### OPENCV Missing dependencies:")
+print(cv2.getBuildInformation())
 import numpy as np
 from loguru import logger
 

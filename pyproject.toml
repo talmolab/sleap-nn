@@ -28,7 +28,6 @@ dependencies = [
     "av",
     "kornia",
     "hydra-core",
-    "sleap-io>=0.1.10",
 ]
 dynamic = ["version", "readme"]
 

@@ -227,7 +227,7 @@ class ConvNextWrapper(nn.Module):
         return self.dec.x_in_shape
 
     @classmethod
-    def from_config(cls, config: OmegaConf, output_stride: int):
+    def from_config(cls, config: OmegaConf):
         """Create ConvNextWrapper from a config."""
         return cls(
             in_channels=config.in_channels,
@@ -237,7 +237,7 @@ class ConvNextWrapper(nn.Module):
             filters_rate=config.filters_rate,
             convs_per_block=config.convs_per_block,
             up_interpolate=config.up_interpolate,
-            output_stride=output_stride,
+            output_stride=config.output_stride,
             stem_patch_kernel=config.stem_patch_kernel,
             stem_patch_stride=config.stem_patch_stride,
         )
