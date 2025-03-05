@@ -3,7 +3,7 @@ from pathlib import Path
 import sys
 
 import pytest
-from sleap_nn.training.train import main
+from sleap_nn.train import main
 
 
 @pytest.fixture

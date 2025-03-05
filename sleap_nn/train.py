@@ -1,3 +1,5 @@
+"""Entry point for sleap_nn training."""
+
 import hydra
 from pathlib import Path
 from omegaconf import DictConfig, OmegaConf
@@ -8,7 +10,7 @@ from sleap_nn.inference.predictors import main as predict
 from sleap_nn.evaluation import Evaluator
 
 
-@hydra.main(version_base=None, config_path="")
+@hydra.main(version_base=None, config_path="", config_name="config")
 def main(cfg: DictConfig):
     """Train SLEAP-NN model using CLI."""
     # cfg = OmegaConf.to_container(cfg, resolve=True)
