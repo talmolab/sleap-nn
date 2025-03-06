@@ -16,6 +16,8 @@ from sleap_nn.config.model_config import (
     UNetConfig,
     ConvNextConfig,
     SwinTConfig,
+    SwinTBaseConfig,
+    SwinTSmallConfig,
     HeadConfig,
     SingleInstanceConfig,
     CentroidConfig,
@@ -68,6 +70,20 @@ def test_invalid_pre_trained_weights(caplog):
         )
     assert "UNet" in caplog.text
 
+    with pytest.raises(ValueError):
+        ModelConfig(
+            pre_trained_weights="here",
+            backbone_config=BackboneConfig(convnext=ConvNextConfig()),
+        )
+    assert "Invalid pre-trained" in caplog.text
+
+    with pytest.raises(ValueError):
+        ModelConfig(
+            pre_trained_weights="here",
+            backbone_config=BackboneConfig(swint=SwinTConfig()),
+        )
+    assert "Invalid pre-trained" in caplog.text
+
 
 def test_update_config(default_config):
     """Test updating configuration attributes."""
@@ -92,4 +108,12 @@ def test_invalid_model_type(caplog):
     """Test validation failure with an invalid model_type."""
     with pytest.raises(ValueError):
         SwinTConfig(model_type="invalid_model_type")
+    assert "Invalid model_type" in caplog.text
+
+    with pytest.raises(ValueError):
+        SwinTSmallConfig(model_type="invalid_model_type")
+    assert "Invalid model_type" in caplog.text
+
+    with pytest.raises(ValueError):
+        SwinTBaseConfig(model_type="invalid_model_type")
     assert "Invalid model_type" in caplog.text
