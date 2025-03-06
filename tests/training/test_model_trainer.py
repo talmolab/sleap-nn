@@ -345,7 +345,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_trainer_torch_dataset(config, tmp_path: str):
+def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     model_trainer = ModelTrainer(config)
