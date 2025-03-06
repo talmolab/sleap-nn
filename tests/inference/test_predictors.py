@@ -1063,7 +1063,6 @@ def test_bottomup_predictor(
     head_layer_ckpt = ckpt["state_dict"]["model.head_layers.0.0.weight"][
         0, 0, :
     ].numpy()
-    print(f"head_layer_ckpt: {head_layer_ckpt}")
 
     model_weights = (
         next(predictor.inference_model.torch_model.model.head_layers.parameters())[
@@ -1072,7 +1071,6 @@ def test_bottomup_predictor(
         .detach()
         .numpy()
     )
-    print(model_weights)
 
     assert np.all(np.abs(head_layer_ckpt - model_weights) < 1e-6)
 

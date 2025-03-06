@@ -1725,6 +1725,6 @@ def train(
     trainer = ModelTrainer(omegaconf_config)
     trainer.train()
 
-    print(f"Training completed!")
+    logger.info(f"Training completed!")
 
     # compute metrics on train and val set

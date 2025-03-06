@@ -829,7 +829,6 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # check the output shape
     assert preds.shape == (1, 2, 80, 80)
-    print(next(model.parameters())[0, 0, 0, :].detach().numpy())
     assert all(
         np.abs(
             next(model.parameters())[0, 0, 0, :].detach().numpy()

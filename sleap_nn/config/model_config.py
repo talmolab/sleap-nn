@@ -439,7 +439,9 @@ class SwinTSmallConfig:
         """
         valid_types = ["tiny", "small", "base"]
         if value not in valid_types:
-            raise ValueError(f"Invalid model_type. Must be one of {valid_types}")
+            message = f"Invalid model_type. Must be one of {valid_types}"
+            logger.error(message)
+            raise ValueError(message)
 
 
 @define
