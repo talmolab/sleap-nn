@@ -7,7 +7,7 @@ from typing import Dict, Iterator, List, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
 from PIL import Image
-
+from loguru import logger
 import torch
 import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader
@@ -166,7 +166,9 @@ class BaseDataset(Dataset):
 
     def __getitem__(self, index) -> Dict:
         """Returns the sample dict for given index."""
-        raise NotImplementedError("Subclasses must implement __getitem__")
+        message = "Subclasses must implement __getitem__"
+        logger.error(message)
+        raise NotImplementedError(message)
 
 
 class BottomUpDataset(BaseDataset):

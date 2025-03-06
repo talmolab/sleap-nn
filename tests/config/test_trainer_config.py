@@ -8,6 +8,9 @@ import pytest
 from omegaconf import OmegaConf
 from omegaconf import ValidationError
 from attrs import asdict
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
+
 from sleap_nn.config.trainer_config import (
     DataLoaderConfig,
     ModelCkptConfig,
@@ -21,7 +24,20 @@ from sleap_nn.config.trainer_config import (
 )
 
 
-def test_reduce_lr_on_plateau_config():
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def test_reduce_lr_on_plateau_config(caplog):
     """reduce_lr_on_plateau_config tests.
 
     Check default values and validators
@@ -38,6 +54,7 @@ def test_reduce_lr_on_plateau_config():
     # Test validators
     with pytest.raises(ValueError):
         OmegaConf.structured(ReduceLROnPlateauConfig(min_lr=-0.1))
+    assert "min_lr" in caplog.text
 
 
 def test_dataloader_config():
@@ -97,7 +114,7 @@ def test_wandb_config():
     assert custom_conf.project == "test_project"
 
 
-def test_optimizer_config():
+def test_optimizer_config(caplog):
     """optimizer_config tests.
 
     Check default values and customization
@@ -117,7 +134,7 @@ def test_optimizer_config():
         OmegaConf.structured(OptimizerConfig(lr=-0.01, amsgrad=True))
 
 
-def test_lr_scheduler_config():
+def test_lr_scheduler_config(caplog):
     """lr_scheduler_config tests.
 
     Check default values and customization
@@ -154,6 +171,8 @@ def test_lr_scheduler_config():
     # Test validation
     with pytest.raises(ValueError, match="scheduler must be one of"):
         LRSchedulerConfig(scheduler="InvalidScheduler")
+    assert "scheduler" in caplog.text
+
     with pytest.raises(ValueError):
         LRSchedulerConfig(
             scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5)
@@ -185,7 +204,7 @@ def test_early_stopping_config():
         OmegaConf.structured(EarlyStoppingConfig(min_delta=-5))
 
 
-def test_trainer_config():
+def test_trainer_config(caplog):
     """trainer_config tests.
 
     Check default values and customization
@@ -223,5 +242,7 @@ def test_trainer_config():
     # Test validation
     with pytest.raises(ValueError):
         TrainerConfig(optimizer_name="InvalidOptimizer")
+    assert "optimizer_name" in caplog.text
     with pytest.raises(ValueError, match="trainer_devices"):
         TrainerConfig(trainer_devices=-1)
+    assert "trainer_devices" in caplog.text

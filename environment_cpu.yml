@@ -32,3 +32,4 @@ dependencies:
   - pip:
     - "--editable=.[dev]"
     - litdata
+    - loguru

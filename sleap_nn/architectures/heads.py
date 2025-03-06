@@ -4,7 +4,7 @@ from typing import List, Optional, Sequence, Text, Tuple
 
 from omegaconf.dictconfig import DictConfig
 from torch import nn
-
+from loguru import logger
 from sleap_nn.architectures.utils import get_act_fn
 
 
@@ -30,7 +30,9 @@ class Head:
     @property
     def channels(self) -> int:
         """Return the number of channels in the tensor output by this head."""
-        raise NotImplementedError("Subclasses must implement this method.")
+        message = "Subclasses must implement this method."
+        logger.error(message)
+        raise NotImplementedError(message)
 
     @property
     def activation(self) -> str:
@@ -113,9 +115,9 @@ class SingleInstanceConfmapsHead(Head):
         if config.part_names is not None:
             part_names = config.part_names
         elif part_names is None:
-            raise ValueError(
-                "Required attribute 'part_names' is missing in the configuration or in `from_config` input."
-            )
+            message = "Required attribute 'part_names' is missing in the configuration or in `from_config` input."
+            logger.error(message)
+            raise ValueError(message)
         return cls(
             part_names=part_names,
             sigma=config.sigma,
@@ -225,9 +227,9 @@ class CenteredInstanceConfmapsHead(Head):
         if config.part_names is not None:
             part_names = config.part_names
         elif part_names is None:
-            raise ValueError(
-                "Required attribute 'part_names' is missing in the configuration or in `from_config` input."
-            )
+            message = "Required attribute 'part_names' is missing in the configuration or in `from_config` input."
+            logger.error(message)
+            raise ValueError(message)
         return cls(
             part_names=part_names,
             anchor_part=config.anchor_part,
@@ -287,9 +289,9 @@ class MultiInstanceConfmapsHead(Head):
         if config.part_names is not None:
             part_names = config.part_names
         elif part_names is None:
-            raise ValueError(
-                "Required attribute 'part_names' is missing in the configuration or in `from_config` input."
-            )
+            message = "Required attribute 'part_names' is missing in the configuration or in `from_config` input."
+            logger.error(message)
+            raise ValueError(message)
         return cls(
             part_names=part_names,
             sigma=config.sigma,
@@ -570,9 +572,9 @@ class OffsetRefinementHead(Head):
         elif hasattr(config, "anchor_part"):
             part_names = [config.anchor_part]
         else:
-            raise ValueError(
-                "Required attribute 'part_names' is missing in the configuration."
-            )
+            message = "Required attribute 'part_names' is missing in the configuration."
+            logger.error(message)
+            raise ValueError(message)
         return cls(
             part_names=part_names,
             output_stride=config.output_stride,

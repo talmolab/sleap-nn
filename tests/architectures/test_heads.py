@@ -13,8 +13,24 @@ from sleap_nn.architectures.heads import (
 )
 import torch
 
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
 
-def test_head():
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def test_head(caplog):
     output_stride = 1
     loss_weight = 1.0
 
@@ -25,9 +41,10 @@ def test_head():
     assert head.loss_function == "mse"
     assert head.activation == "identity"
     assert head.loss_weight == loss_weight
+    assert "Subclasses must implement this method." in caplog.text
 
 
-def test_single_instance_confmaps_head():
+def test_single_instance_confmaps_head(caplog):
     output_stride = 1
     loss_weight = 1.0
     sample_input = torch.randn(1, 3, 64, 64)
@@ -61,6 +78,7 @@ def test_single_instance_confmaps_head():
     assert head.part_names == part_names
     assert head.sigma == sigma
     assert head.channels == len(part_names)
+    assert "Required attribute 'part_names" in caplog.text
 
     base_unet_head_config = OmegaConf.create(
         {
@@ -109,7 +127,7 @@ def test_centroid_confmaps_head():
     assert isinstance(head, Head)
 
 
-def test_centered_instance_confmaps_head():
+def test_centered_instance_confmaps_head(caplog):
     output_stride = 1
     loss_weight = 1.0
     sample_input = torch.randn(1, 3, 64, 64)
@@ -159,8 +177,10 @@ def test_centered_instance_confmaps_head():
             )
         )
 
+    assert "Required attribute 'part_names'" in caplog.text
 
-def test_multi_instance_confmaps_head():
+
+def test_multi_instance_confmaps_head(caplog):
     output_stride = 1
     loss_weight = 1.0
     sample_input = torch.randn(1, 3, 64, 64)
@@ -203,6 +223,7 @@ def test_multi_instance_confmaps_head():
                 }
             )
         )
+    assert "Required attribute 'part_names'" in caplog.text
 
 
 def test_part_affinity_fields_head():
@@ -315,7 +336,7 @@ def test_class_vectors_head():
     assert isinstance(head, Head)
 
 
-def test_offset_refinement_head():
+def test_offset_refinement_head(caplog):
     output_stride = 1
     loss_weight = 1.0
     sample_input = torch.randn(1, 3, 64, 64)
@@ -369,3 +390,4 @@ def test_offset_refinement_head():
 
     with pytest.raises(ValueError):
         _ = OffsetRefinementHead.from_config(config)
+    assert "Required attribute 'part_names'" in caplog.text

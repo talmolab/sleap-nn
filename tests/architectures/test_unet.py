@@ -182,7 +182,6 @@ def test_unet_reference():
         kernel_size=kernel_size,
         block_contraction=True,
     )
-    print(enc)
 
     enc = enc.to(device)
     enc.eval()

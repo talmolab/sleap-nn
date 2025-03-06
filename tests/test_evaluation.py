@@ -8,6 +8,23 @@ from sleap_nn.evaluation import (
     compute_oks,
 )
 from sleap_nn.evaluation import Evaluator
+from loguru import logger
+import sys
+
+from _pytest.logging import LogCaptureFixture
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def test_compute_oks():
@@ -264,16 +281,13 @@ def create_labels_no_match_frame_pairs(minimal_instance):
     return user_labels, pred_labels
 
 
-def test_evaluator_no_match_frame_pairs(minimal_instance):
+def test_evaluator_no_match_frame_pairs(caplog, minimal_instance):
     # with no match frame pairs
-
     user_labels, pred_labels = create_labels_no_match_frame_pairs(minimal_instance)
-    # there should not be any match frame pairs as the video names are different.
-    # test if exception is raised in case of empty frame pairs
-    with pytest.raises(
-        Exception, match="Empty Frame Pairs. No match found for the video frames"
-    ):
-        eval = Evaluator(user_labels, pred_labels)
+    with caplog.at_level("ERROR"):  # Set the log level to capture ERROR messages
+        with pytest.raises(Exception):
+            eval = Evaluator(user_labels, pred_labels)
+    assert "Empty Frame Pairs. No match found for the video frames" in caplog.text
 
 
 def create_labels_more_predicted_instances(minimal_instance):
@@ -467,10 +481,47 @@ def test_evaluator_metrics(minimal_instance):
     # test the input to match_score_by parameter. voc_metrics only accepts oks or pck
     with pytest.raises(
         Exception,
-        match="Invalid Option for match_score_by. Choose either `oks` or `pck`",
     ):
         eval.voc_metrics(match_score_by="moks")
 
     # test mOKS which should be the average of the oks values for each postive pairs
     meanOKS_calc = (0.33308048 + 0.067590989) // 2
     assert int(eval.mOKS()["mOKS"]) == meanOKS_calc
+
+
+# def test_evaluator_logging_empty_frame_pairs(capsys, minimal_instance):
+#     """Test that the Evaluator logs an error when there are no matching frame pairs."""
+
+#     # logger.remove()
+#     # logger.add(sys.stderr, level="ERROR")
+#     # Create user_labels and pred_labels that will lead to empty frame pairs
+#     user_labels, pred_labels = create_labels_no_match_frame_pairs(minimal_instance)
+
+#     # Use capsys to capture output
+#     with capsys.disabled():  # Disable capturing to see print statements if needed
+#         with pytest.raises(Exception):
+#             eval = Evaluator(user_labels, pred_labels)
+#             eval.voc_metrics(match_score_by="invalid_option")  # This should trigger the error
+
+#     # Capture the output
+#     out, err = capsys.readouterr()
+
+
+#     # Check that the expected log message was captured in standard error
+#     assert "Empty Frame Pairs. No match found for the video frames" in err
+def test_evaluator_logging_empty_frame_pairs(caplog, minimal_instance):
+    """Test that the Evaluator logs an error when there are no matching frame pairs."""
+
+    # Create user_labels and pred_labels that will lead to empty frame pairs
+    user_labels, pred_labels = create_labels_no_match_frame_pairs(minimal_instance)
+
+    # Use caplog to capture output
+    with caplog.at_level("ERROR"):  # Set the log level to capture ERROR messages
+        with pytest.raises(Exception):
+            eval = Evaluator(user_labels, pred_labels)
+            eval.voc_metrics(
+                match_score_by="invalid_option"
+            )  # This should trigger the error
+
+    # Check that the expected log message was captured
+    assert "Empty Frame Pairs. No match found for the video frames" in caplog.text

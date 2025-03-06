@@ -6,9 +6,25 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 from sleap_nn.inference.predictors import Predictor, main
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def test_topdown_predictor(
+    caplog,
     minimal_instance,
     minimal_instance_ckpt,
     minimal_instance_centroid_ckpt,
@@ -82,6 +98,7 @@ def test_topdown_predictor(
             provider="LabelsReader",
             make_labels=False,
         )
+    assert "Could not create predictor" in caplog.text
 
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
@@ -135,7 +152,6 @@ def test_topdown_predictor(
     # Unrecognized provider
     with pytest.raises(
         Exception,
-        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
     ):
         pred_labels = main(
             model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
@@ -144,6 +160,7 @@ def test_topdown_predictor(
             make_labels=True,
             max_instances=6,
         )
+    assert "Provider not recognised." in caplog.text
 
     # Provider = VideoReader
     # error in Videoreader but graceful execution
@@ -164,7 +181,6 @@ def test_topdown_predictor(
 
     with pytest.raises(
         ValueError,
-        match="Ground truth data was not detected... Please load both models when predicting on non-ground-truth data.",
     ):
         pred_labels = main(
             model_paths=[minimal_instance_ckpt],
@@ -176,6 +192,7 @@ def test_topdown_predictor(
             videoreader_end_idx=100,
             peak_threshold=0.1,
         )
+    assert "Error when reading video frame." in caplog.text
 
     # test with tracking
     pred_labels = main(
@@ -782,7 +799,6 @@ def test_single_instance_predictor(
         # check if labels are created from ckpt
         with pytest.raises(
             Exception,
-            match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
         ):
             preds = main(
                 model_paths=[minimal_instance_ckpt],
@@ -897,7 +913,7 @@ def test_single_instance_predictor(
 
 
 def test_bottomup_predictor(
-    minimal_instance, minimal_instance_bottomup_ckpt, minimal_instance_ckpt
+    caplog, minimal_instance, minimal_instance_bottomup_ckpt, minimal_instance_ckpt
 ):
     """Test BottomUpPredictor module."""
     # provider as LabelsReader
@@ -997,7 +1013,6 @@ def test_bottomup_predictor(
     # unrecognized provider
     with pytest.raises(
         Exception,
-        match="Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider",
     ):
         preds = main(
             model_paths=[minimal_instance_bottomup_ckpt],
@@ -1007,6 +1022,7 @@ def test_bottomup_predictor(
             max_instances=6,
             peak_threshold=0.03,
         )
+    assert "Provider not recognised." in caplog.text
 
     # test with tracking
     pred_labels = main(
@@ -1047,7 +1063,6 @@ def test_bottomup_predictor(
     head_layer_ckpt = ckpt["state_dict"]["model.head_layers.0.0.weight"][
         0, 0, :
     ].numpy()
-    print(f"head_layer_ckpt: {head_layer_ckpt}")
 
     model_weights = (
         next(predictor.inference_model.torch_model.model.head_layers.parameters())[
@@ -1056,7 +1071,6 @@ def test_bottomup_predictor(
         .detach()
         .numpy()
     )
-    print(model_weights)
 
     assert np.all(np.abs(head_layer_ckpt - model_weights) < 1e-6)
 

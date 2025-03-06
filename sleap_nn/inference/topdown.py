@@ -12,6 +12,7 @@ from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
+from loguru import logger
 
 
 class CentroidCrop(L.LightningModule):
@@ -559,10 +560,12 @@ class TopDownInferenceModel(L.LightningModule):
         """
         if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
             if "instances" not in batch:
-                raise ValueError(
+                message = (
                     "Ground truth data was not detected... "
                     "Please load both models when predicting on non-ground-truth data."
                 )
+                logger.error(message)
+                raise ValueError(message)
         self.centroid_crop.eval()
         peaks_output = []
         batch = self.centroid_crop(batch)

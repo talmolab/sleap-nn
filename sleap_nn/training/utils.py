@@ -1,6 +1,7 @@
 """Miscellaneous utility functions for training."""
 
 import numpy as np
+from loguru import logger
 from torch import nn
 from typing import Optional, Tuple
 
@@ -53,9 +54,9 @@ def get_aug_config(intensity_aug, geometric_aug):
             elif i == "brightness":
                 aug_config.intensity.brightness_p = 1.0
             else:
-                raise ValueError(
-                    f"`{intensity_aug}` is not a valid intensity augmentation option. Please use one of ['uniform_noise', 'gaussian_noise', 'contrast', 'brightness']"
-                )
+                message = f"`{intensity_aug}` is not a valid intensity augmentation option. Please use one of ['uniform_noise', 'gaussian_noise', 'contrast', 'brightness']"
+                logger.error(message)
+                raise ValueError(message)
 
     elif isinstance(intensity_aug, dict):
         aug_config.intensity = IntensityConfig(**intensity_aug)
@@ -87,9 +88,9 @@ def get_aug_config(intensity_aug, geometric_aug):
             elif g == "mixup":
                 aug_config.geometric.mixup_p = 1.0
             else:
-                raise ValueError(
-                    f"`{intensity_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
-                )
+                message = f"`{intensity_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
+                logger.error(message)
+                raise ValueError(message)
 
     elif isinstance(geometric_aug, dict):
         aug_config.geometric = GeometricConfig(**geometric_aug)
@@ -126,9 +127,9 @@ def get_backbone_config(backbone_cfg):
         elif backbone_cfg.startswith("swint"):
             backbone_config.swint = swint_config_mapper[backbone_cfg]
         else:
-            raise ValueError(
-                f"{backbone_cfg} is not a valid backbone. Please choose one of ['unet', 'unet_medium_rf', 'unet_large_rf', 'convnext', 'convnext_tiny', 'convnext_small', 'convnext_base', 'convnext_large', 'swint', 'swint_tiny', 'swint_small', 'swint_base']"
-            )
+            message = f"{backbone_cfg} is not a valid backbone. Please choose one of ['unet', 'unet_medium_rf', 'unet_large_rf', 'convnext', 'convnext_tiny', 'convnext_small', 'convnext_base', 'convnext_large', 'swint', 'swint_tiny', 'swint_small', 'swint_base']"
+            logger.error(message)
+            raise ValueError(message)
 
     elif isinstance(backbone_cfg, dict):
         backbone_config = BackboneConfig()
@@ -155,9 +156,9 @@ def get_head_configs(head_cfg):
         elif head_cfg == "bottomup":
             head_configs.bottomup = BottomUpConfig()
         else:
-            raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance']"
-            )
+            message = f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance']"
+            logger.error(message)
+            raise ValueError(message)
 
     elif isinstance(head_cfg, dict):
         head_configs = HeadConfig()
