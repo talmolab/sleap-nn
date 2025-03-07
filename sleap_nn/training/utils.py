@@ -88,7 +88,7 @@ def get_aug_config(intensity_aug, geometric_aug):
             elif g == "mixup":
                 aug_config.geometric.mixup_p = 1.0
             else:
-                message = f"`{intensity_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
+                message = f"`{geometric_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
                 logger.error(message)
                 raise ValueError(message)
 
