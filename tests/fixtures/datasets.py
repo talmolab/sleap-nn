@@ -51,6 +51,7 @@ def config(sleap_data_dir):
                 "provider": "LabelsReader",
                 "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
                 "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "test_file_path": None,
                 "user_instances_only": True,
                 "data_pipeline_fw": "torch_dataset",
                 "np_chunks_path": None,

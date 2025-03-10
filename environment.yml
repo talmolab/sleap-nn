@@ -33,5 +33,6 @@ dependencies:
   - pip
   - pip:
     - "--editable=.[dev]"
-    - loguru
     - litdata
+    - hydra-core
+    - loguru

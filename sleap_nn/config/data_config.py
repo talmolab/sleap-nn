@@ -30,7 +30,7 @@ class PreprocessingConfig:
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
     )
     crop_hw: Optional[Tuple[int, int]] = None
-    min_crop_size: int = 100  # to help app work incase of error
+    min_crop_size: Optional[int] = 100  # to help app work incase of error
 
     def validate_scale(self):
         """Scale Validation.
@@ -105,13 +105,12 @@ class GeometricConfig:
         erase_ratio_min: (float) Minimum value of range of aspect ratio of erased area. Default: 1.
         erase_ratio_max: (float) Maximum value of range of aspect ratio of erased area. Default: 1.
         erase_p: (float) Probability of applying random erase. Default=0.0
-        mixup_lambda: (float) min-max value of mixup strength. Default is 0-1. Default: None.
+        mixup_lambda: (list) min-max value of mixup strength. Default is [0.01, 0.05]. Default: None.
         mixup_p: (float) Probability of applying random mixup v2. Default=0.0
-        input_key: (str) Can be image or instance. The input_key instance expects the KorniaAugmenter to follow the InstanceCropper else image otherwise for default.
     """
 
     rotation: float = 15.0
-    scale: List[float] = (0.9, 1.1)
+    scale: Optional[List[float]] = (0.9, 1.1)
     translate_width: float = 0.2
     translate_height: float = 0.2
     affine_p: float = field(default=0.0, validator=validate_proportion)
@@ -120,9 +119,8 @@ class GeometricConfig:
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
     erase_p: float = field(default=0.0, validator=validate_proportion)
-    mixup_lambda: float = 0.1
+    mixup_lambda: List[float] = [0.01, 0.05]
     mixup_p: float = field(default=0.0, validator=validate_proportion)
-    input_key: str = "image"
 
 
 @define
@@ -144,6 +142,8 @@ class DataConfig:
 
     train_labels_path: (str) Path to training data (.slp file)
     val_labels_path: (str) Path to validation data (.slp file)
+    test_file_path: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only
+        with CLI to get evaluation on test set after training is completed.
     provider: (str) Provider class to read the input sleap files. Only "LabelsReader"
         supported for the training pipeline.
     user_instances_only: (bool) True if only user labeled instances should be used for
@@ -172,6 +172,7 @@ class DataConfig:
 
     train_labels_path: str = MISSING
     val_labels_path: str = MISSING
+    test_file_path: Optional[str] = None
     provider: str = "LabelsReader"
     user_instances_only: bool = True
     data_pipeline_fw: str = "torch_dataset"
