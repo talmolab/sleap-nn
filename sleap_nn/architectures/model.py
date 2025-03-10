@@ -130,6 +130,7 @@ class Model(nn.Module):
             output_strides.append(head_config.output_stride)
 
         min_output_stride = min(output_strides)
+        min_output_stride = min(min_output_stride, self.backbone_config.output_stride)
 
         self.backbone = get_backbone(
             self.backbone_type,

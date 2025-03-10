@@ -102,7 +102,7 @@ class GeometricConfig:
         erase_ratio_min: (float) Minimum value of range of aspect ratio of erased area. Default: 1.
         erase_ratio_max: (float) Maximum value of range of aspect ratio of erased area. Default: 1.
         erase_p: (float) Probability of applying random erase. Default=0.0
-        mixup_lambda: (float) min-max value of mixup strength. Default is 0-1. Default: None.
+        mixup_lambda: (list) min-max value of mixup strength. Default is [0.01, 0.05]. Default: None.
         mixup_p: (float) Probability of applying random mixup v2. Default=0.0
     """
 
@@ -116,7 +116,7 @@ class GeometricConfig:
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
     erase_p: float = field(default=0.0, validator=validate_proportion)
-    mixup_lambda: float = 0.1
+    mixup_lambda: List[float] = [0.01, 0.05]
     mixup_p: float = field(default=0.0, validator=validate_proportion)
 
 
@@ -139,7 +139,7 @@ class DataConfig:
 
     train_labels_path: (str) Path to training data (.slp file)
     val_labels_path: (str) Path to validation data (.slp file)
-    test_labels_path: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only
+    test_file_path: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only
         with CLI to get evaluation on test set after training is completed.
     provider: (str) Provider class to read the input sleap files. Only "LabelsReader"
         supported for the training pipeline.

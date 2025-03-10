@@ -63,7 +63,7 @@ The config file has three main sections:
             - `erase_ration_min`: (float) Minimum value of range of aspect ratio of erased area. *Default*: `1.0`.
             - `erase_ratio_max`: (float) Maximum value of range of aspect ratio of erased area. *Default*: `1.0`.
             - `erase_p`: (float) Probability of applying random erase. *Default*: `1.0`.
-            - `mixup_lambda`: (float) min-max value of mixup strength. Default is 0-1. *Default*: `0.1`.
+            - `mixup_lambda`: (list) min-max value of mixup strength. Default is [0.01, 0.05].
             - `mixup_p`: (float) Probability of applying random mixup v2. *Default*: `0.0`.
 - `model_config`: 
     - `init_weights`: (str) model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. *Default*: `"default"`.

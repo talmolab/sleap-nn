@@ -2,7 +2,6 @@
 
 from collections import defaultdict
 from typing import Dict, List, Optional, Union, Iterator, Text
-from queue import Queue
 from pathlib import Path
 from abc import ABC, abstractmethod
 import numpy as np
@@ -11,7 +10,6 @@ import torchvision.transforms.v2.functional as F
 import torch
 import attrs
 import lightning as L
-import litdata as ld
 from omegaconf import OmegaConf
 from sleap_nn.data.providers import LabelsReader, VideoReader
 from sleap_nn.data.resizing import (
@@ -22,11 +20,7 @@ from sleap_nn.data.resizing import (
 )
 from sleap_nn.data.normalization import (
     apply_normalization,
-    convert_to_grayscale,
-    convert_to_rgb,
 )
-from sleap_nn.data.instance_centroids import generate_centroids
-from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.training.model_trainer import (
     TopDownCenteredInstanceModel,

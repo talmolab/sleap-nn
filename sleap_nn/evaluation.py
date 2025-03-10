@@ -464,7 +464,7 @@ class Evaluator:
 
     def voc_metrics(
         self,
-        match_score_by,
+        match_score_by="oks",
         match_score_thresholds: np.ndarray = np.linspace(
             0.5, 0.95, 10
         ),  # 0.5:0.05:0.95
@@ -511,6 +511,19 @@ class Evaluator:
         for match_score_threshold in match_score_thresholds:
             tp = np.cumsum(match_scores >= match_score_threshold)
             fp = np.cumsum(match_scores < match_score_threshold)
+
+            if tp.size == 0:
+                return {
+                    name + ".match_score_thresholds": 0,
+                    name + ".recall_thresholds": 0,
+                    name + ".match_scores": 0,
+                    name + ".precisions": 0,
+                    name + ".recalls": 0,
+                    name + ".AP": 0,
+                    name + ".AR": 0,
+                    name + ".mAP": 0,
+                    name + ".mAR": 0,
+                }
 
             rc = tp / npig
             pr = tp / (fp + tp + np.spacing(1))
@@ -637,3 +650,14 @@ class Evaluator:
             "precision": vis_tp / (vis_tp + vis_fp) if (vis_tp + vis_fp) else np.nan,
             "recall": vis_tp / (vis_tp + vis_fn) if (vis_tp + vis_fn) else np.nan,
         }
+
+    def evaluate(self):
+        """Return the evaluation metrics."""
+        metrics = {}
+        metrics["voc_metrics"] = self.voc_metrics()
+        metrics["mOKS"] = self.mOKS()
+        metrics["distance_metrics"] = self.distance_metrics()
+        metrics["pck_metrics"] = self.pck_metrics()
+        metrics["visibility_metrics"] = self.visibility_metrics()
+
+        return metrics
