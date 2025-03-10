@@ -342,6 +342,7 @@ def get_model_config(
 
     This method creates a config object based on the parameters provided by the user,
     and starts training by passing this config to the `ModelTrainer` class.
+
     Args:
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
@@ -578,7 +579,6 @@ def get_trainer_config(
 
 def run_training(config: DictConfig):
     """Create ModelTrainer instance and start training."""
-
     trainer = ModelTrainer(config)
     trainer.train()
 

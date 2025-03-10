@@ -266,6 +266,33 @@ def test_train_method(minimal_instance, tmp_path: str):
             save_ckpt_path=f"{tmp_path}/test_aug",
         )
 
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        backbone_config={
+            "unet": {
+                "in_channels": 1,
+                "kernel_size": 3,
+                "filters": 16,
+                "filters_rate": 1.5,
+                "max_stride": 8,
+                "convs_per_block": 2,
+                "stacks": 1,
+                "stem_stride": None,
+                "middle_block": True,
+                "up_interpolate": False,
+                "output_stride": 1,
+            }
+        },
+        trainer_accelerator="cpu",
+        head_configs="centroid",
+        save_ckpt=False,
+        save_ckpt_path=f"{tmp_path}/test_custom_backbone",
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_custom_backbone/training_config.yaml")
+    assert config.model_config.backbone_config.unet.max_stride == 8
+
     # head configs
     with pytest.raises(ValueError):
         train(
@@ -326,7 +353,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="bottomup",
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_bottomup",
-        lr_scheduler="StepLR",
+        lr_scheduler="ReduceLROnPlateau",
     )
     config = OmegaConf.load(f"{tmp_path}/test_bottomup/training_config.yaml")
     assert config.model_config.head_configs.bottomup is not None
