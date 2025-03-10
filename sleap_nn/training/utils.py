@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 import sleap_io as sio
 from sleap_nn.data.providers import get_max_instances
 
+
 def xavier_init_weights(x):
     """Function to initilaise the model weights with Xavier initialization method."""
     if isinstance(x, nn.Conv2d) or isinstance(x, nn.Linear):
