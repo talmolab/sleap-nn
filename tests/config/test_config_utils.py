@@ -3,11 +3,27 @@
 import attr
 import pytest
 from typing import Optional, Text
+from loguru import logger
+
+from _pytest.logging import LogCaptureFixture
 
 from sleap_nn.config import utils
 
 
-def test_one_of():
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def test_one_of(caplog):
     """Test of decorator."""
 
     @utils.oneof
@@ -23,3 +39,4 @@ def test_one_of():
 
     with pytest.raises(ValueError):
         c = ExclusiveClass(a="hello", b="too many values!")
+    assert "Only one attribute" in caplog.text

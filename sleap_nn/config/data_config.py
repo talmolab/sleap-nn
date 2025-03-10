@@ -6,7 +6,8 @@ the parameters required to initialize the data config.
 
 from attrs import define, field, validators
 from omegaconf import MISSING
-from typing import Optional, Tuple, Any, Union, List
+from typing import Optional, Tuple, Any, List
+from loguru import logger
 
 
 @define
@@ -42,9 +43,9 @@ class PreprocessingConfig:
             isinstance(x, float) and x >= 0 for x in self.scale
         ):
             return
-        raise ValueError(
-            "PreprocessingConfig's scale must be a float or a list of floats."
-        )
+        message = "PreprocessingConfig's scale must be a float or a list of floats."
+        logger.error(message)
+        raise ValueError(message)
 
 
 def validate_proportion(instance, attribute, value):
@@ -53,7 +54,9 @@ def validate_proportion(instance, attribute, value):
     Ensures all proportions are a 0<=float<=1.0
     """
     if not (0.0 <= value <= 1.0):
-        raise ValueError(f"{attribute.name} must be between 0.0 and 1.0, got {value}")
+        message = f"{attribute.name} must be between 0.0 and 1.0, got {value}"
+        logger.error(message)
+        raise ValueError(message)
 
 
 @define

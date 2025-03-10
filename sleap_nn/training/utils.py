@@ -1,12 +1,12 @@
 """Miscellaneous utility functions for training."""
 
 import numpy as np
+from loguru import logger
 from torch import nn
 from typing import Optional, Tuple
 
 import sleap_io as sio
 from sleap_nn.data.providers import get_max_instances
-
 
 def xavier_init_weights(x):
     """Function to initilaise the model weights with Xavier initialization method."""

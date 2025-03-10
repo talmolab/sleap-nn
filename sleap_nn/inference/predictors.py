@@ -11,6 +11,7 @@ import torch
 import attrs
 import lightning as L
 from omegaconf import OmegaConf
+from loguru import logger
 from sleap_nn.data.providers import LabelsReader, VideoReader
 from sleap_nn.data.resizing import (
     resize_image,
@@ -197,9 +198,9 @@ class Predictor(ABC):
                 preprocess_config=preprocess_config,
             )
         else:
-            raise ValueError(
-                f"Could not create predictor from model paths:\n{model_paths}"
-            )
+            message = f"Could not create predictor from model paths:\n{model_paths}"
+            logger.error(message)
+            raise ValueError(message)
         return predictor
 
     @classmethod
@@ -269,6 +270,7 @@ class Predictor(ABC):
                 if frame["image"] is None:
                     done = True
                     break
+                frame["image"] = apply_normalization(frame["image"])
                 frame["image"], eff_scale = apply_sizematcher(
                     frame["image"],
                     self.preprocess_config["max_height"],
@@ -282,7 +284,6 @@ class Predictor(ABC):
                     frame["image"] = F.rgb_to_grayscale(
                         frame["image"], num_output_channels=1
                     )
-                frame["image"] = apply_normalization(frame["image"])
 
                 eff_scales.append(torch.tensor(eff_scale))
                 imgs.append(frame["image"].unsqueeze(dim=0))
@@ -607,7 +608,7 @@ class TopDownPredictor(Predictor):
             )
 
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
-                print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -617,12 +618,12 @@ class TopDownPredictor(Predictor):
                 centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif backbone_ckpt_path is not None:
-                print(f"Loading weights from `{backbone_ckpt_path}` ...")
+                logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             if head_ckpt_path is not None:
-                print(f"Loading head weights from `{head_ckpt_path}` ...")
+                logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
                 ckpt = torch.load(head_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -656,7 +657,7 @@ class TopDownPredictor(Predictor):
                 backbone_type=centered_instance_backbone_type,
             )
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
-                print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -666,12 +667,12 @@ class TopDownPredictor(Predictor):
                 confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             elif backbone_ckpt_path is not None:
-                print(f"Loading weights from `{backbone_ckpt_path}` ...")
+                logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
                 confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
             if head_ckpt_path is not None:
-                print(f"Loading head weights from `{head_ckpt_path}` ...")
+                logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
                 ckpt = torch.load(head_ckpt_path)
                 ckpt["state_dict"] = {
                     k: ckpt["state_dict"][k]
@@ -778,10 +779,12 @@ class TopDownPredictor(Predictor):
         # VideoReader provider
         elif self.provider == "VideoReader":
             if self.centroid_config is None:
-                raise ValueError(
+                message = (
                     "Ground truth data was not detected... "
                     "Please load both models when predicting on non-ground-truth data."
                 )
+                logger.error(message)
+                raise ValueError(message)
 
             provider = VideoReader
             self.preprocess = False
@@ -815,9 +818,9 @@ class TopDownPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            raise Exception(
-                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            )
+            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
+            logger.error(message)
+            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1026,7 +1029,7 @@ class SingleInstancePredictor(Predictor):
             backbone_type=backbone_type,
         )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
-            print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+            logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1036,12 +1039,12 @@ class SingleInstancePredictor(Predictor):
             confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         elif backbone_ckpt_path is not None:
-            print(f"Loading weights from `{backbone_ckpt_path}` ...")
+            logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         if head_ckpt_path is not None:
-            print(f"Loading head weights from `{head_ckpt_path}` ...")
+            logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
             ckpt = torch.load(head_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1160,9 +1163,9 @@ class SingleInstancePredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            raise Exception(
-                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            )
+            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
+            logger.error(message)
+            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1402,7 +1405,7 @@ class BottomUpPredictor(Predictor):
             model_type="bottomup",
         )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
-            print(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+            logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1412,12 +1415,12 @@ class BottomUpPredictor(Predictor):
             bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         elif backbone_ckpt_path is not None:
-            print(f"Loading weights from `{backbone_ckpt_path}` ...")
+            logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
             bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
 
         if head_ckpt_path is not None:
-            print(f"Loading head weights from `{head_ckpt_path}` ...")
+            logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
             ckpt = torch.load(head_ckpt_path)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1534,9 +1537,9 @@ class BottomUpPredictor(Predictor):
             self.videos = [self.pipeline.video]
 
         else:
-            raise Exception(
-                "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            )
+            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
+            logger.error(message)
+            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,

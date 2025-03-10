@@ -31,8 +31,24 @@ from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
+from sleap_nn.config.data_config import IntensityConfig
 from omegaconf import OmegaConf, MissingMandatoryValue
 from dataclasses import asdict
+from loguru import logger
+from _pytest.logging import LogCaptureFixture
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 @pytest.fixture
@@ -53,6 +69,14 @@ def sample_config():
         ),
         "trainer_config": TrainerConfig(early_stopping=EarlyStoppingConfig()),
     }
+
+
+def test_intensity_config_validation_logging(caplog):
+    """Test IntensityConfig validation and logging."""
+    with pytest.raises(ValueError):
+        IntensityConfig(gaussian_noise_p=-0.1)  # This should trigger a validation error
+
+    assert "gaussian_noise_p" in caplog.text
 
 
 def test_from_yaml(sample_config):

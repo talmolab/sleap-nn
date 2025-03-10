@@ -48,6 +48,7 @@ from sleap_nn.data.streaming_datasets import (
     CentroidStreamingDataset,
     SingleInstanceStreamingDataset,
 )
+from loguru import logger
 from sleap_nn.training.utils import (
     check_memory,
     xavier_init_weights,
@@ -99,9 +100,9 @@ class ModelTrainer:
             try:
                 Path(self.dir_path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                raise OSError(
-                    f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
-                )
+                message = f"Cannot create a new folder in {self.dir_path}. Check the permissions to the given Checkpoint directory. \n {e}"
+                logger.error(message)
+                raise OSError(message)
 
         if self.data_pipeline_fw == "litdata":
             # Get litdata chunks path
@@ -145,17 +146,18 @@ class ModelTrainer:
                     and self.train_np_chunks_path.is_dir()
                     and any(self.train_np_chunks_path.glob("*.npz"))
                 ):
-                    raise Exception(
-                        f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
-                    )
+                    message = f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
+                    logger.error(message)
+                    raise Exception(message)
+
                 if not (
                     self.val_np_chunks_path.exists()
                     and self.val_np_chunks_path.is_dir()
                     and any(self.val_np_chunks_path.glob("*.npz"))
                 ):
-                    raise Exception(
-                        f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
-                    )
+                    message = f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
+                    logger.error(message)
+                    raise Exception(message)
 
         self.seed = self.config.trainer_config.seed
         self.steps_per_epoch = self.config.trainer_config.steps_per_epoch
@@ -276,7 +278,7 @@ class ModelTrainer:
                 self.np_chunks = True
                 self.train_np_chunks_path = Path("./train_chunks")
                 self.val_np_chunks_path = Path("./val_chunks")
-                print(
+                logger.info(
                     f"Insufficient memory for in-memory caching. `npz` files will be created."
                 )
 
@@ -381,9 +383,9 @@ class ModelTrainer:
             )
 
         else:
-            raise ValueError(
-                f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
-            )
+            message = f"Model type: {self.model_type}. Ensure the heads config has one of the keys: [`bottomup`, `centroid`, `centered_instance`, `single_instance`]."
+            logger.error(message)
+            raise ValueError(message)
 
         if self.steps_per_epoch is None:
             self.steps_per_epoch = (
@@ -490,19 +492,21 @@ class ModelTrainer:
             # Use communicate() to read output and avoid hanging
             stdout, stderr = process.communicate()
 
-            # Print the logs
-            print("Standard Output:\n", stdout)
-            print("Standard Error:\n", stderr)
+            # logger.info the logs
+            logger.info("Standard Output:\n", stdout)
+            logger.info("Standard Error:\n", stderr)
 
         if not self.use_existing_chunks:
             try:
                 run_subprocess()
 
             except Exception as e:
-                raise Exception(f"Error while creating the `.bin` files... {e}")
+                message = f"Error while creating the `.bin` files... {e}"
+                logger.error(message)
+                raise Exception(message)
 
         else:
-            print(f"Using `.bin` files from {self.litdata_chunks_path}.")
+            logger.info(f"Using `.bin` files from {self.litdata_chunks_path}.")
             self.train_litdata_chunks_path = (
                 Path(self.litdata_chunks_path) / "train_chunks"
             ).as_posix()
@@ -593,9 +597,9 @@ class ModelTrainer:
             )
 
         else:
-            raise Exception(
-                f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
-            )
+            message = f"{self.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
+            logger.error(message)
+            raise ValueError(message)
 
         # train
         # TODO: cycler - to ensure minimum steps per epoch
@@ -662,7 +666,7 @@ class ModelTrainer:
         total_params = self._get_param_count()
         self.config.model_config.total_params = total_params
 
-        logger = []
+        training_loggers = []
 
         if self.config.trainer_config.save_ckpt:
 
@@ -678,7 +682,7 @@ class ModelTrainer:
             callbacks = [checkpoint_callback]
             # logger to create csv with metrics values over the epochs
             csv_logger = CSVLogger(self.dir_path)
-            logger.append(csv_logger)
+            training_loggers.append(csv_logger)
 
         else:
             callbacks = []
@@ -708,7 +712,7 @@ class ModelTrainer:
                 id=self.config.trainer_config.wandb.prv_runid,
                 group=self.config.trainer_config.wandb.group,
             )
-            logger.append(wandb_logger)
+            training_loggers.append(wandb_logger)
 
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
@@ -732,13 +736,13 @@ class ModelTrainer:
             self._create_data_loaders_torch_dataset()
 
         else:
-            raise ValueError(
-                f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
-            )
+            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
+            logger.error(message)
+            raise ValueError(message)
 
         self.trainer = L.Trainer(
             callbacks=callbacks,
-            logger=logger,
+            logger=training_loggers,
             enable_checkpointing=self.config.trainer_config.save_ckpt,
             devices=self.config.trainer_config.trainer_devices,
             max_epochs=self.config.trainer_config.max_epochs,
@@ -763,7 +767,7 @@ class ModelTrainer:
             )
 
         except KeyboardInterrupt:
-            print("Stopping training...")
+            logger.info("Stopping training...")
 
         finally:
             if self.config.trainer_config.use_wandb:
@@ -796,7 +800,7 @@ class ModelTrainer:
                 self.data_pipeline_fw == "litdata"
                 and self.config.data_config.delete_chunks_after_training
             ):
-                print("Deleting training and validation files...")
+                logger.info("Deleting training and validation files...")
                 if (Path(self.train_litdata_chunks_path)).exists():
                     shutil.rmtree(
                         (Path(self.train_litdata_chunks_path)).as_posix(),
@@ -876,7 +880,6 @@ class TrainingModel(L.LightningModule):
                         (x.source.name, x.destination.name)
                         for x in self.skeletons[0].edges
                     ]
-                    print(f"edges: {edges}")
                     head_config[key]["edges"] = edges
 
         self.model = Model(
@@ -913,7 +916,7 @@ class TrainingModel(L.LightningModule):
         # TODO: Handling different input channels
         # Initializing backbone (encoder + decoder) with trained ckpts
         if self.pretrained_backbone_weights is not None:
-            print(
+            logger.info(
                 f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
             )
             ckpt = torch.load(self.pretrained_backbone_weights)
@@ -926,7 +929,9 @@ class TrainingModel(L.LightningModule):
 
         # Initializing head layers with trained ckpts.
         if self.pretrained_head_weights is not None:
-            print(f"Loading head weights from `{self.pretrained_head_weights}` ...")
+            logger.info(
+                f"Loading head weights from `{self.pretrained_head_weights}` ..."
+            )
             ckpt = torch.load(self.pretrained_head_weights)
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -1024,9 +1029,9 @@ class TrainingModel(L.LightningModule):
                 )
 
             elif self.trainer_config.lr_scheduler.scheduler is not None:
-                raise ValueError(
-                    f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
-                )
+                message = f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
+                logger.error(message)
+                raise ValueError(message)
 
             return {
                 "optimizer": optimizer,

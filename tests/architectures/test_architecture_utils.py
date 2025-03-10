@@ -1,12 +1,29 @@
 import pytest
 from torch import nn
+from loguru import logger
+
+from _pytest.logging import LogCaptureFixture
 
 from sleap_nn.architectures.utils import get_act_fn, get_children_layers
 
 
-def test_get_act_fn():
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
+
+
+def test_get_act_fn(caplog):
     with pytest.raises(KeyError):
         get_act_fn("invalid_input")
+    assert "invalid_input" in caplog.text
 
     assert isinstance(get_act_fn("relu"), nn.ReLU)
     assert isinstance(get_act_fn("softmax"), nn.Softmax)

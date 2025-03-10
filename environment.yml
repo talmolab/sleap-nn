@@ -35,3 +35,4 @@ dependencies:
     - "--editable=.[dev]"
     - litdata
     - hydra-core
+    - loguru

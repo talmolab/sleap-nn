@@ -6,6 +6,7 @@ import litdata as ld
 from pathlib import Path
 from omegaconf import OmegaConf
 import sleap_io as sio
+from loguru import logger
 
 from sleap_nn.data.providers import get_max_instances, get_max_height_width
 from sleap_nn.data.get_data_chunks import (
@@ -34,14 +35,14 @@ if __name__ == "__main__":
 
     train_labels = sio.load_slp(config.data_config.train_labels_path)
     val_labels = sio.load_slp(config.data_config.val_labels_path)
-    user_instances_only = False if args.user_instances_only == 0 else True
+    user_instances_only = False if args.user_instances_only == "0" else True
 
     max_stride = config.model_config.backbone_config[f"{args.backbone_type}"][
         "max_stride"
     ]
     max_instances = get_max_instances(train_labels)
 
-    print("Starting data-chunk generation...")
+    logger.info("Starting data-chunk generation...")
 
     if args.model_type == "single_instance":
 
@@ -152,6 +153,6 @@ if __name__ == "__main__":
         )
 
     else:
-        raise ValueError(
-            f"{args.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
-        )
+        message = f"{args.model_type} is not defined. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
+        logger.error(message)
+        raise ValueError(message)

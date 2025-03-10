@@ -122,7 +122,6 @@ def test_simple_upsampling_block():
         transpose_convs_batch_norm=True,
         transpose_convs_batch_norm_before_activation=False,
     )
-    print(block)
 
     block = block.to(device)
     block.eval()
@@ -151,7 +150,6 @@ def test_simple_upsampling_block():
         transpose_convs_batch_norm=True,
         transpose_convs_batch_norm_before_activation=True,
     )
-    print(block)
 
     block = block.to(device)
     block.eval()
