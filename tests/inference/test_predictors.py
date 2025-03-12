@@ -220,6 +220,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
+        "anchor_ind": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -277,6 +278,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
+        "anchor_ind": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -359,6 +361,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
+        "anchor_ind": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -441,6 +444,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
+        "anchor_ind": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -523,6 +527,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
+        "anchor_ind": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -605,6 +610,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
+        "anchor_ind": None,
     }
 
     predictor = Predictor.from_model_paths(
