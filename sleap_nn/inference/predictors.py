@@ -574,7 +574,7 @@ class TopDownPredictor(Predictor):
                 ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
-                in the `data_config.preprocessing` section.
+                in the `data_config.preprocessing` section and the `anchor_ind`.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -704,6 +704,7 @@ class TopDownPredictor(Predictor):
             return_confmaps=return_confmaps,
             device=device,
             preprocess_config=preprocess_config,
+            anchor_ind=preprocess_config["anchor_ind"],
         )
 
         obj._initialize_inference_model()
@@ -1792,6 +1793,7 @@ def main(
         "crop_hw": crop_hw,
         "max_width": max_width,
         "max_height": max_height,
+        "anchor_ind": anchor_ind,
     }
 
     if provider == "VideoReader":
@@ -1829,9 +1831,6 @@ def main(
             of_window_size=of_window_size,
             of_max_levels=of_max_levels,
         )
-
-    if isinstance(predictor, TopDownPredictor):
-        predictor.anchor_ind = anchor_ind
 
     if isinstance(predictor, BottomUpPredictor):
         predictor.inference_model.paf_scorer.max_edge_length_ratio = (
