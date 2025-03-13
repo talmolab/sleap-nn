@@ -440,10 +440,7 @@ def get_trainer_config(
     optimizer: str = "Adam",
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
-    lr_scheduler: Union[str, Dict[str, Any]] = {
-        "step_lr": None,
-        "reduce_lr_on_plateau": None,
-    },
+    lr_scheduler: Optional[Union[str, Dict[str, Any]]] = None,
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
@@ -523,20 +520,22 @@ def get_trainer_config(
         batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
-    lr_scheduler_cfg = None
+    lr_scheduler_cfg = LRSchedulerConfig()
     if isinstance(lr_scheduler, str):
         if lr_scheduler == "step_lr":
-            lr_scheduler_cfg = LRSchedulerConfig(step_lr=StepLRConfig())
+            lr_scheduler_cfg.step_lr = StepLRConfig()
         elif lr_scheduler == "reduce_lr_on_plateau":
-            lr_scheduler_cfg = LRSchedulerConfig(
-                reduce_lr_on_plateau=ReduceLROnPlateauConfig()
-            )
+            lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
         else:
             message = f"{lr_scheduler} is not a valid scheduler. Please choose one of ['step_lr', 'reduce_lr_on_plateau']"
             logger.error(message)
             raise ValueError(message)
     elif isinstance(lr_scheduler, dict):
-        lr_scheduler_cfg = LRSchedulerConfig()
+        if lr_scheduler is None:
+            lr_scheduler = {
+                "step_lr": None,
+                "reduce_lr_on_plateau": None,
+            }
         for k, v in lr_scheduler.items():
             if v is not None:
                 if k == "step_lr":
@@ -704,10 +703,7 @@ def train(
     optimizer: str = "Adam",
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
-    lr_scheduler: Union[str, Dict[str, Any]] = {
-        "step_lr": None,
-        "reduce_lr_on_plateau": None,
-    },
+    lr_scheduler: Optional[Union[str, Dict[str, Any]]] = None,
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,

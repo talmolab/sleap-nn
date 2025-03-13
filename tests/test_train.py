@@ -402,6 +402,33 @@ def test_train_method(minimal_instance, tmp_path: str):
     config = OmegaConf.load(f"{tmp_path}/test_scheduler/training_config.yaml")
     assert config.trainer_config.lr_scheduler.step_lr.step_size == 10
 
+    ## reduce lr on plateau
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs={
+            "centroid": {
+                "confmaps": {"anchor_part": None, "sigma": 2.5, "output_stride": 2}
+            }
+        },
+        save_ckpt=False,
+        save_ckpt_path=f"{tmp_path}/test_reducelr_scheduler",
+        lr_scheduler={
+            "reduce_lr_on_plateau": {
+                "threshold": 1e-5,
+                "threshold_mode": "rel",
+                "cooldown": 0,
+                "patience": 10,
+                "factor": 0.1,
+                "min_lr": 0.0,
+            }
+        },
+    )
+    config = OmegaConf.load(f"{tmp_path}/test_reducelr_scheduler/training_config.yaml")
+    assert config.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold == 1e-5
+
     ## invalid scheduler
     with pytest.raises(ValueError):
         train(
