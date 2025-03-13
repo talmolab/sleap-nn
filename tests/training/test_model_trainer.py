@@ -174,7 +174,6 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
-    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
 
@@ -403,7 +402,6 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
-    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
 
@@ -516,7 +514,9 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     )
     OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
-    OmegaConf.update(config_early_stopping, "trainer_config.lr_scheduler", None)
+    OmegaConf.update(
+        config_early_stopping, "trainer_config.lr_scheduler", {"step_lr": None}
+    )
     OmegaConf.update(
         config_early_stopping,
         "trainer_config.save_ckpt_path",
@@ -632,17 +632,6 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpModel)
-
-    #######
-
-    # check exception for lr scheduler
-    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "ReduceLR")
-    with pytest.raises(ValueError):
-        trainer = ModelTrainer(config)
-        trainer.train()
-    assert "ReduceLR is not a valid scheduler." in caplog.text
-
-    OmegaConf.update(config, "trainer_config.lr_scheduler.scheduler", "StepLR")
 
 
 def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):

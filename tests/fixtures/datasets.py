@@ -159,7 +159,6 @@ def config(sleap_data_dir):
                 "optimizer_name": "Adam",
                 "optimizer": {"lr": 0.0001, "amsgrad": False},
                 "lr_scheduler": {
-                    "scheduler": "ReduceLROnPlateau",
                     "reduce_lr_on_plateau": {
                         "threshold": 1e-07,
                         "threshold_mode": "rel",

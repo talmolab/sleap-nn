@@ -185,9 +185,7 @@ The config file has three main sections:
     - `optimizer`
         - `lr`: (float) Learning rate of type float. *Default*: `1e-3`.
         - `amsgrad`: (bool) Enable AMSGrad with the optimizer. *Default*: `False`.
-    - `lr_scheduler`
-        - `scheduler`: (str) Name of the scheduler to use. Valid schedulers: `"StepLR"`, `"ReduceLROnPlateau"`.
-        *Default*: `None`.
+    - `lr_scheduler`: (Dict) Dictionary with the following keys having lr scheduler configs for different schedulers. **Note**: Configs should only be provided for one of the schedulers and others should be `None`.
         - `step_lr`:
             - `step_size`: (int) Period of learning rate decay. If `step_size`=10, then every 10 epochs, learning rate will be reduced by a factor of `gamma`. *Default*: `10`.
             - `gamma`: (float) Multiplicative factor of learning rate decay.*Default*: `0.1`.
