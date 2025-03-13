@@ -440,9 +440,10 @@ def get_trainer_config(
     optimizer: str = "Adam",
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
-    lr_scheduler: Optional[
-        Union[str, Dict[str, Any]]
-    ] = None,  # {"lr_scheduler": {"step_lr": {}, "reduce_lr_on_plateau": {}}}
+    lr_scheduler: Union[str, Dict[str, Any]] = {
+        "step_lr": None,
+        "reduce_lr_on_plateau": None,
+    },
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
@@ -497,11 +498,10 @@ def get_trainer_config(
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Defaul: False.
-        lr_scheduler: One of ["StepLR", "ReduceLROnPlateau"] (the default values in
+        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
             `sleap_nn.config.trainer_config` are used). To use custom values, pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
             For eg, {
-                        "scheduler": "StepLR",
                         "step_lr":
                             {
                                 (params in `sleap_nn.config.trainer_config.StepLRConfig`)
@@ -525,20 +525,26 @@ def get_trainer_config(
 
     lr_scheduler_cfg = None
     if isinstance(lr_scheduler, str):
-        lr_scheduler_cfg = LRSchedulerConfig(scheduler=lr_scheduler)
-        if lr_scheduler == "StepLR":
-            lr_scheduler_cfg.step_lr = StepLRConfig()
-        if lr_scheduler == "ReduceLROnPlateau":
-            lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
+        if lr_scheduler == "step_lr":
+            lr_scheduler_cfg = LRSchedulerConfig(step_lr=StepLRConfig())
+        elif lr_scheduler == "reduce_lr_on_plateau":
+            lr_scheduler_cfg = LRSchedulerConfig(
+                reduce_lr_on_plateau=ReduceLROnPlateauConfig()
+            )
+        else:
+            message = f"{lr_scheduler} is not a valid scheduler. Please choose one of ['step_lr', 'reduce_lr_on_plateau']"
+            logger.error(message)
+            raise ValueError(message)
     elif isinstance(lr_scheduler, dict):
         lr_scheduler_cfg = LRSchedulerConfig()
-        lr_scheduler_cfg.scheduler = lr_scheduler["scheduler"]
-        if lr_scheduler_cfg.scheduler == "StepLR":
-            lr_scheduler_cfg.step_lr = StepLRConfig(**lr_scheduler["step_lr"])
-        elif lr_scheduler_cfg.scheduler == "ReduceLROnPlateau":
-            lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig(
-                **lr_scheduler["reduce_lr_on_plateau"]
-            )
+        for k, v in lr_scheduler.items():
+            if v is not None:
+                if k == "step_lr":
+                    lr_scheduler_cfg.step_lr = StepLRConfig(**v)
+                    break
+                elif k == "reduce_lr_on_plateau":
+                    lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig(**v)
+                    break
 
     trainer_config = TrainerConfig(
         train_data_loader=train_dataloader_cfg,
@@ -698,9 +704,10 @@ def train(
     optimizer: str = "Adam",
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
-    lr_scheduler: Optional[
-        Union[str, Dict[str, Any]]
-    ] = None,  # {"lr_scheduler": {"step_lr": {}, "reduce_lr_on_plateau": {}}}
+    lr_scheduler: Union[str, Dict[str, Any]] = {
+        "step_lr": None,
+        "reduce_lr_on_plateau": None,
+    },
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
@@ -866,11 +873,10 @@ def train(
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Defaul: False.
-        lr_scheduler: One of ["StepLR", "ReduceLROnPlateau"] (the default values in
+        lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
             `sleap_nn.config.trainer_config` are used). To use custom values, pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
             For eg, {
-                        "scheduler": "StepLR",
                         "step_lr":
                             {
                                 (params in `sleap_nn.config.trainer_config.StepLRConfig`)

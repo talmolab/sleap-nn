@@ -142,7 +142,6 @@ def test_lr_scheduler_config(caplog):
     # Check default values
     conf = TrainerConfig(
         lr_scheduler=LRSchedulerConfig(
-            scheduler="ReduceLROnPlateau",
             reduce_lr_on_plateau=ReduceLROnPlateauConfig(),
         )
     )
@@ -150,33 +149,22 @@ def test_lr_scheduler_config(caplog):
     conf_structured = OmegaConf.create(conf_dict)
 
     # Test ReduceLROnPlateau
-    assert conf_structured.lr_scheduler.scheduler == "ReduceLROnPlateau"
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau.threshold == 1e-4
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau.patience == 10
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau.factor == 0.1
 
     # Test StepLR configuration
     custom_conf = TrainerConfig(
-        lr_scheduler=LRSchedulerConfig(
-            scheduler="StepLR", step_lr=StepLRConfig(step_size=5, gamma=0.5)
-        )
+        lr_scheduler=LRSchedulerConfig(step_lr=StepLRConfig(step_size=5, gamma=0.5))
     )
     custom_dict = asdict(custom_conf)  # Convert to dict for OmegaConf
     custom_structured = OmegaConf.create(custom_dict)
 
-    assert custom_structured.lr_scheduler.scheduler == "StepLR"
     assert custom_structured.lr_scheduler.step_lr.step_size == 5
     assert custom_structured.lr_scheduler.step_lr.gamma == 0.5
 
-    # Test validation
-    with pytest.raises(ValueError, match="scheduler must be one of"):
-        LRSchedulerConfig(scheduler="InvalidScheduler")
-    assert "scheduler" in caplog.text
-
     with pytest.raises(ValueError):
-        LRSchedulerConfig(
-            scheduler="StepLR", step_lr=StepLRConfig(step_size=-5, gamma=0.5)
-        )
+        LRSchedulerConfig(step_lr=StepLRConfig(step_size=-5, gamma=0.5))
 
 
 def test_early_stopping_config():

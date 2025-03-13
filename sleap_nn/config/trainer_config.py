@@ -135,30 +135,12 @@ class LRSchedulerConfig:
     """Configuration for lr_scheduler.
 
     Attributes:
-        scheduler: (str) Name of the scheduler to use. Valid schedulers: "StepLR", "ReduceLROnPlateau".
         step_lr: Configuration for StepLR scheduler.
         reduce_lr_on_plateau: Configuration for ReduceLROnPlateau scheduler.
     """
 
-    scheduler: str = field(
-        default="ReduceLROnPlateau",
-        validator=lambda instance, attr, value: instance.validate_scheduler(),
-    )
     step_lr: Optional[StepLRConfig] = None
     reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = None
-
-    def validate_scheduler(self):
-        """Scheduler Validation.
-
-        Ensures scheduler is one of "ReduceLROnPlateau" or "StepLR"
-        """
-        valid_schedulers = ["ReduceLROnPlateau", "StepLR"]
-        if self.scheduler not in valid_schedulers:
-            message = (
-                f"scheduler must be one of {valid_schedulers}, got {self.scheduler}"
-            )
-            logger.error(message)
-            raise ValueError(message)
 
 
 @define

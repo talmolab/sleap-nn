@@ -121,7 +121,6 @@ def sample_cfg(minimal_instance, tmp_path):
                 "optimizer_name": "Adam",
                 "optimizer": {"lr": 0.0001, "amsgrad": False},
                 "lr_scheduler": {
-                    "scheduler": "ReduceLROnPlateau",
                     "reduce_lr_on_plateau": {
                         "threshold": 1e-07,
                         "threshold_mode": "rel",
@@ -339,7 +338,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     #     head_configs="single_instance",
     #     save_ckpt=True,
     #     save_ckpt_path=f"{tmp_path}/test_single_instabce",
-    #     lr_scheduler="ReduceLROnPlateau",
+    #     lr_scheduler="reduce_lr_on_plateau",
     # )
     # config = OmegaConf.load(f"{tmp_path}/test_single_instabce/training_config.yaml")
     # assert config.model_config.head_configs.single_instance is not None
@@ -353,7 +352,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="bottomup",
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_bottomup",
-        lr_scheduler="ReduceLROnPlateau",
+        lr_scheduler="reduce_lr_on_plateau",
     )
     config = OmegaConf.load(f"{tmp_path}/test_bottomup/training_config.yaml")
     assert config.model_config.head_configs.bottomup is not None
@@ -377,7 +376,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         },
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_custom_head",
-        lr_scheduler="StepLR",
+        lr_scheduler="step_lr",
     )
     config = OmegaConf.load(f"{tmp_path}/test_custom_head/training_config.yaml")
     assert config.model_config.head_configs.centered_instance is not None
@@ -397,12 +396,24 @@ def test_train_method(minimal_instance, tmp_path: str):
         save_ckpt=False,
         save_ckpt_path=f"{tmp_path}/test_scheduler",
         lr_scheduler={
-            "scheduler": "StepLR",
             "step_lr": {"step_size": 10, "gamma": 0.1},
         },
     )
     config = OmegaConf.load(f"{tmp_path}/test_scheduler/training_config.yaml")
     assert config.trainer_config.lr_scheduler.step_lr.step_size == 10
+
+    ## invalid scheduler
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=minimal_instance,
+            val_labels_path=minimal_instance,
+            max_epochs=1,
+            trainer_accelerator="cpu",
+            head_configs="centered_instance",
+            save_ckpt=False,
+            save_ckpt_path=f"{tmp_path}/test_invalid_sch",
+            lr_scheduler="red_lr",
+        )
 
 
 @pytest.mark.skipif(

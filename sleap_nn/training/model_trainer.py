@@ -1002,44 +1002,41 @@ class TrainingModel(L.LightningModule):
             amsgrad=self.trainer_config.optimizer.amsgrad,
         )
 
-        if self.trainer_config.lr_scheduler is None:
+        scheduler = None
+        for k, v in self.trainer_config.lr_scheduler.items():
+            if v is not None:
+                if k == "step_lr":
+                    scheduler = torch.optim.lr_scheduler.StepLR(
+                        optimizer=optimizer,
+                        step_size=self.trainer_config.lr_scheduler.step_lr.step_size,
+                        gamma=self.trainer_config.lr_scheduler.step_lr.gamma,
+                    )
+                    break
+                elif k == "reduce_lr_on_plateau":
+                    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                        optimizer,
+                        mode="min",
+                        threshold=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold,
+                        threshold_mode=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+                        cooldown=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.cooldown,
+                        patience=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.patience,
+                        factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
+                        min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
+                    )
+                    break
+
+        if scheduler is None:
             return {
                 "optimizer": optimizer,
             }
 
-        else:
-
-            if self.trainer_config.lr_scheduler.scheduler == "StepLR":
-                scheduler = torch.optim.lr_scheduler.StepLR(
-                    optimizer=optimizer,
-                    step_size=self.trainer_config.lr_scheduler.step_lr.step_size,
-                    gamma=self.trainer_config.lr_scheduler.step_lr.gamma,
-                )
-
-            elif self.trainer_config.lr_scheduler.scheduler == "ReduceLROnPlateau":
-                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                    optimizer,
-                    mode="min",
-                    threshold=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold,
-                    threshold_mode=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
-                    cooldown=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.cooldown,
-                    patience=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.patience,
-                    factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
-                    min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
-                )
-
-            elif self.trainer_config.lr_scheduler.scheduler is not None:
-                message = f"{self.trainer_config.lr_scheduler.scheduler} is not a valid scheduler. Valid schedulers: `'StepLR'`, `'ReduceLROnPlateau'`"
-                logger.error(message)
-                raise ValueError(message)
-
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": scheduler,
-                    "monitor": "val_loss",
-                },
-            }
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+            },
+        }
 
 
 class SingleInstanceModel(TrainingModel):
