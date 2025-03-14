@@ -177,7 +177,8 @@ class SwinTWrapper(nn.Module):
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales.
-
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all swint architectures.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -196,6 +197,7 @@ class SwinTWrapper(nn.Module):
         filters_rate: int = 2,
         convs_per_block: int = 2,
         up_interpolate: bool = True,
+        max_stride: int = 16,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -204,6 +206,7 @@ class SwinTWrapper(nn.Module):
         self.patch_size = patch_size
         self.kernel_size = kernel_size
         self.filters_rate = filters_rate
+        self.max_stride = max_stride
         arch_types = {
             "tiny": {"embed": 96, "depths": [2, 2, 6, 2], "num_heads": [3, 6, 12, 24]},
             "small": {
@@ -275,6 +278,7 @@ class SwinTWrapper(nn.Module):
             up_interpolate=config.up_interpolate,
             output_stride=config.output_stride,
             stem_patch_stride=config.stem_patch_stride,
+            max_stride=config.max_stride,
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:

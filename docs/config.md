@@ -76,8 +76,7 @@ The config file has three main sections:
             - `kernel_size`: (int) Size of the convolutional kernels. Default is 3.
             - `filters`: (int) Base number of filters in the network. Default is 32
             - `filters_rate`: (float) Factor to adjust the number of filters per block. Default is 1.5.
-            - `max_stride`: (int) Scalar integer specifying the maximum stride that the image must be
-            divisible by. Default is 16.
+            - `max_stride`: (int) Scalar integer specifying the maximum stride which is used to compute the number of down blocks. Default is 16.
             - `stem_stride`: (int) If not None, will create additional "down" blocks for initial
             downsampling based on the stride. These will be configured identically to the down blocks below. Default is None.
             - `middle_block`: (bool) If True, add an additional block at the end of the encoder. Default is True.
@@ -93,6 +92,7 @@ The config file has three main sections:
                 - `depths`: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
                 - `channels`: (List(int)) Number of channels in each block. Default: [96, 192, 384, 768].
             - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. Default: "tiny". 
+            - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `16` for all convnext architectures.
             - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. Default is 4.
             - `stem_patch_stride`: (int) Convolutional stride in the stem layer. Default is 2.
             - `in_channels`: (int) Number of input channels. Default is 1.
@@ -109,6 +109,7 @@ The config file has three main sections:
             - `arch`: Dictionary of embed dimension, depths and number of heads in each layer.
             Default is "Tiny architecture".
             {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}
+            - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `16` for all swint architectures.
             - `patch_size`: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
             - `stem_patch_stride`: (int) Stride for the patch. Default is 2.
             - `window_size`: (List[int]) Window size. Default: [7,7].

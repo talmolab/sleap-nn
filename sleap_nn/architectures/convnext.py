@@ -152,7 +152,8 @@ class ConvNextWrapper(nn.Module):
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales.
-
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all convnext architectures.
     Attributes:
         Inherits all attributes from torch.nn.Module.
     """
@@ -169,6 +170,7 @@ class ConvNextWrapper(nn.Module):
         filters_rate: int = 2,
         convs_per_block: int = 2,
         up_interpolate: bool = True,
+        max_stride: int = 16,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -176,6 +178,7 @@ class ConvNextWrapper(nn.Module):
         self.in_channels = in_channels
         self.kernel_size = kernel_size
         self.filters_rate = filters_rate
+        self.max_stride = max_stride
         arch_types = {
             "tiny": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
             "small": {"depths": [3, 3, 27, 3], "channels": [96, 192, 384, 768]},
@@ -240,6 +243,7 @@ class ConvNextWrapper(nn.Module):
             output_stride=config.output_stride,
             stem_patch_kernel=config.stem_patch_kernel,
             stem_patch_stride=config.stem_patch_stride,
+            max_stride=config.max_stride,
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:
