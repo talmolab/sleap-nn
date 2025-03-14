@@ -38,6 +38,7 @@ class BaseDataset(Dataset):
         data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
@@ -55,6 +56,7 @@ class BaseDataset(Dataset):
         labels: sio.Labels,
         data_config: DictConfig,
         max_stride: int,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
@@ -67,6 +69,7 @@ class BaseDataset(Dataset):
         self.data_config = data_config
         self.curr_idx = 0
         self.max_stride = max_stride
+        self.scale = scale
         self.apply_aug = apply_aug
         self.max_hw = max_hw
         self.max_instances = get_max_instances(self.labels)
@@ -133,7 +136,7 @@ class BaseDataset(Dataset):
             sample["image"], sample["instances"] = apply_resizer(
                 sample["image"],
                 sample["instances"],
-                scale=self.data_config.preprocessing.scale,
+                scale=self.scale,
             )
 
             # Pad the image (if needed) according max stride
@@ -179,6 +182,7 @@ class BottomUpDataset(BaseDataset):
         data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
@@ -203,6 +207,7 @@ class BottomUpDataset(BaseDataset):
         confmap_head_config: DictConfig,
         pafs_head_config: DictConfig,
         max_stride: int,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
@@ -214,6 +219,7 @@ class BottomUpDataset(BaseDataset):
             labels=labels,
             data_config=data_config,
             max_stride=max_stride,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
             np_chunks=np_chunks,
@@ -294,6 +300,7 @@ class CenteredInstanceDataset(BaseDataset):
         data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
@@ -319,6 +326,7 @@ class CenteredInstanceDataset(BaseDataset):
         crop_hw: Tuple[int],
         confmap_head_config: DictConfig,
         max_stride: int,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
@@ -330,6 +338,7 @@ class CenteredInstanceDataset(BaseDataset):
             labels=labels,
             data_config=data_config,
             max_stride=max_stride,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
             np_chunks=np_chunks,
@@ -396,7 +405,7 @@ class CenteredInstanceDataset(BaseDataset):
             image, instances = apply_resizer(
                 image,
                 instances,
-                scale=self.data_config.preprocessing.scale,
+                scale=self.scale,
             )
 
             # get the centroids based on the anchor idx
@@ -533,6 +542,7 @@ class CentroidDataset(BaseDataset):
         data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
@@ -553,6 +563,7 @@ class CentroidDataset(BaseDataset):
         data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
@@ -564,6 +575,7 @@ class CentroidDataset(BaseDataset):
             labels=labels,
             data_config=data_config,
             max_stride=max_stride,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
             np_chunks=np_chunks,
@@ -607,7 +619,7 @@ class CentroidDataset(BaseDataset):
             sample["image"], sample["instances"] = apply_resizer(
                 sample["image"],
                 sample["instances"],
-                scale=self.data_config.preprocessing.scale,
+                scale=self.scale,
             )
 
             # get the centroids based on the anchor idx
@@ -693,6 +705,7 @@ class SingleInstanceDataset(BaseDataset):
         data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
@@ -713,6 +726,7 @@ class SingleInstanceDataset(BaseDataset):
         data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
         np_chunks: bool = False,
@@ -724,6 +738,7 @@ class SingleInstanceDataset(BaseDataset):
             labels=labels,
             data_config=data_config,
             max_stride=max_stride,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
             np_chunks=np_chunks,
