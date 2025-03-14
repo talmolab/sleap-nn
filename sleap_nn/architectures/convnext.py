@@ -152,8 +152,8 @@ class ConvNextWrapper(nn.Module):
             convolutions for upsampling. Interpolation is faster but transposed
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales.
-        max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+        max_stride: Factor by which input image size is reduced through the layers. This is always `16` for all convnext architectures.
+
     Attributes:
         Inherits all attributes from torch.nn.Module.
     """
