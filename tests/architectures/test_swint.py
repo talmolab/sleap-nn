@@ -23,6 +23,7 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -132,6 +133,7 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 4,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -163,6 +165,7 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -208,6 +211,7 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 

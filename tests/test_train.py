@@ -160,6 +160,44 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_val.slp").exists()
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
 
+    # convnext
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        test_file_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        backbone_config="convnext",
+        head_configs="centered_instance",
+        save_ckpt=True,
+        save_ckpt_path=(Path(tmp_path) / "test_convnext").as_posix(),
+    )
+    folder_created = (Path(tmp_path) / "test_convnext").exists()
+    assert folder_created
+    assert (Path(tmp_path) / "test_convnext").joinpath("training_config.yaml").exists()
+    assert (Path(tmp_path) / "test_convnext").joinpath("best.ckpt").exists()
+    assert (Path(tmp_path) / "test_convnext").joinpath("pred_val.slp").exists()
+    assert (Path(tmp_path) / "test_convnext").joinpath("pred_test.slp").exists()
+
+    # swint
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=minimal_instance,
+        test_file_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        backbone_config="swint",
+        head_configs="centered_instance",
+        save_ckpt=True,
+        save_ckpt_path=(Path(tmp_path) / "test_swint").as_posix(),
+    )
+    folder_created = (Path(tmp_path) / "test_swint").exists()
+    assert folder_created
+    assert (Path(tmp_path) / "test_swint").joinpath("training_config.yaml").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("best.ckpt").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_val.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_test.slp").exists()
+
     # with augmentations
     with pytest.raises(ValueError):
         train(

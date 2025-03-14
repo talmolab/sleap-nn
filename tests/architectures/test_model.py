@@ -61,6 +61,7 @@ def test_get_backbone(caplog):
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -88,6 +89,7 @@ def test_get_backbone(caplog):
             "up_interpolate": True,
             "stem_patch_stride": 4,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -289,6 +291,7 @@ def test_convnext_model():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -357,6 +360,7 @@ def test_convnext_model():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 4,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -425,6 +429,7 @@ def test_convnext_model():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 4,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -498,6 +503,7 @@ def test_swint_model():
             "up_interpolate": True,
             "stem_patch_stride": 4,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -568,6 +574,7 @@ def test_swint_model():
             "stem_patch_stride": 4,
             "stem_stride": None,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 

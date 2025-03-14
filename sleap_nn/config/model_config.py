@@ -169,6 +169,8 @@ class ConvNextConfig:
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all convnext architectures.
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
@@ -183,6 +185,7 @@ class ConvNextConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
+    max_stride: int = 16
 
 
 @define
@@ -214,6 +217,8 @@ class ConvNextSmallConfig:
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all convnext architectures.
     """
 
     model_type: str = "small"  # Options: tiny, small, base, large
@@ -228,6 +233,7 @@ class ConvNextSmallConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
+    max_stride: int = 16
 
 
 @define
@@ -259,6 +265,8 @@ class ConvNextBaseConfig:
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all convnext architectures.
     """
 
     model_type: str = "base"  # Options: tiny, small, base, large
@@ -273,6 +281,7 @@ class ConvNextBaseConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
+    max_stride: int = 16
 
 
 @define
@@ -304,6 +313,8 @@ class ConvNextLargeConfig:
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all convnext architectures.
     """
 
     model_type: str = "large"  # Options: tiny, small, base, large
@@ -318,6 +329,7 @@ class ConvNextLargeConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
+    max_stride: int = 16
 
 
 @define
@@ -347,6 +359,8 @@ class SwinTConfig:
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all swint architectures.
     """
 
     model_type: str = field(
@@ -369,6 +383,7 @@ class SwinTConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
+    max_stride: int = 16
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -409,6 +424,8 @@ class SwinTSmallConfig:
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all swint architectures.
     """
 
     model_type: str = field(
@@ -431,6 +448,7 @@ class SwinTSmallConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
+    max_stride: int = 16
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -471,6 +489,8 @@ class SwinTBaseConfig:
             of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        max_stride: Factor by which input image size is reduced through the layers.
+            This is always `16` for all swint architectures.
     """
 
     model_type: str = field(
@@ -493,6 +513,7 @@ class SwinTBaseConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
+    max_stride: int = 16
 
     def validate_model_type(self, value):
         """Validate model_type.

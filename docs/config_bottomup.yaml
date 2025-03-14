@@ -47,6 +47,7 @@ model_config:
 #     up_interpolate: True
 #     stem_patch_kernel: 4
 #     stem_patch_stride: 2
+#     max_stride: 16
 
 # pre_trained_weights: Swin_T_Weights
 # backbone_config:
@@ -62,6 +63,7 @@ model_config:
 #     convs_per_block: 2
 #     up_interpolate: True
 #     stem_patch_stride: 2
+#     max_stride: 16
 
   head_configs:
     single_instance: 

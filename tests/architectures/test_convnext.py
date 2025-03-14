@@ -22,6 +22,7 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -110,6 +111,7 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 4,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -141,6 +143,7 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
@@ -185,6 +188,7 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
+            "max_stride": 16,
         }
     )
 
