@@ -73,17 +73,17 @@ model_config:
     centered_instance: 
       confmaps:
         0: 
-          part_names: None
+          part_names:
           anchor_part: 0
           sigma: 1.5
           output_stride: 2
         1: 
-          part_names: None
+          part_names:
           anchor_part: 2
           sigma: 1.5
           output_stride: 2
         2: 
-          part_names: None
+          part_names:
           anchor_part: 4
           sigma: 1.5
           output_stride: 2

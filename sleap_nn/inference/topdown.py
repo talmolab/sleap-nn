@@ -224,7 +224,7 @@ class CentroidCrop(L.LightningModule):
             scaled_image = apply_pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
-        if isinstance(cms, dict):
+        if isinstance(cms, list):
             cms = cms[output_head_skeleton_num]
 
         refined_peaks, peak_vals, peak_sample_inds, _ = find_local_peaks(
@@ -485,7 +485,7 @@ class FindInstancePeaks(L.LightningModule):
             input_image = apply_pad_to_stride(input_image, self.max_stride)
 
         cms = self.torch_model(input_image)
-        if isinstance(cms, dict):
+        if isinstance(cms, list):
             cms = cms[output_head_skeleton_num]
 
         peak_points, peak_vals = find_global_peaks(

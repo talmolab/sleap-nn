@@ -473,15 +473,29 @@ class TopDownPredictor(Predictor):
             self.data_config.crop_hw = (
                 self.confmap_config.data_config.preprocessing.crop_hw
             )
+            if self.is_multi_head_model:
+                self.data_config.crop_hw = (
+                    self.confmap_config.data_config.preprocessing.crop_hw[
+                        self.output_head_skeleton_num
+                    ]
+                )
 
         if self.centroid_config is None:
+            if self.is_multi_head_model:
+                anchor_part = self.confmap_config.model_config.head_configs.centered_instance.confmaps[
+                    self.output_head_skeleton_num
+                ][
+                    "anchor_part"
+                ]
+            else:
+                anchor_part = (
+                    self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+                )
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
                 crop_hw=self.data_config.crop_hw,
                 anchor_ind=(
-                    self.anchor_ind
-                    if self.anchor_ind is not None
-                    else self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+                    self.anchor_ind if self.anchor_ind is not None else anchor_part
                 ),
                 return_crops=return_crops,
             )
@@ -491,17 +505,31 @@ class TopDownPredictor(Predictor):
                 f"{self.centroid_backbone_type}"
             ]["max_stride"]
             # initialize centroid crop layer
+            if self.is_multi_head_model:
+                output_stride = (
+                    self.centroid_config.model_config.head_configs.centroid.confmaps[
+                        self.output_head_skeleton_num
+                    ]["output_stride"]
+                )
+                scale = self.centroid_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
+            else:
+                output_stride = (
+                    self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride
+                )
+                scale = self.centroid_config.data_config.preprocessing.scale
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=centroid_peak_threshold,
-                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
+                output_stride=output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.centroid_config.data_config.preprocessing.scale,
+                input_scale=scale,
                 crop_hw=self.data_config.crop_hw,
                 use_gt_centroids=False,
             )
@@ -515,19 +543,33 @@ class TopDownPredictor(Predictor):
             max_stride = self.confmap_config.model_config.backbone_config[
                 f"{self.centered_instance_backbone_type}"
             ]["max_stride"]
+
+            if self.is_multi_head_model:
+                output_stride = self.confmap_config.model_config.head_configs.centered_instance.confmaps[
+                    self.output_head_skeleton_num
+                ][
+                    "output_stride"
+                ]
+                scale = self.confmap_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
+            else:
+                output_stride = (
+                    self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride
+                )
+                scale = self.confmap_config.data_config.preprocessing.scale
+
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=centered_instance_peak_threshold,
-                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
+                output_stride=output_stride,
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
-                input_scale=self.confmap_config.data_config.preprocessing.scale,
+                input_scale=scale,
             )
-            centroid_crop_layer.precrop_resize = (
-                self.confmap_config.data_config.preprocessing.scale
-            )
+            centroid_crop_layer.precrop_resize = scale
 
         if self.centroid_config is None and self.confmap_config is not None:
             self.instances_key = (
@@ -536,9 +578,7 @@ class TopDownPredictor(Predictor):
 
         # Initialize the inference model with centroid and instance peak layers
         self.inference_model = TopDownInferenceModel(
-            centroid_crop=centroid_crop_layer,
-            instance_peaks=instance_peaks_layer,
-            output_head_skeleton_num=self.output_head_skeleton_num,
+            centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
         )
 
     @property
@@ -617,7 +657,6 @@ class TopDownPredictor(Predictor):
             if "dataset_mapper" in centroid_config:
                 is_multi_head_model = True
 
-            skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
             ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
 
             # check which backbone architecture
@@ -627,14 +666,23 @@ class TopDownPredictor(Predictor):
                     break
 
             if is_multi_head_model:
+                skeletons_dict = {}
+                for k in centroid_config.data_config.skeletons:
+                    skeletons_dict[k] = get_skeleton_from_config(
+                        centroid_config.data_config.skeletons[k]
+                    )
                 centroid_model = CentroidMultiHeadModel.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     config=centroid_config,
-                    skeletons_dict=skeletons,
+                    skeletons_dict=skeletons_dict,
                     model_type="centroid",
                     backbone_type=centroid_backbone_type,
                 )
+                skeletons = skeletons_dict[output_head_skeleton_num]
             else:
+                skeletons = get_skeleton_from_config(
+                    centroid_config.data_config.skeletons
+                )
                 centroid_model = CentroidModel.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     config=centroid_config,
@@ -677,7 +725,6 @@ class TopDownPredictor(Predictor):
         if confmap_ckpt_path is not None:
             # Load confmap model.
             confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
-            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
             ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
             is_multi_head_model = False
             if "dataset_mapper" in confmap_config:
@@ -690,16 +737,25 @@ class TopDownPredictor(Predictor):
                     break
 
             if is_multi_head_model:
+                skeletons_dict = {}
+                for k in confmap_config.data_config.skeletons:
+                    skeletons_dict[k] = get_skeleton_from_config(
+                        confmap_config.data_config.skeletons[k]
+                    )
                 confmap_model = (
                     TopDownCenteredInstanceMultiHeadModel.load_from_checkpoint(
                         checkpoint_path=ckpt_path,
                         config=confmap_config,
-                        skeletons_dict=skeletons,
+                        skeletons_dict=skeletons_dict,
                         model_type="centered_instance",
                         backbone_type=centered_instance_backbone_type,
                     )
                 )
+                skeletons = skeletons_dict[output_head_skeleton_num]
             else:
+                skeletons = get_skeleton_from_config(
+                    confmap_config.data_config.skeletons
+                )
                 confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     config=confmap_config,
@@ -1125,17 +1181,23 @@ class SingleInstancePredictor(Predictor):
                 break
 
         ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
-        skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
 
         if is_multi_head_model:
+            skeletons_dict = {}
+            for k in confmap_config.data_config.skeletons:
+                skeletons_dict[k] = get_skeleton_from_config(
+                    confmap_config.data_config.skeletons[k]
+                )
             confmap_model = SingleInstanceMultiHeadModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
-                skeletons_dict=skeletons,
+                skeletons_dict=skeletons_dict,
                 model_type="single_instance",
                 backbone_type=backbone_type,
             )
+            skeletons = skeletons_dict[output_head_skeleton_num]
         else:
+            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
             confmap_model = SingleInstanceModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
@@ -1593,17 +1655,25 @@ class BottomUpPredictor(Predictor):
             if v is not None:
                 backbone_type = k
                 break
-        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
+
         if is_multi_head_model:
+            skeletons_dict = {}
+            for k in bottomup_config.data_config.skeletons:
+                skeletons_dict[k] = get_skeleton_from_config(
+                    bottomup_config.data_config.skeletons[k]
+                )
+
             bottomup_model = BottomUpMultiHeadModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=bottomup_config,
-                skeletons_dict=skeletons,
+                skeletons_dict=skeletons_dict,
                 backbone_type=backbone_type,
                 model_type="bottomup",
             )
+            skeletons = skeletons_dict[output_head_skeleton_num]
 
         else:
+            skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
             bottomup_model = BottomUpModel.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=bottomup_config,

@@ -94,26 +94,10 @@ class TrainingModel(L.LightningModule):
                     input_channels,
                 )
 
-        # if edges and part names aren't set in config, get it from `sio.Labels` object.
-        head_config = self.model_config.head_configs[self.model_type]
-        for key in head_config:
-            if "part_names" in head_config[key].keys():
-                if head_config[key]["part_names"] is None:
-                    part_names = [x.name for x in self.skeletons[0].nodes]
-                    head_config[key]["part_names"] = part_names
-
-            if "edges" in head_config[key].keys():
-                if head_config[key]["edges"] is None:
-                    edges = [
-                        (x.source.name, x.destination.name)
-                        for x in self.skeletons[0].edges
-                    ]
-                    head_config[key]["edges"] = edges
-
         self.model = Model(
             backbone_type=self.backbone_type,
             backbone_config=self.model_config.backbone_config[f"{self.backbone_type}"],
-            head_configs=head_config,
+            head_configs=self.model_config.head_configs[self.model_type],
             input_expand_channels=self.input_expand_channels,
             model_type=self.model_type,
         )
@@ -648,29 +632,10 @@ class MultiHeadTrainingModel(L.LightningModule):
                     input_channels,
                 )
 
-        # if edges and part names aren't set in config, get it from `sio.Labels` object.
-        head_configs = self.model_config.head_configs[self.model_type]
-        for key in head_configs:
-            for d_num, _ in self.config.dataset_mapper.items():
-                if "part_names" in head_configs[key][d_num].keys():
-                    if head_configs[key][d_num]["part_names"] is None:
-                        part_names = [
-                            x.name for x in self.skeletons_dict[d_num][0].nodes
-                        ]
-                        head_configs[key][d_num]["part_names"] = part_names
-
-                if "edges" in head_configs[key][d_num].keys():
-                    if head_configs[key][d_num]["edges"] is None:
-                        edges = [
-                            (x.source.name, x.destination.name)
-                            for x in self.skeletons_dict[d_num][0].edges
-                        ]
-                        head_configs[key][d_num]["edges"] = edges
-
         self.model = MultiHeadModel(
             backbone_type=self.backbone_type,
             backbone_config=self.model_config.backbone_config[f"{self.backbone_type}"],
-            head_configs=head_configs,
+            head_configs=self.model_config.head_configs[self.model_type],
             input_expand_channels=self.input_expand_channels,
             model_type=self.model_type,
         )
@@ -881,7 +846,7 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
 
             output = self.model(X)["CenteredInstanceConfmapsHead"]
 
-            for h_num in output:
+            for h_num in batch.keys():
                 if d_num != h_num:
                     with torch.no_grad():
                         output[h_num] = output[h_num].detach()
@@ -1006,7 +971,7 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
 
             output = self.model(X)["SingleInstanceConfmapsHead"]
 
-            for h_num in output:
+            for h_num in batch.keys():
                 if d_num != h_num:
                     with torch.no_grad():
                         output[h_num] = output[h_num].detach()
@@ -1133,7 +1098,7 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
 
             output = self.model(X)["CentroidConfmapsHead"]
 
-            for h_num in output:
+            for h_num in batch.keys():
                 if d_num != h_num:
                     with torch.no_grad():
                         output[h_num] = output[h_num].detach()
@@ -1268,14 +1233,10 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
             output_confmaps = output["MultiInstanceConfmapsHead"]
             output_pafs = output["PartAffinityFieldsHead"]
 
-            for h_num in output_confmaps:
+            for h_num in batch.keys():
                 if d_num != h_num:
                     with torch.no_grad():
                         output_confmaps[h_num] = output_confmaps[h_num].detach()
-
-            for h_num in output_pafs:
-                if d_num != h_num:
-                    with torch.no_grad():
                         output_pafs[h_num] = output_pafs[h_num].detach()
 
             losses = {

@@ -227,10 +227,9 @@ class MultiHeadModel(nn.Module):
                 )
 
         elif model_type == "centroid":
-            for d_num, _ in self.head_configs.confmaps.items():
-                self.heads.append(
-                    CentroidConfmapsHead(**self.head_configs.confmaps[d_num])
-                )
+            centroid_confmaps = self.head_configs.confmaps[d_num]
+            centroid_confmaps.anchor_part = None
+            self.heads.append(CentroidConfmapsHead(**centroid_confmaps))
 
         elif model_type == "bottomup":
             for d_num, _ in self.head_configs.confmaps.items():
@@ -247,12 +246,10 @@ class MultiHeadModel(nn.Module):
             logger.error(message)
             raise Exception(message)
 
-        self.heads = get_head(model_type, self.head_configs)
-
         output_strides = []
         for head_type in head_configs:
             head_config = head_configs[head_type]
-            output_strides.append(head_config.output_stride)
+            output_strides.append(head_config[0].output_stride)
 
         min_output_stride = min(output_strides)
         min_output_stride = min(min_output_stride, self.backbone_config.output_stride)
@@ -303,13 +300,9 @@ class MultiHeadModel(nn.Module):
         """Forward pass through the model."""
         backbone_outputs = self.backbone(x)
 
-        outputs = defaultdict(dict)
-        dataset_num = 1
+        outputs = defaultdict(list)
         for head, head_layer in zip(self.heads, self.head_layers):
             idx = backbone_outputs["strides"].index(head.output_stride)
-            outputs[head.name][dataset_num] = head_layer(
-                backbone_outputs["outputs"][idx]
-            )
-            dataset_num += 1
+            outputs[head.name].append(head_layer(backbone_outputs["outputs"][idx]))
 
         return outputs

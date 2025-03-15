@@ -77,7 +77,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         """
         # Network forward pass.
         cms = self.torch_model(inputs["image"])
-        if isinstance(cms, dict):
+        if isinstance(cms, list):
             cms = cms[self.output_head_skeleton_num]
 
         peak_points, peak_vals = find_global_peaks(

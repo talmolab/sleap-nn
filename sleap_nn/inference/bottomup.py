@@ -125,10 +125,10 @@ class BottomUpInferenceModel(L.LightningModule):
         self.batch_size = inputs["image"].shape[0]
         output = self.torch_model(inputs["image"])
         cms = output["MultiInstanceConfmapsHead"]
-        if isinstance(cms, dict):
+        if isinstance(cms, list):
             cms = cms[self.output_head_skeleton_num]
         pafs = output["PartAffinityFieldsHead"]
-        if isinstance(pafs, dict):
+        if isinstance(pafs, list):
             pafs = pafs[self.output_head_skeleton_num]
         pafs = pafs.permute(0, 2, 3, 1)
         cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)

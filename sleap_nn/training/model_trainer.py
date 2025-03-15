@@ -65,6 +65,10 @@ from sleap_nn.training.lightning_modules import (
     CentroidModel,
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
+    BottomUpMultiHeadModel,
+    CentroidMultiHeadModel,
+    TopDownCenteredInstanceMultiHeadModel,
+    SingleInstanceMultiHeadModel,
 )
 
 
@@ -207,6 +211,24 @@ class ModelTrainer:
                 "edges": skl.edges,
                 "symmetries": symm,
             }
+
+        # if edges and part names aren't set in config, get it from `sio.Labels` object.
+        head_config = self.config.model_config.head_configs[self.model_type]
+        for key in head_config:
+            if "part_names" in head_config[key].keys():
+                if head_config[key]["part_names"] is None:
+                    part_names = [x.name for x in self.skeletons[0].nodes]
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "part_names"
+                    ] = part_names
+
+            if "edges" in head_config[key].keys():
+                if head_config[key]["edges"] is None:
+                    edges = [
+                        (x.source.name, x.destination.name)
+                        for x in self.skeletons[0].edges
+                    ]
+                    self.config.model_config.head_configs[self.model_type][key]["edges"] = edges
 
         self.max_stride = self.config.model_config.backbone_config[
             f"{self.backbone_type}"
@@ -956,10 +978,11 @@ class MultiHeadModelTrainer:
         self.max_widths = {}
         self.crop_hws = {}
         self.skeletons_dict = {}
+        OmegaConf.update(self.config.data_config, f"skeletons", {})
 
         for d_num, d_name in self.config.dataset_mapper.items():
             train_labels = sio.load_slp(
-                self.config.data_config.train_labels_path[f"{d_num}"]
+                self.config.data_config.train_labels_path[d_num]
             )
             self.user_instances_only = (
                 self.config.data_config.user_instances_only
@@ -972,18 +995,41 @@ class MultiHeadModelTrainer:
             self.skeletons_dict[d_num] = train_labels.skeletons
 
             # save the skeleton in the config
-            self.config.data_config[f"{d_name}"]["skeletons"] = {}
             for skl in self.skeletons_dict[d_num]:
                 if skl.symmetries:
                     symm = [list(s.nodes) for s in skl.symmetries]
                 else:
                     symm = None
                 skl_name = skl.name if skl.name is not None else "skeleton-0"
-                self.config["data_config"]["skeletons"][skl_name] = {
-                    "nodes": skl.nodes,
-                    "edges": skl.edges,
-                    "symmetries": symm,
+                self.config["data_config"]["skeletons"][d_num] = {
+                    skl_name: {
+                        "nodes": skl.nodes,
+                        "edges": skl.edges,
+                        "symmetries": symm,
+                    }
                 }
+
+            # if edges and part names aren't set in config, get it from `sio.Labels` object.
+            head_configs = self.config.model_config.head_configs[self.model_type]
+            for key in head_configs:
+                if "part_names" in head_configs[key][d_num].keys():
+                    if head_configs[key][d_num]["part_names"] is None:
+                        part_names = [
+                            x.name for x in self.skeletons_dict[d_num][0].nodes
+                        ]
+                        self.config.model_config.head_configs[self.model_type][key][
+                            d_num
+                        ]["part_names"] = part_names
+
+                if "edges" in head_configs[key][d_num].keys():
+                    if head_configs[key][d_num]["edges"] is None:
+                        edges = [
+                            (x.source.name, x.destination.name)
+                            for x in self.skeletons_dict[d_num][0].edges
+                        ]
+                        self.config.model_config.head_configs[self.model_type][key][
+                            d_num
+                        ]["edges"] = edges
 
             self.edge_inds[d_num] = train_labels.skeletons[0].edge_inds
             self.max_heights[d_num], self.max_widths[d_num] = get_max_height_width(
@@ -1468,16 +1514,16 @@ class MultiHeadModelTrainer:
 
     def _initialize_model(
         self,
-    ):  # TODO
+    ):
         models = {
-            "single_instance": SingleInstanceModel,
-            "centered_instance": TopDownCenteredInstanceModel,
-            "centroid": CentroidModel,
-            "bottomup": BottomUpModel,
+            "single_instance": SingleInstanceMultiHeadModel,
+            "centered_instance": TopDownCenteredInstanceMultiHeadModel,
+            "centroid": CentroidMultiHeadModel,
+            "bottomup": BottomUpMultiHeadModel,
         }
         self.model = models[self.model_type](
             config=self.config,
-            skeletons=self.skeletons_dict,
+            skeletons_dict=self.skeletons_dict,
             model_type=self.model_type,
             backbone_type=self.backbone_type,
         )
