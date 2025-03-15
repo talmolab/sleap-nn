@@ -578,7 +578,9 @@ class TopDownPredictor(Predictor):
 
         # Initialize the inference model with centroid and instance peak layers
         self.inference_model = TopDownInferenceModel(
-            centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
+            centroid_crop=centroid_crop_layer,
+            instance_peaks=instance_peaks_layer,
+            output_head_skeleton_num=self.output_head_skeleton_num,
         )
 
     @property

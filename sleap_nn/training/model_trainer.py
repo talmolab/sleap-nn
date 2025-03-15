@@ -228,7 +228,9 @@ class ModelTrainer:
                         (x.source.name, x.destination.name)
                         for x in self.skeletons[0].edges
                     ]
-                    self.config.model_config.head_configs[self.model_type][key]["edges"] = edges
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "edges"
+                    ] = edges
 
         self.max_stride = self.config.model_config.backbone_config[
             f"{self.backbone_type}"

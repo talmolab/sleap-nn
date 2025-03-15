@@ -709,6 +709,19 @@ class MultiHeadTrainingModel(L.LightningModule):
         """Configure the train timer at the beginning of each epoch."""
         self.train_start_time = time.time()
 
+        # add eval
+        # if self.current_epoch % 10 == 0:
+        #     for d_num, test_path in self.config.data_config.test_file_path.items():
+
+        #         pred_labels = sleap_nn.inference.predictors.main(
+        #             data_path=test_path,
+        #             model_paths=[self.trainer_config.save_ckpt_path],
+        #             output_head_skeleton_num=d_num,
+        #             make_labels=True
+        #         )
+        #         eval1 = Evaluator(sio.load_slp(test_path), pred_labels)
+        #         metrics = eval1.evaluate()
+
     def on_train_epoch_end(self):
         """Configure the train timer at the end of every epoch."""
         train_time = time.time() - self.train_start_time
