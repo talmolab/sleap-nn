@@ -32,6 +32,9 @@ class SingleInstanceInferenceModel(L.LightningModule):
             the predicted peaks.
         input_scale: Float indicating if the images should be resized before being
             passed to the model.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
     """
 
     def __init__(
@@ -43,6 +46,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         input_scale: float = 1.0,
+        output_head_skeleton_num: int = 0,
     ):
         """Initialise the model attributes."""
         super().__init__()
@@ -53,6 +57,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         self.output_stride = output_stride
         self.return_confmaps = return_confmaps
         self.input_scale = input_scale
+        self.output_head_skeleton_num = output_head_skeleton_num
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
@@ -72,6 +77,8 @@ class SingleInstanceInferenceModel(L.LightningModule):
         """
         # Network forward pass.
         cms = self.torch_model(inputs["image"])
+        if isinstance(cms, dict):
+            cms = cms[self.output_head_skeleton_num]
 
         peak_points, peak_vals = find_global_peaks(
             cms.detach(),

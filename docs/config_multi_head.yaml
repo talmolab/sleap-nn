@@ -1,21 +1,21 @@
 dataset_mapper:
-  1: dataset_1
-  2: dataset_2
-  3: dataset_3
+  0: dataset_1
+  1: dataset_2
+  2: dataset_3
 data_config:
   provider: LabelsReader
   train_labels_path: 
+    0: minimal_instance.pkg.slp
     1: minimal_instance.pkg.slp
     2: minimal_instance.pkg.slp
-    3: minimal_instance.pkg.slp
   val_labels_path:
+    0: minimal_instance.pkg.slp
     1: minimal_instance.pkg.slp
     2: minimal_instance.pkg.slp
-    3: minimal_instance.pkg.slp
   test_file_path:
+    0: minimal_instance.pkg.slp
     1: minimal_instance.pkg.slp
     2: minimal_instance.pkg.slp
-    3: minimal_instance.pkg.slp
   data_pipeline_fw: torch_dataset_np_chunks
   np_chunks_path: ./np_chunks_dir/
   use_existing_chunks: True
@@ -25,22 +25,22 @@ data_config:
   delete_chunks_after_training:
   preprocessing:
     max_width: 
-      1: 
-      2: 
-      3: 
+      0:
+      1:
+      2:
     max_height: 
-      1: 
-      2: 
-      3: 
+      0:
+      1:
+      2:
     scale:
-      1: 
-      2: 
-      3: 
+      0:
+      1:
+      2:
     is_rgb: True
     crop_hw:
-      1: 
-      2: 
-      3: 
+      0:
+      1:
+      2:
     min_crop_size:
   use_augmentations_train: true
   augmentation_config:
@@ -72,17 +72,17 @@ model_config:
     bottomup:
     centered_instance: 
       confmaps:
-        1: 
+        0: 
           part_names: None
           anchor_part: 0
           sigma: 1.5
           output_stride: 2
-        2: 
+        1: 
           part_names: None
           anchor_part: 2
           sigma: 1.5
           output_stride: 2
-        3: 
+        2: 
           part_names: None
           anchor_part: 4
           sigma: 1.5
@@ -102,9 +102,9 @@ trainer_config:
   trainer_accelerator: gpu
   enable_progress_bar: false
   steps_per_epoch: 
+    0:
     1:
     2:
-    3:
   max_epochs: 10
   seed: 1000
   use_wandb: false

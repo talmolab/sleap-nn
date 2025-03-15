@@ -47,6 +47,9 @@ class BottomUpInferenceModel(L.LightningModule):
             representation used during instance grouping.
         input_scale: Float indicating if the images should be resized before being
             passed to the model.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
     """
 
     def __init__(
@@ -62,6 +65,7 @@ class BottomUpInferenceModel(L.LightningModule):
         return_pafs: Optional[bool] = False,
         return_paf_graph: Optional[bool] = False,
         input_scale: float = 1.0,
+        output_head_skeleton_num: int = 0,
     ):
         """Initialise the model attributes."""
         super().__init__()
@@ -76,6 +80,7 @@ class BottomUpInferenceModel(L.LightningModule):
         self.return_pafs = return_pafs
         self.return_paf_graph = return_paf_graph
         self.input_scale = input_scale
+        self.output_head_skeleton_num = output_head_skeleton_num
 
     def _generate_cms_peaks(self, cms):
         peaks, peak_vals, sample_inds, peak_channel_inds = find_local_peaks(
@@ -120,7 +125,12 @@ class BottomUpInferenceModel(L.LightningModule):
         self.batch_size = inputs["image"].shape[0]
         output = self.torch_model(inputs["image"])
         cms = output["MultiInstanceConfmapsHead"]
-        pafs = output["PartAffinityFieldsHead"].permute(0, 2, 3, 1)
+        if isinstance(cms, dict):
+            cms = cms[self.output_head_skeleton_num]
+        pafs = output["PartAffinityFieldsHead"]
+        if isinstance(pafs, dict):
+            pafs = pafs[self.output_head_skeleton_num]
+        pafs = pafs.permute(0, 2, 3, 1)
         cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)
 
         (

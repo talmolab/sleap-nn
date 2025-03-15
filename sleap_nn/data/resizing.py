@@ -116,14 +116,6 @@ def apply_sizematcher(
         max_height = img_height
     if max_width is None:
         max_width = img_width
-    if img_height > max_height:
-        message = f"Max height {max_height} should be greater than the current image height: {img_height}"
-        logger.error(message)
-        raise ValueError(message)
-    if img_width > max_width:
-        message = f"Max width {max_width} should be greater than the current image width: {img_width}"
-        logger.error(message)
-        raise ValueError(message)
     if img_height < max_height or img_width < max_width:
         hratio = max_height / img_height
         wratio = max_width / img_width

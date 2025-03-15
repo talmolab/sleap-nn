@@ -28,6 +28,10 @@ from sleap_nn.training.lightning_modules import (
     SingleInstanceModel,
     CentroidModel,
     BottomUpModel,
+    TopDownCenteredInstanceMultiHeadModel,
+    SingleInstanceMultiHeadModel,
+    CentroidMultiHeadModel,
+    BottomUpMultiHeadModel,
 )
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import BottomUpInferenceModel
@@ -96,6 +100,7 @@ class Predictor(ABC):
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
+        output_head_skeleton_num: int = 1,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -126,6 +131,9 @@ class Predictor(ABC):
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             A subclass of `Predictor`.
@@ -156,6 +164,7 @@ class Predictor(ABC):
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
+                output_head_skeleton_num=output_head_skeleton_num,
             )
 
         elif "centroid" in model_names or "centered_instance" in model_names:
@@ -180,6 +189,7 @@ class Predictor(ABC):
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
+                output_head_skeleton_num=output_head_skeleton_num,
             )
 
         elif "bottomup" in model_names:
@@ -196,6 +206,7 @@ class Predictor(ABC):
                 return_confmaps=return_confmaps,
                 device=device,
                 preprocess_config=preprocess_config,
+                output_head_skeleton_num=output_head_skeleton_num,
             )
         else:
             message = f"Could not create predictor from model paths:\n{model_paths}"
@@ -416,6 +427,10 @@ class TopDownPredictor(Predictor):
             if this is `None`.
         anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
             provided, the anchor idx in the `training_config.yaml` is used instead.
+        is_multi_head_model: True if inference should be performed on a multi-head model.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
 
     """
 
@@ -437,6 +452,8 @@ class TopDownPredictor(Predictor):
     preprocess_config: Optional[OmegaConf] = None
     tracker: Optional[Tracker] = None
     anchor_ind: Optional[int] = None
+    is_multi_head_model: bool = False
+    output_head_skeleton_num: int = 0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -519,7 +536,9 @@ class TopDownPredictor(Predictor):
 
         # Initialize the inference model with centroid and instance peak layers
         self.inference_model = TopDownInferenceModel(
-            centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
+            centroid_crop=centroid_crop_layer,
+            instance_peaks=instance_peaks_layer,
+            output_head_skeleton_num=self.output_head_skeleton_num,
         )
 
     @property
@@ -548,6 +567,7 @@ class TopDownPredictor(Predictor):
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
+        output_head_skeleton_num: int = 1,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -575,6 +595,9 @@ class TopDownPredictor(Predictor):
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section and the `anchor_ind`.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -590,6 +613,10 @@ class TopDownPredictor(Predictor):
             centroid_config = OmegaConf.load(
                 f"{centroid_ckpt_path}/training_config.yaml"
             )
+            is_multi_head_model = False
+            if "dataset_mapper" in centroid_config:
+                is_multi_head_model = True
+
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
             ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
 
@@ -599,13 +626,22 @@ class TopDownPredictor(Predictor):
                     centroid_backbone_type = k
                     break
 
-            centroid_model = CentroidModel.load_from_checkpoint(
-                checkpoint_path=ckpt_path,
-                config=centroid_config,
-                skeletons=skeletons,
-                model_type="centroid",
-                backbone_type=centroid_backbone_type,
-            )
+            if is_multi_head_model:
+                centroid_model = CentroidMultiHeadModel.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    config=centroid_config,
+                    skeletons_dict=skeletons,
+                    model_type="centroid",
+                    backbone_type=centroid_backbone_type,
+                )
+            else:
+                centroid_model = CentroidModel.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    config=centroid_config,
+                    skeletons=skeletons,
+                    model_type="centroid",
+                    backbone_type=centroid_backbone_type,
+                )
 
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
@@ -643,19 +679,35 @@ class TopDownPredictor(Predictor):
             confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
             ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+            is_multi_head_model = False
+            if "dataset_mapper" in confmap_config:
+                is_multi_head_model = True
 
             # check which backbone architecture
             for k, v in confmap_config.model_config.backbone_config.items():
                 if v is not None:
                     centered_instance_backbone_type = k
                     break
-            confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
-                checkpoint_path=ckpt_path,
-                config=confmap_config,
-                skeletons=skeletons,
-                model_type="centered_instance",
-                backbone_type=centered_instance_backbone_type,
-            )
+
+            if is_multi_head_model:
+                confmap_model = (
+                    TopDownCenteredInstanceMultiHeadModel.load_from_checkpoint(
+                        checkpoint_path=ckpt_path,
+                        config=confmap_config,
+                        skeletons_dict=skeletons,
+                        model_type="centered_instance",
+                        backbone_type=centered_instance_backbone_type,
+                    )
+                )
+            else:
+                confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    config=confmap_config,
+                    skeletons=skeletons,
+                    model_type="centered_instance",
+                    backbone_type=centered_instance_backbone_type,
+                )
+
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(backbone_ckpt_path)
@@ -705,6 +757,8 @@ class TopDownPredictor(Predictor):
             device=device,
             preprocess_config=preprocess_config,
             anchor_ind=preprocess_config["anchor_ind"],
+            output_head_skeleton_num=output_head_skeleton_num,
+            is_multi_head_model=is_multi_head_model,
         )
 
         obj._initialize_inference_model()
@@ -740,6 +794,16 @@ class TopDownPredictor(Predictor):
             scale = self.centroid_config.data_config.preprocessing.scale
             max_height = self.centroid_config.data_config.preprocessing.max_height
             max_width = self.centroid_config.data_config.preprocessing.max_width
+            if self.is_multi_head_model:
+                scale = self.centroid_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
+                max_height = self.centroid_config.data_config.preprocessing.max_height[
+                    self.output_head_skeleton_num
+                ]
+                max_width = self.centroid_config.data_config.preprocessing.max_width[
+                    self.output_head_skeleton_num
+                ]
         else:
             max_stride = self.confmap_config.model_config.backbone_config[
                 f"{self.centered_instance_backbone_type}"
@@ -747,6 +811,16 @@ class TopDownPredictor(Predictor):
             scale = self.confmap_config.data_config.preprocessing.scale
             max_height = self.confmap_config.data_config.preprocessing.max_height
             max_width = self.confmap_config.data_config.preprocessing.max_width
+            if self.is_multi_head_model:
+                scale = self.confmap_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
+                max_height = self.confmap_config.data_config.preprocessing.max_height[
+                    self.output_head_skeleton_num
+                ]
+                max_width = self.confmap_config.data_config.preprocessing.max_width[
+                    self.output_head_skeleton_num
+                ]
 
         # LabelsReader provider
         if self.provider == "LabelsReader":
@@ -791,7 +865,7 @@ class TopDownPredictor(Predictor):
             self.preprocess = False
             self.preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.centroid_config.data_config.preprocessing.scale,
+                "scale": scale,
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.centroid_config.model_config.backbone_config[
@@ -933,6 +1007,10 @@ class SingleInstancePredictor(Predictor):
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
+        is_multi_head_model: True if inference should be performed on a multi-head model.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
 
     """
 
@@ -948,17 +1026,36 @@ class SingleInstancePredictor(Predictor):
     return_confmaps: bool = False
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
+    is_multi_head_model: bool = False
+    output_head_skeleton_num: int = 0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
+        if self.is_multi_head_model:
+            output_stride = (
+                self.confmap_config.model_config.head_configs.single_instance.confmaps[
+                    self.output_head_skeleton_num
+                ]["output_stride"]
+            )
+            scale = self.confmap_config.data_config.preprocessing.scale[
+                self.output_head_skeleton_num
+            ]
+        else:
+            output_stride = (
+                self.confmap_config.model_config.head_configs.single_instance.confmaps[
+                    "output_stride"
+                ]
+            )
+            scale = self.confmap_config.data_config.preprocessing.scale
         self.inference_model = SingleInstanceInferenceModel(
             torch_model=self.confmap_model,
             peak_threshold=self.peak_threshold,
-            output_stride=self.confmap_config.model_config.head_configs.single_instance.confmaps.output_stride,
+            output_stride=output_stride,
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.confmap_config.data_config.preprocessing.scale,
+            input_scale=scale,
+            output_head_skeleton_num=self.output_head_skeleton_num,
         )
 
     @property
@@ -982,6 +1079,7 @@ class SingleInstancePredictor(Predictor):
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
+        output_head_skeleton_num: int = 1,
     ) -> "SingleInstancePredictor":
         """Create predictor from saved models.
 
@@ -1007,14 +1105,18 @@ class SingleInstancePredictor(Predictor):
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             An instance of `SingleInstancePredictor` with the loaded models.
 
         """
         confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
-        skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
-        ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+        is_multi_head_model = False
+        if "dataset_mapper" in confmap_config:
+            is_multi_head_model = True
 
         # check which backbone architecture
         for k, v in confmap_config.model_config.backbone_config.items():
@@ -1022,13 +1124,25 @@ class SingleInstancePredictor(Predictor):
                 backbone_type = k
                 break
 
-        confmap_model = SingleInstanceModel.load_from_checkpoint(
-            checkpoint_path=ckpt_path,
-            config=confmap_config,
-            skeletons=skeletons,
-            model_type="single_instance",
-            backbone_type=backbone_type,
-        )
+        ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+        skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+
+        if is_multi_head_model:
+            confmap_model = SingleInstanceMultiHeadModel.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=confmap_config,
+                skeletons_dict=skeletons,
+                model_type="single_instance",
+                backbone_type=backbone_type,
+            )
+        else:
+            confmap_model = SingleInstanceModel.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=confmap_config,
+                skeletons=skeletons,
+                model_type="single_instance",
+                backbone_type=backbone_type,
+            )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
             logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
@@ -1068,6 +1182,8 @@ class SingleInstancePredictor(Predictor):
             return_confmaps=return_confmaps,
             device=device,
             preprocess_config=preprocess_config,
+            output_head_skeleton_num=output_head_skeleton_num,
+            is_multi_head_model=is_multi_head_model,
         )
 
         obj._initialize_inference_model()
@@ -1097,6 +1213,19 @@ class SingleInstancePredictor(Predictor):
 
         """
         self.provider = provider
+        scale = self.confmap_config.data_config.preprocessing.scale
+        max_height = self.confmap_config.data_config.preprocessing.max_height
+        max_height = (
+            max_height[self.output_head_skeleton_num]
+            if self.is_multi_head_model
+            else max_height
+        )
+        max_width = self.confmap_config.data_config.preprocessing.max_width
+        max_width = (
+            max_width[self.output_head_skeleton_num]
+            if self.is_multi_head_model
+            else max_width
+        )
 
         # LabelsReader provider
         if self.provider == "LabelsReader":
@@ -1109,18 +1238,22 @@ class SingleInstancePredictor(Predictor):
             self.preprocess = False
             self.preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.confmap_config.data_config.preprocessing.scale,
+                "scale": (
+                    scale[self.output_head_skeleton_num]
+                    if self.is_multi_head_model
+                    else scale
+                ),
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
                 "max_height": (
                     self.data_config.max_height
                     if self.data_config.max_height is not None
-                    else self.confmap_config.data_config.preprocessing.max_height
+                    else max_height
                 ),
                 "max_width": (
                     self.data_config.max_width
                     if self.data_config.max_width is not None
-                    else self.confmap_config.data_config.preprocessing.max_width
+                    else max_width
                 ),
             }
 
@@ -1135,7 +1268,11 @@ class SingleInstancePredictor(Predictor):
             self.preprocess = True
             self.preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.confmap_config.data_config.preprocessing.scale,
+                "scale": (
+                    scale[self.output_head_skeleton_num]
+                    if self.is_multi_head_model
+                    else scale
+                ),
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.confmap_config.model_config.backbone_config[
@@ -1145,12 +1282,12 @@ class SingleInstancePredictor(Predictor):
                 "max_height": (
                     self.data_config.max_height
                     if self.data_config.max_height is not None
-                    else self.confmap_config.data_config.preprocessing.max_height
+                    else max_height
                 ),
                 "max_width": (
                     self.data_config.max_width
                     if self.data_config.max_width is not None
-                    else self.confmap_config.data_config.preprocessing.max_width
+                    else max_width
                 ),
             }
 
@@ -1278,6 +1415,10 @@ class BottomUpPredictor(Predictor):
         tracker: A `sleap.nn.tracking.Tracker` that will be called to associate
             detections over time. Predicted instances will not be assigned to tracks if
             if this is `None`.
+        is_multi_head_model: True if inference should be performed on a multi-head model.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
 
     """
 
@@ -1300,40 +1441,88 @@ class BottomUpPredictor(Predictor):
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
     tracker: Optional[Tracker] = None
+    is_multi_head_model: bool = False
+    output_head_skeleton_num: int = 0
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
         # initialize the paf scorer
-        paf_scorer = PAFScorer.from_config(
-            config=OmegaConf.create(
-                {
-                    "confmaps": self.bottomup_config.model_config.head_configs.bottomup[
-                        "confmaps"
-                    ],
-                    "pafs": self.bottomup_config.model_config.head_configs.bottomup[
-                        "pafs"
-                    ],
-                }
-            ),
-            max_edge_length_ratio=self.max_edge_length_ratio,
-            dist_penalty_weight=self.dist_penalty_weight,
-            n_points=self.n_points,
-            min_instance_peaks=self.min_instance_peaks,
-            min_line_scores=self.min_line_scores,
-        )
+        if self.is_multi_head_model:
+            paf_scorer = PAFScorer.from_config(
+                config=OmegaConf.create(
+                    {
+                        "confmaps": self.bottomup_config.model_config.head_configs.bottomup[
+                            "confmaps"
+                        ][
+                            self.output_head_skeleton_num
+                        ],
+                        "pafs": self.bottomup_config.model_config.head_configs.bottomup[
+                            "pafs"
+                        ][self.output_head_skeleton_num],
+                    }
+                ),
+                max_edge_length_ratio=self.max_edge_length_ratio,
+                dist_penalty_weight=self.dist_penalty_weight,
+                n_points=self.n_points,
+                min_instance_peaks=self.min_instance_peaks,
+                min_line_scores=self.min_line_scores,
+            )
 
-        # initialize the BottomUpInferenceModel
-        self.inference_model = BottomUpInferenceModel(
-            torch_model=self.bottomup_model,
-            paf_scorer=paf_scorer,
-            peak_threshold=self.peak_threshold,
-            cms_output_stride=self.bottomup_config.model_config.head_configs.bottomup.confmaps.output_stride,
-            pafs_output_stride=self.bottomup_config.model_config.head_configs.bottomup.pafs.output_stride,
-            refinement=self.integral_refinement,
-            integral_patch_size=self.integral_patch_size,
-            return_confmaps=self.return_confmaps,
-            input_scale=self.bottomup_config.data_config.preprocessing.scale,
-        )
+            # initialize the BottomUpInferenceModel
+            self.inference_model = BottomUpInferenceModel(
+                torch_model=self.bottomup_model,
+                paf_scorer=paf_scorer,
+                peak_threshold=self.peak_threshold,
+                cms_output_stride=self.bottomup_config.model_config.head_configs.bottomup.confmaps[
+                    self.output_head_skeleton_num
+                ][
+                    "output_stride"
+                ],
+                pafs_output_stride=self.bottomup_config.model_config.head_configs.bottomup.pafs[
+                    self.output_head_skeleton_num
+                ][
+                    "output_stride"
+                ],
+                refinement=self.integral_refinement,
+                integral_patch_size=self.integral_patch_size,
+                return_confmaps=self.return_confmaps,
+                input_scale=self.bottomup_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ],
+                output_head_skeleton_num=self.output_head_skeleton_num,
+            )
+        else:
+            paf_scorer = PAFScorer.from_config(
+                config=OmegaConf.create(
+                    {
+                        "confmaps": self.bottomup_config.model_config.head_configs.bottomup[
+                            "confmaps"
+                        ],
+                        "pafs": self.bottomup_config.model_config.head_configs.bottomup[
+                            "pafs"
+                        ],
+                    }
+                ),
+                max_edge_length_ratio=self.max_edge_length_ratio,
+                dist_penalty_weight=self.dist_penalty_weight,
+                n_points=self.n_points,
+                min_instance_peaks=self.min_instance_peaks,
+                min_line_scores=self.min_line_scores,
+            )
+
+            # initialize the BottomUpInferenceModel
+            self.inference_model = BottomUpInferenceModel(
+                torch_model=self.bottomup_model,
+                paf_scorer=paf_scorer,
+                peak_threshold=self.peak_threshold,
+                cms_output_stride=self.bottomup_config.model_config.head_configs.bottomup.confmaps.output_stride,
+                pafs_output_stride=self.bottomup_config.model_config.head_configs.bottomup.pafs.output_stride,
+                refinement=self.integral_refinement,
+                integral_patch_size=self.integral_patch_size,
+                return_confmaps=self.return_confmaps,
+                input_scale=self.bottomup_config.data_config.preprocessing.scale,
+                output_head_skeleton_num=self.output_head_skeleton_num,
+            )
 
     @property
     def data_config(self) -> OmegaConf:
@@ -1357,6 +1546,7 @@ class BottomUpPredictor(Predictor):
         return_confmaps: bool = False,
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
+        output_head_skeleton_num: int = 1,
     ) -> "BottomUpPredictor":
         """Create predictor from saved models.
 
@@ -1383,13 +1573,19 @@ class BottomUpPredictor(Predictor):
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             An instance of `BottomUpPredictor` with the loaded models.
 
         """
         bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
-        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
+        is_multi_head_model = False
+        if "dataset_mapper" in bottomup_config:
+            is_multi_head_model = True
+
         ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
 
         # check which backbone architecture
@@ -1397,14 +1593,25 @@ class BottomUpPredictor(Predictor):
             if v is not None:
                 backbone_type = k
                 break
+        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
+        if is_multi_head_model:
+            bottomup_model = BottomUpMultiHeadModel.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=bottomup_config,
+                skeletons_dict=skeletons,
+                backbone_type=backbone_type,
+                model_type="bottomup",
+            )
 
-        bottomup_model = BottomUpModel.load_from_checkpoint(
-            checkpoint_path=ckpt_path,
-            config=bottomup_config,
-            skeletons=skeletons,
-            backbone_type=backbone_type,
-            model_type="bottomup",
-        )
+        else:
+            bottomup_model = BottomUpModel.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=bottomup_config,
+                skeletons=skeletons,
+                backbone_type=backbone_type,
+                model_type="bottomup",
+            )
+
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
             logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(backbone_ckpt_path)
@@ -1444,6 +1651,8 @@ class BottomUpPredictor(Predictor):
             max_instances=max_instances,
             return_confmaps=return_confmaps,
             preprocess_config=preprocess_config,
+            output_head_skeleton_num=output_head_skeleton_num,
+            is_multi_head_model=is_multi_head_model,
         )
 
         obj._initialize_inference_model()
@@ -1473,6 +1682,19 @@ class BottomUpPredictor(Predictor):
         """
         self.provider = provider
         # LabelsReader provider
+        scale = self.bottomup_config.data_config.preprocessing.scale
+        max_height = self.bottomup_config.data_config.preprocessing.max_height
+        max_height = (
+            max_height[self.output_head_skeleton_num]
+            if self.is_multi_head_model
+            else max_height
+        )
+        max_width = self.bottomup_config.data_config.preprocessing.max_width
+        max_width = (
+            max_width[self.output_head_skeleton_num]
+            if self.is_multi_head_model
+            else max_width
+        )
         if self.provider == "LabelsReader":
             provider = LabelsReader
 
@@ -1483,18 +1705,22 @@ class BottomUpPredictor(Predictor):
             self.preprocess = False
             self.preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.bottomup_config.data_config.preprocessing.scale,
+                "scale": (
+                    scale[self.output_head_skeleton_num]
+                    if self.is_multi_head_model
+                    else scale
+                ),
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": max_stride,
                 "max_height": (
                     self.data_config.max_height
                     if self.data_config.max_height is not None
-                    else self.bottomup_config.data_config.preprocessing.max_height
+                    else max_height
                 ),
                 "max_width": (
                     self.data_config.max_width
                     if self.data_config.max_width is not None
-                    else self.bottomup_config.data_config.preprocessing.max_width
+                    else max_width
                 ),
             }
 
@@ -1509,7 +1735,11 @@ class BottomUpPredictor(Predictor):
             self.preprocess = True
             self.preprocess_config = {
                 "batch_size": self.batch_size,
-                "scale": self.bottomup_config.data_config.preprocessing.scale,
+                "scale": (
+                    scale[self.output_head_skeleton_num]
+                    if self.is_multi_head_model
+                    else scale
+                ),
                 "is_rgb": self.data_config.is_rgb,
                 "max_stride": (
                     self.bottomup_config.model_config.backbone_config[
@@ -1519,12 +1749,12 @@ class BottomUpPredictor(Predictor):
                 "max_height": (
                     self.data_config.max_height
                     if self.data_config.max_height is not None
-                    else self.bottomup_config.data_config.preprocessing.max_height
+                    else max_height
                 ),
                 "max_width": (
                     self.data_config.max_width
                     if self.data_config.max_width is not None
-                    else self.bottomup_config.data_config.preprocessing.max_width
+                    else max_width
                 ),
             }
 
@@ -1676,6 +1906,7 @@ def main(
     of_img_scale: float = 1.0,
     of_window_size: int = 21,
     of_max_levels: int = 3,
+    output_head_skeleton_num: int = 1,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
@@ -1782,6 +2013,9 @@ def main(
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
             Default: 3. (only if `use_flow` is True)
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
 
     Returns:
         Returns `sio.Labels` object if `make_labels` is True. Else this function returns
@@ -1814,6 +2048,7 @@ def main(
         return_confmaps=return_confmaps,
         device=device,
         preprocess_config=OmegaConf.create(preprocess_config),
+        output_head_skeleton_num=output_head_skeleton_num,
     )
 
     if tracking:

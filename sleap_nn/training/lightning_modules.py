@@ -619,7 +619,6 @@ class MultiHeadTrainingModel(L.LightningModule):
     ):
         """Initialise the configs and the model."""
         super().__init__()
-        self.save_hyperparameters()
 
         self.config = config
         self.skeletons_dict = skeletons_dict
