@@ -70,6 +70,7 @@ class BaseDataset(Dataset):
         self.apply_aug = apply_aug
         self.max_hw = max_hw
         self.max_instances = get_max_instances(self.labels)
+        self.lf_idx_list = self._get_lf_idx_list()
         self.np_chunks = np_chunks
         self.np_chunks_path = np_chunks_path
         self.use_existing_chunks = use_existing_chunks
@@ -87,6 +88,22 @@ class BaseDataset(Dataset):
         self.transform_pil_to_tensor = T.ToTensor()
         self.cache = {}
 
+    def _get_lf_idx_list(self) -> List[Tuple[int]]:
+        """Return list of indices of labelled frames."""
+        lf_idx_list = []
+        for lf_idx, lf in enumerate(self.labels):
+            # Filter to user instances
+            if self.data_config.user_instances_only:
+                if lf.user_instances is not None and len(lf.user_instances) > 0:
+                    lf.instances = lf.user_instances
+            is_empty = True
+            for _, inst in enumerate(lf.instances):
+                if not inst.is_empty:  # filter all NaN instances.
+                    is_empty = False
+            if not is_empty:
+                lf_idx_list.append((lf_idx))
+        return lf_idx_list
+
     def __next__(self):
         """Get the next sample from the dataset."""
         if self.curr_idx >= len(self):
@@ -102,7 +119,8 @@ class BaseDataset(Dataset):
 
     def _fill_cache(self):
         """Load all samples to cache."""
-        for lf_idx, lf in enumerate(self.labels):
+        for idx, lf_idx in enumerate(self.lf_idx_list):
+            lf = self.labels[lf_idx]
             video_idx = self._get_video_idx(lf)
 
             # get dict
@@ -146,12 +164,12 @@ class BaseDataset(Dataset):
                 for k, v in sample.items():
                     if k != "image" and isinstance(v, torch.Tensor):
                         sample[k] = v.numpy()
-                f_name = f"{self.np_chunks_path}/sample_{lf_idx}.npz"
+                f_name = f"{self.np_chunks_path}/sample_{idx}.npz"
                 np.savez_compressed(f_name, **sample)
-                self.cache[lf_idx] = f_name
+                self.cache[idx] = f_name
 
             else:
-                self.cache[lf_idx] = sample.copy()
+                self.cache[idx] = sample.copy()
 
         for video in self.labels.videos:
             video.close()
@@ -162,7 +180,7 @@ class BaseDataset(Dataset):
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
-        return len(self.cache)
+        return len(self.lf_idx_list)
 
     def __getitem__(self, index) -> Dict:
         """Returns the sample dict for given index."""
@@ -576,7 +594,8 @@ class CentroidDataset(BaseDataset):
 
     def _fill_cache(self):
         """Load all samples to cache."""
-        for lf_idx, lf in enumerate(self.labels):
+        for idx, lf_idx in enumerate(self.lf_idx_list):
+            lf = self.labels[lf_idx]
             video_idx = self._get_video_idx(lf)
 
             # get dict
@@ -627,12 +646,12 @@ class CentroidDataset(BaseDataset):
                 for k, v in sample.items():
                     if k != "image" and isinstance(v, torch.Tensor):
                         sample[k] = v.numpy()
-                f_name = f"{self.np_chunks_path}/sample_{lf_idx}.npz"
+                f_name = f"{self.np_chunks_path}/sample_{idx}.npz"
                 np.savez_compressed(f_name, **sample)
-                self.cache[lf_idx] = f_name
+                self.cache[idx] = f_name
 
             else:
-                self.cache[lf_idx] = sample.copy()
+                self.cache[idx] = sample.copy()
 
         for video in self.labels.videos:
             video.close()
