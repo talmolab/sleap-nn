@@ -227,7 +227,7 @@ class MultiHeadModel(nn.Module):
                 )
 
         elif model_type == "centroid":
-            centroid_confmaps = self.head_configs.confmaps[d_num]
+            centroid_confmaps = self.head_configs.confmaps[0].copy()
             centroid_confmaps.anchor_part = None
             self.heads.append(CentroidConfmapsHead(**centroid_confmaps))
 
