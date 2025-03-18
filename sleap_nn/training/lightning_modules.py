@@ -3,10 +3,14 @@
 from typing import Optional, List
 import time
 from torch import nn
+import numpy as np
 import torch
+from pathlib import Path
 import sleap_io as sio
 from omegaconf import OmegaConf
 import lightning as L
+from PIL import Image
+import wandb
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -22,10 +26,12 @@ from torchvision.models.convnext import (
     ConvNeXt_Large_Weights,
 )
 import sleap_io as sio
+import sleap_nn
 from sleap_nn.architectures.model import Model, MultiHeadModel
 from loguru import logger
+import sleap_nn.evaluation
 from sleap_nn.training.utils import xavier_init_weights
-
+import matplotlib.pyplot as plt
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -610,6 +616,14 @@ class MultiHeadTrainingModel(L.LightningModule):
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
         self.model_type = model_type
+        self.save_ckpt = self.config.trainer_config.save_ckpt
+        self.use_wandb = self.config.trainer_config.use_wandb
+        if self.save_ckpt:
+            self.results_path = (
+                Path(self.config.trainer_config.save_ckpt_path) / "visualizations"
+            )
+            if not Path(self.results_path).exists():
+                Path(self.results_path).mkdir(parents=True, exist_ok=True)
         self.backbone_type = backbone_type
         self.pretrained_backbone_weights = (
             self.config.model_config.pretrained_backbone_weights
@@ -707,20 +721,116 @@ class MultiHeadTrainingModel(L.LightningModule):
 
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
-        self.train_start_time = time.time()
-
         # add eval
-        # if self.current_epoch % 10 == 0:
-        #     for d_num, test_path in self.config.data_config.test_file_path.items():
+        if self.config.trainer_config.log_inf_epochs is not None:
+            if (
+                torch.distributed.get_rank() == 0
+                and (self.current_epoch % self.config.trainer_config.log_inf_epochs)
+                == 0
+            ):
+                img_array = []
+                p90_dist = []
+                mAP_array = []
+                for d_num, test_path in self.config.data_config.test_file_path.items():
+                    pred_labels = sleap_nn.inference.predictors.main(
+                        data_path=test_path,
+                        model_paths=[self.trainer_config.save_ckpt_path],
+                        output_head_skeleton_num=d_num,
+                        make_labels=True,
+                        is_rgb=self.config.data_config.is_rgb,
+                    )
+                    eval1 = sleap_nn.evaluation.Evaluator(
+                        sio.load_slp(test_path), pred_labels
+                    )
+                    metrics = eval1.evaluate()
+                    mAP = metrics["voc_metrics"]["oks_voc.mAP"]
+                    p90_dist = metrics["distance_metrics"]["p90"]
+                    logger.info(f"TEST EVAL METRICS @ epoch : {self.current_epoch}")
+                    logger.infor(
+                        f"Inference on dataset {d_num} with head skeleton num: {d_num}"
+                    )
+                    logger.info(f"Dist p90: {p90_dist}")
+                    logger.info(f"mAP: {mAP}")
 
-        #         pred_labels = sleap_nn.inference.predictors.main(
-        #             data_path=test_path,
-        #             model_paths=[self.trainer_config.save_ckpt_path],
-        #             output_head_skeleton_num=d_num,
-        #             make_labels=True
-        #         )
-        #         eval1 = Evaluator(sio.load_slp(test_path), pred_labels)
-        #         metrics = eval1.evaluate()
+                    # plot predictions on sample image
+                    if self.use_wandb or self.save_ckpt:
+                        lf = pred_labels[10]
+                        gt_labels = sio.load_slp(test_path)
+                        plt.imshow(lf.image)
+                        for idx, inst in enumerate(lf.instances):
+                            pts = inst.numpy()
+                            pts_gt = gt_labels[10].instances[idx].numpy()
+                            plt.plot(
+                                pts_gt[:, 0], pts_gt[:, 1], "go", label="Ground-truth"
+                            )
+                            plt.plot(pts[:, 0], pts[:, 1], "rx", label="Predicted")
+                        plt.legend()
+                        plt.title(f"{self.config.dataset_mapper[d_num]}")
+                        plt.axis("off")
+
+                    if self.save_ckpt:
+                        plt.savefig(
+                            (Path(self.results_path) / f"pred_on_{d_num}").as_posix()
+                        )
+
+                    if self.use_wandb:
+                        fig = plt.gcf()
+                        fig.canvas.draw()
+                        img = Image.frombytes(
+                            "RGB",
+                            fig.canvas.get_width_height(),
+                            fig.canvas.tostring_rgb(),
+                        )
+                        self.log(
+                            f"oks_map_{d_num}",
+                            mAP,
+                            prog_bar=False,
+                            on_step=False,
+                            on_epoch=True,
+                            logger=True,
+                        )
+                        self.log(
+                            f"dist_p90_{d_num}",
+                            p90_dist,
+                            prog_bar=False,
+                            on_step=False,
+                            on_epoch=True,
+                            logger=True,
+                        )
+
+                        img_array.append(wandb.Image(img))
+                        p90_dist.append(
+                            str(float(p90_dist)) if not np.isnan(p90_dist) else "NaN"
+                        )
+                        mAP_array.append(str(float(mAP)))
+
+                    plt.close(fig)
+
+                if self.use_wandb:
+                    # wandb logging metrics in table
+
+                    dict_p90 = {
+                        label: val
+                        for label, val in zip(self.dataset_dict.values(), p90_dist)
+                    }
+
+                    dict_map = {
+                        label: val
+                        for label, val in zip(self.dataset_dict.values(), mAP_array)
+                    }
+
+                    wandb_table = wandb.Table(
+                        columns=[
+                            "epoch",
+                            "Predictions on test set",
+                            "Test mAP",
+                            "Dist p90",
+                        ],
+                        data=[[self.current_epoch, img_array, dict_map, dict_p90]],
+                    )
+                    wandb.log({"Performance": wandb_table})
+
+        self.train_start_time = time.time()
 
     def on_train_epoch_end(self):
         """Configure the train timer at the end of every epoch."""

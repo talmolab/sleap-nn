@@ -116,7 +116,7 @@ def apply_sizematcher(
         max_height = img_height
     if max_width is None:
         max_width = img_width
-    if img_height < max_height or img_width < max_width:
+    if img_height != max_height or img_width != max_width:
         hratio = max_height / img_height
         wratio = max_width / img_width
 

@@ -169,6 +169,7 @@ class TrainerConfig:
         trainer_devices: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
         trainer_accelerator: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the Trainer to be connected to.
         enable_progress_bar: (bool) When True, enables printing the logs during training.
+        log_inf_epochs: (int) Epoch interval to save inference results. For eg, if this is set to 10, inference will run every 10 epochs. Default: None.
         steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
         max_epochs: (int) Maxinum number of epochs to run.
         seed: (int) Seed value for the current experiment.
@@ -192,6 +193,7 @@ class TrainerConfig:
     )
     trainer_accelerator: str = "auto"
     enable_progress_bar: bool = True
+    log_inf_epochs: Optional[int] = None
     steps_per_epoch: Optional[int] = None
     max_epochs: int = 10
     seed: Optional[int] = None

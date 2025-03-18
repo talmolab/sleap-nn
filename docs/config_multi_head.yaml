@@ -101,6 +101,7 @@ trainer_config:
   trainer_devices: 1
   trainer_accelerator: gpu
   enable_progress_bar: false
+  log_inf_epochs: 5
   steps_per_epoch: 
     0:
     1:
