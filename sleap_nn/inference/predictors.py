@@ -1940,12 +1940,12 @@ def main(
     model_paths: List[str],
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
-    max_instances: int = None,
-    max_width: int = None,
-    max_height: int = None,
+    max_instances: Optional[int] = None,
+    max_width: Optional[int] = None,
+    max_height: Optional[int] = None,
     is_rgb: bool = False,
     anchor_ind: Optional[int] = None,
-    provider: str = "LabelsReader",
+    provider: Optional[str] = None,
     batch_size: int = 4,
     queue_maxsize: int = 8,
     videoreader_start_idx: Optional[int] = None,
@@ -2004,7 +2004,7 @@ def main(
         anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
                 provided, the anchor idx in the `training_config.yaml` is used instead.
         provider: (str) Provider class to read the input sleap files.
-                Either "LabelsReader" or "VideoReader". Default: LabelsReader.
+                Either "LabelsReader" or "VideoReader". Default: None.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
         videoreader_start_idx: (int) Start index of the frames to read. Default: None.
@@ -2101,6 +2101,12 @@ def main(
         "max_height": max_height,
         "anchor_ind": anchor_ind,
     }
+
+    if provider is None:
+        if data_path.endswith(".slp"):
+            provider = "LabelsReader"
+        else:
+            provider = "VideoReader"
 
     if provider == "VideoReader":
         preprocess_config["video_queue_maxsize"] = queue_maxsize

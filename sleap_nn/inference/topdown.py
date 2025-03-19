@@ -13,6 +13,7 @@ from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
 from loguru import logger
+from collections import defaultdict
 
 
 class CentroidCrop(L.LightningModule):
@@ -151,9 +152,7 @@ class CentroidCrop(L.LightningModule):
 
         return crops_dict
 
-    def forward(
-        self, inputs: Dict[str, torch.Tensor], output_head_skeleton_num: int = 0
-    ) -> Dict[str, torch.Tensor]:
+    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict centroid confidence maps and crop around peaks.
 
         This layer can be chained with a `FindInstancePeaks` layer to create a top-down
@@ -161,9 +160,6 @@ class CentroidCrop(L.LightningModule):
 
         Args:
             inputs: Dictionary with key `"image"`. Other keys will be passed down the pipeline.
-            output_head_skeleton_num: Dataset number (as given in the config) indicating
-                which skeleton format to output. This parameter is only required for
-                multi-head model inference.
 
         Returns:
             A list of dictionaries (size = batch size) where each dictionary has cropped
@@ -225,7 +221,7 @@ class CentroidCrop(L.LightningModule):
 
         cms = self.torch_model(scaled_image)
         if isinstance(cms, list):
-            cms = cms[output_head_skeleton_num]
+            cms = cms[0]
 
         refined_peaks, peak_vals, peak_sample_inds, _ = find_local_peaks(
             cms.detach(),
@@ -238,6 +234,12 @@ class CentroidCrop(L.LightningModule):
         refined_peaks = refined_peaks / self.input_scale
 
         batch = cms.shape[0]
+
+        if self.max_instances is None:
+            num_instances = defaultdict(int)
+            for p in peak_sample_inds:
+                num_instances[int(p)] += 1
+            self.max_instances = max(num_instances.values())
 
         self.refined_peaks_batched = []
         self.peak_vals_batched = []
@@ -384,9 +386,10 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 peaks_vals = vals
 
         peaks_output = batch
-        peaks = peaks / (
-            batch["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peaks.device)
-        )
+        if peaks.size(0) != 0:
+            peaks = peaks / (
+                batch["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peaks.device)
+            )
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
 
@@ -586,9 +589,7 @@ class TopDownInferenceModel(L.LightningModule):
                 raise ValueError(message)
         self.centroid_crop.eval()
         peaks_output = []
-        batch = self.centroid_crop(
-            batch, output_head_skeleton_num=self.output_head_skeleton_num
-        )
+        batch = self.centroid_crop(batch)
 
         if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
             peaks_output.append(self.instance_peaks(batch))
