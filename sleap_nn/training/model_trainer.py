@@ -1286,7 +1286,7 @@ class MultiHeadModelTrainer:
             train_sampler = DistributedSampler(
                 self.train_datasets[d_num],
                 num_replicas=self.config.trainer_config.trainer_devices,
-                rank=torch.distributed.get_rank(),
+                rank=self.trainer.global_rank,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
             )
             self.train_data_loaders[d_num] = CyclerDataLoader(
@@ -1312,7 +1312,7 @@ class MultiHeadModelTrainer:
             val_sampler = DistributedSampler(
                 self.val_datasets[d_num],
                 num_replicas=self.config.trainer_config.trainer_devices,
-                rank=torch.distributed.get_rank(),
+                rank=self.trainer.global_rank,
                 shuffle=False,
             )
             self.val_data_loaders[d_num] = CyclerDataLoader(
