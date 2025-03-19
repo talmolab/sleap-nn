@@ -1650,6 +1650,22 @@ class MultiHeadModelTrainer:
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
+        self.trainer = L.Trainer(
+            callbacks=callbacks,
+            logger=training_loggers,
+            enable_checkpointing=self.config.trainer_config.save_ckpt,
+            devices=self.config.trainer_config.trainer_devices,
+            max_epochs=self.config.trainer_config.max_epochs,
+            accelerator=self.config.trainer_config.trainer_accelerator,
+            enable_progress_bar=self.config.trainer_config.enable_progress_bar,
+            strategy=(
+                "ddp_find_unused_parameters_true"
+                if isinstance(self.config.trainer_config.trainer_devices, int)
+                and self.config.trainer_config.trainer_devices > 1
+                else "auto"
+            ),
+        )
+
         if self.data_pipeline_fw == "litdata":
             self._create_data_loaders_litdata()
 
@@ -1670,22 +1686,6 @@ class MultiHeadModelTrainer:
             message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
             logger.error(message)
             raise ValueError(message)
-
-        self.trainer = L.Trainer(
-            callbacks=callbacks,
-            logger=training_loggers,
-            enable_checkpointing=self.config.trainer_config.save_ckpt,
-            devices=self.config.trainer_config.trainer_devices,
-            max_epochs=self.config.trainer_config.max_epochs,
-            accelerator=self.config.trainer_config.trainer_accelerator,
-            enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-            strategy=(
-                "ddp_find_unused_parameters_true"
-                if isinstance(self.config.trainer_config.trainer_devices, int)
-                and self.config.trainer_config.trainer_devices > 1
-                else "auto"
-            ),
-        )
 
         if self.trainer.global_rank == 0:
             wandb_logger.experiment.config.update({"run_name": wandb_config.name})
