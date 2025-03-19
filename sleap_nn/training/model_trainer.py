@@ -6,6 +6,7 @@ import psutil
 import shutil
 import subprocess
 import torch
+from torch.utils.data import DistributedSampler
 import sleap_io as sio
 from omegaconf import OmegaConf
 import lightning as L
@@ -1268,6 +1269,11 @@ class MultiHeadModelTrainer:
             if self.steps_per_epochs[d_num] == 0:
                 self.steps_per_epochs[d_num] = 1
 
+        val_steps_per_epoch = (
+            len(self.val_datasets[d_num])
+            // self.config.trainer_config.val_data_loader.batch_size
+        )
+
         pin_memory = (
             self.config.trainer_config.train_data_loader.pin_memory
             if "pin_memory" in self.config.trainer_config.train_data_loader
@@ -1276,48 +1282,99 @@ class MultiHeadModelTrainer:
         )
 
         # train
-        self.train_data_loaders[d_num] = CyclerDataLoader(
-            dataset=self.train_datasets[d_num],
-            steps_per_epoch=self.steps_per_epochs[d_num],
-            shuffle=self.config.trainer_config.train_data_loader.shuffle,
-            batch_size=self.config.trainer_config.train_data_loader.batch_size,
-            num_workers=self.config.trainer_config.train_data_loader.num_workers,
-            pin_memory=pin_memory,
-            persistent_workers=(
-                True
-                if self.config.trainer_config.train_data_loader.num_workers > 0
-                else None
-            ),
-            prefetch_factor=(
-                self.config.trainer_config.train_data_loader.batch_size
-                if self.config.trainer_config.train_data_loader.num_workers > 0
-                else None
-            ),
-        )
+        if self.config.trainer_config.trainer_devices > 1:
+            train_sampler = DistributedSampler(
+                self.train_datasets[d_num],
+                num_replicas=self.config.trainer_config.trainer_devices,
+                rank=torch.distributed.get_rank(),
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+            )
+            self.train_data_loaders[d_num] = CyclerDataLoader(
+                dataset=self.train_datasets[d_num],
+                steps_per_epoch=self.steps_per_epochs[d_num],
+                batch_size=self.config.trainer_config.train_data_loader.batch_size,
+                num_workers=self.config.trainer_config.train_data_loader.num_workers,
+                pin_memory=pin_memory,
+                persistent_workers=(
+                    True
+                    if self.config.trainer_config.train_data_loader.num_workers > 0
+                    else None
+                ),
+                prefetch_factor=(
+                    self.config.trainer_config.train_data_loader.batch_size
+                    if self.config.trainer_config.train_data_loader.num_workers > 0
+                    else None
+                ),
+                sampler=train_sampler,
+                multiprocessing_context="forkserver",
+            )
 
-        # val
-        val_steps_per_epoch = (
-            len(self.val_datasets[d_num])
-            // self.config.trainer_config.val_data_loader.batch_size
-        )
-        self.val_data_loaders[d_num] = CyclerDataLoader(
-            dataset=self.val_datasets[d_num],
-            steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
-            shuffle=False,
-            batch_size=self.config.trainer_config.val_data_loader.batch_size,
-            num_workers=self.config.trainer_config.val_data_loader.num_workers,
-            pin_memory=pin_memory,
-            persistent_workers=(
-                True
-                if self.config.trainer_config.val_data_loader.num_workers > 0
-                else None
-            ),
-            prefetch_factor=(
-                self.config.trainer_config.val_data_loader.batch_size
-                if self.config.trainer_config.val_data_loader.num_workers > 0
-                else None
-            ),
-        )
+            val_sampler = DistributedSampler(
+                self.val_datasets[d_num],
+                num_replicas=self.config.trainer_config.trainer_devices,
+                rank=torch.distributed.get_rank(),
+                shuffle=False,
+            )
+            self.val_data_loaders[d_num] = CyclerDataLoader(
+                dataset=self.val_datasets[d_num],
+                steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
+                batch_size=self.config.trainer_config.val_data_loader.batch_size,
+                num_workers=self.config.trainer_config.val_data_loader.num_workers,
+                pin_memory=pin_memory,
+                persistent_workers=(
+                    True
+                    if self.config.trainer_config.val_data_loader.num_workers > 0
+                    else None
+                ),
+                prefetch_factor=(
+                    self.config.trainer_config.val_data_loader.batch_size
+                    if self.config.trainer_config.val_data_loader.num_workers > 0
+                    else None
+                ),
+                sampler=val_sampler,
+                multiprocessing_context="forkserver",
+            )
+
+        else:
+            # train
+            self.train_data_loaders[d_num] = CyclerDataLoader(
+                dataset=self.train_datasets[d_num],
+                steps_per_epoch=self.steps_per_epochs[d_num],
+                shuffle=self.config.trainer_config.train_data_loader.shuffle,
+                batch_size=self.config.trainer_config.train_data_loader.batch_size,
+                num_workers=self.config.trainer_config.train_data_loader.num_workers,
+                pin_memory=pin_memory,
+                persistent_workers=(
+                    True
+                    if self.config.trainer_config.train_data_loader.num_workers > 0
+                    else None
+                ),
+                prefetch_factor=(
+                    self.config.trainer_config.train_data_loader.batch_size
+                    if self.config.trainer_config.train_data_loader.num_workers > 0
+                    else None
+                ),
+            )
+
+            # val
+            self.val_data_loaders[d_num] = CyclerDataLoader(
+                dataset=self.val_datasets[d_num],
+                steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
+                shuffle=False,
+                batch_size=self.config.trainer_config.val_data_loader.batch_size,
+                num_workers=self.config.trainer_config.val_data_loader.num_workers,
+                pin_memory=pin_memory,
+                persistent_workers=(
+                    True
+                    if self.config.trainer_config.val_data_loader.num_workers > 0
+                    else None
+                ),
+                prefetch_factor=(
+                    self.config.trainer_config.val_data_loader.batch_size
+                    if self.config.trainer_config.val_data_loader.num_workers > 0
+                    else None
+                ),
+            )
 
     def _create_data_loaders_litdata(self):  # TODO
         """Create a StreamingDataLoader for train, validation and test sets using the data_config."""
