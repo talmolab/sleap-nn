@@ -26,10 +26,10 @@ from torchvision.models.convnext import (
     ConvNeXt_Large_Weights,
 )
 import sleap_io as sio
-from sleap_nn.inference.topdown import CentroidCrop
+from sleap_nn.inference.topdown import CentroidCrop, FindInstancePeaks
+from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.architectures.model import Model, MultiHeadModel
 from loguru import logger
-import sleap_nn.evaluation
 from sleap_nn.training.utils import xavier_init_weights
 import matplotlib.pyplot as plt
 
@@ -959,6 +959,92 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
             backbone_type=backbone_type,
             model_type=model_type,
         )
+        self.inf_layer = FindInstancePeaks(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+        )
+
+    def on_train_epoch_start(self):
+        """Configure the train timer at the beginning of each epoch."""
+        # add eval
+        if self.config.trainer_config.log_inf_epochs is not None:
+            if (
+                self.current_epoch > 0
+                and self.global_rank == 0
+                and (self.current_epoch % self.config.trainer_config.log_inf_epochs)
+                == 0
+            ):
+                img_array = []
+                for d_num in self.config.dataset_mapper:
+                    sample = next(iter(self.trainer.val_dataloaders[d_num]))
+                    sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
+                    for k, v in sample.items():
+                        sample[k] = v.to(device=self.device)
+                    self.inf_layer.output_stride = self.config.model_config.head_configs.centered_instance.confmaps[
+                        d_num
+                    ][
+                        "output_stride"
+                    ]
+                    output = self.inf_layer(sample, output_head_skeleton_num=d_num)
+                    batch_idx = 0
+
+                    # plot predictions on sample image
+                    if self.use_wandb or self.save_ckpt:
+                        peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
+                        plt.imshow(
+                            output["instance_image"][batch_idx, 0]
+                            .cpu()
+                            .numpy()
+                            .transpose(1, 2, 0)
+                        )
+                        plt.plot(
+                            peaks[:, 0],
+                            peaks[:, 1],
+                            "rx",
+                            label="Predicted",
+                        )
+                        plt.legend()
+                        plt.title(f"{self.config.dataset_mapper[d_num]}")
+                        plt.axis("off")
+
+                    if self.save_ckpt:
+                        curr_results_path = (
+                            Path(self.config.trainer_config.save_ckpt_path)
+                            / "visualizations"
+                            / f"epoch_{self.current_epoch}"
+                        )
+                        if not Path(curr_results_path).exists():
+                            Path(curr_results_path).mkdir(parents=True, exist_ok=True)
+                        plt.savefig(
+                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix()
+                        )
+
+                    if self.use_wandb:
+                        fig = plt.gcf()
+                        fig.canvas.draw()
+                        img = Image.frombytes(
+                            "RGB",
+                            fig.canvas.get_width_height(),
+                            fig.canvas.tostring_rgb(),
+                        )
+
+                        img_array.append(wandb.Image(img))
+
+                    plt.close(fig)
+
+                if self.use_wandb and img_array:
+                    # wandb logging metrics in table
+
+                    wandb_table = wandb.Table(
+                        columns=[
+                            "epoch",
+                            "Predictions on test set",
+                        ],
+                        data=[[self.current_epoch, img_array]],
+                    )
+                    wandb.log({"Performance": wandb_table})
+
+        self.train_start_time = time.time()
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -1084,11 +1170,99 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
             backbone_type=backbone_type,
             model_type=model_type,
         )
+        self.single_instance_inf_layer = SingleInstanceInferenceModel(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            input_scale=1.0,
+        )
 
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["SingleInstanceConfmapsHead"]
+
+    def on_train_epoch_start(self):
+        """Configure the train timer at the beginning of each epoch."""
+        # add eval
+        if self.config.trainer_config.log_inf_epochs is not None:
+            if (
+                self.current_epoch > 0
+                and self.global_rank == 0
+                and (self.current_epoch % self.config.trainer_config.log_inf_epochs)
+                == 0
+            ):
+                img_array = []
+                for d_num in self.config.dataset_mapper:
+                    sample = next(iter(self.trainer.val_dataloaders[d_num]))
+                    sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
+                    for k, v in sample.items():
+                        sample[k] = v.to(device=self.device)
+                    self.single_instance_inf_layer.output_head_skeleton_num = d_num
+                    self.single_instance_inf_layer.output_stride = (
+                        self.config.model_config.head_configs.single_instance.confmaps[
+                            d_num
+                        ]["output_stride"]
+                    )
+                    output = self.single_instance_inf_layer(sample)
+                    batch_idx = 0
+
+                    # plot predictions on sample image
+                    if self.use_wandb or self.save_ckpt:
+                        peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
+                        plt.imshow(
+                            output["image"][batch_idx, 0]
+                            .cpu()
+                            .numpy()
+                            .transpose(1, 2, 0)
+                        )
+                        plt.plot(
+                            peaks[:, 0],
+                            peaks[:, 1],
+                            "rx",
+                            label="Predicted",
+                        )
+                        plt.legend()
+                        plt.title(f"{self.config.dataset_mapper[d_num]}")
+                        plt.axis("off")
+
+                    if self.save_ckpt:
+                        curr_results_path = (
+                            Path(self.config.trainer_config.save_ckpt_path)
+                            / "visualizations"
+                            / f"epoch_{self.current_epoch}"
+                        )
+                        if not Path(curr_results_path).exists():
+                            Path(curr_results_path).mkdir(parents=True, exist_ok=True)
+                        plt.savefig(
+                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix()
+                        )
+
+                    if self.use_wandb:
+                        fig = plt.gcf()
+                        fig.canvas.draw()
+                        img = Image.frombytes(
+                            "RGB",
+                            fig.canvas.get_width_height(),
+                            fig.canvas.tostring_rgb(),
+                        )
+
+                        img_array.append(wandb.Image(img))
+
+                    plt.close(fig)
+
+                if self.use_wandb and img_array:
+                    # wandb logging metrics in table
+
+                    wandb_table = wandb.Table(
+                        columns=[
+                            "epoch",
+                            "Predictions on test set",
+                        ],
+                        data=[[self.current_epoch, img_array]],
+                    )
+                    wandb.log({"Performance": wandb_table})
+
+        self.train_start_time = time.time()
 
     def training_step(self, batch, batch_idx):
         """Training step."""
@@ -1469,6 +1643,91 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
             backbone_type=backbone_type,
             model_type=model_type,
         )
+        self.inf_layer = FindInstancePeaks(
+            torch_model=self.forward, peak_threshold=0.2, input_scale=1.0
+        )
+
+    def on_train_epoch_start(self):
+        """Configure the train timer at the beginning of each epoch."""
+        # add eval
+        if self.config.trainer_config.log_inf_epochs is not None:
+            if (
+                self.current_epoch > 0
+                and self.global_rank == 0
+                and (self.current_epoch % self.config.trainer_config.log_inf_epochs)
+                == 0
+            ):
+                img_array = []
+                for d_num in self.config.dataset_mapper:
+                    sample = next(iter(self.trainer.val_dataloaders[d_num]))
+                    sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
+                    for k, v in sample.items():
+                        sample[k] = v.to(device=self.device)
+                    self.inf_layer.output_stride = (
+                        self.config.model_config.head_configs.bottomup.confmaps[d_num][
+                            "output_stride"
+                        ]
+                    )
+                    output = self.inf_layer(sample, output_head_skeleton_num=d_num)
+                    batch_idx = 0
+
+                    # plot predictions on sample image
+                    if self.use_wandb or self.save_ckpt:
+                        peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
+                        plt.imshow(
+                            output["image"][batch_idx, 0]
+                            .cpu()
+                            .numpy()
+                            .transpose(1, 2, 0)
+                        )
+                        plt.plot(
+                            peaks[:, 0],
+                            peaks[:, 1],
+                            "rx",
+                            label="Predicted",
+                        )
+                        plt.legend()
+                        plt.title(f"{self.config.dataset_mapper[d_num]}")
+                        plt.axis("off")
+
+                    if self.save_ckpt:
+                        curr_results_path = (
+                            Path(self.config.trainer_config.save_ckpt_path)
+                            / "visualizations"
+                            / f"epoch_{self.current_epoch}"
+                        )
+                        if not Path(curr_results_path).exists():
+                            Path(curr_results_path).mkdir(parents=True, exist_ok=True)
+                        plt.savefig(
+                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix()
+                        )
+
+                    if self.use_wandb:
+                        fig = plt.gcf()
+                        fig.canvas.draw()
+                        img = Image.frombytes(
+                            "RGB",
+                            fig.canvas.get_width_height(),
+                            fig.canvas.tostring_rgb(),
+                        )
+
+                        img_array.append(wandb.Image(img))
+
+                    plt.close(fig)
+
+                if self.use_wandb and img_array:
+                    # wandb logging metrics in table
+
+                    wandb_table = wandb.Table(
+                        columns=[
+                            "epoch",
+                            "Predictions on test set",
+                        ],
+                        data=[[self.current_epoch, img_array]],
+                    )
+                    wandb.log({"Performance": wandb_table})
+
+        self.train_start_time = time.time()
 
     def forward(self, img):
         """Forward pass of the model."""
