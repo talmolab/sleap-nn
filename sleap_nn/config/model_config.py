@@ -832,3 +832,49 @@ class ModelConfig:
             message = "UNet does not support pre-trained weights."
             logger.error(message)
             raise ValueError(message)
+
+def model_mapper(legacy_config: dict) -> ModelConfig:
+    return ModelConfig(
+        init_weights=legacy_config.get("init_weights", "default"),
+        # pre_trained_weights not in old config
+        # pretrained_backbone_weights not in old config
+        # pretrained_head_weights not in old config
+        backbone_config=BackboneConfig(
+            unet=UNetConfig(
+                # in_channels=legacy_config.get("backbone", {}).get("in_channels", 1),
+                # kernel_size=legacy_config.get("backbone", {}).get("kernel_size", 3),
+                filters=legacy_config.get("backbone", {}).get("filters", 32),
+                filters_rate=legacy_config.get("backbone", {}).get("filters_rate", 1.5),
+                max_stride=legacy_config.get("backbone", {}).get("max_stride", 16),
+                stem_stride=None, # stem_stride not in legacy
+                middle_block=legacy_config.get("backbone", {}).get("middle_block", True),
+                up_interpolate=legacy_config.get("backbone", {}).get("up_interpolate", True),
+                stacks=legacy_config.get("backbone", {}).get("stacks", 1),
+                convs_per_block=2,
+                output_stride=legacy_config.get("backbone", {}).get("output_stride", 1),
+            ) if legacy_config.get("backbone_type") == "unet" else None,
+            # convnext not in old config
+            # swint not in old config
+        ),
+        head_configs=HeadConfig(
+            single_instance=SingleInstanceConfig(
+                confmaps=SingleInstanceConfMapsConfig(
+                    part_names=legacy_config.get("heads", {}).get("part_names"),
+                    sigma=legacy_config.get("heads", {}).get("sigma", 5.0),
+                    output_stride=legacy_config.get("heads", {}).get("output_stride", 1),
+                )
+            ) if legacy_config.get("head_type") == "single_instance" else None,
+            centroid = CentroidConfig(
+                confmaps = CentroidConfMapsConfig(
+                    anchor_part = legacy_config.get("CentroidsHeadConfig",{}).get("anchor_part"),
+                    sigma = legacy_config.get("CentroidsHeadConfig",{}).get("sigma"),
+                    output_stride = legacy_config.get("CentroidsHeadConfig",{}).get("output_stride"),
+                )
+            )
+            
+            # Other head types not in old config
+            # centered_instance=None,
+            # bottomup=None,
+        ),
+        # total_params calculated during training
+    )
