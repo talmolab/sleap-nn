@@ -28,9 +28,11 @@ from torchvision.models.convnext import (
 import sleap_io as sio
 from sleap_nn.inference.topdown import CentroidCrop, FindInstancePeaks
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
+from sleap_nn.inference.bottomup import BottomUpInferenceModel
+from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.architectures.model import Model, MultiHeadModel
 from loguru import logger
-from sleap_nn.training.utils import xavier_init_weights
+from sleap_nn.training.utils import xavier_init_weights, plot_pred_confmaps_peaks
 import matplotlib.pyplot as plt
 
 MODEL_WEIGHTS = {
@@ -960,8 +962,7 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
             model_type=model_type,
         )
         self.inf_layer = FindInstancePeaks(
-            torch_model=self.forward,
-            peak_threshold=0.2,
+            torch_model=self.forward, peak_threshold=0.2, return_confmaps=True
         )
 
     def on_train_epoch_start(self):
@@ -991,21 +992,14 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
                     # plot predictions on sample image
                     if self.use_wandb or self.save_ckpt:
                         peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
-                        plt.imshow(
-                            output["instance_image"][batch_idx, 0]
-                            .cpu()
-                            .numpy()
-                            .transpose(1, 2, 0)
+                        img = output["instance_image"][batch_idx, 0].cpu().numpy()
+                        confmaps = output["pred_confmaps"][batch_idx].cpu().numpy()
+                        fig = plot_pred_confmaps_peaks(
+                            img=img,
+                            confmaps=confmaps,
+                            peaks=np.expand_dims(peaks, axis=0),
+                            plot_title=f"{self.config.dataset_mapper[d_num]}",
                         )
-                        plt.plot(
-                            peaks[:, 0],
-                            peaks[:, 1],
-                            "rx",
-                            label="Predicted",
-                        )
-                        plt.legend()
-                        plt.title(f"{self.config.dataset_mapper[d_num]}")
-                        plt.axis("off")
 
                     if self.save_ckpt:
                         curr_results_path = (
@@ -1015,12 +1009,12 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
                         )
                         if not Path(curr_results_path).exists():
                             Path(curr_results_path).mkdir(parents=True, exist_ok=True)
-                        plt.savefig(
-                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix()
+                        fig.savefig(
+                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix(),
+                            bbox_inches="tight",
                         )
 
                     if self.use_wandb:
-                        fig = plt.gcf()
                         fig.canvas.draw()
                         img = Image.frombytes(
                             "RGB",
@@ -1174,6 +1168,7 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
             torch_model=self.forward,
             peak_threshold=0.2,
             input_scale=1.0,
+            return_confmaps=True,
         )
 
     def forward(self, img):
@@ -1209,21 +1204,14 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
                     # plot predictions on sample image
                     if self.use_wandb or self.save_ckpt:
                         peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
-                        plt.imshow(
-                            output["image"][batch_idx, 0]
-                            .cpu()
-                            .numpy()
-                            .transpose(1, 2, 0)
+                        img = output["image"][batch_idx, 0].cpu().numpy()
+                        confmaps = output["pred_confmaps"][batch_idx].cpu().numpy()
+                        fig = plot_pred_confmaps_peaks(
+                            img=img,
+                            confmaps=confmaps,
+                            peaks=np.expand_dims(peaks, axis=0),
+                            plot_title=f"{self.config.dataset_mapper[d_num]}",
                         )
-                        plt.plot(
-                            peaks[:, 0],
-                            peaks[:, 1],
-                            "rx",
-                            label="Predicted",
-                        )
-                        plt.legend()
-                        plt.title(f"{self.config.dataset_mapper[d_num]}")
-                        plt.axis("off")
 
                     if self.save_ckpt:
                         curr_results_path = (
@@ -1233,12 +1221,12 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
                         )
                         if not Path(curr_results_path).exists():
                             Path(curr_results_path).mkdir(parents=True, exist_ok=True)
-                        plt.savefig(
-                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix()
+                        fig.savefig(
+                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix(),
+                            bbox_inches="tight",
                         )
 
                     if self.use_wandb:
-                        fig = plt.gcf()
                         fig.canvas.draw()
                         img = Image.frombytes(
                             "RGB",
@@ -1420,22 +1408,16 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
                     # plot predictions on sample image
                     if self.use_wandb or self.save_ckpt:
                         centroids = output["centroids"][batch_idx, 0].cpu().numpy()
-                        plt.imshow(
-                            output["image"][batch_idx, 0]
-                            .cpu()
-                            .numpy()
-                            .transpose(1, 2, 0)
+                        img = output["image"][batch_idx, 0].cpu().numpy()
+                        confmaps = (
+                            output["pred_centroid_confmaps"][batch_idx].cpu().numpy()
                         )
-                        plt.plot(
-                            centroids[:, 0],
-                            centroids[:, 1],
-                            "rx",
-                            label="Predicted",
+                        fig = plot_pred_confmaps_peaks(
+                            img=img,
+                            confmaps=confmaps,
+                            peaks=np.expand_dims(centroids, axis=0),
+                            plot_title=f"{self.config.dataset_mapper[d_num]}",
                         )
-                        plt.legend()
-                        plt.title(f"{self.config.dataset_mapper[d_num]}")
-                        plt.axis("off")
-
                     if self.save_ckpt:
                         curr_results_path = (
                             Path(self.config.trainer_config.save_ckpt_path)
@@ -1444,12 +1426,12 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
                         )
                         if not Path(curr_results_path).exists():
                             Path(curr_results_path).mkdir(parents=True, exist_ok=True)
-                        plt.savefig(
-                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix()
+                        fig.savefig(
+                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix(),
+                            bbox_inches="tight",
                         )
 
                     if self.use_wandb:
-                        fig = plt.gcf()
                         fig.canvas.draw()
                         img = Image.frombytes(
                             "RGB",
@@ -1643,8 +1625,27 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
             backbone_type=backbone_type,
             model_type=model_type,
         )
-        self.inf_layer = FindInstancePeaks(
-            torch_model=self.forward, peak_threshold=0.2, input_scale=1.0
+        paf_scorer = PAFScorer(
+            part_names=self.config.model_config.head_configs.bottomup.confmaps[0][
+                "part_names"
+            ],
+            edges=self.config.model_config.head_configs.bottomup.pafs[0]["edges"],
+            pafs_stride=self.config.model_config.head_configs.bottomup.pafs[0][
+                "output_stride"
+            ],
+        )
+        self.inf_layer = BottomUpInferenceModel(
+            torch_model=self.forward,
+            paf_scorer=paf_scorer,
+            peak_threshold=0.2,
+            input_scale=1.0,
+            return_confmaps=True,
+            cms_output_stride=self.config.model_config.head_configs.bottomup.confmaps[
+                0
+            ]["output_stride"],
+            pafs_output_stride=self.config.model_config.head_configs.bottomup.pafs[0][
+                "output_stride"
+            ],
         )
 
     def on_train_epoch_start(self):
@@ -1663,17 +1664,46 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
                     sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
-                    self.inf_layer.output_stride = (
+
+                    paf_scorer = PAFScorer(
+                        part_names=self.config.model_config.head_configs.bottomup.confmaps[
+                            d_num
+                        ][
+                            "part_names"
+                        ],
+                        edges=self.config.model_config.head_configs.bottomup.pafs[
+                            d_num
+                        ]["edges"],
+                        pafs_stride=self.config.model_config.head_configs.bottomup.pafs[
+                            d_num
+                        ]["output_stride"],
+                    )
+                    self.inf_layer.paf_scorer = paf_scorer
+                    self.inf_layer.cms_output_stride = (
                         self.config.model_config.head_configs.bottomup.confmaps[d_num][
                             "output_stride"
                         ]
                     )
+                    self.inf_layer.pafs_output_stride = (
+                        self.config.model_config.head_configs.bottomup.pafs[d_num][
+                            "output_stride"
+                        ]
+                    )
+
                     output = self.inf_layer(sample, output_head_skeleton_num=d_num)
                     batch_idx = 0
 
                     # plot predictions on sample image
                     if self.use_wandb or self.save_ckpt:
                         peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
+                        img = output["image"][batch_idx, 0].cpu().numpy()
+                        confmaps = output["pred_confmaps"][batch_idx].cpu().numpy()
+                        fig = plot_pred_confmaps_peaks(
+                            img=img,
+                            confmaps=confmaps,
+                            peaks=peaks,
+                            plot_title=f"{self.config.dataset_mapper[d_num]}",
+                        )
                         plt.imshow(
                             output["image"][batch_idx, 0]
                             .cpu()

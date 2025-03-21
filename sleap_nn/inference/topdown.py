@@ -307,6 +307,12 @@ class CentroidCrop(L.LightningModule):
                     "centroid_vals": peak_vals_with_nans,
                 }
             )
+            if self.return_confmaps:
+                inputs.update(
+                    {
+                        "pred_centroid_confmaps": cms.detach(),
+                    }
+                )
 
             return inputs
 
