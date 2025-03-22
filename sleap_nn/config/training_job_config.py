@@ -151,12 +151,17 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
     """
     return TrainingJobConfig.load_yaml(filename)
 
+
 def load_sleap_config(cls, json_file_path: str) -> TrainerConfig:
     with open(json_file_path, "r") as f:
         old_config = json.load(f)
-    
+
     data_config = data_mapper(old_config)
     model_config = model_mapper(old_config)
     trainer_config = trainer_mapper(old_config)
 
-    return cls(data_config=data_config, model_config=model_config, trainer_config=trainer_config)
+    return cls(
+        data_config=data_config,
+        model_config=model_config,
+        trainer_config=trainer_config,
+    )

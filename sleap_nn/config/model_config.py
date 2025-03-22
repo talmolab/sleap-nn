@@ -833,48 +833,134 @@ class ModelConfig:
             logger.error(message)
             raise ValueError(message)
 
+
 def model_mapper(legacy_config: dict) -> ModelConfig:
     return ModelConfig(
-        init_weights=legacy_config.get("init_weights", "default"),
+        # init_weights=legacy_config.get("init_weights", "default"),
         # pre_trained_weights not in old config
-        # pretrained_backbone_weights not in old config
+        # pretrained_backbone_weights=legacy_config.get("PretrainedEncoderConfig")?? # i think its different
         # pretrained_head_weights not in old config
         backbone_config=BackboneConfig(
-            unet=UNetConfig(
-                # in_channels=legacy_config.get("backbone", {}).get("in_channels", 1),
-                # kernel_size=legacy_config.get("backbone", {}).get("kernel_size", 3),
-                filters=legacy_config.get("backbone", {}).get("filters", 32),
-                filters_rate=legacy_config.get("backbone", {}).get("filters_rate", 1.5),
-                max_stride=legacy_config.get("backbone", {}).get("max_stride", 16),
-                stem_stride=None, # stem_stride not in legacy
-                middle_block=legacy_config.get("backbone", {}).get("middle_block", True),
-                up_interpolate=legacy_config.get("backbone", {}).get("up_interpolate", True),
-                stacks=legacy_config.get("backbone", {}).get("stacks", 1),
-                convs_per_block=2,
-                output_stride=legacy_config.get("backbone", {}).get("output_stride", 1),
-            ) if legacy_config.get("backbone_type") == "unet" else None,
+            unet=(
+                UNetConfig(
+                    # in_channels=legacy_config.get("backbone", {}).get("in_channels", 1),
+                    # kernel_size=legacy_config.get("backbone", {}).get("kernel_size", 3),
+                    filters=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("filters", 32),
+                    filters_rate=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("filters_rate", 1.5),
+                    max_stride=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("max_stride", 16),
+                    stem_stride=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("stem_stride", 16),
+                    middle_block=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("middle_block", True),
+                    up_interpolate=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("up_interpolate", True),
+                    stacks=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("stacks", 1),
+                    # convs_per_block=2,
+                    output_stride=legacy_config.get("model", {})
+                    .get("backbone", {})
+                    .get("unet", {})
+                    .get("output_stride", 1),
+                )
+                if legacy_config.get("backbone_type") == "unet"
+                else None
+            ),
             # convnext not in old config
             # swint not in old config
         ),
         head_configs=HeadConfig(
-            single_instance=SingleInstanceConfig(
-                confmaps=SingleInstanceConfMapsConfig(
-                    part_names=legacy_config.get("heads", {}).get("part_names"),
-                    sigma=legacy_config.get("heads", {}).get("sigma", 5.0),
-                    output_stride=legacy_config.get("heads", {}).get("output_stride", 1),
+            single_instance=(
+                SingleInstanceConfig(
+                    confmaps=SingleInstanceConfMapsConfig(
+                        part_names=legacy_config.get("heads", {})
+                        .get("single_instance", {})
+                        .get("part_names"),
+                        sigma=legacy_config.get("heads", {})
+                        .get("single_instance", {})
+                        .get("sigma", 5.0),
+                        output_stride=legacy_config.get("heads", {})
+                        .get("single_instance", {})
+                        .get("output_stride", 1),
+                    )
                 )
-            ) if legacy_config.get("head_type") == "single_instance" else None,
-            centroid = CentroidConfig(
-                confmaps = CentroidConfMapsConfig(
-                    anchor_part = legacy_config.get("CentroidsHeadConfig",{}).get("anchor_part"),
-                    sigma = legacy_config.get("CentroidsHeadConfig",{}).get("sigma"),
-                    output_stride = legacy_config.get("CentroidsHeadConfig",{}).get("output_stride"),
+                if legacy_config.get("head_type") == "single_instance"
+                else None
+            ),
+            centroid=CentroidConfig(
+                confmaps=CentroidConfMapsConfig(
+                    anchor_part=legacy_config.get("heads", {})
+                    .get("centroid", {})
+                    .get("anchor_part"),
+                    sigma=legacy_config.get("heads", {})
+                    .get("centroid", {})
+                    .get("sigma", 5.0),
+                    output_stride=legacy_config.get("heads", {})
+                    .get("centroid", {})
+                    .get("output_stride", 1),
                 )
-            )
-            
-            # Other head types not in old config
-            # centered_instance=None,
-            # bottomup=None,
+            ),
+            centered_instance=CenteredInstanceConfig(
+                confmaps=CentroidConfMapsConfig(
+                    anchor_part=legacy_config.get("heads", {})
+                    .get("centered_instance", {})
+                    .get("anchor_part"),
+                    sigma=legacy_config.get("heads", {})
+                    .get("centered_instance", {})
+                    .get("sigma", 5.0),
+                    output_stride=legacy_config.get("heads", {})
+                    .get("centered_instance", {})
+                    .get("output_stride", 1),
+                    part_names=legacy_config.get("heads", {})
+                    .get("centered_instance", {})
+                    .get("part_names", None),
+                )
+            ),
+            bottomup=BottomUpConfig(
+                confmaps=BottomUpConfMapsConfig(
+                    loss_weight=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("loss_weight", None),
+                    sigma=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("sigma", 5.0),
+                    output_stride=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("output_stride", 1),
+                    part_names=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("part_names", None),
+                ),
+                pafs=PAFConfig(
+                    edges=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("edges", None),
+                    sigma=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("sigma", 15.0),
+                    output_stride=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("output_stride", 1),
+                    loss_weight=legacy_config.get("heads", {})
+                    .get("multi_instance", {})
+                    .get("loss_weight", None),
+                ),
+            ),
         ),
-        # total_params calculated during training
     )
