@@ -192,7 +192,8 @@ class MultiHeadModel(nn.Module):
     Attributes:
         backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
-        head_configs: An `DictConfig` configuration dictionary for the model heads.
+        head_configs: An `DictConfig` configuration dictionary for the model heads
+            (this should have multiple head configs for each dataset).
         input_expand_channels: Integer representing the number of channels the image
                                 should be expanded to.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
@@ -297,7 +298,16 @@ class MultiHeadModel(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the model."""
+        """Forward pass through the model.
+
+        Args:
+            x: Input image.
+
+        Returns:
+            A dictionary with key as the head name and values as list of confmaps
+            for each of the skeleton formats (in the order of datasets in the
+            config).
+        """
         backbone_outputs = self.backbone(x)
 
         outputs = defaultdict(list)

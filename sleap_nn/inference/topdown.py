@@ -236,10 +236,13 @@ class CentroidCrop(L.LightningModule):
         batch = cms.shape[0]
 
         if self.max_instances is None:
+            # if max instances is not provided, find the max_instances for this batch
             num_instances = defaultdict(int)
             for p in peak_sample_inds:
                 num_instances[int(p)] += 1
-            self.max_instances = max(num_instances.values())
+            max_instances = max(num_instances.values())
+        else:
+            max_instances = self.max_instances
 
         self.refined_peaks_batched = []
         self.peak_vals_batched = []
@@ -250,23 +253,22 @@ class CentroidCrop(L.LightningModule):
             current_peaks = refined_peaks[indices].squeeze(dim=-2)
             current_peak_vals = peak_vals[indices].squeeze(dim=-1)
             # Choose top k centroids if max_instances is provided.
-            if self.max_instances is not None:
-                if len(current_peaks) > self.max_instances:
-                    current_peak_vals, indices = torch.topk(
-                        current_peak_vals, self.max_instances
-                    )
-                    current_peaks = current_peaks[indices]
-                    num_nans = 0
-                else:
-                    num_nans = self.max_instances - len(current_peaks)
-                nans = torch.full((num_nans, 2), torch.nan)
-                current_peaks = torch.cat(
-                    [current_peaks, nans.to(current_peaks.device)], dim=0
+            if len(current_peaks) > max_instances:
+                current_peak_vals, indices = torch.topk(
+                    current_peak_vals, max_instances
                 )
-                nans = torch.full((num_nans,), torch.nan)
-                current_peak_vals = torch.cat(
-                    [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
-                )
+                current_peaks = current_peaks[indices]
+                num_nans = 0
+            else:
+                num_nans = max_instances - len(current_peaks)
+            nans = torch.full((num_nans, 2), torch.nan)
+            current_peaks = torch.cat(
+                [current_peaks, nans.to(current_peaks.device)], dim=0
+            )
+            nans = torch.full((num_nans,), torch.nan)
+            current_peak_vals = torch.cat(
+                [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
+            )
             self.refined_peaks_batched.append(current_peaks)
             self.peak_vals_batched.append(current_peak_vals)
 
@@ -288,8 +290,8 @@ class CentroidCrop(L.LightningModule):
             return crops_dict
         else:
             # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
-            refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
-            peak_vals_with_nans = torch.zeros((batch, self.max_instances))
+            refined_peaks_with_nans = torch.zeros((batch, max_instances, 2))
+            peak_vals_with_nans = torch.zeros((batch, max_instances))
             for ind, (r, p) in enumerate(
                 zip(self.refined_peaks_batched, self.peak_vals_batched)
             ):
@@ -384,6 +386,8 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                     vals = vals[:max_inst]
                 parsed += c
 
+            batch_peaks = batch_peaks.unsqueeze(dim=0)
+
             if i != 0:
                 peaks = torch.cat([peaks, batch_peaks])
                 peaks_vals = torch.cat([peaks_vals, vals])
@@ -394,7 +398,11 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         peaks_output = batch
         if peaks.size(0) != 0:
             peaks = peaks / (
-                batch["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peaks.device)
+                batch["eff_scale"]
+                .unsqueeze(dim=1)
+                .unsqueeze(dim=2)
+                .unsqueeze(dim=3)
+                .to(peaks.device)
             )
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals

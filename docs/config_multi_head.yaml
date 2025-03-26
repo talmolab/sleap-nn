@@ -18,7 +18,10 @@ data_config:
     2: minimal_instance.pkg.slp
   data_pipeline_fw: torch_dataset_np_chunks
   np_chunks_path: ./np_chunks_dir/
-  use_existing_chunks: True
+  use_existing_chunks:
+    0:
+    1:
+    2:
   user_instances_only: True
   litdata_chunks_path:
   chunk_size:

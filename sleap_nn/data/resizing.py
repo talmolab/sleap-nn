@@ -109,7 +109,7 @@ def apply_sizematcher(
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
 ):
-    """Apply scaling and padding to smaller image to (max_height, max_width) shape."""
+    """Apply scaling and padding to image to (max_height, max_width) shape."""
     img_height, img_width = image.shape[-2:]
     # pad images to max_height and max_width
     if max_height is None:
