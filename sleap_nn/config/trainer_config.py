@@ -236,7 +236,7 @@ class TrainerConfig:
 def trainer_mapper(legacy_config: dict) -> TrainerConfig:
     return TrainerConfig(
         train_data_loader=DataLoaderConfig(
-            batch_size=legacy_config.get("optimization", {}).get("batch_size", {}),
+            batch_size=legacy_config.get("optimization", {}).get("batch_size", 1),
             shuffle=legacy_config.get("optimization", {}).get(
                 "online_shuffling", False
             ),
