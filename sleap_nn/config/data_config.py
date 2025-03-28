@@ -287,8 +287,9 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                     # mixup_p=legacy_config.get("optimization", {}).get("augmentation_config", {}).get("mixup_p", 0.0),
                 ),
             )
-            if legacy_config.get("use_augmentations_train", False)
-            else None
+            # if legacy_config.get("use_augmentations_train", False)
+            # else None
         ),
-        skeletons=legacy_config.get("skeletons"),
+        use_augmentations_train=True,
+        skeletons=legacy_config.get("data", {}).get("labels", {}).get("skeletons"),
     )
