@@ -887,80 +887,116 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
         ),
         head_configs=HeadConfig(
             single_instance=(
-                SingleInstanceConfig(
-                    confmaps=SingleInstanceConfMapsConfig(
-                        part_names=legacy_config.get("heads", {})
-                        .get("single_instance", {})
-                        .get("part_names"),
-                        sigma=legacy_config.get("heads", {})
-                        .get("single_instance", {})
+                (
+                    SingleInstanceConfig(
+                        confmaps=SingleInstanceConfMapsConfig(
+                            part_names=legacy_config.get("model", {})
+                            .get("heads", {})
+                            .get("single_instance", {})
+                            .get("part_names"),
+                            sigma=legacy_config.get("model", {})
+                            .get("heads", {})
+                            .get("single_instance", {})
+                            .get("sigma", 5.0),
+                            output_stride=legacy_config.get("model", {})
+                            .get("heads", {})
+                            .get("single_instance", {})
+                            .get("output_stride", 1),
+                        )
+                    )
+                )
+                if legacy_config.get("model", {})
+                .get("heads", {})
+                .get("single_instance")
+                else None
+            ),
+            centroid=(
+                CentroidConfig(
+                    confmaps=CentroidConfMapsConfig(
+                        anchor_part=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("centroid", {})
+                        .get("anchor_part"),
+                        sigma=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("centroid", {})
                         .get("sigma", 5.0),
-                        output_stride=legacy_config.get("heads", {})
-                        .get("single_instance", {})
+                        output_stride=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("centroid", {})
                         .get("output_stride", 1),
                     )
                 )
-                if legacy_config.get("head_type") == "single_instance"
+                if legacy_config.get("model", {}).get("heads", {}).get("centroid")
                 else None
             ),
-            centroid=CentroidConfig(
-                confmaps=CentroidConfMapsConfig(
-                    anchor_part=legacy_config.get("heads", {})
-                    .get("centroid", {})
-                    .get("anchor_part"),
-                    sigma=legacy_config.get("heads", {})
-                    .get("centroid", {})
-                    .get("sigma", 5.0),
-                    output_stride=legacy_config.get("heads", {})
-                    .get("centroid", {})
-                    .get("output_stride", 1),
+            centered_instance=(
+                CenteredInstanceConfig(
+                    confmaps=CentroidConfMapsConfig(
+                        anchor_part=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("centered_instance", {})
+                        .get("anchor_part"),
+                        sigma=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("centered_instance", {})
+                        .get("sigma", 5.0),
+                        output_stride=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("centered_instance", {})
+                        .get("output_stride", 1),
+                        part_names=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("centered_instance", {})
+                        .get("part_names", None),
+                    )
                 )
+                if legacy_config.get("model", {})
+                .get("heads", {})
+                .get("centered_instance")
+                else None
             ),
-            centered_instance=CenteredInstanceConfig(
-                confmaps=CentroidConfMapsConfig(
-                    anchor_part=legacy_config.get("heads", {})
-                    .get("centered_instance", {})
-                    .get("anchor_part"),
-                    sigma=legacy_config.get("heads", {})
-                    .get("centered_instance", {})
-                    .get("sigma", 5.0),
-                    output_stride=legacy_config.get("heads", {})
-                    .get("centered_instance", {})
-                    .get("output_stride", 1),
-                    part_names=legacy_config.get("heads", {})
-                    .get("centered_instance", {})
-                    .get("part_names", None),
+            bottomup=(
+                BottomUpConfig(
+                    confmaps=BottomUpConfMapsConfig(
+                        loss_weight=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("loss_weight", None),
+                        sigma=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("sigma", 5.0),
+                        output_stride=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("output_stride", 1),
+                        part_names=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("part_names", None),
+                    ),
+                    pafs=PAFConfig(
+                        edges=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("edges", None),
+                        sigma=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("sigma", 15.0),
+                        output_stride=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("output_stride", 1),
+                        loss_weight=legacy_config.get("model", {})
+                        .get("heads", {})
+                        .get("multi_instance", {})
+                        .get("loss_weight", None),
+                    ),
                 )
-            ),
-            bottomup=BottomUpConfig(
-                confmaps=BottomUpConfMapsConfig(
-                    loss_weight=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("loss_weight", None),
-                    sigma=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("sigma", 5.0),
-                    output_stride=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("output_stride", 1),
-                    part_names=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("part_names", None),
-                ),
-                pafs=PAFConfig(
-                    edges=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("edges", None),
-                    sigma=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("sigma", 15.0),
-                    output_stride=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("output_stride", 1),
-                    loss_weight=legacy_config.get("heads", {})
-                    .get("multi_instance", {})
-                    .get("loss_weight", None),
-                ),
+                if legacy_config.get("model", {}).get("heads", {}).get("multi_instance")
+                else None
             ),
         ),
     )

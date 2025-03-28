@@ -20,7 +20,7 @@ from sleap_nn.config.trainer_config import (
     ReduceLROnPlateauConfig,
     EarlyStoppingConfig,
     TrainerConfig,
-    trainer_mapper
+    trainer_mapper,
 )
 
 
@@ -251,12 +251,11 @@ def test_trainer_mapper():
             },
             "optimizer": "Adam",
             "initial_learning_rate": 0.001,
-            "checkpointing": {
-            },
+            "checkpointing": {},
         },
         "outputs": {
             "save_outputs": True,
-        }
+        },
     }
 
     config = trainer_mapper(legacy_config)
