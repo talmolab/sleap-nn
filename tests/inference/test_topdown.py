@@ -200,7 +200,7 @@ def test_find_instance_peaks_groundtruth(
     output = topdown_inf_layer(ex)[0]
 
     assert "pred_instance_peaks" in output.keys()
-    assert output["pred_instance_peaks"].shape == (2, 2, 2)
+    assert output["pred_instance_peaks"].shape == (1, 2, 2, 2)
     assert output["pred_peak_values"].shape == (2, 2)
 
 

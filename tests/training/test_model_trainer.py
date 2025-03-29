@@ -11,8 +11,8 @@ import lightning as L
 from pathlib import Path
 import pandas as pd
 import sys
-from sleap_nn.training.model_trainer import (
-    ModelTrainer,
+from sleap_nn.training.model_trainer import ModelTrainer
+from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
     CentroidModel,

@@ -30,6 +30,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     dataset = BottomUpDataset(
         data_config=base_bottom_config,
         max_stride=32,
+        scale=1.0,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
@@ -72,6 +73,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     dataset = BottomUpDataset(
         data_config=base_bottom_config,
         max_stride=32,
+        scale=0.5,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
@@ -143,6 +145,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     dataset = BottomUpDataset(
         data_config=base_bottom_config,
         max_stride=256,
+        scale=1.0,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
@@ -173,6 +176,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     dataset = BottomUpDataset(
         data_config=base_bottom_config,
         max_stride=32,
+        scale=1.0,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
@@ -223,6 +227,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     dataset = CenteredInstanceDataset(
         data_config=base_topdown_data_config,
         max_stride=16,
+        scale=1.0,
         confmap_head_config=confmap_head,
         crop_hw=crop_hw,
         labels=sio.load_slp(minimal_instance),
@@ -255,6 +260,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     dataset = CenteredInstanceDataset(
         data_config=base_topdown_data_config,
         max_stride=16,
+        scale=1.0,
         confmap_head_config=confmap_head,
         crop_hw=crop_hw,
         labels=sio.load_slp(minimal_instance),
@@ -325,6 +331,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     dataset = CenteredInstanceDataset(
         data_config=base_topdown_data_config,
         max_stride=8,
+        scale=1.0,
         confmap_head_config=confmap_head,
         crop_hw=(100, 100),
         labels=sio.load_slp(minimal_instance),
@@ -397,6 +404,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     dataset = CenteredInstanceDataset(
         data_config=base_topdown_data_config,
         max_stride=16,
+        scale=2.0,
         confmap_head_config=confmap_head,
         crop_hw=(100, 100),
         labels=sio.load_slp(minimal_instance),
@@ -445,6 +453,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     dataset = CentroidDataset(
         data_config=base_centroid_data_config,
         max_stride=32,
+        scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=sio.load_slp(minimal_instance),
@@ -475,6 +484,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     dataset = CentroidDataset(
         data_config=base_centroid_data_config,
         max_stride=32,
+        scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=sio.load_slp(minimal_instance),
@@ -543,6 +553,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     dataset = CentroidDataset(
         data_config=base_centroid_data_config,
         max_stride=32,
+        scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=sio.load_slp(minimal_instance),
@@ -596,6 +607,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     dataset = SingleInstanceDataset(
         data_config=base_singleinstance_data_config,
         max_stride=8,
+        scale=2.0,
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
@@ -626,6 +638,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     dataset = SingleInstanceDataset(
         data_config=base_singleinstance_data_config,
         max_stride=8,
+        scale=2.0,
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
@@ -694,6 +707,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     dataset = SingleInstanceDataset(
         data_config=base_singleinstance_data_config,
         max_stride=8,
+        scale=1.0,
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
@@ -743,6 +757,7 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
     dataset = SingleInstanceDataset(
         data_config=base_singleinstance_data_config,
         max_stride=8,
+        scale=2.0,
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
