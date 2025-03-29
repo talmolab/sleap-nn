@@ -927,7 +927,7 @@ class MultiHeadModelTrainer:
                     Path(self.np_chunks_dir) / f"{d_name}" / "val_chunks"
                 )
 
-                if self.use_existing_chunks:
+                if self.use_existing_chunks[d_num]:
                     if not (
                         self.train_np_chunks_paths[d_num].exists()
                         and self.train_np_chunks_paths[d_num].is_dir()
@@ -1144,7 +1144,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
             self.val_datasets[d_num] = BottomUpDataset(
                 labels=val_labels,
@@ -1161,7 +1161,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
 
         elif self.model_type == "centered_instance":
@@ -1178,7 +1178,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
             self.val_datasets[d_num] = CenteredInstanceDataset(
                 labels=val_labels,
@@ -1193,7 +1193,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
 
         elif self.model_type == "centroid":
@@ -1209,7 +1209,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
             self.val_datasets[d_num] = CentroidDataset(
                 labels=val_labels,
@@ -1223,7 +1223,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
 
         elif self.model_type == "single_instance":
@@ -1239,7 +1239,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
             self.val_datasets[d_num] = SingleInstanceDataset(
                 labels=val_labels,
@@ -1253,7 +1253,7 @@ class MultiHeadModelTrainer:
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_paths[d_num],
-                use_existing_chunks=self.use_existing_chunks,
+                use_existing_chunks=self.use_existing_chunks[d_num],
             )
 
         else:

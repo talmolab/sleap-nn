@@ -338,9 +338,10 @@ class Predictor(ABC):
                         ex["image"], self.preprocess_config["max_stride"]
                     )
                 outputs_list = self.inference_model(ex)
-                for output in outputs_list:
-                    output = self._convert_tensors_to_numpy(output)
-                    yield output
+                if outputs_list is not None:
+                    for output in outputs_list:
+                        output = self._convert_tensors_to_numpy(output)
+                        yield output
 
         self.pipeline.join()
 
