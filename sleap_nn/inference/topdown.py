@@ -321,10 +321,11 @@ class CentroidCrop(L.LightningModule):
 
         else:
             # if there are no peak detections
+            max_instances = 1 if self.max_instances is None else self.max_instances
             if self.return_crops:
                 return None
-            refined_peaks_with_nans = torch.zeros((batch, 1, 2))
-            peak_vals_with_nans = torch.zeros((batch, 1))
+            refined_peaks_with_nans = torch.zeros((batch, max_instances, 2))
+            peak_vals_with_nans = torch.zeros((batch, max_instances))
             for b in range(batch):
                 refined_peaks_with_nans[b] = torch.full((1, 2), torch.nan)
                 peak_vals_with_nans[b] = torch.nan
@@ -341,6 +342,7 @@ class CentroidCrop(L.LightningModule):
                         "pred_centroid_confmaps": cms.detach(),
                     }
                 )
+            return inputs
 
 
 class FindInstancePeaksGroundTruth(L.LightningModule):
@@ -642,3 +644,4 @@ class TopDownInferenceModel(L.LightningModule):
                         )
                     )
             return peaks_output
+        return batch
