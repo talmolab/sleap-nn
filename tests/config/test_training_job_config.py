@@ -28,14 +28,17 @@ import pytest
 import os
 import tempfile
 from sleap_nn.config.training_job_config import TrainingJobConfig
+from sleap_nn.config.training_job_config import load_sleap_config
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
 from sleap_nn.config.data_config import IntensityConfig
+from tests.assets.fixtures.datasets import sleapnn_data_dir, training_job_config_path
 from omegaconf import OmegaConf, MissingMandatoryValue
 from dataclasses import asdict
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
+import json
 
 
 @pytest.fixture
@@ -227,3 +230,27 @@ def test_missing_attributes(sample_config):
 
     with pytest.raises(MissingMandatoryValue):
         config = TrainingJobConfig.from_yaml(yaml_data)
+
+
+def test_load_sleap_config_from_file(training_job_config_path):
+    """Test the load_sleap_config function with a sample legacy configuration from a JSON file."""
+    # Path to the training_config.json file
+    json_file_path = training_job_config_path
+
+    # Load the configuration using the load_sleap_config method
+    config = load_sleap_config(TrainingJobConfig, json_file_path)
+
+    # Assertions to check if the output matches expected values
+    assert config.data_config.train_labels_path is None  # As per the JSON file
+    assert config.data_config.val_labels_path is None  # As per the JSON file
+    assert config.model_config.backbone_config.unet.filters == 8
+    assert config.model_config.backbone_config.unet.max_stride == 16
+    assert config.trainer_config.max_epochs == 200
+    assert config.trainer_config.optimizer_name == "Adam"
+    assert config.trainer_config.optimizer.lr == 0.0001
+    assert config.trainer_config.trainer_devices == "auto"  # Default value
+    assert config.trainer_config.trainer_accelerator == "auto"  # Default value
+    assert config.trainer_config.enable_progress_bar is True  # Default value
+    assert config.trainer_config.train_data_loader.batch_size == 4  # From the JSON file
+    assert config.trainer_config.lr_scheduler.reduce_lr_on_plateau is not None  # From the JSON file
+    assert config.trainer_config.early_stopping.stop_training_on_plateau is True  # From the JSON file

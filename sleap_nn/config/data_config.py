@@ -189,9 +189,9 @@ class DataConfig:
 
 def data_mapper(legacy_config: dict) -> DataConfig:
     return DataConfig(
-        # train_labels_path=legacy_config.get("train_labels_path", MISSING),
-        # val_labels_path=legacy_config.get("val_labels_path", MISSING),
-        # test_file_path=legacy_config.get("test_file_path"),
+        train_labels_path=legacy_config.get("data", {}).get("labels", {}).get("training_labels", MISSING),
+        val_labels_path=legacy_config.get("data", {}).get("labels", {}).get("validation_labels", MISSING),
+        test_file_path=legacy_config.get("data", {}).get("labels", {}).get("test_labels"),
         # provider=legacy_config.get("provider", "LabelsReader"),
         # user_instances_only=legacy_config.get("user_instances_only", True),
         # data_pipeline_fw=legacy_config.get("data_pipeline_fw", "torch_dataset"),
@@ -229,7 +229,7 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                     .get("uniform_noise_min_val", 0.0),
                     uniform_noise_max=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
-                    .get("uniform_noise_max_val", 1.0),
+                    .get("uniform_noise_max_val", 100.0) / 100.0,
                     uniform_noise_p=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
                     .get("uniform_noise", 1.0),

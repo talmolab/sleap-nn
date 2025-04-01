@@ -879,7 +879,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                     .get("unet", {})
                     .get("output_stride", 1),
                 )
-                if legacy_config.get("backbone_type") == "unet"
+                if legacy_config.get("model", {}).get("backbone", {}).get("unet")
                 else None
             ),
             # convnext not in old config

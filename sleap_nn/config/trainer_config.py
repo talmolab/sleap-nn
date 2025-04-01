@@ -7,6 +7,7 @@ the parameters required to initialize the trainer config.
 from attrs import define, field, validators
 from typing import Optional, List, Any
 from loguru import logger
+import re
 
 
 @define
@@ -301,7 +302,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         #     .get("wandb", {})
         #     .get("group", None),
         # ) if legacy_config.get("optimization", {}).get("use_wandb", False) else None,
-        optimizer_name=legacy_config.get("optimization", {}).get("optimizer", "Adam"),
+        optimizer_name=re.sub(r'^[a-z]', lambda x: x.group().upper(), legacy_config.get("optimization", {}).get("optimizer", "adam")),
         optimizer=OptimizerConfig(
             lr=legacy_config.get("optimization", {}).get("initial_learning_rate", 1e-3),
             # amsgrad=legacy_config.get("optimization", {})
