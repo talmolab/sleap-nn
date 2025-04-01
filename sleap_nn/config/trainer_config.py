@@ -302,7 +302,11 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         #     .get("wandb", {})
         #     .get("group", None),
         # ) if legacy_config.get("optimization", {}).get("use_wandb", False) else None,
-        optimizer_name=re.sub(r'^[a-z]', lambda x: x.group().upper(), legacy_config.get("optimization", {}).get("optimizer", "adam")),
+        optimizer_name=re.sub(
+            r"^[a-z]",
+            lambda x: x.group().upper(),
+            legacy_config.get("optimization", {}).get("optimizer", "adam"),
+        ),
         optimizer=OptimizerConfig(
             lr=legacy_config.get("optimization", {}).get("initial_learning_rate", 1e-3),
             # amsgrad=legacy_config.get("optimization", {})

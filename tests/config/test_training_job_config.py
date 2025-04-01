@@ -252,5 +252,9 @@ def test_load_sleap_config_from_file(training_job_config_path):
     assert config.trainer_config.trainer_accelerator == "auto"  # Default value
     assert config.trainer_config.enable_progress_bar is True  # Default value
     assert config.trainer_config.train_data_loader.batch_size == 4  # From the JSON file
-    assert config.trainer_config.lr_scheduler.reduce_lr_on_plateau is not None  # From the JSON file
-    assert config.trainer_config.early_stopping.stop_training_on_plateau is True  # From the JSON file
+    assert (
+        config.trainer_config.lr_scheduler.reduce_lr_on_plateau is not None
+    )  # From the JSON file
+    assert (
+        config.trainer_config.early_stopping.stop_training_on_plateau is True
+    )  # From the JSON file

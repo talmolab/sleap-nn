@@ -11,6 +11,7 @@ def sleapnn_data_dir(pytestconfig):
     """Dir path to sleap-nn data."""
     return Path(pytestconfig.rootdir) / "tests/assets"
 
+
 @pytest.fixture
 def training_job_config_path(sleapnn_data_dir):
     """Path to training_job_config file."""
