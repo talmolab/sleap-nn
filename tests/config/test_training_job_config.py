@@ -34,7 +34,7 @@ from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
 from sleap_nn.config.data_config import IntensityConfig
 from tests.assets.fixtures.datasets import *
-from omegaconf import OmegaConf, MissingMandatoryValue
+from omegaconf import OmegaConf, MissingMandatoryValue, ValidationError
 from dataclasses import asdict
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
@@ -242,7 +242,7 @@ def test_load_sleap_config_from_file(training_job_config_path):
     # Load the configuration using the load_sleap_config method
     try:
         config = load_sleap_config(TrainingJobConfig, json_file_path)
-    except MissingMandatoryValue as e:
+    except ValidationError as e:
 
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
@@ -293,7 +293,7 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
     try:
         # Load the configuration using the load_sleap_config method
         config = load_sleap_config(TrainingJobConfig, json_file_path)
-    except MissingMandatoryValue as e:
+    except ValidationError as e:
         # Handle the exception if mandatory values are missing
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
@@ -322,8 +322,7 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
     assert config.model_config.backbone_config.unet.max_stride == 8
     assert config.model_config.head_configs.bottomup.confmaps.part_names == ["A", "B"]
     assert config.model_config.head_configs.bottomup.confmaps.sigma == 1.5
-    # assert config.model_config.head_configs.bottomup.sigma
-    # pprint(config.model_config)
+    assert config.model_config.head_configs.bottomup.pafs.sigma == 50
 
 
 def test_load_centered_instance_training_config_from_file(
@@ -337,7 +336,7 @@ def test_load_centered_instance_training_config_from_file(
     try:
         # Load the configuration using the load_sleap_config method
         config = load_sleap_config(TrainingJobConfig, json_file_path)
-    except MissingMandatoryValue as e:
+    except ValidationError as e:
         # Handle the exception if mandatory values are missing
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
@@ -367,7 +366,6 @@ def test_load_centered_instance_training_config_from_file(
         "B",
     ]
     assert config.model_config.head_configs.centered_instance.confmaps.sigma == 1.5
-    # pprint(config.model_config)
 
 
 def test_load_centered_instance_with_scaling_config_from_file(
@@ -378,7 +376,7 @@ def test_load_centered_instance_with_scaling_config_from_file(
 
     try:
         config = load_sleap_config(TrainingJobConfig, json_file_path)
-    except MissingMandatoryValue:
+    except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
 
@@ -411,7 +409,7 @@ def test_load_centroid_training_config_from_file(centroid_training_config_path):
 
     try:
         config = load_sleap_config(TrainingJobConfig, json_file_path)
-    except MissingMandatoryValue:
+    except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
 
@@ -446,7 +444,7 @@ def test_load_single_instance_training_config_from_file(
 
     try:
         config = load_sleap_config(TrainingJobConfig, json_file_path)
-    except MissingMandatoryValue:
+    except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
 
@@ -478,7 +476,7 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
 
     try:
         config = load_sleap_config(TrainingJobConfig, json_file_path)
-    except MissingMandatoryValue:
+    except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
 

@@ -184,23 +184,10 @@ class DataConfig:
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None
-    skeletons: Optional[dict] = None
+    skeletons: Optional[list] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:
-    train_labels_path = (
-        legacy_config.get("data", {}).get("labels", {}).get("training_labels", None)
-        or MISSING
-    )
-    if train_labels_path is MISSING:
-        raise MissingMandatoryValue("train_labels_path is missing")
-    val_labels_path = (
-        legacy_config.get("data", {}).get("labels", {}).get("validation_labels", None)
-        or MISSING
-    )
-    if val_labels_path is MISSING:
-        raise MissingMandatoryValue("val_labels_path is missing")
-
     return DataConfig(
         train_labels_path=legacy_config.get("data", {})
         .get("labels", {})
@@ -210,7 +197,7 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         .get("validation_labels", MISSING),
         test_file_path=legacy_config.get("data", {})
         .get("labels", {})
-        .get("test_labels"),
+        .get("test_labels", None),
         # provider=legacy_config.get("provider", "LabelsReader"),
         # user_instances_only=legacy_config.get("user_instances_only", True),
         # data_pipeline_fw=legacy_config.get("data_pipeline_fw", "torch_dataset"),
@@ -252,27 +239,33 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                         .get("uniform_noise_max_val", 1.0),
                         1.0,
                     ),
-                    uniform_noise_p=legacy_config.get("optimization", {})
-                    .get("augmentation_config", {})
-                    .get("uniform_noise", 1.0),
+                    uniform_noise_p=float(
+                        legacy_config.get("optimization", {})
+                        .get("augmentation_config", {})
+                        .get("uniform_noise", 1.0)
+                    ),
                     gaussian_noise_mean=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
                     .get("gaussian_noise_mean", 0.0),
                     gaussian_noise_std=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
                     .get("gaussian_noise_stddev", 1.0),
-                    gaussian_noise_p=legacy_config.get("optimization", {})
-                    .get("augmentation_config", {})
-                    .get("gaussian_noise", 1.0),
+                    gaussian_noise_p=float(
+                        legacy_config.get("optimization", {})
+                        .get("augmentation_config", {})
+                        .get("gaussian_noise", 1.0)
+                    ),
                     contrast_min=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
                     .get("contrast_min_gamma", 0.5),
                     contrast_max=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
                     .get("contrast_max_gamma", 2.0),
-                    contrast_p=legacy_config.get("optimization", {})
-                    .get("augmentation_config", {})
-                    .get("contrast", 1.0),
+                    contrast_p=float(
+                        legacy_config.get("optimization", {})
+                        .get("augmentation_config", {})
+                        .get("contrast", 1.0)
+                    ),
                     brightness=(
                         legacy_config.get("optimization", {})
                         .get("augmentation_config", {})
@@ -281,9 +274,11 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                         .get("augmentation_config", {})
                         .get("brightness_max_val", 1.0),
                     ),
-                    brightness_p=legacy_config.get("optimization", {})
-                    .get("augmentation_config", {})
-                    .get("brightness", 1.0),
+                    brightness_p=float(
+                        legacy_config.get("optimization", {})
+                        .get("augmentation_config", {})
+                        .get("brightness", 1.0)
+                    ),
                 ),
                 geometric=GeometricConfig(
                     rotation=legacy_config.get("optimization", {})
