@@ -932,7 +932,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
             ),
             centered_instance=(
                 CenteredInstanceConfig(
-                    confmaps=CentroidConfMapsConfig(
+                    confmaps=CenteredInstanceConfMapsConfig(
                         anchor_part=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("centered_instance", {})
@@ -962,36 +962,44 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         loss_weight=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("confmaps", {})
                         .get("loss_weight", None),
                         sigma=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("confmaps", {})
                         .get("sigma", 5.0),
                         output_stride=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("confmaps", {})
                         .get("output_stride", 1),
                         part_names=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("confmaps", {})
                         .get("part_names", None),
                     ),
                     pafs=PAFConfig(
                         edges=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("pafs", {})
                         .get("edges", None),
                         sigma=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("pafs", {})
                         .get("sigma", 15.0),
                         output_stride=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("pafs", {})
                         .get("output_stride", 1),
                         loss_weight=legacy_config.get("model", {})
                         .get("heads", {})
                         .get("multi_instance", {})
+                        .get("pafs", {})
                         .get("loss_weight", None),
                     ),
                 )

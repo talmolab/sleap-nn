@@ -188,16 +188,26 @@ class DataConfig:
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:
-    train_labels_path = legacy_config.get("data", {}).get("labels", {}).get("training_labels", None) or MISSING
+    train_labels_path = (
+        legacy_config.get("data", {}).get("labels", {}).get("training_labels", None)
+        or MISSING
+    )
     if train_labels_path is MISSING:
         raise MissingMandatoryValue("train_labels_path is missing")
-    val_labels_path = legacy_config.get("data", {}).get("labels", {}).get("validation_labels", None) or MISSING
+    val_labels_path = (
+        legacy_config.get("data", {}).get("labels", {}).get("validation_labels", None)
+        or MISSING
+    )
     if val_labels_path is MISSING:
         raise MissingMandatoryValue("val_labels_path is missing")
-    
+
     return DataConfig(
-        train_labels_path=legacy_config.get("data", {}).get("labels", {}).get("training_labels", MISSING),
-        val_labels_path=legacy_config.get("data", {}).get("labels", {}).get("validation_labels", MISSING),
+        train_labels_path=legacy_config.get("data", {})
+        .get("labels", {})
+        .get("training_labels", MISSING),
+        val_labels_path=legacy_config.get("data", {})
+        .get("labels", {})
+        .get("validation_labels", MISSING),
         test_file_path=legacy_config.get("data", {})
         .get("labels", {})
         .get("test_labels"),
@@ -236,10 +246,12 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                     uniform_noise_min=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
                     .get("uniform_noise_min_val", 0.0),
-                    uniform_noise_max=min(legacy_config.get("optimization", {})
-                    .get("augmentation_config", {})
-                    .get("uniform_noise_max_val", 1.0),
-                    1.0),
+                    uniform_noise_max=min(
+                        legacy_config.get("optimization", {})
+                        .get("augmentation_config", {})
+                        .get("uniform_noise_max_val", 1.0),
+                        1.0,
+                    ),
                     uniform_noise_p=legacy_config.get("optimization", {})
                     .get("augmentation_config", {})
                     .get("uniform_noise", 1.0),

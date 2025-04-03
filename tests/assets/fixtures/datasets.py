@@ -16,3 +16,41 @@ def sleapnn_data_dir(pytestconfig):
 def training_job_config_path(sleapnn_data_dir):
     """Path to training_job_config file."""
     return Path(sleapnn_data_dir) / "training_config.json"
+
+
+@pytest.fixture
+def bottomup_training_config_path(sleapnn_data_dir):
+    """Path to bottomup_training_config file."""
+    return Path(sleapnn_data_dir) / "bottomup_training_config.json"
+
+
+@pytest.fixture
+def centered_instance_training_config_path(sleapnn_data_dir):
+    """Path to centered_instance_training_config file."""
+    return Path(sleapnn_data_dir) / "centered_instance_training_config.json"
+
+
+@pytest.fixture
+def centered_instance_with_scaling_training_config_path(sleapnn_data_dir):
+    """Path to centered_instance_training_config file."""
+    return (
+        Path(sleapnn_data_dir) / "centered_instance_with_scaling_training_config.json"
+    )
+
+
+@pytest.fixture
+def centroid_training_config_path(sleapnn_data_dir):
+    """Path to centroid_training_config file."""
+    return Path(sleapnn_data_dir) / "centroid_training_config.json"
+
+
+@pytest.fixture
+def single_instance_training_config_path(sleapnn_data_dir):
+    """Path to single_instance_training_config file."""
+    return Path(sleapnn_data_dir) / "single_instance_training_config.json"
+
+
+@pytest.fixture
+def topdown_training_config_path(sleapnn_data_dir):
+    """Path to topdown_training_config file."""
+    return Path(sleapnn_data_dir) / "topdown_training_config.json"
