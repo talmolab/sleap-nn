@@ -128,7 +128,11 @@ def test_data_mapper():
     """Test the data_mapper function with a sample legacy configuration."""
     legacy_config = {
         "data": {
-            "labels": {"skeletons": {"edges": [[0, 1], [1, 2]]}},
+            "labels": {
+                "training_labels": "notMISSING",
+                "validation_labels": "notMISSING",
+                "skeletons": {"edges": [[0, 1], [1, 2]]}
+                },
             "preprocessing": {
                 "ensure_rgb": True,
                 "target_height": 256,
@@ -176,7 +180,7 @@ def test_data_mapper():
     # Test intensity config
     intensity = config.augmentation_config.intensity
     assert intensity.uniform_noise_min == 0.1
-    # assert intensity.uniform_noise_max == 0.9
+    assert intensity.uniform_noise_max == 0.9
     assert intensity.uniform_noise_p == 0.8
     assert intensity.gaussian_noise_mean == 0.0
     assert intensity.gaussian_noise_std == 1.0

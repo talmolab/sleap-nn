@@ -39,6 +39,7 @@ from dataclasses import asdict
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
 import json
+from omegaconf import MISSING
 
 
 @pytest.fixture
@@ -238,11 +239,28 @@ def test_load_sleap_config_from_file(training_job_config_path):
     json_file_path = training_job_config_path
 
     # Load the configuration using the load_sleap_config method
-    config = load_sleap_config(TrainingJobConfig, json_file_path)
+    try:
+        # Load the configuration using the load_sleap_config method
+        config = load_sleap_config(TrainingJobConfig, json_file_path)
+    except MissingMandatoryValue as e:
+
+        with open(json_file_path, "r") as f:
+            old_config = json.load(f)
+
+        # Create a temporary file to hold the modified configuration
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w') as temp_file:
+            old_config['data']['labels']['training_labels'] = "notMISSING"
+            old_config['data']['labels']['validation_labels'] = "notMISSING"
+            
+            json.dump(old_config, temp_file)
+            temp_file_path = temp_file.name
+
+        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        os.remove(temp_file_path)
 
     # Assertions to check if the output matches expected values
-    assert config.data_config.train_labels_path is None  # As per the JSON file
-    assert config.data_config.val_labels_path is None  # As per the JSON file
+    assert config.data_config.train_labels_path == "notMISSING"  # As per the temp JSON file
+    assert config.data_config.val_labels_path == "notMISSING"  # As per the temp JSON file
     assert config.model_config.backbone_config.unet.filters == 8
     assert config.model_config.backbone_config.unet.max_stride == 16
     assert config.trainer_config.max_epochs == 200
