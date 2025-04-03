@@ -6,7 +6,7 @@ import psutil
 import shutil
 import subprocess
 import torch
-from torch.utils.data import DistributedSampler
+from torch.utils.data import DistributedSampler, DataLoader
 import sleap_io as sio
 from omegaconf import OmegaConf
 import lightning as L
@@ -1289,9 +1289,8 @@ class MultiHeadModelTrainer:
                 rank=self.trainer.global_rank,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
             )
-            self.train_data_loaders[d_num] = CyclerDataLoader(
+            self.train_data_loaders[d_num] = DataLoader(
                 dataset=self.train_datasets[d_num],
-                steps_per_epoch=self.steps_per_epochs[d_num],
                 batch_size=self.config.trainer_config.train_data_loader.batch_size,
                 num_workers=self.config.trainer_config.train_data_loader.num_workers,
                 pin_memory=pin_memory,
@@ -1315,9 +1314,8 @@ class MultiHeadModelTrainer:
                 rank=self.trainer.global_rank,
                 shuffle=False,
             )
-            self.val_data_loaders[d_num] = CyclerDataLoader(
+            self.val_data_loaders[d_num] = DataLoader(
                 dataset=self.val_datasets[d_num],
-                steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
                 batch_size=self.config.trainer_config.val_data_loader.batch_size,
                 num_workers=self.config.trainer_config.val_data_loader.num_workers,
                 pin_memory=pin_memory,
@@ -1658,12 +1656,7 @@ class MultiHeadModelTrainer:
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-            strategy=(
-                "ddp_find_unused_parameters_true"
-                if isinstance(self.config.trainer_config.trainer_devices, int)
-                and self.config.trainer_config.trainer_devices > 1
-                else "auto"
-            ),
+            strategy=self.config.trainer_config.trainer_strategy,
         )
 
         if self.data_pipeline_fw == "litdata":
@@ -1676,10 +1669,12 @@ class MultiHeadModelTrainer:
             for d_num, _ in self.config.dataset_mapper.items():
                 self._create_data_loaders_torch_dataset(d_num=d_num)
             self.combined_train_dataloader = CombinedLoader(
-                self.train_data_loaders, mode="max_size_cycle"
+                self.train_data_loaders,
+                mode=self.config.trainer_config.combined_loader_mode,
             )
             self.combined_val_dataloader = CombinedLoader(
-                self.val_data_loaders, mode="max_size_cycle"
+                self.val_data_loaders,
+                mode=self.config.trainer_config.combined_loader_mode,
             )
 
         else:

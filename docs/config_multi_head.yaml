@@ -98,11 +98,13 @@ trainer_config:
   val_data_loader:
     batch_size: 4
     num_workers: 2
+  combined_loader_mode: "max_size_cycle" # or "min_size", "max_size"
   model_ckpt:
     save_top_k: 1
     save_last: true
   trainer_devices: 1
   trainer_accelerator: gpu
+  trainer_strategy: "ddp_find_unused_parameters_false" # "auto", "ddp", "ddp_find_unused_parameters_true"
   enable_progress_bar: false
   log_inf_epochs: 5
   steps_per_epoch: 
