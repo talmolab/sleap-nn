@@ -29,6 +29,7 @@ def plot_pred_confmaps_peaks(
         img: Input image with shape (channel, height, width).
         confmaps: Output confmaps with shape (num_nodes, confmap_height, confmap_width).
         peaks: Predicted keypoints with shape (num_instances, num_nodes, 2).
+        plot_title: Title for the plot.
     """
     img_h, img_w = img.shape[-2:]
     img = img.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)

@@ -1687,7 +1687,7 @@ class MultiHeadModelTrainer:
             logger.error(message)
             raise ValueError(message)
 
-        if self.trainer.global_rank == 0:
+        if self.trainer.global_rank == 0 and self.config.trainer_config.use_wandb:
             wandb_logger.experiment.config.update({"run_name": wandb_config.name})
             wandb_logger.experiment.config.update(
                 {"run_config": OmegaConf.to_container(self.config, resolve=True)}

@@ -294,14 +294,14 @@ class SingleInstanceModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         return self.model(img)["SingleInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["confidence_maps"], dim=1
-        ).to(self.device)
+        )
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
@@ -312,9 +312,9 @@ class SingleInstanceModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["confidence_maps"], dim=1
-        ).to(self.device)
+        )
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
@@ -372,14 +372,14 @@ class TopDownCenteredInstanceModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
         X, y = torch.squeeze(batch["instance_image"], dim=1).to(
             self.device
-        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
+        ), torch.squeeze(batch["confidence_maps"], dim=1)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
@@ -392,7 +392,7 @@ class TopDownCenteredInstanceModel(TrainingModel):
         """Perform validation step."""
         X, y = torch.squeeze(batch["instance_image"], dim=1).to(
             self.device
-        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
+        ), torch.squeeze(batch["confidence_maps"], dim=1)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
@@ -450,14 +450,14 @@ class CentroidModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         return self.model(img)["CentroidConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["centroids_confidence_maps"], dim=1
-        ).to(self.device)
+        )
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
@@ -468,9 +468,9 @@ class CentroidModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
+        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
             batch["centroids_confidence_maps"], dim=1
-        ).to(self.device)
+        )
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
@@ -528,7 +528,7 @@ class BottomUpModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         output = self.model(img)
         return {
             "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
@@ -537,9 +537,9 @@ class BottomUpModel(TrainingModel):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X = torch.squeeze(batch["image"], dim=1).to(self.device)
-        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
-        y_paf = batch["part_affinity_fields"].to(self.device)
+        X = torch.squeeze(batch["image"], dim=1)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
+        y_paf = batch["part_affinity_fields"]
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
@@ -555,9 +555,9 @@ class BottomUpModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X = torch.squeeze(batch["image"], dim=1).to(self.device)
-        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
-        y_paf = batch["part_affinity_fields"].to(self.device)
+        X = torch.squeeze(batch["image"], dim=1)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
+        y_paf = batch["part_affinity_fields"]
 
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"]
@@ -1042,7 +1042,7 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
@@ -1054,7 +1054,7 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
             batch_data = batch[d_num]
             X, y = torch.squeeze(batch_data["instance_image"], dim=1).to(
                 self.device
-            ), torch.squeeze(batch_data["confidence_maps"], dim=1).to(self.device)
+            ), torch.squeeze(batch_data["confidence_maps"], dim=1)
 
             output = self.model(X)["CenteredInstanceConfmapsHead"]
 
@@ -1097,7 +1097,7 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
         for d_num in batch.keys():
             X, y = torch.squeeze(batch[d_num]["instance_image"], dim=1).to(
                 self.device
-            ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1).to(self.device)
+            ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
 
             y_preds = self.model(X)["CenteredInstanceConfmapsHead"][d_num]
             curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
@@ -1173,7 +1173,7 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         return self.model(img)["SingleInstanceConfmapsHead"]
 
     def on_train_epoch_start(self):
@@ -1261,7 +1261,7 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
             batch_data = batch[d_num]
             X, y = torch.squeeze(batch_data["image"], dim=1).to(
                 self.device
-            ), torch.squeeze(batch_data["confidence_maps"], dim=1).to(self.device)
+            ), torch.squeeze(batch_data["confidence_maps"], dim=1)
 
             output = self.model(X)["SingleInstanceConfmapsHead"]
 
@@ -1304,7 +1304,7 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
         for d_num in batch.keys():
             X, y = torch.squeeze(batch[d_num]["image"], dim=1).to(
                 self.device
-            ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1).to(self.device)
+            ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
 
             y_preds = self.model(X)["SingleInstanceConfmapsHead"][d_num]
             curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
@@ -1383,7 +1383,7 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         return self.model(img)["CentroidConfmapsHead"]
 
     def on_train_epoch_start(self):
@@ -1761,7 +1761,7 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
+        img = torch.squeeze(img, dim=1)
         output = self.model(img)
         return {
             "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
@@ -1775,11 +1775,11 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
         opt.zero_grad()
         for d_num in batch.keys():
             batch_data = batch[d_num]
-            X = torch.squeeze(batch_data["image"], dim=1).to(self.device)
+            X = torch.squeeze(batch_data["image"], dim=1)
             y_confmap = torch.squeeze(batch_data["confidence_maps"], dim=1).to(
                 self.device
             )
-            y_paf = batch_data["part_affinity_fields"].to(self.device)
+            y_paf = batch_data["part_affinity_fields"]
 
             output = self.model(X)
             output_confmaps = output["MultiInstanceConfmapsHead"]
@@ -1832,11 +1832,11 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
         total_loss = 0
         for d_num in batch.keys():
             batch_data = batch[d_num]
-            X = torch.squeeze(batch_data["image"], dim=1).to(self.device)
+            X = torch.squeeze(batch_data["image"], dim=1)
             y_confmap = torch.squeeze(batch_data["confidence_maps"], dim=1).to(
                 self.device
             )
-            y_paf = batch_data["part_affinity_fields"].to(self.device)
+            y_paf = batch_data["part_affinity_fields"]
 
             output = self.model(X)
             output_confmaps = output["MultiInstanceConfmapsHead"]
