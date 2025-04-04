@@ -235,6 +235,14 @@ class TrainerConfig:
 
 
 def trainer_mapper(legacy_config: dict) -> TrainerConfig:
+    """Map the legacy trainer configuration to the new trainer configuration.
+
+    Args:
+        legacy_config: A dictionary containing the legacy trainer configuration.
+
+    Returns:
+        An instance of `TrainerConfig` with the mapped configuration.
+    """
     return TrainerConfig(
         train_data_loader=DataLoaderConfig(
             batch_size=legacy_config.get("optimization", {}).get("batch_size", 1),

@@ -188,6 +188,14 @@ class DataConfig:
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:
+    """Maps the legacy data configuration to the new data configuration.
+
+    Args:
+        legacy_config: A dictionary containing the legacy data configuration.
+
+    Returns:
+        An instance of `DataConfig` with the mapped configuration.
+    """
     return DataConfig(
         train_labels_path=legacy_config.get("data", {})
         .get("labels", {})

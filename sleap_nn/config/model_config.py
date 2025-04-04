@@ -835,6 +835,14 @@ class ModelConfig:
 
 
 def model_mapper(legacy_config: dict) -> ModelConfig:
+    """Map the legacy model configuration to the new model configuration.
+
+    Args:
+        legacy_config: A dictionary containing the legacy model configuration.
+
+    Returns:
+        An instance of `ModelConfig` with the mapped configuration.
+    """
     return ModelConfig(
         # init_weights=legacy_config.get("init_weights", "default"),
         # pre_trained_weights not in old config

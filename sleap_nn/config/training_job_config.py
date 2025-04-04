@@ -153,6 +153,15 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
 
 
 def load_sleap_config(cls, json_file_path: str) -> TrainerConfig:
+    """Load a SLEAP configuration from a JSON file.
+
+    Args:
+        cls: The class to instantiate with the loaded configuration.
+        json_file_path: Path to a JSON file containing the SLEAP configuration.
+
+    Returns:
+        An instance of `cls` with the loaded configuration.
+    """
     with open(json_file_path, "r") as f:
         old_config = json.load(f)
 
