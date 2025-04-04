@@ -13,9 +13,9 @@ def sleapnn_data_dir(pytestconfig):
 
 
 @pytest.fixture
-def training_job_config_path(sleapnn_data_dir):
-    """Path to training_job_config file."""
-    return Path(sleapnn_data_dir) / "training_config.json"
+def bottomup_multiclass_training_config_path(sleapnn_data_dir):
+    """Path to bottomup_multiclass_training_config file."""
+    return Path(sleapnn_data_dir) / "bottomup_multiclass_training_config.json"
 
 
 @pytest.fixture

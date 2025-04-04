@@ -152,7 +152,7 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
     return TrainingJobConfig.load_yaml(filename)
 
 
-def load_sleap_config_from_json(cls, json_file_path: str) -> OmegaConf:
+def load_sleap_config(cls, json_file_path: str) -> OmegaConf:
     """Load a SLEAP configuration from a JSON file and convert it to OmegaConf.
 
     Args:

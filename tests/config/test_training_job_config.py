@@ -234,10 +234,13 @@ def test_missing_attributes(sample_config):
         config = TrainingJobConfig.from_yaml(yaml_data)
 
 
-def test_load_sleap_config_from_file(training_job_config_path):
-    """Test the load_sleap_config function with a sample legacy configuration from a JSON file."""
+def test_load_bottomup_multiclass_training_config_from_file(
+    bottomup_multiclass_training_config_path,
+):
+    """Test the load_sleap_config function with a sample bottomup multiclass legacy
+    configuration from a JSON file."""
 
-    json_file_path = training_job_config_path
+    json_file_path = bottomup_multiclass_training_config_path
 
     # Load the configuration using the load_sleap_config method
     try:
@@ -328,7 +331,8 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
 def test_load_centered_instance_training_config_from_file(
     centered_instance_training_config_path,
 ):
-    """Test the load_sleap_config function with a sample centered instance configuration from a JSON file."""
+    """Test the load_sleap_config function with a sample centered instance configuration
+    from a JSON file."""
 
     json_file_path = centered_instance_training_config_path
 
