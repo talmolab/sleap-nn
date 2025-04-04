@@ -152,15 +152,15 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
     return TrainingJobConfig.load_yaml(filename)
 
 
-def load_sleap_config(cls, json_file_path: str) -> TrainerConfig:
-    """Load a SLEAP configuration from a JSON file.
+def load_sleap_config_from_json(cls, json_file_path: str) -> OmegaConf:
+    """Load a SLEAP configuration from a JSON file and convert it to OmegaConf.
 
     Args:
         cls: The class to instantiate with the loaded configuration.
         json_file_path: Path to a JSON file containing the SLEAP configuration.
 
     Returns:
-        An instance of `cls` with the loaded configuration.
+        An OmegaConf instance with the loaded configuration.
     """
     with open(json_file_path, "r") as f:
         old_config = json.load(f)

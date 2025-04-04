@@ -5,7 +5,7 @@ the parameters required to initialize the data config.
 """
 
 from attrs import define, field, validators
-from omegaconf import MISSING, MissingMandatoryValue
+from omegaconf import MISSING
 from typing import Optional, Tuple, Any, List
 from loguru import logger
 
