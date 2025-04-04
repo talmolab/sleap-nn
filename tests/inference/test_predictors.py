@@ -121,7 +121,6 @@ def test_topdown_predictor(
     pred_labels = main(
         model_paths=[minimal_instance_centroid_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         make_labels=False,
         max_instances=max_instances,
         peak_threshold=0.1,
@@ -137,7 +136,6 @@ def test_topdown_predictor(
     pred_labels = main(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
-        provider="VideoReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=[0.0, 0.0],
