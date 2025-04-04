@@ -184,7 +184,7 @@ class DataConfig:
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None
-    skeletons: Optional[list] = None
+    skeletons: Optional[dict] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:
@@ -316,5 +316,7 @@ def data_mapper(legacy_config: dict) -> DataConfig:
             # else None
         ),
         use_augmentations_train=True,
-        skeletons=legacy_config.get("data", {}).get("labels", {}).get("skeletons"),
+        skeletons=legacy_config.get("data", {})
+        .get("labels", {})
+        .get("skeletons", [{}])[0],
     )
