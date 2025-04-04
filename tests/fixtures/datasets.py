@@ -63,7 +63,7 @@ def config(sleap_data_dir):
                     "is_rgb": False,
                     "max_width": None,
                     "max_height": None,
-                    "scale": 1.0,
+                    "scale": None,
                     "crop_hw": [160, 160],
                     "min_crop_size": None,
                 },
