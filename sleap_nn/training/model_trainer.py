@@ -222,6 +222,9 @@ class ModelTrainer:
             self.config.data_config.preprocessing.max_height = self.max_height
             self.config.data_config.preprocessing.max_width = self.max_width
 
+        if self.config.data_config.preprocessing.scale is None:
+            self.config.data_config.preprocessing.scale = 1.0
+
         if self.model_type == "centered_instance":
             # compute crop size
             self.crop_hw = self.config.data_config.preprocessing.crop_hw
@@ -289,6 +292,7 @@ class ModelTrainer:
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -301,6 +305,7 @@ class ModelTrainer:
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -314,6 +319,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
@@ -326,6 +332,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
@@ -340,6 +347,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -351,6 +359,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -364,6 +373,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
@@ -375,6 +385,7 @@ class ModelTrainer:
                 data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
                 np_chunks=self.np_chunks,
