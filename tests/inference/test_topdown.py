@@ -90,11 +90,11 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
     # return crops = False
     layer = CentroidCrop(
         torch_model=model,
-        peak_threshold=0.0,
+        peak_threshold=0.0125,
         refinement="integral",
         integral_patch_size=5,
         output_stride=2,
-        return_confmaps=False,
+        return_confmaps=True,
         max_instances=6,
         return_crops=False,
         crop_hw=(160, 160),
@@ -104,6 +104,7 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
     assert tuple(out["centroids"].shape) == (1, 1, 6, 2)
     assert tuple(out["centroid_vals"].shape) == (1, 6)
     assert "instance_image" not in out.keys()
+    assert "pred_centroid_confmaps" in out.keys()
 
     # return crops = True
     layer = CentroidCrop(
@@ -112,7 +113,7 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
         refinement="integral",
         integral_patch_size=5,
         output_stride=2,
-        return_confmaps=False,
+        return_confmaps=True,
         max_instances=2,
         return_crops=True,
         crop_hw=(160, 160),
@@ -200,7 +201,7 @@ def test_find_instance_peaks_groundtruth(
     output = topdown_inf_layer(ex)[0]
 
     assert "pred_instance_peaks" in output.keys()
-    assert output["pred_instance_peaks"].shape == (2, 2, 2)
+    assert output["pred_instance_peaks"].shape == (1, 2, 2, 2)
     assert output["pred_peak_values"].shape == (2, 2)
 
 

@@ -153,9 +153,9 @@ class BottomUpInferenceModel(L.LightningModule):
         }
 
         if self.return_confmaps:
-            out["confmaps"] = cms
+            out["pred_confmaps"] = cms
         if self.return_pafs:
-            out["part_affinity_fields"] = pafs
+            out["pred_part_affinity_fields"] = pafs
         if self.return_paf_graph:
             out["peaks"] = cms_peaks
             out["peak_vals"] = cms_peak_vals
