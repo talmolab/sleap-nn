@@ -138,16 +138,5 @@ def test_apply_sizematcher(caplog, minimal_instance):
     image, _ = apply_sizematcher(ex["image"])
     assert image.shape == torch.Size([1, 1, 384, 384])
 
-    with pytest.raises(
-        Exception,
-        match=f"Max height {100} should be greater than the current image height: {384}",
-    ):
-        image = apply_sizematcher(ex["image"], max_height=100, max_width=500)
-    assert "Max height" in caplog.text
-
-    with pytest.raises(
-        Exception,
-        match=f"Max width {100} should be greater than the current image width: {384}",
-    ):
-        image = apply_sizematcher(ex["image"], max_height=500, max_width=100)
-    assert "Max width" in caplog.text
+    image, eff = apply_sizematcher(ex["image"], 100, 480)
+    assert image.shape == torch.Size([1, 1, 100, 480])
