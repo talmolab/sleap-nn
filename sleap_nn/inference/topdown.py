@@ -13,6 +13,7 @@ from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
 from loguru import logger
+from collections import defaultdict
 
 
 class CentroidCrop(L.LightningModule):
@@ -232,24 +233,33 @@ class CentroidCrop(L.LightningModule):
 
         batch = cms.shape[0]
 
-        self.refined_peaks_batched = []
-        self.peak_vals_batched = []
+        # if max instances is not provided, find the max_instances for this batch
+        num_instances = defaultdict(int)
+        for p in peak_sample_inds:
+            num_instances[int(p)] += 1
 
-        for b in range(batch):
-            indices = (peak_sample_inds == b).nonzero()
-            # list for predicted centroids and corresponding peak values for current batch.
-            current_peaks = refined_peaks[indices].squeeze(dim=-2)
-            current_peak_vals = peak_vals[indices].squeeze(dim=-1)
-            # Choose top k centroids if max_instances is provided.
+        if num_instances:
+            max_instances = max(num_instances.values()) if num_instances else None
             if self.max_instances is not None:
-                if len(current_peaks) > self.max_instances:
+                max_instances = self.max_instances
+
+            self.refined_peaks_batched = []
+            self.peak_vals_batched = []
+
+            for b in range(batch):
+                indices = (peak_sample_inds == b).nonzero()
+                # list for predicted centroids and corresponding peak values for current batch.
+                current_peaks = refined_peaks[indices].squeeze(dim=-2)
+                current_peak_vals = peak_vals[indices].squeeze(dim=-1)
+                # Choose top k centroids if max_instances is provided.
+                if len(current_peaks) > max_instances:
                     current_peak_vals, indices = torch.topk(
-                        current_peak_vals, self.max_instances
+                        current_peak_vals, max_instances
                     )
                     current_peaks = current_peaks[indices]
                     num_nans = 0
                 else:
-                    num_nans = self.max_instances - len(current_peaks)
+                    num_nans = max_instances - len(current_peaks)
                 nans = torch.full((num_nans, 2), torch.nan)
                 current_peaks = torch.cat(
                     [current_peaks, nans.to(current_peaks.device)], dim=0
@@ -258,47 +268,78 @@ class CentroidCrop(L.LightningModule):
                 current_peak_vals = torch.cat(
                     [current_peak_vals, nans.to(current_peak_vals.device)], dim=0
                 )
-            self.refined_peaks_batched.append(current_peaks)
-            self.peak_vals_batched.append(current_peak_vals)
+                self.refined_peaks_batched.append(current_peaks)
+                self.peak_vals_batched.append(current_peak_vals)
 
-        # Generate crops if return_crops=True to pass the crops to CenteredInstance model.
-        if self.return_crops:
-            inputs["image"] = resize_image(inputs["image"], self.precrop_resize)
-            scaled_refined_peaks = []
-            for ref_peak in self.refined_peaks_batched:
-                scaled_refined_peaks.append(ref_peak * self.precrop_resize)
-            self.refined_peaks_batched = scaled_refined_peaks
+            # Generate crops if return_crops=True to pass the crops to CenteredInstance model.
+            if self.return_crops:
+                inputs["image"] = resize_image(inputs["image"], self.precrop_resize)
+                scaled_refined_peaks = []
+                for ref_peak in self.refined_peaks_batched:
+                    scaled_refined_peaks.append(ref_peak * self.precrop_resize)
+                self.refined_peaks_batched = scaled_refined_peaks
 
-            inputs.update(
-                {
-                    "centroids": self.refined_peaks_batched,
-                    "centroid_vals": self.peak_vals_batched,
-                }
-            )
-            crops_dict = self._generate_crops(inputs)
-            return crops_dict
+                inputs.update(
+                    {
+                        "centroids": self.refined_peaks_batched,
+                        "centroid_vals": self.peak_vals_batched,
+                    }
+                )
+                crops_dict = self._generate_crops(inputs)
+                return crops_dict
+            else:
+                # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
+                refined_peaks_with_nans = torch.zeros((batch, max_instances, 2))
+                peak_vals_with_nans = torch.zeros((batch, max_instances))
+                for ind, (r, p) in enumerate(
+                    zip(self.refined_peaks_batched, self.peak_vals_batched)
+                ):
+                    refined_peaks_with_nans[ind] = r
+                    peak_vals_with_nans[ind] = p
+                refined_peaks_with_nans = refined_peaks_with_nans / (
+                    inputs["eff_scale"]
+                    .unsqueeze(dim=1)
+                    .unsqueeze(dim=2)
+                    .to(refined_peaks_with_nans.device)
+                )
+                inputs.update(
+                    {
+                        "centroids": refined_peaks_with_nans.unsqueeze(dim=1),
+                        "centroid_vals": peak_vals_with_nans,
+                    }
+                )
+                if self.return_confmaps:
+                    inputs.update(
+                        {
+                            "pred_centroid_confmaps": cms.detach(),
+                        }
+                    )
+
+                return inputs
+
         else:
-            # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
-            refined_peaks_with_nans = torch.zeros((batch, self.max_instances, 2))
-            peak_vals_with_nans = torch.zeros((batch, self.max_instances))
-            for ind, (r, p) in enumerate(
-                zip(self.refined_peaks_batched, self.peak_vals_batched)
-            ):
-                refined_peaks_with_nans[ind] = r
-                peak_vals_with_nans[ind] = p
-            refined_peaks_with_nans = refined_peaks_with_nans / (
-                inputs["eff_scale"]
-                .unsqueeze(dim=1)
-                .unsqueeze(dim=2)
-                .to(refined_peaks_with_nans.device)
-            )
+            # if there are no peak detections
+            max_instances = 1 if self.max_instances is None else self.max_instances
+            if self.return_crops:
+                return None
+            refined_peaks_with_nans = torch.zeros((batch, max_instances, 2))
+            peak_vals_with_nans = torch.zeros((batch, max_instances))
+            for b in range(batch):
+                refined_peaks_with_nans[b] = torch.full((1, 2), torch.nan)
+                peak_vals_with_nans[b] = torch.nan
+
             inputs.update(
                 {
                     "centroids": refined_peaks_with_nans.unsqueeze(dim=1),
                     "centroid_vals": peak_vals_with_nans,
                 }
             )
-
+            if self.return_confmaps:
+                inputs.update(
+                    {
+                        "pred_centroid_confmaps": cms.detach(),
+                    }
+                )
             return inputs
 
 
@@ -369,6 +410,8 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                     vals = vals[:max_inst]
                 parsed += c
 
+            batch_peaks = batch_peaks.unsqueeze(dim=0)
+
             if i != 0:
                 peaks = torch.cat([peaks, batch_peaks])
                 peaks_vals = torch.cat([peaks_vals, vals])
@@ -377,9 +420,14 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 peaks_vals = vals
 
         peaks_output = batch
-        peaks = peaks / (
-            batch["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peaks.device)
-        )
+        if peaks.size(0) != 0:
+            peaks = peaks / (
+                batch["eff_scale"]
+                .unsqueeze(dim=1)
+                .unsqueeze(dim=2)
+                .unsqueeze(dim=3)
+                .to(peaks.device)
+            )
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
 
@@ -441,7 +489,10 @@ class FindInstancePeaks(L.LightningModule):
         self.input_scale = input_scale
         self.max_stride = max_stride
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
 
         This layer can be chained with a `CentroidCrop` layer to create a top-down
@@ -531,7 +582,6 @@ class TopDownInferenceModel(L.LightningModule):
         self,
         centroid_crop: Union[CentroidCrop, None],
         instance_peaks: Union[FindInstancePeaks, FindInstancePeaksGroundTruth],
-        **kwargs,
     ):
         """Initialize the class with Inference models."""
         super().__init__()
@@ -570,10 +620,17 @@ class TopDownInferenceModel(L.LightningModule):
         peaks_output = []
         batch = self.centroid_crop(batch)
 
-        if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
-            peaks_output.append(self.instance_peaks(batch))
-        else:
-            for i in batch:
-                self.instance_peaks.eval()
-                peaks_output.append(self.instance_peaks(i))
-        return peaks_output
+        if batch is not None:
+
+            if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
+                peaks_output.append(self.instance_peaks(batch))
+            else:
+                for i in batch:
+                    self.instance_peaks.eval()
+                    peaks_output.append(
+                        self.instance_peaks(
+                            i,
+                        )
+                    )
+            return peaks_output
+        return batch
