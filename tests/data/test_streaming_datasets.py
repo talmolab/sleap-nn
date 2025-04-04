@@ -25,7 +25,7 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
     max_hw = get_max_height_width(labels)
     edge_inds = labels.skeletons[0].edge_inds
 
-    dir_path = Path(sleap_data_dir) / "data_chunks"
+    dir_path = Path(sleap_data_dir) / "test_bottomup_streaming_dataset_1"
 
     partial_func = functools.partial(
         bottomup_data_chunks,
@@ -70,7 +70,7 @@ def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, c
     labels = sio.load_slp(minimal_instance)
     max_hw = get_max_height_width(labels)
 
-    dir_path = Path(sleap_data_dir) / "data_chunks"
+    dir_path = Path(sleap_data_dir) / "test_centered_instance_streaming_dataset_1"
 
     partial_func = functools.partial(
         centered_instance_data_chunks,
@@ -115,7 +115,7 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
     labels = sio.load_slp(minimal_instance)
     max_hw = get_max_height_width(labels)
 
-    dir_path = Path(sleap_data_dir) / "data_chunks"
+    dir_path = Path(sleap_data_dir) / "test_centroid_streaming_dataset_1"
 
     partial_func = functools.partial(
         centroid_data_chunks,
@@ -159,7 +159,7 @@ def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, con
     labels = sio.load_slp(minimal_instance)
     max_hw = get_max_height_width(labels)
 
-    dir_path = Path(sleap_data_dir) / "data_chunks"
+    dir_path = Path(sleap_data_dir) / "test_single_instance_streaming_dataset_1"
 
     partial_func = functools.partial(
         single_instance_data_chunks,
