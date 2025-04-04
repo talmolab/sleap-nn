@@ -2,7 +2,6 @@ from pathlib import Path
 from omegaconf import DictConfig
 import functools
 import litdata as ld
-import shutil
 import sleap_io as sio
 from sleap_nn.data.get_data_chunks import (
     bottomup_data_chunks,
@@ -41,28 +40,24 @@ def test_bottomup_streaming_dataset(minimal_instance, sleap_data_dir, config):
         chunk_size=4,
     )
 
-    try:
-        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
-        pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
 
-        dataset = BottomUpStreamingDataset(
-            augmentation_config=config.data_config.augmentation_config,
-            confmap_head=confmap_head,
-            pafs_head=pafs_head,
-            edge_inds=edge_inds,
-            max_stride=100,
-            input_dir=str(dir_path),
-        )
+    dataset = BottomUpStreamingDataset(
+        augmentation_config=config.data_config.augmentation_config,
+        confmap_head=confmap_head,
+        pafs_head=pafs_head,
+        edge_inds=edge_inds,
+        max_stride=100,
+        input_dir=str(dir_path),
+    )
 
-        samples = list(iter(dataset))
-        assert len(samples) == 1
+    samples = list(iter(dataset))
+    assert len(samples) == 1
 
-        assert samples[0]["image"].shape == (1, 1, 200, 200)
-        assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
-        assert samples[0]["part_affinity_fields"].shape == (2, 50, 50)
-
-    finally:
-        shutil.rmtree(dir_path)
+    assert samples[0]["image"].shape == (1, 1, 200, 200)
+    assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
+    assert samples[0]["part_affinity_fields"].shape == (2, 50, 50)
 
 
 def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, config):
@@ -88,26 +83,22 @@ def test_centered_instance_streaming_dataset(minimal_instance, sleap_data_dir, c
         chunk_size=4,
     )
 
-    try:
-        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
-        dataset = CenteredInstanceStreamingDataset(
-            augmentation_config=config.data_config.augmentation_config,
-            confmap_head=confmap_head,
-            crop_hw=(160, 160),
-            max_stride=100,
-            input_dir=str(dir_path),
-            input_scale=0.5,
-        )
+    dataset = CenteredInstanceStreamingDataset(
+        augmentation_config=config.data_config.augmentation_config,
+        confmap_head=confmap_head,
+        crop_hw=(160, 160),
+        max_stride=100,
+        input_dir=str(dir_path),
+        input_scale=0.5,
+    )
 
-        samples = list(iter(dataset))
-        assert len(samples) == 2
+    samples = list(iter(dataset))
+    assert len(samples) == 2
 
-        assert samples[0]["instance_image"].shape == (1, 1, 100, 100)
-        assert samples[0]["confidence_maps"].shape == (1, 2, 50, 50)
-
-    finally:
-        shutil.rmtree(dir_path)
+    assert samples[0]["instance_image"].shape == (1, 1, 100, 100)
+    assert samples[0]["confidence_maps"].shape == (1, 2, 50, 50)
 
 
 def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
@@ -133,25 +124,20 @@ def test_centroid_streaming_dataset(minimal_instance, sleap_data_dir, config):
         chunk_size=4,
     )
 
-    try:
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
-        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    dataset = CentroidStreamingDataset(
+        augmentation_config=config.data_config.augmentation_config,
+        confmap_head=confmap_head,
+        max_stride=100,
+        input_dir=str(dir_path),
+    )
 
-        dataset = CentroidStreamingDataset(
-            augmentation_config=config.data_config.augmentation_config,
-            confmap_head=confmap_head,
-            max_stride=100,
-            input_dir=str(dir_path),
-        )
+    samples = list(iter(dataset))
+    assert len(samples) == 1
 
-        samples = list(iter(dataset))
-        assert len(samples) == 1
-
-        assert samples[0]["image"].shape == (1, 1, 200, 200)
-        assert samples[0]["centroids_confidence_maps"].shape == (1, 1, 100, 100)
-
-    finally:
-        shutil.rmtree(dir_path)
+    assert samples[0]["image"].shape == (1, 1, 200, 200)
+    assert samples[0]["centroids_confidence_maps"].shape == (1, 1, 100, 100)
 
 
 def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, config):
@@ -177,22 +163,17 @@ def test_single_instance_streaming_dataset(minimal_instance, sleap_data_dir, con
         chunk_size=4,
     )
 
-    try:
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
-        confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    dataset = SingleInstanceStreamingDataset(
+        augmentation_config=config.data_config.augmentation_config,
+        confmap_head=confmap_head,
+        max_stride=100,
+        input_dir=str(dir_path),
+    )
 
-        dataset = SingleInstanceStreamingDataset(
-            augmentation_config=config.data_config.augmentation_config,
-            confmap_head=confmap_head,
-            max_stride=100,
-            input_dir=str(dir_path),
-        )
+    samples = list(iter(dataset))
+    assert len(samples) == 1
 
-        samples = list(iter(dataset))
-        assert len(samples) == 1
-
-        assert samples[0]["image"].shape == (1, 1, 200, 200)
-        assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)
-
-    finally:
-        shutil.rmtree(dir_path)
+    assert samples[0]["image"].shape == (1, 1, 200, 200)
+    assert samples[0]["confidence_maps"].shape == (1, 2, 100, 100)

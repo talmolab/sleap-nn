@@ -94,7 +94,7 @@ def test_create_data_loader_litdata(caplog, config, tmp_path: str):
     OmegaConf.update(
         config,
         "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_create_data_loader_litdata/",
+        f"{tmp_path}/test_create_data_loader_litdata_1/",
     )
     # without explicitly providing crop_hw
     config_copy = config.copy()
@@ -107,11 +107,13 @@ def test_create_data_loader_litdata(caplog, config, tmp_path: str):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
     # test exception
     config_copy = config.copy()
+    OmegaConf.update(
+        config_copy,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_create_data_loader_litdata_2/",
+    )
     head_config = config_copy.model_config.head_configs.centered_instance
     del config_copy.model_config.head_configs.centered_instance
     OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
@@ -783,9 +785,6 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
 
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
     # convnext with pretrained weights
     OmegaConf.update(
         config, "model_config.pre_trained_weights", "ConvNeXt_Tiny_Weights"
@@ -836,9 +835,6 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         < 1e-4
     )
 
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
 
 def test_centroid_model(config, tmp_path: str):
     """Test CentroidModel training."""
@@ -870,9 +866,6 @@ def test_centroid_model(config, tmp_path: str):
     # check the loss value
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
-
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # torch dataset
     model = CentroidModel(
@@ -945,9 +938,6 @@ def test_single_instance_model(config, tmp_path: str):
     input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
     loss = model.training_step(input_, 0)
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
-
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # torch dataset
     OmegaConf.update(
@@ -1025,9 +1015,6 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
-
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
 
     # with edges as None
     config = config_copy
