@@ -23,7 +23,7 @@ from sleap_nn.data.normalization import (
     apply_normalization,
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
-from sleap_nn.training.model_trainer import (
+from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
     CentroidModel,

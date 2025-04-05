@@ -3,7 +3,7 @@ from omegaconf import OmegaConf
 import numpy as np
 import torch
 from sleap_nn.data.resizing import resize_image
-from sleap_nn.training.model_trainer import (
+from sleap_nn.training.lightning_modules import (
     SingleInstanceModel,
 )
 from sleap_nn.inference.single_instance import (
