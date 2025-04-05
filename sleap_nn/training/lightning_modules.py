@@ -294,7 +294,7 @@ class SingleInstanceModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["SingleInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
@@ -372,14 +372,14 @@ class TopDownCenteredInstanceModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
-            self.device
-        ), torch.squeeze(batch["confidence_maps"], dim=1)
+        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
+            batch["confidence_maps"], dim=1
+        )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
@@ -390,9 +390,9 @@ class TopDownCenteredInstanceModel(TrainingModel):
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
-            self.device
-        ), torch.squeeze(batch["confidence_maps"], dim=1)
+        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
+            batch["confidence_maps"], dim=1
+        )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
@@ -450,7 +450,7 @@ class CentroidModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["CentroidConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
@@ -528,7 +528,7 @@ class BottomUpModel(TrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         output = self.model(img)
         return {
             "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
