@@ -847,6 +847,7 @@ class ModelTrainer:
                         ignore_errors=True,
                     )
 
+
 class MultiHeadModelTrainer:
     """Train sleap-nn multi-head model using PyTorch Lightning.
 

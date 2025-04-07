@@ -1042,7 +1042,7 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
@@ -1173,7 +1173,7 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["SingleInstanceConfmapsHead"]
 
     def on_train_epoch_start(self):
@@ -1383,7 +1383,7 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["CentroidConfmapsHead"]
 
     def on_train_epoch_start(self):
@@ -1761,7 +1761,7 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
 
     def forward(self, img):
         """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1)
+        img = torch.squeeze(img, dim=1).to(self.device)
         output = self.model(img)
         return {
             "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
