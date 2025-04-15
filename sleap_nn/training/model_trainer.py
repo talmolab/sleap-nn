@@ -47,6 +47,7 @@ from sleap_nn.data.streaming_datasets import (
 )
 from loguru import logger
 from sleap_nn.training.utils import check_memory
+from sleap_nn.inference.utils import get_skeleton_from_config
 
 
 MODEL_WEIGHTS = {
@@ -94,6 +95,12 @@ class ModelTrainer:
         self.config = config
         self.data_pipeline_fw = self.config.data_config.data_pipeline_fw
         self.use_existing_chunks = self.config.data_config.use_existing_chunks
+        self.user_instances_only = (
+            self.config.data_config.user_instances_only
+            if "user_instances_only" in self.config.data_config
+            and self.config.data_config.user_instances_only is not None
+            else True
+        )  # TODO: defaults should be handles in config validation.
 
         # Get ckpt dir path
         self.dir_path = self.config.trainer_config.save_ckpt_path
@@ -132,18 +139,15 @@ class ModelTrainer:
         ):
             self.train_dataset = None
             self.val_dataset = None
+            self.np_chunks_path = (
+                Path(self.config.data_config.np_chunks_path)
+                if self.config.data_config.np_chunks_path is not None
+                else Path(self.dir_path)
+            )
             # Get np chunks path
             self.np_chunks = True if "np_chunks" in self.data_pipeline_fw else False
-            self.train_np_chunks_path = (
-                Path(self.config.data_config.np_chunks_path) / "train_chunks"
-                if self.config.data_config.np_chunks_path is not None
-                else Path(self.dir_path) / "train_chunks"
-            )
-            self.val_np_chunks_path = (
-                Path(self.config.data_config.np_chunks_path) / "val_chunks"
-                if self.config.data_config.np_chunks_path is not None
-                else Path(self.dir_path) / "val_chunks"
-            )
+            self.train_np_chunks_path = Path(self.np_chunks_path) / "train_chunks"
+            self.val_np_chunks_path = Path(self.np_chunks_path) / "val_chunks"
             if self.use_existing_chunks:
                 if not (
                     self.train_np_chunks_path.exists()
@@ -191,94 +195,122 @@ class ModelTrainer:
         # set seed
         torch.manual_seed(self.seed)
 
-        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-        self.user_instances_only = (
-            self.config.data_config.user_instances_only
-            if "user_instances_only" in self.config.data_config
-            and self.config.data_config.user_instances_only is not None
-            else True
-        )  # TODO: defaults should be handles in config validation.
-        self.skeletons = train_labels.skeletons
-        # save the skeleton in the config
-        self.config["data_config"]["skeletons"] = {}
-        for skl in self.skeletons:
-            if skl.symmetries:
-                symm = [list(s.nodes) for s in skl.symmetries]
-            else:
-                symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"][skl_name] = {
-                "nodes": skl.nodes,
-                "edges": skl.edges,
-                "symmetries": symm,
-            }
-
-        # if edges and part names aren't set in config, get it from `sio.Labels` object.
-        head_config = self.config.model_config.head_configs[self.model_type]
-        for key in head_config:
-            if "part_names" in head_config[key].keys():
-                if head_config[key]["part_names"] is None:
-                    part_names = [x.name for x in self.skeletons[0].nodes]
-                    self.config.model_config.head_configs[self.model_type][key][
-                        "part_names"
-                    ] = part_names
-
-            if "edges" in head_config[key].keys():
-                if head_config[key]["edges"] is None:
-                    edges = [
-                        (x.source.name, x.destination.name)
-                        for x in self.skeletons[0].edges
-                    ]
-                    self.config.model_config.head_configs[self.model_type][key][
-                        "edges"
-                    ] = edges
-
         self.max_stride = self.config.model_config.backbone_config[
             f"{self.backbone_type}"
         ]["max_stride"]
-        self.edge_inds = train_labels.skeletons[0].edge_inds
-
-        self.max_height, self.max_width = get_max_height_width(train_labels)
-        if (
-            self.config.data_config.preprocessing.max_height is None
-            and self.config.data_config.preprocessing.max_width is None
-        ):
-            self.config.data_config.preprocessing.max_height = self.max_height
-            self.config.data_config.preprocessing.max_width = self.max_width
 
         if self.config.data_config.preprocessing.scale is None:
             self.config.data_config.preprocessing.scale = 1.0
 
-        if self.model_type == "centered_instance":
-            # compute crop size
-            self.crop_hw = self.config.data_config.preprocessing.crop_hw
-            if self.crop_hw is None:
+        if self.use_existing_chunks:  # load preprocessing params
+            if self.data_pipeline_fw == "litdata":
+                config_path = Path(self.litdata_chunks_path) / "config.yaml"
+            elif self.data_pipeline_fw == "torch_dataset_np_chunks":
+                config_path = Path(self.np_chunks_path) / "config.yaml"
+            chunks_config = OmegaConf.load(config_path.as_posix())
+            self.skeletons = get_skeleton_from_config(
+                chunks_config.data_config.skeletons
+            )
+            self.edge_inds = self.skeletons[0].edge_inds
+            self.max_height, self.max_width = (
+                chunks_config.data_config.preprocessing.max_height,
+                chunks_config.data_config.preprocessing.max_width,
+            )
+            self.crop_hw = chunks_config.data_config.preprocessing.crop_hw[0]
 
-                min_crop_size = (
-                    self.config.data_config.preprocessing.min_crop_size
-                    if "min_crop_size" in self.config.data_config.preprocessing
-                    else None
-                )
-                crop_size = find_instance_crop_size(
-                    train_labels,
-                    maximum_stride=self.max_stride,
-                    min_crop_size=min_crop_size,
-                    input_scaling=self.config.data_config.preprocessing.scale,
-                )
-                self.crop_hw = crop_size
-                self.config.data_config.preprocessing.crop_hw = (
-                    self.crop_hw,
-                    self.crop_hw,
-                )
-            else:
-                self.crop_hw = self.crop_hw[0]
+        else:
+            train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+
+            self.max_height, self.max_width = get_max_height_width(train_labels)
+            if (
+                self.config.data_config.preprocessing.max_height is None
+                and self.config.data_config.preprocessing.max_width is None
+            ):
+                self.config.data_config.preprocessing.max_height = self.max_height
+                self.config.data_config.preprocessing.max_width = self.max_width
+
+            if self.model_type == "centered_instance":
+                # compute crop size
+                self.crop_hw = self.config.data_config.preprocessing.crop_hw
+                if self.crop_hw is None:
+
+                    min_crop_size = (
+                        self.config.data_config.preprocessing.min_crop_size
+                        if "min_crop_size" in self.config.data_config.preprocessing
+                        else None
+                    )
+                    crop_size = find_instance_crop_size(
+                        train_labels,
+                        maximum_stride=self.max_stride,
+                        min_crop_size=min_crop_size,
+                        input_scaling=self.config.data_config.preprocessing.scale,
+                    )
+                    self.crop_hw = crop_size
+                    self.config.data_config.preprocessing.crop_hw = (
+                        self.crop_hw,
+                        self.crop_hw,
+                    )
+                else:
+                    self.crop_hw = self.crop_hw[0]
+
+            self.skeletons = train_labels.skeletons
+            # save the skeleton in the config
+            self.config["data_config"]["skeletons"] = {}
+            for skl in self.skeletons:
+                if skl.symmetries:
+                    symm = [list(s.nodes) for s in skl.symmetries]
+                else:
+                    symm = None
+                skl_name = skl.name if skl.name is not None else "skeleton-0"
+                self.config["data_config"]["skeletons"][skl_name] = {
+                    "nodes": skl.nodes,
+                    "edges": skl.edges,
+                    "symmetries": symm,
+                }
+
+            # if edges and part names aren't set in config, get it from `sio.Labels` object.
+            head_config = self.config.model_config.head_configs[self.model_type]
+            for key in head_config:
+                if "part_names" in head_config[key].keys():
+                    if head_config[key]["part_names"] is None:
+                        part_names = [x.name for x in self.skeletons[0].nodes]
+                        self.config.model_config.head_configs[self.model_type][key][
+                            "part_names"
+                        ] = part_names
+
+                if "edges" in head_config[key].keys():
+                    if head_config[key]["edges"] is None:
+                        edges = [
+                            (x.source.name, x.destination.name)
+                            for x in self.skeletons[0].edges
+                        ]
+                        self.config.model_config.head_configs[self.model_type][key][
+                            "edges"
+                        ] = edges
+
+            self.edge_inds = train_labels.skeletons[0].edge_inds
 
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+        # save config to chunks folder
+        if not self.use_existing_chunks and self.data_pipeline_fw in [
+            "litdata",
+            "torch_dataset_np_chunks",
+        ]:
+            if self.data_pipeline_fw == "litdata":
+                save_path = Path(self.litdata_chunks_path) / "config.yaml"
+            elif self.data_pipeline_fw == "torch_dataset_np_chunks":
+                save_path = Path(self.np_chunks_path) / "config.yaml"
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            OmegaConf.save(config=self.config, f=save_path.as_posix())
 
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
-        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-        val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+        if self.use_existing_chunks:
+            train_labels, val_labels = None, None
+        else:
+            train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+            val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+
         if self.data_pipeline_fw == "torch_dataset":
             train_cache_memory = check_memory(
                 train_labels,

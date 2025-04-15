@@ -53,7 +53,7 @@ class BaseDataset(Dataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: Optional[sio.Labels],
         data_config: DictConfig,
         max_stride: int,
         scale: float = 1.0,
@@ -72,8 +72,8 @@ class BaseDataset(Dataset):
         self.scale = scale
         self.apply_aug = apply_aug
         self.max_hw = max_hw
-        self.max_instances = get_max_instances(self.labels)
-        self.lf_idx_list = self._get_lf_idx_list()
+        self.max_instances = get_max_instances(self.labels) if self.labels else None
+        self.lf_idx_list = self._get_lf_idx_list() if self.labels else None
         self.np_chunks = np_chunks
         self.np_chunks_path = np_chunks_path
         self.use_existing_chunks = use_existing_chunks
@@ -183,6 +183,16 @@ class BaseDataset(Dataset):
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
+        if self.use_existing_chunks:
+            chunks_folder = Path(self.np_chunks_path)
+            num_files = len(
+                [
+                    f
+                    for f in chunks_folder.iterdir()
+                    if f.is_file() and f.suffix == ".npz"
+                ]
+            )
+            return num_files
         return len(self.lf_idx_list)
 
     def __getitem__(self, index) -> Dict:
@@ -220,7 +230,7 @@ class BottomUpDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: Optional[sio.Labels],
         data_config: DictConfig,
         confmap_head_config: DictConfig,
         pafs_head_config: DictConfig,
@@ -339,7 +349,7 @@ class CenteredInstanceDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: Optional[sio.Labels],
         data_config: DictConfig,
         crop_hw: Tuple[int],
         confmap_head_config: DictConfig,
@@ -365,7 +375,7 @@ class CenteredInstanceDataset(BaseDataset):
         )
         self.crop_hw = crop_hw
         self.confmap_head_config = confmap_head_config
-        self.instance_idx_list = self._get_instance_idx_list()
+        self.instance_idx_list = self._get_instance_idx_list() if self.labels else None
         self.cache_lf = [None, None]
         if not self.use_existing_chunks:
             self._fill_cache()
@@ -477,6 +487,16 @@ class CenteredInstanceDataset(BaseDataset):
 
     def __len__(self) -> int:
         """Return number of instances in the labels object."""
+        if self.use_existing_chunks:
+            chunks_folder = Path(self.np_chunks_path)
+            num_files = len(
+                [
+                    f
+                    for f in chunks_folder.iterdir()
+                    if f.is_file() and f.suffix == ".npz"
+                ]
+            )
+            return num_files
         return len(self.instance_idx_list)
 
     def __getitem__(self, index) -> Dict:
@@ -577,7 +597,7 @@ class CentroidDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: Optional[sio.Labels],
         data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,
@@ -741,7 +761,7 @@ class SingleInstanceDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: Optional[sio.Labels],
         data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,

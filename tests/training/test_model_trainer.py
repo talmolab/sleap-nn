@@ -751,3 +751,71 @@ def test_reuse_bin_files(config, tmp_path: str):
     )
     trainer2 = ModelTrainer(centroid_config)
     trainer2.train()
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("li"),
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
+# TODO: Revisit this test later (Failing on ubuntu)
+# torch dataset
+def test_reuse_npz_files(config, tmp_path: str):
+    """Test reusing `.npz` files."""
+    # Centroid model
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
+    centroid_config = config.copy()
+    head_config = config.model_config.head_configs.centered_instance
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
+
+    OmegaConf.update(
+        centroid_config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_model_trainer/",
+    )
+
+    if (Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt"
+            ).as_posix()
+        )
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
+            ).as_posix()
+        )
+        shutil.rmtree(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
+            ).as_posix()
+        )
+
+    OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
+    OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
+    OmegaConf.update(centroid_config, "data_config.delete_chunks_after_training", False)
+    OmegaConf.update(
+        centroid_config,
+        "data_config.np_chunks_path",
+        Path(tmp_path) / "new_chunks",
+    )
+
+    # test reusing bin files
+    trainer1 = ModelTrainer(centroid_config)
+    trainer1.train()
+
+    OmegaConf.update(
+        centroid_config,
+        "data_config.np_chunks_path",
+        (trainer1.np_chunks_path.as_posix()),
+    )
+    OmegaConf.update(
+        centroid_config,
+        "data_config.use_existing_chunks",
+        True,
+    )
+    trainer2 = ModelTrainer(centroid_config)
+    trainer2.train()
