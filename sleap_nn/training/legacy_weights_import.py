@@ -1,14 +1,12 @@
-# import h5py
-
-# h5_path = "sleap_nn/training/best_model.h5"
-# with h5py.File(h5_path, "r") as f:
-#     for layer_name in f['model_weights']:
-#         print("LAYER_NAME:", layer_name)
-#         for weight_name in f['model_weights'][layer_name]:
-#             # print("WEIGHT_NAME:", weight_name)
-#             print(f"{layer_name}/{weight_name} → shape: {f['model_weights'][layer_name][weight_name]}")
-
 import h5py
+from omegaconf import OmegaConf
+from sleap_nn.training.model_trainer import ModelTrainer
+from sleap_nn.training.lightning_modules import (
+    TopDownCenteredInstanceModel,
+    SingleInstanceModel,
+    CentroidModel,
+    BottomUpModel,
+)
 
 h5_path = "sleap_nn/training/best_model.h5"
 with h5py.File(h5_path, "r") as f:
