@@ -28,7 +28,6 @@ import pytest
 import os
 import tempfile
 from sleap_nn.config.training_job_config import TrainingJobConfig
-from sleap_nn.config.training_job_config import load_sleap_config
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
@@ -237,30 +236,26 @@ def test_missing_attributes(sample_config):
 def test_load_bottomup_multiclass_training_config_from_file(
     bottomup_multiclass_training_config_path,
 ):
-    """Test the load_sleap_config function with a sample bottomup multiclass legacy
+    """Test the load_sleap_config method with a sample bottomup multiclass legacy
     configuration from a JSON file."""
 
     json_file_path = bottomup_multiclass_training_config_path
 
-    # Load the configuration using the load_sleap_config method
     try:
-        config = load_sleap_config(TrainingJobConfig, json_file_path)
+        config = TrainingJobConfig.load_sleap_config(json_file_path)
     except ValidationError as e:
-
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
 
-        # Create a temporary file to hold the modified configuration
         with tempfile.NamedTemporaryFile(
             delete=False, suffix=".json", mode="w"
         ) as temp_file:
             old_config["data"]["labels"]["training_labels"] = "notMISSING"
             old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-
             json.dump(old_config, temp_file)
             temp_file_path = temp_file.name
 
-        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        config = TrainingJobConfig.load_sleap_config(temp_file_path)
         os.remove(temp_file_path)
 
     # Assertions to check if the output matches expected values
@@ -295,7 +290,7 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
     # Load the configuration using the load_sleap_config method
     try:
         # Load the configuration using the load_sleap_config method
-        config = load_sleap_config(TrainingJobConfig, json_file_path)
+        config = TrainingJobConfig.load_sleap_config(json_file_path)
     except ValidationError as e:
         # Handle the exception if mandatory values are missing
         with open(json_file_path, "r") as f:
@@ -311,7 +306,7 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
             json.dump(old_config, temp_file)
             temp_file_path = temp_file.name
 
-        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        config = TrainingJobConfig.load_sleap_config(temp_file_path)
         os.remove(temp_file_path)
 
     # Assertions to check if the output matches expected values
@@ -339,7 +334,7 @@ def test_load_centered_instance_training_config_from_file(
     # Load the configuration using the load_sleap_config method
     try:
         # Load the configuration using the load_sleap_config method
-        config = load_sleap_config(TrainingJobConfig, json_file_path)
+        config = TrainingJobConfig.load_sleap_config(json_file_path)
     except ValidationError as e:
         # Handle the exception if mandatory values are missing
         with open(json_file_path, "r") as f:
@@ -355,7 +350,7 @@ def test_load_centered_instance_training_config_from_file(
             json.dump(old_config, temp_file)
             temp_file_path = temp_file.name
 
-        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        config = TrainingJobConfig.load_sleap_config(temp_file_path)
         os.remove(temp_file_path)
 
     # Assertions to check if the output matches expected values
@@ -379,7 +374,7 @@ def test_load_centered_instance_with_scaling_config_from_file(
     json_file_path = centered_instance_with_scaling_training_config_path
 
     try:
-        config = load_sleap_config(TrainingJobConfig, json_file_path)
+        config = TrainingJobConfig.load_sleap_config(json_file_path)
     except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
@@ -392,7 +387,7 @@ def test_load_centered_instance_with_scaling_config_from_file(
             json.dump(old_config, temp_file)
             temp_file_path = temp_file.name
 
-        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        config = TrainingJobConfig.load_sleap_config(temp_file_path)
         os.remove(temp_file_path)
 
     # Test model backbone config
@@ -412,7 +407,7 @@ def test_load_centroid_training_config_from_file(centroid_training_config_path):
     json_file_path = centroid_training_config_path
 
     try:
-        config = load_sleap_config(TrainingJobConfig, json_file_path)
+        config = TrainingJobConfig.load_sleap_config(json_file_path)
     except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
@@ -425,7 +420,7 @@ def test_load_centroid_training_config_from_file(centroid_training_config_path):
             json.dump(old_config, temp_file)
             temp_file_path = temp_file.name
 
-        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        config = TrainingJobConfig.load_sleap_config(temp_file_path)
         os.remove(temp_file_path)
 
     # Test model backbone config
@@ -447,7 +442,7 @@ def test_load_single_instance_training_config_from_file(
     json_file_path = single_instance_training_config_path
 
     try:
-        config = load_sleap_config(TrainingJobConfig, json_file_path)
+        config = TrainingJobConfig.load_sleap_config(json_file_path)
     except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
@@ -459,7 +454,7 @@ def test_load_single_instance_training_config_from_file(
             json.dump(old_config, temp_file)
             temp_file_path = temp_file.name
 
-        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        config = TrainingJobConfig.load_sleap_config(temp_file_path)
         os.remove(temp_file_path)
 
     # Test model backbone config
@@ -479,7 +474,7 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
     json_file_path = topdown_training_config_path
 
     try:
-        config = load_sleap_config(TrainingJobConfig, json_file_path)
+        config = TrainingJobConfig.load_sleap_config(json_file_path)
     except ValidationError:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
@@ -492,7 +487,7 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
             json.dump(old_config, temp_file)
             temp_file_path = temp_file.name
 
-        config = load_sleap_config(TrainingJobConfig, temp_file_path)
+        config = TrainingJobConfig.load_sleap_config(temp_file_path)
         os.remove(temp_file_path)
 
     # Test model backbone config

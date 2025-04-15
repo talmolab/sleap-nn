@@ -137,6 +137,36 @@ class TrainingJobConfig:
             OmegaConf.save(conf, filename)
         return
 
+    @classmethod
+    def load_sleap_config(cls, json_file_path: str) -> OmegaConf:
+        """Load a SLEAP configuration from a JSON file and convert it to OmegaConf.
+
+        Args:
+            cls: The class to instantiate with the loaded configuration.
+            json_file_path: Path to a JSON file containing the SLEAP configuration.
+
+        Returns:
+            An OmegaConf instance with the loaded configuration.
+        """
+        with open(json_file_path, "r") as f:
+            old_config = json.load(f)
+
+        data_config = data_mapper(old_config)
+        model_config = model_mapper(old_config)
+        trainer_config = trainer_mapper(old_config)
+
+        config = cls(
+            data_config=data_config,
+            model_config=model_config,
+            trainer_config=trainer_config,
+        )
+
+        schema = OmegaConf.structured(config)
+        config_omegaconf = OmegaConf.merge(schema, OmegaConf.create(asdict(config)))
+        OmegaConf.to_container(config_omegaconf, resolve=True, throw_on_missing=True)
+
+        return config_omegaconf
+
 
 def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
     """Load a training job configuration for a model run.
@@ -150,33 +180,3 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
         The parsed `OmegaConf`.
     """
     return TrainingJobConfig.load_yaml(filename)
-
-
-def load_sleap_config(cls, json_file_path: str) -> OmegaConf:
-    """Load a SLEAP configuration from a JSON file and convert it to OmegaConf.
-
-    Args:
-        cls: The class to instantiate with the loaded configuration.
-        json_file_path: Path to a JSON file containing the SLEAP configuration.
-
-    Returns:
-        An OmegaConf instance with the loaded configuration.
-    """
-    with open(json_file_path, "r") as f:
-        old_config = json.load(f)
-
-    data_config = data_mapper(old_config)
-    model_config = model_mapper(old_config)
-    trainer_config = trainer_mapper(old_config)
-
-    config = cls(
-        data_config=data_config,
-        model_config=model_config,
-        trainer_config=trainer_config,
-    )
-
-    schema = OmegaConf.structured(config)
-    config_omegaconf = OmegaConf.merge(schema, OmegaConf.create(asdict(config)))
-    OmegaConf.to_container(config_omegaconf, resolve=True, throw_on_missing=True)
-
-    return config_omegaconf
