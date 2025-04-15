@@ -751,3 +751,7 @@ def test_reuse_bin_files(config, tmp_path: str):
     )
     trainer2 = ModelTrainer(centroid_config)
     trainer2.train()
+
+
+if __name__ == "__main__":
+    pytest.main(["-v", __file__ + "::test_trainer_torch_dataset"])
