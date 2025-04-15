@@ -845,15 +845,9 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
     """
     legacy_config_model = legacy_config.get("model", {})
     return ModelConfig(
-        # init_weights=legacy_config.get("init_weights", "default"),
-        # pre_trained_weights not in old config
-        # pretrained_backbone_weights=legacy_config.get("PretrainedEncoderConfig")?? # i think its different
-        # pretrained_head_weights not in old config
         backbone_config=BackboneConfig(
             unet=(
                 UNetConfig(
-                    # in_channels=legacy_config.get("backbone", {}).get("in_channels", 1),
-                    # kernel_size=legacy_config.get("backbone", {}).get("kernel_size", 3),
                     filters=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("filters", 32),
@@ -883,8 +877,6 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                 if legacy_config_model.get("backbone", {}).get("unet")
                 else None
             ),
-            # convnext not in old config
-            # swint not in old config
         ),
         head_configs=HeadConfig(
             single_instance=(

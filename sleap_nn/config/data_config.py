@@ -207,14 +207,6 @@ def data_mapper(legacy_config: dict) -> DataConfig:
             "validation_labels", MISSING
         ),
         test_file_path=legacy_config_data.get("labels", {}).get("test_labels", None),
-        # provider=legacy_config.get("provider", "LabelsReader"),
-        # user_instances_only=legacy_config.get("user_instances_only", True),
-        # data_pipeline_fw=legacy_config.get("data_pipeline_fw", "torch_dataset"),
-        # np_chunks_path=legacy_config.get("np_chunks_path"),
-        # litdata_chunks_path=legacy_config.get("litdata_chunks_path"),
-        # use_existing_chunks=legacy_config.get("use_existing_chunks", False),
-        # chunk_size=int(legacy_config.get("chunk_size", 100)),
-        # delete_chunks_after_training=legacy_config.get("delete_chunks_after_training", True),
         preprocessing=PreprocessingConfig(
             is_rgb=legacy_config_data.get("preprocessing", {}).get("ensure_rgb", False),
             max_height=legacy_config_data.get("preprocessing", {}).get("target_height"),
@@ -225,7 +217,6 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                 "crop_size_detection_padding", 100
             ),
         ),
-        # use_augmentations_train=legacy_config.get("use_augmentations_train", False),
         augmentation_config=(
             AugmentationConfig(
                 intensity=IntensityConfig(
@@ -291,20 +282,8 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                             "scale_max", None
                         ),
                     ),
-                    # translate_width=legacy_config_optimization.get("augmentation_config", {}).get("translate_width", 0.2),
-                    # translate_height=legacy_config_optimization.get("augmentation_config", {}).get("translate_height", 0.2),
-                    # affine_p=legacy_config_optimization.get("augmentation_config", {}).get("affine_p", 0.0),
-                    # erase_scale_min=legacy_config_optimization.get("augmentation_config", {}).get("erase_scale_min", 0.0001),
-                    # erase_scale_max=legacy_config_optimization.get("augmentation_config", {}).get("erase_scale_max", 0.01),
-                    # erase_ratio_min=legacy_config_optimization.get("augmentation_config", {}).get("erase_ratio_min", 1.0),
-                    # erase_ratio_max=legacy_config_optimization.get("augmentation_config", {}).get("erase_ratio_max", 1.0),
-                    # erase_p=legacy_config_optimization.get("augmentation_config", {}).get("erase_p", 0.0),
-                    # mixup_lambda=legacy_config_optimization.get("augmentation_config", {}).get("mixup_lambda", [0.01, 0.05]),
-                    # mixup_p=legacy_config_optimization.get("augmentation_config", {}).get("mixup_p", 0.0),
                 ),
             )
-            # if legacy_config.get("use_augmentations_train", False)
-            # else None
         ),
         use_augmentations_train=True,
         skeletons=legacy_config_data.get("labels", {}).get("skeletons", [{}])[0],
