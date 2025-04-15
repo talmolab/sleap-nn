@@ -7,6 +7,7 @@ the parameters required to initialize the trainer config.
 from attrs import define, field, validators
 from typing import Optional, List, Any
 from loguru import logger
+import re
 
 
 @define
@@ -231,3 +232,70 @@ class TrainerConfig:
         message = "trainer_devices must be an integer >= 0, a list of integers >= 0, or the string 'auto'."
         logger.error(message)
         raise ValueError(message)
+
+
+def trainer_mapper(legacy_config: dict) -> TrainerConfig:
+    """Map the legacy trainer configuration to the new trainer configuration.
+
+    Args:
+        legacy_config: A dictionary containing the legacy trainer configuration.
+
+    Returns:
+        An instance of `TrainerConfig` with the mapped configuration.
+    """
+    legacy_config_optimization = legacy_config.get("optimization", {})
+    legacy_config_outputs = legacy_config.get("outputs", {})
+    return TrainerConfig(
+        train_data_loader=DataLoaderConfig(
+            batch_size=legacy_config_optimization.get("batch_size", 1),
+            shuffle=legacy_config_optimization.get("online_shuffling", False),
+        ),
+        val_data_loader=DataLoaderConfig(
+            batch_size=legacy_config_optimization.get("batch_size", 1),
+            shuffle=legacy_config_optimization.get("online_shuffling", False),
+        ),
+        model_ckpt=ModelCkptConfig(
+            save_last=legacy_config_outputs.get("save_outputs", False),
+        ),
+        max_epochs=legacy_config_optimization.get("epochs", 10),
+        save_ckpt=legacy_config_optimization.get("checkpointing", {}).get(
+            "latest_model", False
+        ),
+        optimizer_name=re.sub(
+            r"^[a-z]",
+            lambda x: x.group().upper(),
+            legacy_config_optimization.get("optimizer", "adam"),
+        ),
+        optimizer=OptimizerConfig(
+            lr=legacy_config_optimization.get("initial_learning_rate", 1e-3),
+        ),
+        lr_scheduler=(
+            LRSchedulerConfig(
+                reduce_lr_on_plateau=ReduceLROnPlateauConfig(
+                    patience=legacy_config_optimization.get(
+                        "learning_rate_schedule", {}
+                    ).get("plateau_patience", 10),
+                    min_lr=legacy_config_optimization.get(
+                        "learning_rate_schedule", {}
+                    ).get("min_learning_rate", 0.0),
+                )
+            )
+            if legacy_config_optimization.get("learning_rate_schedule")
+            else None
+        ),
+        early_stopping=(
+            EarlyStoppingConfig(
+                stop_training_on_plateau=legacy_config_optimization.get(
+                    "learning_rate_schedule", {}
+                ).get("reduce_on_plateau", False),
+                min_delta=legacy_config_optimization.get(
+                    "learning_rate_schedule", {}
+                ).get("plateau_min_delta", 0.0),
+                patience=legacy_config_optimization.get(
+                    "learning_rate_schedule", {}
+                ).get("plateau_patience", 1),
+            )
+            if legacy_config_optimization.get("learning_rate_schedule")
+            else None
+        ),
+    )

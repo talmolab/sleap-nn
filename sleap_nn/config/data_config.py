@@ -185,3 +185,106 @@ class DataConfig:
     use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None
     skeletons: Optional[dict] = None
+
+
+def data_mapper(legacy_config: dict) -> DataConfig:
+    """Maps the legacy data configuration to the new data configuration.
+
+    Args:
+        legacy_config: A dictionary containing the legacy data configuration.
+
+    Returns:
+        An instance of `DataConfig` with the mapped configuration.
+    """
+    legacy_config_data = legacy_config.get("data", {})
+    legacy_config_optimization = legacy_config.get("optimization", {})
+
+    return DataConfig(
+        train_labels_path=legacy_config_data.get("labels", {}).get(
+            "training_labels", MISSING
+        ),
+        val_labels_path=legacy_config_data.get("labels", {}).get(
+            "validation_labels", MISSING
+        ),
+        test_file_path=legacy_config_data.get("labels", {}).get("test_labels", None),
+        preprocessing=PreprocessingConfig(
+            is_rgb=legacy_config_data.get("preprocessing", {}).get("ensure_rgb", False),
+            max_height=legacy_config_data.get("preprocessing", {}).get("target_height"),
+            max_width=legacy_config_data.get("preprocessing", {}).get("target_width"),
+            scale=legacy_config_data.get("preprocessing", {}).get("input_scaling", 1.0),
+            crop_hw=legacy_config_data.get("preprocessing", {}).get("crop_size"),
+            min_crop_size=legacy_config_data.get("preprocessing", {}).get(
+                "crop_size_detection_padding", 100
+            ),
+        ),
+        augmentation_config=(
+            AugmentationConfig(
+                intensity=IntensityConfig(
+                    uniform_noise_min=legacy_config_optimization.get(
+                        "augmentation_config", {}
+                    ).get("uniform_noise_min_val", 0.0),
+                    uniform_noise_max=min(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "uniform_noise_max_val", 1.0
+                        ),
+                        1.0,
+                    ),
+                    uniform_noise_p=float(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "uniform_noise", 1.0
+                        )
+                    ),
+                    gaussian_noise_mean=legacy_config_optimization.get(
+                        "augmentation_config", {}
+                    ).get("gaussian_noise_mean", 0.0),
+                    gaussian_noise_std=legacy_config_optimization.get(
+                        "augmentation_config", {}
+                    ).get("gaussian_noise_stddev", 1.0),
+                    gaussian_noise_p=float(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "gaussian_noise", 1.0
+                        )
+                    ),
+                    contrast_min=legacy_config_optimization.get(
+                        "augmentation_config", {}
+                    ).get("contrast_min_gamma", 0.5),
+                    contrast_max=legacy_config_optimization.get(
+                        "augmentation_config", {}
+                    ).get("contrast_max_gamma", 2.0),
+                    contrast_p=float(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "contrast", 1.0
+                        )
+                    ),
+                    brightness=(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "brightness_min_val", 1.0
+                        ),
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "brightness_max_val", 1.0
+                        ),
+                    ),
+                    brightness_p=float(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "brightness", 1.0
+                        )
+                    ),
+                ),
+                geometric=GeometricConfig(
+                    rotation=legacy_config_optimization.get(
+                        "augmentation_config", {}
+                    ).get("rotation_max_angle", 180.0),
+                    scale=(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "scale_min", None
+                        ),
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "scale_max", None
+                        ),
+                    ),
+                ),
+            )
+        ),
+        use_augmentations_train=True,
+        skeletons=legacy_config_data.get("labels", {}).get("skeletons", [{}])[0],
+    )
