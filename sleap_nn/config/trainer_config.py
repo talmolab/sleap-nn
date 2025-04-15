@@ -243,137 +243,135 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
     Returns:
         An instance of `TrainerConfig` with the mapped configuration.
     """
+    legacy_config_optimization = legacy_config.get("optimization", {})
+    legacy_config_outputs = legacy_config.get("outputs", {})
     return TrainerConfig(
         train_data_loader=DataLoaderConfig(
-            batch_size=legacy_config.get("optimization", {}).get("batch_size", 1),
-            shuffle=legacy_config.get("optimization", {}).get(
-                "online_shuffling", False
-            ),
-            # num_workers=legacy_config.get("optimization", {})
+            batch_size=legacy_config_optimization.get("batch_size", 1),
+            shuffle=legacy_config_optimization.get("online_shuffling", False),
+            # num_workers=legacy_config_optimization
             # .get("train_data_loader", {})
             # .get("num_workers", 0),
         ),
         val_data_loader=DataLoaderConfig(
-            batch_size=legacy_config.get("optimization", {}).get("batch_size", 1),
-            shuffle=legacy_config.get("optimization", {}).get(
-                "online_shuffling", False
-            ),
-            # num_workers=legacy_config.get("optimization", {})
+            batch_size=legacy_config_optimization.get("batch_size", 1),
+            shuffle=legacy_config_optimization.get("online_shuffling", False),
+            # num_workers=legacy_config_optimization
             # .get("train_data_loader", {})
             # .get("num_workers", 0),
         ),
         model_ckpt=ModelCkptConfig(
-            # save_top_k=legacy_config.get("outputs", {})
+            # save_top_k=legacy_config_outputs
             # .get("save_top_k", 1),
-            save_last=legacy_config.get("outputs", {}).get("save_outputs", False),
+            save_last=legacy_config_outputs.get("save_outputs", False),
         ),
-        # trainer_devices=legacy_config.get("optimization", {})
+        # trainer_devices=legacy_config_optimization
         # .get("trainer_devices", "auto"),
-        # trainer_accelerator=legacy_config.get("optimization", {})
+        # trainer_accelerator=legacy_config_optimization
         # .get("trainer_accelerator", "auto"),
-        # enable_progress_bar=legacy_config.get("optimization", {})
+        # enable_progress_bar=legacy_config_optimization
         # .get("enable_progress_bar", True),
-        # steps_per_epoch=legacy_config.get("optimization", {})
+        # steps_per_epoch=legacy_config_optimization
         # .get("steps_per_epoch", None),
-        max_epochs=legacy_config.get("optimization", {}).get("epochs", 10),
-        # seed=legacy_config.get("optimization", {})
+        max_epochs=legacy_config_optimization.get("epochs", 10),
+        # seed=legacy_config_optimization
         # .get("seed", None),
-        # use_wandb=legacy_config.get("optimization", {})
+        # use_wandb=legacy_config_optimization
         # .get("use_wandb", False),
-        save_ckpt=legacy_config.get("optimization", {})
-        .get("checkpointing", {})
-        .get("latest_model", False),
-        # save_ckpt_path=legacy_config.get("optimization", {})
+        save_ckpt=legacy_config_optimization.get("checkpointing", {}).get(
+            "latest_model", False
+        ),
+        # save_ckpt_path=legacy_config_optimization
         # .get("save_ckpt_path", "./"),
-        # resume_ckpt_path=legacy_config.get("optimization", {})
+        # resume_ckpt_path=legacy_config_optimization
         # .get("resume_ckpt_path", None),
         # wandb=WandBConfig(
-        #     entity=legacy_config.get("optimization", {})
+        #     entity=legacy_config_optimization
         #     .get("wandb", {})
         #     .get("entity", None),
-        #     project=legacy_config.get("optimization", {})
+        #     project=legacy_config_optimization
         #     .get("wandb", {})
         #     .get("project", None),
-        #     name=legacy_config.get("optimization", {})
+        #     name=legacy_config_optimization
         #     .get("wandb", {})
         #     .get("name", None),
-        #     api_key=legacy_config.get("optimization", {})
+        #     api_key=legacy_config_optimization
         #     .get("wandb", {})
         #     .get("api_key", None),
-        #     wandb_mode=legacy_config.get("optimization", {})
+        #     wandb_mode=legacy_config_optimization
         #     .get("wandb", {})
         #     .get("wandb_mode", None),
-        #     prv_runid=legacy_config.get("optimization", {})
+        #     prv_runid=legacy_config_optimization
         #     .get("wandb", {})
         #     .get("prv_runid", None),
-        #     group=legacy_config.get("optimization", {})
+        #     group=legacy_config_optimization
         #     .get("wandb", {})
         #     .get("group", None),
-        # ) if legacy_config.get("optimization", {}).get("use_wandb", False) else None,
+        # ) if legacy_config_optimization.get("use_wandb", False) else None,
         optimizer_name=re.sub(
             r"^[a-z]",
             lambda x: x.group().upper(),
-            legacy_config.get("optimization", {}).get("optimizer", "adam"),
+            legacy_config_optimization.get("optimizer", "adam"),
         ),
         optimizer=OptimizerConfig(
-            lr=legacy_config.get("optimization", {}).get("initial_learning_rate", 1e-3),
-            # amsgrad=legacy_config.get("optimization", {})
+            lr=legacy_config_optimization.get("initial_learning_rate", 1e-3),
+            # amsgrad=legacy_config_optimization
             # .get("optimizer", {})
             # .get("amsgrad", False),
         ),
         lr_scheduler=(
             LRSchedulerConfig(
                 # step_lr=StepLRConfig(
-                #     step_size=legacy_config.get("optimization", {})
+                #     step_size=legacy_config_optimization
                 #     .get("lr_scheduler", {})
                 #     .get("step_lr", {})
                 #     .get("step_size", 10),
-                #     gamma=legacy_config.get("optimization", {})
+                #     gamma=legacy_config_optimization
                 #     .get("lr_scheduler", {})
                 #     .get("step_lr", {})
                 #     .get("gamma", 0.1),
-                # ) if legacy_config.get("optimization", {}).get("lr_scheduler", {}).get("scheduler") == "StepLR" else None,
+                # ) if legacy_config_optimization.get("lr_scheduler", {}).get("scheduler") == "StepLR" else None,
                 reduce_lr_on_plateau=ReduceLROnPlateauConfig(
-                    # threshold=legacy_config.get("optimization", {})
+                    # threshold=legacy_config_optimization
                     # .get("lr_scheduler", {})
                     # .get("reduce_lr_on_plateau", {})
                     # .get("threshold", 1e-4),
-                    # threshold_mode=legacy_config.get("optimization", {})
+                    # threshold_mode=legacy_config_optimization
                     # .get("lr_scheduler", {})
                     # .get("reduce_lr_on_plateau", {})
                     # .get("threshold_mode", "rel"),
-                    # cooldown=legacy_config.get("optimization", {})
+                    # cooldown=legacy_config_optimization
                     # .get("lr_scheduler", {})
                     # .get("reduce_lr_on_plateau", {})
                     # .get("cooldown", 0),
-                    patience=legacy_config.get("optimization", {})
-                    .get("learning_rate_schedule", {})
-                    .get("plateau_patience", 10),
-                    # factor=legacy_config.get("optimization", {})
+                    patience=legacy_config_optimization.get(
+                        "learning_rate_schedule", {}
+                    ).get("plateau_patience", 10),
+                    # factor=legacy_config_optimization
                     # .get("lr_scheduler", {})
                     # .get("reduce_lr_on_plateau", {})
                     # .get("factor", 0.1),
-                    min_lr=legacy_config.get("optimization", {})
-                    .get("learning_rate_schedule", {})
-                    .get("min_learning_rate", 0.0),
+                    min_lr=legacy_config_optimization.get(
+                        "learning_rate_schedule", {}
+                    ).get("min_learning_rate", 0.0),
                 )
             )
-            if legacy_config.get("optimization", {}).get("learning_rate_schedule")
+            if legacy_config_optimization.get("learning_rate_schedule")
             else None
         ),
         early_stopping=(
             EarlyStoppingConfig(
-                stop_training_on_plateau=legacy_config.get("optimization", {})
-                .get("learning_rate_schedule", {})
-                .get("reduce_on_plateau", False),
-                min_delta=legacy_config.get("optimization", {})
-                .get("learning_rate_schedule", {})
-                .get("plateau_min_delta", 0.0),
-                patience=legacy_config.get("optimization", {})
-                .get("learning_rate_schedule", {})
-                .get("plateau_patience", 1),
+                stop_training_on_plateau=legacy_config_optimization.get(
+                    "learning_rate_schedule", {}
+                ).get("reduce_on_plateau", False),
+                min_delta=legacy_config_optimization.get(
+                    "learning_rate_schedule", {}
+                ).get("plateau_min_delta", 0.0),
+                patience=legacy_config_optimization.get(
+                    "learning_rate_schedule", {}
+                ).get("plateau_patience", 1),
             )
-            if legacy_config.get("optimization", {}).get("learning_rate_schedule")
+            if legacy_config_optimization.get("learning_rate_schedule")
             else None
         ),
     )

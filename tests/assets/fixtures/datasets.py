@@ -9,7 +9,7 @@ import pytest
 @pytest.fixture
 def sleapnn_data_dir(pytestconfig):
     """Dir path to sleap-nn data."""
-    return Path(pytestconfig.rootdir) / "tests/assets"
+    return Path(pytestconfig.rootdir) / "tests/assets/sleap_configs"
 
 
 @pytest.fixture

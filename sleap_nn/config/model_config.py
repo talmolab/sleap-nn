@@ -843,6 +843,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
     Returns:
         An instance of `ModelConfig` with the mapped configuration.
     """
+    legacy_config_model = legacy_config.get("model", {})
     return ModelConfig(
         # init_weights=legacy_config.get("init_weights", "default"),
         # pre_trained_weights not in old config
@@ -853,41 +854,33 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                 UNetConfig(
                     # in_channels=legacy_config.get("backbone", {}).get("in_channels", 1),
                     # kernel_size=legacy_config.get("backbone", {}).get("kernel_size", 3),
-                    filters=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    filters=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("filters", 32),
-                    filters_rate=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    filters_rate=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("filters_rate", 1.5),
-                    max_stride=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    max_stride=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("max_stride", 16),
-                    stem_stride=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    stem_stride=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("stem_stride", 16),
-                    middle_block=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    middle_block=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("middle_block", True),
-                    up_interpolate=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    up_interpolate=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("up_interpolate", True),
-                    stacks=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    stacks=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("stacks", 1),
                     # convs_per_block=2,
-                    output_stride=legacy_config.get("model", {})
-                    .get("backbone", {})
+                    output_stride=legacy_config_model.get("backbone", {})
                     .get("unet", {})
                     .get("output_stride", 1),
                 )
-                if legacy_config.get("model", {}).get("backbone", {}).get("unet")
+                if legacy_config_model.get("backbone", {}).get("unet")
                 else None
             ),
             # convnext not in old config
@@ -898,120 +891,98 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                 (
                     SingleInstanceConfig(
                         confmaps=SingleInstanceConfMapsConfig(
-                            part_names=legacy_config.get("model", {})
-                            .get("heads", {})
+                            part_names=legacy_config_model.get("heads", {})
                             .get("single_instance", {})
                             .get("part_names"),
-                            sigma=legacy_config.get("model", {})
-                            .get("heads", {})
+                            sigma=legacy_config_model.get("heads", {})
                             .get("single_instance", {})
                             .get("sigma", 5.0),
-                            output_stride=legacy_config.get("model", {})
-                            .get("heads", {})
+                            output_stride=legacy_config_model.get("heads", {})
                             .get("single_instance", {})
                             .get("output_stride", 1),
                         )
                     )
                 )
-                if legacy_config.get("model", {})
-                .get("heads", {})
-                .get("single_instance")
+                if legacy_config_model.get("heads", {}).get("single_instance")
                 else None
             ),
             centroid=(
                 CentroidConfig(
                     confmaps=CentroidConfMapsConfig(
-                        anchor_part=legacy_config.get("model", {})
-                        .get("heads", {})
+                        anchor_part=legacy_config_model.get("heads", {})
                         .get("centroid", {})
                         .get("anchor_part"),
-                        sigma=legacy_config.get("model", {})
-                        .get("heads", {})
+                        sigma=legacy_config_model.get("heads", {})
                         .get("centroid", {})
                         .get("sigma", 5.0),
-                        output_stride=legacy_config.get("model", {})
-                        .get("heads", {})
+                        output_stride=legacy_config_model.get("heads", {})
                         .get("centroid", {})
                         .get("output_stride", 1),
                     )
                 )
-                if legacy_config.get("model", {}).get("heads", {}).get("centroid")
+                if legacy_config_model.get("heads", {}).get("centroid")
                 else None
             ),
             centered_instance=(
                 CenteredInstanceConfig(
                     confmaps=CenteredInstanceConfMapsConfig(
-                        anchor_part=legacy_config.get("model", {})
-                        .get("heads", {})
+                        anchor_part=legacy_config_model.get("heads", {})
                         .get("centered_instance", {})
                         .get("anchor_part"),
-                        sigma=legacy_config.get("model", {})
-                        .get("heads", {})
+                        sigma=legacy_config_model.get("heads", {})
                         .get("centered_instance", {})
                         .get("sigma", 5.0),
-                        output_stride=legacy_config.get("model", {})
-                        .get("heads", {})
+                        output_stride=legacy_config_model.get("heads", {})
                         .get("centered_instance", {})
                         .get("output_stride", 1),
-                        part_names=legacy_config.get("model", {})
-                        .get("heads", {})
+                        part_names=legacy_config_model.get("heads", {})
                         .get("centered_instance", {})
                         .get("part_names", None),
                     )
                 )
-                if legacy_config.get("model", {})
-                .get("heads", {})
-                .get("centered_instance")
+                if legacy_config_model.get("heads", {}).get("centered_instance")
                 else None
             ),
             bottomup=(
                 BottomUpConfig(
                     confmaps=BottomUpConfMapsConfig(
-                        loss_weight=legacy_config.get("model", {})
-                        .get("heads", {})
+                        loss_weight=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("confmaps", {})
                         .get("loss_weight", None),
-                        sigma=legacy_config.get("model", {})
-                        .get("heads", {})
+                        sigma=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("confmaps", {})
                         .get("sigma", 5.0),
-                        output_stride=legacy_config.get("model", {})
-                        .get("heads", {})
+                        output_stride=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("confmaps", {})
                         .get("output_stride", 1),
-                        part_names=legacy_config.get("model", {})
-                        .get("heads", {})
+                        part_names=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("confmaps", {})
                         .get("part_names", None),
                     ),
                     pafs=PAFConfig(
-                        edges=legacy_config.get("model", {})
-                        .get("heads", {})
+                        edges=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("pafs", {})
                         .get("edges", None),
-                        sigma=legacy_config.get("model", {})
-                        .get("heads", {})
+                        sigma=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("pafs", {})
                         .get("sigma", 15.0),
-                        output_stride=legacy_config.get("model", {})
-                        .get("heads", {})
+                        output_stride=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("pafs", {})
                         .get("output_stride", 1),
-                        loss_weight=legacy_config.get("model", {})
-                        .get("heads", {})
+                        loss_weight=legacy_config_model.get("heads", {})
                         .get("multi_instance", {})
                         .get("pafs", {})
                         .get("loss_weight", None),
                     ),
                 )
-                if legacy_config.get("model", {}).get("heads", {}).get("multi_instance")
+                if legacy_config_model.get("heads", {}).get("multi_instance")
                 else None
             ),
         ),
