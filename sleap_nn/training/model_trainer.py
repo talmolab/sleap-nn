@@ -817,7 +817,7 @@ class ModelTrainer:
         profiler = None
         if cfg_profiler is not None:
             if cfg_profiler in profilers:
-                profiler = profilers[cfg_profiler] if cfg_profiler is not None else None
+                profiler = profilers[cfg_profiler]
             else:
                 message = f"{cfg_profiler} is not a valid option. Please choose one of {list(profilers.keys())}"
                 logger.error(message)
