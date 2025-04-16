@@ -4,7 +4,7 @@ data_config:
   val_labels_path: /Users/divyasesh/Desktop/its_me/sleap-nn/tests/assets/minimal_instance.pkg.slp
   test_file_path: null
   user_instances_only: true
-  data_pipeline_fw: torch_dataset
+  data_pipeline_fw: torch
   np_chunks_path: null
   litdata_chunks_path: null
   use_existing_chunks: false
@@ -12,9 +12,9 @@ data_config:
   chunk_size: 100
   preprocessing:
     is_rgb: false
-    max_width: null
-    max_height: null
-    scale: null
+    max_width: 384
+    max_height: 384
+    scale: 1.0
     crop_hw:
     - 160
     - 160
@@ -29,6 +29,17 @@ data_config:
       translate_width: 0
       translate_height: 0
       affine_p: 0.5
+  skeletons:
+    Skeleton-0:
+      nodes:
+      - name: A
+      - name: B
+      edges:
+      - source:
+          name: A
+        destination:
+          name: B
+      symmetries: null
 model_config:
   init_weights: default
   pre_trained_weights: null

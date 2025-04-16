@@ -4,7 +4,7 @@ data_config:
   val_labels_path: /Users/divyasesh/Desktop/its_me/sleap-nn/tests/assets/minimal_instance.pkg.slp
   test_file_path: null
   user_instances_only: true
-  data_pipeline_fw: torch_dataset
+  data_pipeline_fw: torch
   np_chunks_path: null
   litdata_chunks_path: null
   use_existing_chunks: false
@@ -70,6 +70,7 @@ model_config:
         anchor_part: 1
         sigma: 1.5
         output_stride: 2
+  total_params: 131376
 trainer_config:
   train_data_loader:
     batch_size: 1
