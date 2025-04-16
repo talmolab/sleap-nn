@@ -1,0 +1,15 @@
+README.md
+docs/
+*.egg-info/
+
+
+# Test artifacts
+tests/
+*.pytest_cache/
+
+*.ruff_cache
+codecov.yml
+
+# Git files
+.github/
+.gitignore
