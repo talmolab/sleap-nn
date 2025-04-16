@@ -93,6 +93,8 @@ trainer_config:
     save_last: true
   trainer_devices: 1
   trainer_accelerator: cpu
+  profiler: "simple"
+  trainer_strategy: auto
   enable_progress_bar: false
   steps_per_epoch: null
   max_epochs: 50

@@ -168,6 +168,8 @@ class TrainerConfig:
         model_ckpt: (Note: Any parameters from Lightning's ModelCheckpoint could be used.)
         trainer_devices: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically.
         trainer_accelerator: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the Trainer to be connected to.
+        profiler: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"].
+        trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`.
         enable_progress_bar: (bool) When True, enables printing the logs during training.
         steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
         max_epochs: (int) Maxinum number of epochs to run.
@@ -191,6 +193,8 @@ class TrainerConfig:
         validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val),
     )
     trainer_accelerator: str = "auto"
+    profiler: Optional[str] = None
+    trainer_strategy: str = "auto"
     enable_progress_bar: bool = True
     steps_per_epoch: Optional[int] = None
     max_epochs: int = 10

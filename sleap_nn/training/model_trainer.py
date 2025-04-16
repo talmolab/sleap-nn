@@ -14,6 +14,13 @@ import litdata as ld
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from lightning.pytorch.profilers import (
+    SimpleProfiler,
+    AdvancedProfiler,
+    XLAProfiler,
+    PyTorchProfiler,
+    PassThroughProfiler,
+)
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -95,12 +102,9 @@ class ModelTrainer:
         self.config = config
         self.data_pipeline_fw = self.config.data_config.data_pipeline_fw
         self.use_existing_chunks = self.config.data_config.use_existing_chunks
-        self.user_instances_only = (
-            self.config.data_config.user_instances_only
-            if "user_instances_only" in self.config.data_config
-            and self.config.data_config.user_instances_only is not None
-            else True
-        )  # TODO: defaults should be handles in config validation.
+        self.user_instances_only = OmegaConf.select(
+            self.config, "data_config.user_instances_only", default=True
+        )
 
         # Get ckpt dir path
         self.dir_path = self.config.trainer_config.save_ckpt_path
@@ -807,6 +811,28 @@ class ModelTrainer:
             logger.error(message)
             raise ValueError(message)
 
+        profilers = {
+            "advanced": AdvancedProfiler(),
+            "passthrough": PassThroughProfiler(),
+            "pytorch": PyTorchProfiler(),
+            "simple": SimpleProfiler(),
+        }
+        cfg_profiler = OmegaConf.select(
+            self.config, "trainer_config.profiler", default=None
+        )
+        profiler = None
+        if cfg_profiler is not None:
+            if cfg_profiler in profilers:
+                profiler = profilers[cfg_profiler]
+            else:
+                message = f"{cfg_profiler} is not a valid option. Please choose one of {list(profilers.keys())}"
+                logger.error(message)
+                raise ValueError(message)
+
+        strategy = OmegaConf.select(
+            self.config, "trainer_config.trainer_strategy", default="auto"
+        )
+
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=training_loggers,
@@ -816,12 +842,8 @@ class ModelTrainer:
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             limit_train_batches=self.steps_per_epoch,
-            strategy=(
-                "ddp_find_unused_parameters_false"
-                if isinstance(self.config.trainer_config.trainer_devices, int)
-                and self.config.trainer_config.trainer_devices > 1
-                else "auto"
-            ),
+            strategy=strategy,
+            profiler=profiler,
         )
 
         try:
