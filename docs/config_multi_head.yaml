@@ -104,6 +104,7 @@ trainer_config:
     save_last: true
   trainer_devices: 1
   trainer_accelerator: gpu
+  profiler: simple
   trainer_strategy: "ddp_find_unused_parameters_false" # "auto", "ddp", "ddp_find_unused_parameters_true"
   enable_progress_bar: false
   log_inf_epochs: 5

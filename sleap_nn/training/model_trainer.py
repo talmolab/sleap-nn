@@ -1742,6 +1742,28 @@ class MultiHeadModelTrainer:
         # save the configs as yaml in the checkpoint dir
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
+        profilers = {
+            "advanced": AdvancedProfiler(),
+            "passthrough": PassThroughProfiler(),
+            "pytorch": PyTorchProfiler(),
+            "simple": SimpleProfiler(),
+        }
+        cfg_profiler = OmegaConf.select(
+            self.config, "trainer_config.profiler", default=None
+        )
+        profiler = None
+        if cfg_profiler is not None:
+            if cfg_profiler in profilers:
+                profiler = profilers[cfg_profiler]
+            else:
+                message = f"{cfg_profiler} is not a valid option. Please choose one of {list(profilers.keys())}"
+                logger.error(message)
+                raise ValueError(message)
+
+        strategy = OmegaConf.select(
+            self.config, "trainer_config.trainer_strategy", default="auto"
+        )
+
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=training_loggers,
@@ -1750,7 +1772,8 @@ class MultiHeadModelTrainer:
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-            strategy=self.config.trainer_config.trainer_strategy,
+            strategy=strategy,
+            profiler=profiler,
         )
 
         if self.data_pipeline_fw == "litdata":
