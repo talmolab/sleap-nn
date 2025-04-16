@@ -814,6 +814,7 @@ class ModelTrainer:
         cfg_profiler = OmegaConf.select(
             self.config, "trainer_config.profiler", default=None
         )
+        profiler = None
         if cfg_profiler is not None:
             if cfg_profiler in profilers:
                 profiler = profilers[cfg_profiler] if cfg_profiler is not None else None
