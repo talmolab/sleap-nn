@@ -353,7 +353,17 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     assert model_trainer.dir_path == "."
 
+    ### invalid profiler
+    OmegaConf.update(config, "trainer_config.profiler", "simple_torch")
+    with pytest.raises(ValueError):
+        model_trainer = ModelTrainer(
+            config,
+        )
+        model_trainer.train()
+    assert f"simple_torch is not a valid option" in caplog.text
+
     ##### test for reusing np chunks path
+    OmegaConf.update(config, "trainer_config.profiler", "simple")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
     OmegaConf.update(config, "data_config.np_chunks_path", tmp_path)
     OmegaConf.update(config, "data_config.use_existing_chunks", True)
@@ -795,6 +805,7 @@ def test_reuse_npz_files(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
+    OmegaConf.update(centroid_config, "trainer_config.profiler", "simple")
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
     OmegaConf.update(centroid_config, "data_config.delete_chunks_after_training", False)
     OmegaConf.update(
