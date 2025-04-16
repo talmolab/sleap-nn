@@ -21,6 +21,7 @@ def plot_pred_confmaps_peaks(
     img: np.ndarray,
     confmaps: np.ndarray,
     peaks: Optional[np.ndarray] = None,
+    gt_instances: Optional[np.ndarray] = None,
     plot_title: Optional[str] = None,
 ):
     """Plot the predicted peaks on input image overlayed with confmaps.
@@ -29,6 +30,7 @@ def plot_pred_confmaps_peaks(
         img: Input image with shape (channel, height, width).
         confmaps: Output confmaps with shape (num_nodes, confmap_height, confmap_width).
         peaks: Predicted keypoints with shape (num_instances, num_nodes, 2).
+        gt_instances: Ground-truth keypoints with shape (num_instances,  num_nodes, 2).
         plot_title: Title for the plot.
     """
     img_h, img_w = img.shape[-2:]
@@ -55,6 +57,17 @@ def plot_pred_confmaps_peaks(
                 markersize=8,
                 markeredgewidth=2,
                 label="Predicted peaks",
+            )
+
+    if gt_instances is not None:
+        for instance in gt_instances:
+            ax.plot(
+                instance[:, 0],
+                instance[:, 1],
+                "rx",
+                markersize=8,
+                markeredgewidth=2,
+                label="GT keypoints",
             )
 
     if plot_title is not None:

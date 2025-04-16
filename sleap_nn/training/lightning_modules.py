@@ -723,124 +723,6 @@ class MultiHeadTrainingModel(L.LightningModule):
 
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
-        # add eval
-        # if self.config.trainer_config.log_inf_epochs is not None:
-        #     if (
-        #         self.current_epoch > 0
-        #         and self.global_rank == 0
-        #         and (self.current_epoch % self.config.trainer_config.log_inf_epochs)
-        #         == 0
-        #     ):
-        #         img_array = []
-        #         p90_dist = []
-        #         mAP_array = []
-        #         for d_num, test_path in self.config.data_config.test_file_path.items():
-        #             if test_path is not None:
-        #                 pred_labels = sleap_nn.inference.predictors.main(
-        #                     data_path=test_path,
-        #                     model_paths=[self.trainer_config.save_ckpt_path],
-        #                     output_head_skeleton_num=d_num,
-        #                     make_labels=True,
-        #                     is_rgb=self.config.data_config.preprocessing.is_rgb,
-        #                 )
-        #                 eval1 = sleap_nn.evaluation.Evaluator(
-        #                     sio.load_slp(test_path), pred_labels
-        #                 )
-        #                 metrics = eval1.evaluate()
-        #                 mAP = metrics["voc_metrics"]["oks_voc.mAP"]
-        #                 p90_dist = metrics["distance_metrics"]["p90"]
-        #                 logger.info(f"TEST EVAL METRICS @ epoch : {self.current_epoch}")
-        #                 logger.infor(
-        #                     f"Inference on dataset {d_num} with head skeleton num: {d_num}"
-        #                 )
-        #                 logger.info(f"Dist p90: {p90_dist}")
-        #                 logger.info(f"mAP: {mAP}")
-
-        #                 # plot predictions on sample image
-        #                 if self.use_wandb or self.save_ckpt:
-        #                     lf = pred_labels[10]
-        #                     gt_labels = sio.load_slp(test_path)
-        #                     plt.imshow(lf.image)
-        #                     for idx, inst in enumerate(lf.instances):
-        #                         pts = inst.numpy()
-        #                         pts_gt = gt_labels[10].instances[idx].numpy()
-        #                         plt.plot(
-        #                             pts_gt[:, 0],
-        #                             pts_gt[:, 1],
-        #                             "go",
-        #                             label="Ground-truth",
-        #                         )
-        #                         plt.plot(pts[:, 0], pts[:, 1], "rx", label="Predicted")
-        #                     plt.legend()
-        #                     plt.title(f"{self.config.dataset_mapper[d_num]}")
-        #                     plt.axis("off")
-
-        #                 if self.save_ckpt:
-        #                     plt.savefig(
-        #                         (
-        #                             Path(self.results_path) / f"pred_on_{d_num}"
-        #                         ).as_posix()
-        #                     )
-
-        #                 if self.use_wandb:
-        #                     fig = plt.gcf()
-        #                     fig.canvas.draw()
-        #                     img = Image.frombytes(
-        #                         "RGB",
-        #                         fig.canvas.get_width_height(),
-        #                         fig.canvas.tostring_rgb(),
-        #                     )
-        #                     self.log(
-        #                         f"oks_map_{d_num}",
-        #                         mAP,
-        #                         prog_bar=False,
-        #                         on_step=False,
-        #                         on_epoch=True,
-        #                         logger=True,
-        #                     )
-        #                     self.log(
-        #                         f"dist_p90_{d_num}",
-        #                         p90_dist,
-        #                         prog_bar=False,
-        #                         on_step=False,
-        #                         on_epoch=True,
-        #                         logger=True,
-        #                     )
-
-        #                     img_array.append(wandb.Image(img))
-        #                     p90_dist.append(
-        #                         str(float(p90_dist))
-        #                         if not np.isnan(p90_dist)
-        #                         else "NaN"
-        #                     )
-        #                     mAP_array.append(str(float(mAP)))
-
-        #                 plt.close(fig)
-
-        #         if self.use_wandb and p90_dist:
-        #             # wandb logging metrics in table
-
-        #             dict_p90 = {
-        #                 label: val
-        #                 for label, val in zip(self.dataset_dict.values(), p90_dist)
-        #             }
-
-        #             dict_map = {
-        #                 label: val
-        #                 for label, val in zip(self.dataset_dict.values(), mAP_array)
-        #             }
-
-        #             wandb_table = wandb.Table(
-        #                 columns=[
-        #                     "epoch",
-        #                     "Predictions on test set",
-        #                     "Test mAP",
-        #                     "Dist p90",
-        #                 ],
-        #                 data=[[self.current_epoch, img_array, dict_map, dict_p90]],
-        #             )
-        #             wandb.log({"Performance": wandb_table})
-
         self.train_start_time = time.time()
 
     def on_train_epoch_end(self):
@@ -992,12 +874,14 @@ class TopDownCenteredInstanceMultiHeadModel(MultiHeadTrainingModel):
                     # plot predictions on sample image
                     if self.use_wandb or self.save_ckpt:
                         peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
+                        gt_instances = sample["instance"][batch_idx, 0].cpu().numpy()
                         img = output["instance_image"][batch_idx, 0].cpu().numpy()
                         confmaps = output["pred_confmaps"][batch_idx].cpu().numpy()
                         fig = plot_pred_confmaps_peaks(
                             img=img,
                             confmaps=confmaps,
                             peaks=np.expand_dims(peaks, axis=0),
+                            gt_instances=np.expand_dims(gt_instances, axis=0),
                             plot_title=f"{self.config.dataset_mapper[d_num]}",
                         )
 
@@ -1205,11 +1089,13 @@ class SingleInstanceMultiHeadModel(MultiHeadTrainingModel):
                     if self.use_wandb or self.save_ckpt:
                         peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
                         img = output["image"][batch_idx, 0].cpu().numpy()
+                        gt_instances = sample["instances"][batch_idx, 0].cpu().numpy()
                         confmaps = output["pred_confmaps"][batch_idx].cpu().numpy()
                         fig = plot_pred_confmaps_peaks(
                             img=img,
                             confmaps=confmaps,
                             peaks=np.expand_dims(peaks, axis=0),
+                            gt_instances=np.expand_dims(gt_instances, axis=0),
                             plot_title=f"{self.config.dataset_mapper[d_num]}",
                         )
 
@@ -1412,10 +1298,12 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
                         confmaps = (
                             output["pred_centroid_confmaps"][batch_idx].cpu().numpy()
                         )
+                        gt_centroids = sample["centroids"][batch_idx, 0].cpu().numpy()
                         fig = plot_pred_confmaps_peaks(
                             img=img,
                             confmaps=confmaps,
                             peaks=np.expand_dims(centroids, axis=0),
+                            gt_instances=np.expand_dims(gt_centroids, axis=0),
                             plot_title=f"{self.config.dataset_mapper[d_num]}",
                         )
                     if self.save_ckpt:
@@ -1442,65 +1330,6 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
                         img_array.append(wandb.Image(img))
 
                     plt.close(fig)
-
-                # for d_num, test_path in self.config.data_config.test_file_path.items():
-                #     if test_path is not None:
-                #         pred_labels = sleap_nn.inference.predictors.main(
-                #             data_path=test_path,
-                #             model_paths=[self.trainer_config.save_ckpt_path],
-                #             output_head_skeleton_num=0,
-                #             make_labels=False,
-                #             is_rgb=self.config.data_config.preprocessing.is_rgb,
-                #         )
-
-                #         # plot predictions on sample image
-                #         if self.use_wandb or self.save_ckpt:
-                #             sample = pred_labels[10]
-                #             batch_idx = 0
-                #             centroids = (
-                #                 sample["centroids"][batch_idx, 0]
-                #                 * self.config.data_config.preprocessing.scale[d_num]
-                #             )
-                #             centroids = centroids * sample["eff_scale"][0]
-                #             plt.imshow(sample["image"][batch_idx, 0].transpose(1, 2, 0))
-                #             plt.plot(
-                #                 centroids[:, 0],
-                #                 centroids[:, 1],
-                #                 "rx",
-                #                 label="Predicted",
-                #             )
-                #             plt.legend()
-                #             plt.title(f"{self.config.dataset_mapper[d_num]}")
-                #             plt.axis("off")
-
-                #         if self.save_ckpt:
-                #             curr_results_path = (
-                #                 Path(self.config.trainer_config.save_ckpt_path)
-                #                 / "visualizations"
-                #                 / f"epoch_{self.current_epoch}"
-                #             )
-                #             if not Path(curr_results_path).exists():
-                #                 Path(curr_results_path).mkdir(
-                #                     parents=True, exist_ok=True
-                #                 )
-                #             plt.savefig(
-                #                 (
-                #                     Path(curr_results_path) / f"pred_on_{d_num}"
-                #                 ).as_posix()
-                #             )
-
-                #         if self.use_wandb:
-                #             fig = plt.gcf()
-                #             fig.canvas.draw()
-                #             img = Image.frombytes(
-                #                 "RGB",
-                #                 fig.canvas.get_width_height(),
-                #                 fig.canvas.tostring_rgb(),
-                #             )
-
-                #             img_array.append(wandb.Image(img))
-
-                #         plt.close(fig)
 
                 if self.use_wandb and img_array:
                     # wandb logging metrics in table
@@ -1698,10 +1527,12 @@ class BottomUpMultiHeadModel(MultiHeadTrainingModel):
                         peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
                         img = output["image"][batch_idx, 0].cpu().numpy()
                         confmaps = output["pred_confmaps"][batch_idx].cpu().numpy()
+                        gt_instances = sample["instances"][batch_idx, 0].cpu().numpy()
                         fig = plot_pred_confmaps_peaks(
                             img=img,
                             confmaps=confmaps,
                             peaks=peaks,
+                            gt_instances=gt_instances,
                             plot_title=f"{self.config.dataset_mapper[d_num]}",
                         )
                         plt.imshow(
