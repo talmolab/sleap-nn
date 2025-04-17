@@ -1052,7 +1052,7 @@ class MultiHeadModelTrainer:
                     config_path = Path(self.np_chunks_dir) / f"{d_name}" / "config.yaml"
                 chunks_config = OmegaConf.load(config_path.as_posix())
                 self.skeletons_dict[d_num] = get_skeleton_from_config(
-                    chunks_config.data_config.skeletons
+                    chunks_config.data_config.skeletons[d_num]
                 )
                 self.edge_inds = self.skeletons_dict[d_num][0].edge_inds
                 self.max_heights[d_num], self.max_widths[d_num] = (
