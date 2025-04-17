@@ -51,7 +51,11 @@ from sleap_nn.data.streaming_datasets import (
     SingleInstanceStreamingDataset,
 )
 from loguru import logger
-from sleap_nn.training.utils import check_memory
+from sleap_nn.training.utils import (
+    check_memory,
+    is_distributed_initialized,
+    get_dist_rank,
+)
 from sleap_nn.inference.utils import get_skeleton_from_config
 
 
@@ -188,7 +192,11 @@ class ModelTrainer:
                 self.model_type = k
                 break
 
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
+        rank = get_dist_rank()
+        if (
+            rank is None or rank == 0
+        ):  # save cfg if there are no distributed process or the rank = 0
+            OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
         # set seed
         torch.manual_seed(self.seed)
@@ -288,7 +296,13 @@ class ModelTrainer:
 
             self.edge_inds = train_labels.skeletons[0].edge_inds
 
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+        if (
+            rank is None or rank == 0
+        ):  # save config if there are no distributed process or the rank = 0
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
+
         # save config to chunks folder
         if not self.use_existing_chunks and self.data_pipeline_fw in [
             "litdata",
@@ -299,7 +313,10 @@ class ModelTrainer:
             elif self.data_pipeline_fw == "torch_dataset_np_chunks":
                 save_path = Path(self.np_chunks_path) / "config.yaml"
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            OmegaConf.save(config=self.config, f=save_path.as_posix())
+            if (
+                rank is None or rank == 0
+            ):  # save config if there are no distributed process or the rank = 0
+                OmegaConf.save(config=self.config, f=save_path.as_posix())
 
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
@@ -782,14 +799,25 @@ class ModelTrainer:
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
 
-            wandb_logger.experiment.config.update({"run_name": wandb_config.name})
-            wandb_logger.experiment.config.update(
-                {"run_config": OmegaConf.to_container(self.config, resolve=True)}
-            )
-            wandb_logger.experiment.config.update({"model_params": total_params})
+            rank = get_dist_rank()
+            if (
+                rank is None or rank == 0
+            ):  # save config if there are no distributed process or the rank = 0
+
+                wandb_logger.experiment.config.update({"run_name": wandb_config.name})
+                wandb_logger.experiment.config.update(
+                    {"run_config": OmegaConf.to_container(self.config, resolve=True)}
+                )
+                wandb_logger.experiment.config.update({"model_params": total_params})
 
         # save the configs as yaml in the checkpoint dir
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+        rank = get_dist_rank()
+        if (
+            rank is None or rank == 0
+        ):  # save config if there are no distributed process or the rank = 0
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
 
         if self.data_pipeline_fw == "litdata":
             self._create_data_loaders_litdata()
