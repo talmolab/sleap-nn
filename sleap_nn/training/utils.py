@@ -3,10 +3,21 @@
 import numpy as np
 from loguru import logger
 from torch import nn
+import torch.distributed as dist
 from typing import Optional, Tuple
 
 import sleap_io as sio
 from sleap_nn.data.providers import get_max_instances
+
+
+def is_distributed_initialized():
+    """Check if distributed processes are initialized."""
+    return dist.is_available() and dist.is_initialized()
+
+
+def get_dist_rank():
+    """Return the rank of the current process if torch.distributed is initialized."""
+    return dist.get_rank() if is_distributed_initialized() else None
 
 
 def xavier_init_weights(x):

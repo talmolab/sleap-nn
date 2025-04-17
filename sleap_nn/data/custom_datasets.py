@@ -9,6 +9,7 @@ import numpy as np
 from PIL import Image
 from loguru import logger
 import torch
+import torch.distributed as dist
 import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader
 import sleap_io as sio
@@ -28,6 +29,7 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.training.utils import is_distributed_initialized, get_dist_rank
 
 
 class BaseDataset(Dataset):
@@ -259,7 +261,15 @@ class BottomUpDataset(BaseDataset):
 
         self.edge_inds = self.labels.skeletons[0].edge_inds
         if not self.use_existing_chunks:
-            self._fill_cache()
+            rank = get_dist_rank()
+            if (
+                rank is None or rank == 0
+            ):  # fill cache if there are no distributed process or the rank = 0
+                self._fill_cache()
+            if (
+                is_distributed_initialized()
+            ):  # if rank!=0 and distributed processes are initialized
+                dist.barrier()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
@@ -378,7 +388,15 @@ class CenteredInstanceDataset(BaseDataset):
         self.instance_idx_list = self._get_instance_idx_list() if self.labels else None
         self.cache_lf = [None, None]
         if not self.use_existing_chunks:
-            self._fill_cache()
+            rank = get_dist_rank()
+            if (
+                rank is None or rank == 0
+            ):  # fill cache if there are no distributed process or the rank = 0
+                self._fill_cache()
+            if (
+                is_distributed_initialized()
+            ):  # if rank!=0 and distributed processes are initialized
+                dist.barrier()
 
     def _fill_cache(self):
         """Load all samples to cache."""
@@ -622,7 +640,15 @@ class CentroidDataset(BaseDataset):
         )
         self.confmap_head_config = confmap_head_config
         if not self.use_existing_chunks:
-            self._fill_cache()
+            rank = get_dist_rank()
+            if (
+                rank is None or rank == 0
+            ):  # fill cache if there are no distributed process or the rank = 0
+                self._fill_cache()
+            if (
+                is_distributed_initialized()
+            ):  # if rank!=0 and distributed processes are initialized
+                dist.barrier()
 
     def _fill_cache(self):
         """Load all samples to cache."""
@@ -786,7 +812,15 @@ class SingleInstanceDataset(BaseDataset):
         )
         self.confmap_head_config = confmap_head_config
         if not self.use_existing_chunks:
-            self._fill_cache()
+            rank = get_dist_rank()
+            if (
+                rank is None or rank == 0
+            ):  # fill cache if there are no distributed process or the rank = 0
+                self._fill_cache()
+            if (
+                is_distributed_initialized()
+            ):  # if rank!=0 and distributed processes are initialized
+                dist.barrier()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
