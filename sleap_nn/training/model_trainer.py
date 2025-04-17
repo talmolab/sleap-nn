@@ -1056,7 +1056,11 @@ class MultiHeadModelTrainer:
                 self.model_type = k
                 break
 
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
+        rank = get_dist_rank()
+        if (
+            rank is None or rank == 0
+        ):  # save cfg if there are no distributed process or the rank = 0
+            OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
         # set seed
         torch.manual_seed(self.seed)
@@ -1192,9 +1196,17 @@ class MultiHeadModelTrainer:
                             Path(self.np_chunks_dir) / f"{d_name}" / "config.yaml"
                         )
                     save_path.parent.mkdir(parents=True, exist_ok=True)
-                    OmegaConf.save(config=self.config, f=save_path.as_posix())
+                    if (
+                        rank is None or rank == 0
+                    ):  # save cfg if there are no distributed process or the rank = 0
+                        OmegaConf.save(config=self.config, f=save_path.as_posix())
 
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+        if (
+            rank is None or rank == 0
+        ):  # save cfg if there are no distributed process or the rank = 0
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
 
     def _create_data_loaders_torch_dataset(self, d_num):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
@@ -1405,10 +1417,11 @@ class MultiHeadModelTrainer:
 
         # train
         if self.config.trainer_config.trainer_devices > 1:
+            rank = get_dist_rank()
             train_sampler = DistributedSampler(
                 self.train_datasets[d_num],
                 num_replicas=self.config.trainer_config.trainer_devices,
-                rank=self.trainer.global_rank,
+                rank=rank if rank is not None else 0,
                 shuffle=self.config.trainer_config.train_data_loader.shuffle,
             )
             self.train_data_loaders[d_num] = DataLoader(
@@ -1433,7 +1446,7 @@ class MultiHeadModelTrainer:
             val_sampler = DistributedSampler(
                 self.val_datasets[d_num],
                 num_replicas=self.config.trainer_config.trainer_devices,
-                rank=self.trainer.global_rank,
+                rank=rank if rank is not None else 0,
                 shuffle=False,
             )
             self.val_data_loaders[d_num] = DataLoader(
@@ -1767,8 +1780,13 @@ class MultiHeadModelTrainer:
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
 
-        # save the configs as yaml in the checkpoint dir
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+        rank = get_dist_rank()
+        if (
+            rank is None or rank == 0
+        ):  # save cfg if there are no distributed process or the rank = 0
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
 
         profilers = {
             "advanced": AdvancedProfiler(),
@@ -1827,7 +1845,7 @@ class MultiHeadModelTrainer:
             logger.error(message)
             raise ValueError(message)
 
-        if self.trainer.global_rank == 0 and self.config.trainer_config.use_wandb:
+        if (rank is None or rank == 0) and self.config.trainer_config.use_wandb:
             wandb_logger.experiment.config.update({"run_name": wandb_config.name})
             wandb_logger.experiment.config.update(
                 {"run_config": OmegaConf.to_container(self.config, resolve=True)}
