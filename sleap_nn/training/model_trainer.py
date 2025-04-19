@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import torch
 import sleap_io as sio
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 import lightning as L
 import litdata as ld
 import wandb
@@ -77,6 +77,7 @@ from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceModel,
     SingleInstanceModel,
 )
+from sleap_nn.config.training_job_config import verify_training_cfg
 
 
 class ModelTrainer:
@@ -94,10 +95,10 @@ class ModelTrainer:
 
     def __init__(
         self,
-        config: OmegaConf,
+        config: DictConfig,
     ):
         """Initialise the class with configs and set the seed and device as class attributes."""
-        self.config = config
+        self.config = verify_training_cfg(config)
         self.data_pipeline_fw = self.config.data_config.data_pipeline_fw
         self.use_existing_chunks = self.config.data_config.use_existing_chunks
         self.user_instances_only = OmegaConf.select(

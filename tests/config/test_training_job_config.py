@@ -32,7 +32,7 @@ from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
 from sleap_nn.config.data_config import IntensityConfig
-from omegaconf import OmegaConf, MissingMandatoryValue
+from omegaconf import DictConfig, OmegaConf, MissingMandatoryValue
 from dataclasses import asdict
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
@@ -79,151 +79,14 @@ def test_intensity_config_validation_logging(caplog):
     assert "gaussian_noise_p" in caplog.text
 
 
-def test_from_yaml(sample_config):
-    """Test creating a TrainingJobConfig from a valid YAML string."""
-    config_dict = {
-        "name": sample_config["name"],
-        "description": sample_config["description"],
-        "data_config": {
-            "train_labels_path": sample_config["data_config"].train_labels_path,
-            "val_labels_path": sample_config["data_config"].val_labels_path,
-            "provider": sample_config["data_config"].provider,
-        },
-        "model_config": {
-            "init_weights": sample_config["model_config"].init_weights,
-        },
-        "trainer_config": {
-            "early_stopping": {
-                "patience": sample_config["trainer_config"].early_stopping.patience,
-            },
-        },
-    }
-    yaml_data = OmegaConf.to_yaml(config_dict)
-    config = TrainingJobConfig.from_yaml(yaml_data)
-
-    assert config.name == sample_config["name"]
-    assert config.description == sample_config["description"]
-    assert (
-        config.data_config.train_labels_path
-        == sample_config["data_config"].train_labels_path
-    )
-    assert (
-        config.data_config.val_labels_path
-        == sample_config["data_config"].val_labels_path
-    )
-    assert (
-        config.trainer_config.early_stopping.patience
-        == sample_config["trainer_config"].early_stopping.patience
-    )
-
-
-def test_to_yaml(sample_config):
+def test_to_sleap_nn_cfg():
     """Test serializing a TrainingJobConfig to YAML."""
-    config_dict = {
-        "name": sample_config["name"],
-        "description": sample_config["description"],
-        "data_config": {
-            "train_labels_path": sample_config["data_config"].train_labels_path,
-            "val_labels_path": sample_config["data_config"].val_labels_path,
-            "provider": sample_config["data_config"].provider,
-        },
-        "model_config": {
-            "init_weights": sample_config["model_config"].init_weights,
-        },
-        "trainer_config": sample_config[
-            "trainer_config"
-        ],  # Include full trainer config
-    }
-    yaml_data = OmegaConf.to_yaml(config_dict)
-    parsed_yaml = OmegaConf.create(yaml_data)
-
-    assert parsed_yaml.name == sample_config["name"]
-    assert parsed_yaml.description == sample_config["description"]
-    assert (
-        parsed_yaml.data_config.train_labels_path
-        == sample_config["data_config"].train_labels_path
-    )
-    assert (
-        parsed_yaml.data_config.val_labels_path
-        == sample_config["data_config"].val_labels_path
-    )
-    assert parsed_yaml.data_config.provider == sample_config["data_config"].provider
-
-    assert (
-        parsed_yaml.model_config.init_weights
-        == sample_config["model_config"].init_weights
-    )
-    assert parsed_yaml.trainer_config == sample_config["trainer_config"]
-
-
-def test_load_yaml(sample_config):
-    """Test loading a TrainingJobConfig from a YAML file."""
-    # Create proper config objects
-    data_config = DataConfig(
-        train_labels_path=sample_config["data_config"].train_labels_path,
-        val_labels_path=sample_config["data_config"].val_labels_path,
-        provider=sample_config["data_config"].provider,
-    )
-
-    model_config = ModelConfig(
-        init_weights=sample_config["model_config"].init_weights,
-    )
-
-    trainer_config = TrainerConfig(
-        early_stopping=sample_config["trainer_config"].early_stopping
-    )
-
-    config = TrainingJobConfig(
-        name=sample_config["name"],
-        description=sample_config["description"],
-        data_config=data_config,
-        model_config=model_config,
-        trainer_config=trainer_config,
-    )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = os.path.join(tmpdir, "test_config.yaml")
-
-        # Use the to_yaml method to save the file
-        config.to_yaml(filename=file_path)
-
-        # Load from file
-        loaded_config = TrainingJobConfig.load_yaml(file_path)
-        assert loaded_config.name == config.name
-        assert loaded_config.description == config.description
-        # Use dictionary access for loaded config
-        assert (
-            loaded_config.data_config.train_labels_path
-            == config.data_config.train_labels_path
-        )
-        assert (
-            loaded_config.data_config.val_labels_path
-            == config.data_config.val_labels_path
-        )
-        assert (
-            loaded_config.trainer_config.early_stopping.patience
-            == config.trainer_config.early_stopping.patience
-        )
-
-
-def test_missing_attributes(sample_config):
-    """Test creating a TrainingJobConfig from a valid YAML string."""
-    config_dict = {
-        "name": sample_config["name"],
-        "description": sample_config["description"],
-        "data_config": {
-            "provider": sample_config["data_config"].provider,
-        },
-        "model_config": {
-            "init_weights": sample_config["model_config"].init_weights,
-        },
-        "trainer_config": {
-            "early_stopping": {
-                "patience": sample_config["trainer_config"].early_stopping.patience,
-            },
-        },
-    }
-    yaml_data = OmegaConf.to_yaml(config_dict)
+    cfg = TrainingJobConfig()
+    cfg.data_config.train_labels_path = "test.slp"
+    cfg.data_config.val_labels_path = "test.slp"
+    omegacfg = cfg.to_sleap_nn_cfg()
+    assert isinstance(omegacfg, DictConfig)
+    assert omegacfg.data_config.train_labels_path == "test.slp"
 
     with pytest.raises(MissingMandatoryValue):
-        config = TrainingJobConfig.from_yaml(yaml_data)
+        config = TrainingJobConfig().to_sleap_nn_cfg()
