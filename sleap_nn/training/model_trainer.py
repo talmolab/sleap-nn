@@ -102,10 +102,8 @@ class ModelTrainer:
     def __init__(
         self,
         config: DictConfig,
-        config: DictConfig,
     ):
         """Initialise the class with configs and set the seed and device as class attributes."""
-        self.config = verify_training_cfg(config)
         self.config = verify_training_cfg(config)
         self.data_pipeline_fw = self.config.data_config.data_pipeline_fw
         self.use_existing_chunks = self.config.data_config.use_existing_chunks
@@ -379,7 +377,6 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
                 rank=self.trainer.global_rank if self.trainer else None,
-                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = BottomUpDataset(
                 labels=val_labels,
@@ -393,7 +390,6 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
                 rank=self.trainer.global_rank if self.trainer else None,
             )
 
@@ -411,7 +407,6 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
                 rank=self.trainer.global_rank if self.trainer else None,
-                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = CenteredInstanceDataset(
                 labels=val_labels,
@@ -425,7 +420,6 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
                 rank=self.trainer.global_rank if self.trainer else None,
             )
 
@@ -442,7 +436,6 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
                 rank=self.trainer.global_rank if self.trainer else None,
-                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = CentroidDataset(
                 labels=val_labels,
@@ -455,7 +448,6 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
                 rank=self.trainer.global_rank if self.trainer else None,
             )
 
@@ -472,7 +464,6 @@ class ModelTrainer:
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
                 rank=self.trainer.global_rank if self.trainer else None,
-                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = SingleInstanceDataset(
                 labels=val_labels,
@@ -485,7 +476,6 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
                 rank=self.trainer.global_rank if self.trainer else None,
             )
 
@@ -511,9 +501,7 @@ class ModelTrainer:
 
         # train
         self.train_data_loader = DataLoader(
-        self.train_data_loader = DataLoader(
             dataset=self.train_dataset,
-            # steps_per_epoch=self.steps_per_epoch,
             # steps_per_epoch=self.steps_per_epoch,
             shuffle=self.config.trainer_config.train_data_loader.shuffle,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
@@ -537,9 +525,7 @@ class ModelTrainer:
             // self.config.trainer_config.val_data_loader.batch_size
         )
         self.val_data_loader = DataLoader(
-        self.val_data_loader = DataLoader(
             dataset=self.val_dataset,
-            # steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
             # steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
