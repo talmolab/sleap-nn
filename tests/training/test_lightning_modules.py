@@ -297,7 +297,10 @@ def test_bottomup_model(config, tmp_path: str):
     input_ = next(iter(model_trainer.train_data_loader))
 
     model = BottomUpModel(
-        config=config, skeletons=skeletons, backbone_type="unet", model_type="bottomup"
+        config=model_trainer.config,
+        skeletons=skeletons,
+        backbone_type="unet",
+        model_type="bottomup",
     )
 
     preds = model(input_["image"])

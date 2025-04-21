@@ -51,6 +51,8 @@ class BaseDataset(Dataset):
             these chunks during training. Else, in-memory caching is used.
         np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
         use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Rank of the process (if using distributed training) to avoid creating chunks in all
+            processes.
     """
 
     def __init__(
@@ -64,6 +66,7 @@ class BaseDataset(Dataset):
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
         use_existing_chunks: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
@@ -79,6 +82,7 @@ class BaseDataset(Dataset):
         self.np_chunks = np_chunks
         self.np_chunks_path = np_chunks_path
         self.use_existing_chunks = use_existing_chunks
+        self.rank = rank
         if self.np_chunks_path is None:
             self.np_chunks_path = "."
         path = (
@@ -228,6 +232,7 @@ class BottomUpDataset(BaseDataset):
             these chunks during training. Else, in-memory caching is used.
         np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
         use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Rank of the process (if using distributed training) to avoid creating chunks in all   processes.
     """
 
     def __init__(
@@ -243,6 +248,7 @@ class BottomUpDataset(BaseDataset):
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
         use_existing_chunks: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -255,13 +261,14 @@ class BottomUpDataset(BaseDataset):
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
             use_existing_chunks=use_existing_chunks,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
 
         self.edge_inds = self.labels.skeletons[0].edge_inds
         if not self.use_existing_chunks:
-            rank = get_dist_rank()
+            rank = self.rank
             if (
                 rank is None or rank == 0
             ):  # fill cache if there are no distributed process or the rank = 0
@@ -352,6 +359,7 @@ class CenteredInstanceDataset(BaseDataset):
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         crop_hw: Height and width of the crop in pixels.
         use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Rank of the process (if using distributed training) to avoid creating chunks in all   processes.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -370,6 +378,7 @@ class CenteredInstanceDataset(BaseDataset):
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
         use_existing_chunks: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -382,13 +391,14 @@ class CenteredInstanceDataset(BaseDataset):
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
             use_existing_chunks=use_existing_chunks,
+            rank=rank,
         )
         self.crop_hw = crop_hw
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list() if self.labels else None
         self.cache_lf = [None, None]
         if not self.use_existing_chunks:
-            rank = get_dist_rank()
+            rank = self.rank
             if (
                 rank is None or rank == 0
             ):  # fill cache if there are no distributed process or the rank = 0
@@ -611,6 +621,7 @@ class CentroidDataset(BaseDataset):
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Rank of the process (if using distributed training) to avoid creating chunks in all   processes.
     """
 
     def __init__(
@@ -625,6 +636,7 @@ class CentroidDataset(BaseDataset):
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
         use_existing_chunks: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -637,10 +649,11 @@ class CentroidDataset(BaseDataset):
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
             use_existing_chunks=use_existing_chunks,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
         if not self.use_existing_chunks:
-            rank = get_dist_rank()
+            rank = self.rank
             if (
                 rank is None or rank == 0
             ):  # fill cache if there are no distributed process or the rank = 0
@@ -783,6 +796,7 @@ class SingleInstanceDataset(BaseDataset):
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Rank of the process (if using distributed training) to avoid creating chunks in all   processes.
     """
 
     def __init__(
@@ -797,6 +811,7 @@ class SingleInstanceDataset(BaseDataset):
         np_chunks: bool = False,
         np_chunks_path: Optional[str] = None,
         use_existing_chunks: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -809,10 +824,11 @@ class SingleInstanceDataset(BaseDataset):
             np_chunks=np_chunks,
             np_chunks_path=np_chunks_path,
             use_existing_chunks=use_existing_chunks,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
         if not self.use_existing_chunks:
-            rank = get_dist_rank()
+            rank = self.rank
             if (
                 rank is None or rank == 0
             ):  # fill cache if there are no distributed process or the rank = 0

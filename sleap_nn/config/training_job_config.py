@@ -26,7 +26,7 @@ parameters are aggregated and documented for end users (as opposed to developers
 
 from attrs import define, asdict, field
 from typing import Text, Optional
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 import sleap_nn
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.model_config import ModelConfig
@@ -58,7 +58,9 @@ class TrainingJobConfig:
     filename: Optional[Text] = ""
 
     @classmethod
-    def check_output_strides(cls, config: OmegaConf) -> OmegaConf:
+    def check_output_strides(
+        cls, config: OmegaConf
+    ) -> OmegaConf:  # TODO in model config
         """Check max_stride and output_stride in backbone_config with head_config."""
         output_strides = get_output_strides_from_heads(config.model_config.head_configs)
         # check which backbone architecture
@@ -78,71 +80,19 @@ class TrainingJobConfig:
                 ] = max(output_strides)
         return config
 
-    @classmethod
-    def from_yaml(cls, yaml_data: Text) -> OmegaConf:
-        """Create TrainingJobConfig from YAML-formatted string with schema validation.
-
-        Arguments:
-            yaml_data: YAML-formatted string that specifies the configurations.
-
-        Returns:
-            A OmegaConf instance parsed from the YAML text, validated against the schema.
-        """
-        schema = OmegaConf.structured(cls())
-        config = OmegaConf.create(yaml_data)
-        config = OmegaConf.merge(schema, config)
+    def to_sleap_nn_cfg(self) -> DictConfig:
+        """Convert the attrs class to OmegaConf object."""
+        config = OmegaConf.structured(self)
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-        config = TrainingJobConfig.check_output_strides(config)
         return config
 
-    @classmethod
-    def load_yaml(cls, filename: Text) -> OmegaConf:
-        """Load a training job configuration from a yaml file.
 
-        Arguments:
-            filename: Path to a training job configuration YAML file or a directory
-                containing `"training_job.yaml"`.
-
-        Returns:
-          A OmegaConf instance parsed from the YAML file.
-        """
-        schema = OmegaConf.structured(cls())
-        config = OmegaConf.load(filename)
-        config = OmegaConf.merge(schema, config)
-        OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-        config = TrainingJobConfig.check_output_strides(config)
-        return config
-
-    def to_yaml(self, filename: Optional[Text] = None) -> None:
-        """Serialize and optionally save the configuration to YAML format.
-
-        Args:
-            filename: Optional path to save the YAML file to. If not provided,
-                     the configuration will only be converted to YAML format.
-        """
-        # Convert attrs objects to nested dictionaries
-        config_dict = asdict(self)
-
-        # Handle any special cases (like enums) that need manual conversion
-        if config_dict.get("model", {}).get("backbone_type"):
-            config_dict["model"]["backbone_type"] = self.model_config.backbone_type
-
-        # Create OmegaConf object and save if filename provided
-        conf = OmegaConf.create(config_dict)
-        if filename is not None:
-            OmegaConf.save(conf, filename)
-        return
-
-
-def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
-    """Load a training job configuration for a model run.
-
-    Args:
-        filename: Path to a YAML file or directory containing `training_job.yaml`.
-        load_training_config: If `True` (the default), prefer `training_job.yaml` over
-            `initial_config.yaml` if it is present in the same folder.
-
-    Returns:
-        The parsed `OmegaConf`.
-    """
-    return TrainingJobConfig.load_yaml(filename)
+def verify_training_cfg(cfg: DictConfig) -> DictConfig:
+    """Get sleap-nn training config from a DictConfig object."""
+    sch = TrainingJobConfig(**cfg)
+    # OmegaConf can't merge into None, so optional nested configs (like centered_instance_config for head_configs)
+    # must be pre-initialized if the YAML sets nested fields (e.g., confmaps).
+    schema = OmegaConf.structured(sch)
+    config = OmegaConf.merge(schema, cfg)
+    OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+    return config

@@ -956,7 +956,7 @@ def train(
         model_config=model_config,
         trainer_config=trainer_config,
     )
-    omegaconf_config = OmegaConf.structured(training_job_config)
+    omegaconf_config = training_job_config.to_sleap_nn_cfg()
 
     # run training
     run_training(omegaconf_config.copy())
@@ -965,11 +965,7 @@ def train(
 @hydra.main(version_base=None, config_path="", config_name="config")
 def main(cfg: DictConfig):
     """Train SLEAP-NN model using CLI."""
-    training_job_config = TrainingJobConfig(**cfg)
-    omegaconf_config = OmegaConf.structured(training_job_config)
-
-    # Train sleap-nn model
-    run_training(omegaconf_config)
+    run_training(cfg)
 
 
 if __name__ == "__main__":
