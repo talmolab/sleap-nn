@@ -6,6 +6,7 @@ import psutil
 import shutil
 import subprocess
 import torch
+from torch.utils.data import DataLoader
 import sleap_io as sio
 from omegaconf import DictConfig, OmegaConf
 import lightning as L
@@ -370,6 +371,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = BottomUpDataset(
                 labels=val_labels,
@@ -383,6 +385,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
 
         elif self.model_type == "centered_instance":
@@ -398,6 +401,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = CenteredInstanceDataset(
                 labels=val_labels,
@@ -411,6 +415,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
 
         elif self.model_type == "centroid":
@@ -425,6 +430,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = CentroidDataset(
                 labels=val_labels,
@@ -437,6 +443,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
 
         elif self.model_type == "single_instance":
@@ -451,6 +458,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.train_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
             self.val_dataset = SingleInstanceDataset(
                 labels=val_labels,
@@ -463,6 +471,7 @@ class ModelTrainer:
                 np_chunks=self.np_chunks,
                 np_chunks_path=self.val_np_chunks_path,
                 use_existing_chunks=self.use_existing_chunks,
+                rank=self.trainer.global_rank if self.trainer else None,
             )
 
         else:
@@ -486,9 +495,9 @@ class ModelTrainer:
         )
 
         # train
-        self.train_data_loader = CyclerDataLoader(
+        self.train_data_loader = DataLoader(
             dataset=self.train_dataset,
-            steps_per_epoch=self.steps_per_epoch,
+            # steps_per_epoch=self.steps_per_epoch,
             shuffle=self.config.trainer_config.train_data_loader.shuffle,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
@@ -510,9 +519,9 @@ class ModelTrainer:
             len(self.val_dataset)
             // self.config.trainer_config.val_data_loader.batch_size
         )
-        self.val_data_loader = CyclerDataLoader(
+        self.val_data_loader = DataLoader(
             dataset=self.val_dataset,
-            steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
+            # steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
@@ -800,40 +809,6 @@ class ModelTrainer:
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
 
-            rank = get_dist_rank()
-            if (
-                rank is None or rank == 0
-            ):  # save config if there are no distributed process or the rank = 0
-
-                wandb_logger.experiment.config.update({"run_name": wandb_config.name})
-                wandb_logger.experiment.config.update(
-                    {"run_config": OmegaConf.to_container(self.config, resolve=True)}
-                )
-                wandb_logger.experiment.config.update({"model_params": total_params})
-
-        # save the configs as yaml in the checkpoint dir
-        rank = get_dist_rank()
-        if (
-            rank is None or rank == 0
-        ):  # save config if there are no distributed process or the rank = 0
-            OmegaConf.save(
-                config=self.config, f=f"{self.dir_path}/training_config.yaml"
-            )
-
-        if self.data_pipeline_fw == "litdata":
-            self._create_data_loaders_litdata()
-
-        elif (
-            self.data_pipeline_fw == "torch_dataset"
-            or self.data_pipeline_fw == "torch_dataset_np_chunks"
-        ):
-            self._create_data_loaders_torch_dataset()
-
-        else:
-            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
-            logger.error(message)
-            raise ValueError(message)
-
         profilers = {
             "advanced": AdvancedProfiler(),
             "passthrough": PassThroughProfiler(),
@@ -868,6 +843,38 @@ class ModelTrainer:
             strategy=strategy,
             profiler=profiler,
         )
+
+        # save the configs as yaml in the checkpoint dir
+        if (
+            self.trainer.global_rank == 0
+        ):  # save config if there are no distributed process or the rank = 0
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
+
+        if self.data_pipeline_fw == "litdata":
+            self._create_data_loaders_litdata()
+
+        elif (
+            self.data_pipeline_fw == "torch_dataset"
+            or self.data_pipeline_fw == "torch_dataset_np_chunks"
+        ):
+            self._create_data_loaders_torch_dataset()
+
+        else:
+            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
+            logger.error(message)
+            raise ValueError(message)
+
+        if self.config.trainer_config.use_wandb:
+            if (
+                self.trainer.global_rank == 0
+            ):  # save config if there are no distributed process or the rank = 0
+                wandb_logger.experiment.config.update({"run_name": wandb_config.name})
+                wandb_logger.experiment.config.update(
+                    {"run_config": OmegaConf.to_container(self.config, resolve=True)}
+                )
+                wandb_logger.experiment.config.update({"model_params": total_params})
 
         try:
 
