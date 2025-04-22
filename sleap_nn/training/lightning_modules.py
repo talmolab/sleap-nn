@@ -1285,6 +1285,7 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
                 img_array = []
                 for d_num in self.config.dataset_mapper:
                     sample = next(iter(self.trainer.val_dataloaders[d_num]))
+                    gt_centroids = sample["centroids"]
                     sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
@@ -1298,7 +1299,7 @@ class CentroidMultiHeadModel(MultiHeadTrainingModel):
                         confmaps = (
                             output["pred_centroid_confmaps"][batch_idx].cpu().numpy()
                         )
-                        gt_centroids = sample["centroids"][batch_idx, 0].cpu().numpy()
+                        gt_centroids = gt_centroids[batch_idx, 0].cpu().numpy()
                         fig = plot_pred_confmaps_peaks(
                             img=img,
                             confmaps=confmaps,

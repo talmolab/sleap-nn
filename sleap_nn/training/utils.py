@@ -75,7 +75,7 @@ def plot_pred_confmaps_peaks(
             ax.plot(
                 instance[:, 0],
                 instance[:, 1],
-                "rx",
+                "go",
                 markersize=8,
                 markeredgewidth=2,
                 label="GT keypoints",
