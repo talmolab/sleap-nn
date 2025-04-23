@@ -28,7 +28,6 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     pafs_head = DictConfig({"sigma": 4, "output_stride": 4})
 
     dataset = BottomUpDataset(
-        data_config=base_bottom_config,
         max_stride=32,
         scale=1.0,
         confmap_head_config=confmap_head,
@@ -71,9 +70,9 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     )
 
     dataset = BottomUpDataset(
-        data_config=base_bottom_config,
         max_stride=32,
         scale=0.5,
+        is_rgb=True,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
@@ -143,7 +142,6 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     )
 
     dataset = BottomUpDataset(
-        data_config=base_bottom_config,
         max_stride=256,
         scale=1.0,
         confmap_head_config=confmap_head,
@@ -174,7 +172,6 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
 
     ## test with disk caching
     dataset = BottomUpDataset(
-        data_config=base_bottom_config,
         max_stride=32,
         scale=1.0,
         confmap_head_config=confmap_head,
@@ -226,7 +223,6 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
 
     ## save imgs
     dataset = CenteredInstanceDataset(
-        data_config=base_topdown_data_config,
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
@@ -260,7 +256,6 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     ## no saving imgs
 
     dataset = CenteredInstanceDataset(
-        data_config=base_topdown_data_config,
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
@@ -331,9 +326,9 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     )
 
     dataset = CenteredInstanceDataset(
-        data_config=base_topdown_data_config,
         max_stride=8,
         scale=1.0,
+        is_rgb=True,
         confmap_head_config=confmap_head,
         crop_hw=(100, 100),
         labels=sio.load_slp(minimal_instance),
@@ -404,7 +399,6 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     )
 
     dataset = CenteredInstanceDataset(
-        data_config=base_topdown_data_config,
         max_stride=16,
         scale=2.0,
         confmap_head_config=confmap_head,
@@ -453,8 +447,8 @@ def test_centroid_dataset(minimal_instance, tmp_path):
 
     ## save imgs
     dataset = CentroidDataset(
-        data_config=base_centroid_data_config,
         max_stride=32,
+        is_rgb=True,
         scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
@@ -485,8 +479,8 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     ## no saving imgs
 
     dataset = CentroidDataset(
-        data_config=base_centroid_data_config,
         max_stride=32,
+        is_rgb=True,
         scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
@@ -554,7 +548,6 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     )
 
     dataset = CentroidDataset(
-        data_config=base_centroid_data_config,
         max_stride=32,
         scale=1.0,
         confmap_head_config=confmap_head,
@@ -608,8 +601,8 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
 
     ## saving imgs
     dataset = SingleInstanceDataset(
-        data_config=base_singleinstance_data_config,
         max_stride=8,
+        is_rgb=True,
         scale=2.0,
         confmap_head_config=confmap_head,
         labels=labels,
@@ -640,8 +633,8 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     ## no saving imgs
 
     dataset = SingleInstanceDataset(
-        data_config=base_singleinstance_data_config,
         max_stride=8,
+        is_rgb=True,
         scale=2.0,
         confmap_head_config=confmap_head,
         labels=labels,
@@ -709,7 +702,6 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     )
 
     dataset = SingleInstanceDataset(
-        data_config=base_singleinstance_data_config,
         max_stride=8,
         scale=1.0,
         confmap_head_config=confmap_head,
@@ -759,8 +751,8 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
     dataset = SingleInstanceDataset(
-        data_config=base_singleinstance_data_config,
         max_stride=8,
+        is_rgb=True,
         scale=2.0,
         confmap_head_config=confmap_head,
         labels=labels,

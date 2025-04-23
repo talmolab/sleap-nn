@@ -325,10 +325,12 @@ class ModelTrainer:
         if self.model_type == "bottomup":
             self.train_dataset = BottomUpDataset(
                 labels=self.train_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
@@ -338,10 +340,12 @@ class ModelTrainer:
             )
             self.val_dataset = BottomUpDataset(
                 labels=self.val_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
@@ -353,9 +357,11 @@ class ModelTrainer:
         elif self.model_type == "centered_instance":
             self.train_dataset = CenteredInstanceDataset(
                 labels=self.train_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 crop_hw=(self.crop_hw, self.crop_hw),
@@ -366,9 +372,11 @@ class ModelTrainer:
             )
             self.val_dataset = CenteredInstanceDataset(
                 labels=self.val_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 crop_hw=(self.crop_hw, self.crop_hw),
@@ -381,9 +389,11 @@ class ModelTrainer:
         elif self.model_type == "centroid":
             self.train_dataset = CentroidDataset(
                 labels=self.train_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
@@ -393,9 +403,11 @@ class ModelTrainer:
             )
             self.val_dataset = CentroidDataset(
                 labels=self.val_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
@@ -407,9 +419,11 @@ class ModelTrainer:
         elif self.model_type == "single_instance":
             self.train_dataset = SingleInstanceDataset(
                 labels=self.train_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
@@ -419,9 +433,11 @@ class ModelTrainer:
             )
             self.val_dataset = SingleInstanceDataset(
                 labels=self.val_labels,
-                data_config=self.config.data_config,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),

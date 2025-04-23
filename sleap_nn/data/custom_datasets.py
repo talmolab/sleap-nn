@@ -36,9 +36,17 @@ class BaseDataset(Dataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
@@ -55,8 +63,10 @@ class BaseDataset(Dataset):
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
@@ -67,7 +77,9 @@ class BaseDataset(Dataset):
         """Initialize class attributes."""
         super().__init__()
         self.labels = labels
-        self.data_config = data_config
+        self.user_instances_only = user_instances_only
+        self.is_rgb = is_rgb
+        self.augmentation_config = augmentation_config
         self.curr_idx = 0
         self.max_stride = max_stride
         self.scale = scale
@@ -100,7 +112,7 @@ class BaseDataset(Dataset):
         lf_idx_list = []
         for lf_idx, lf in enumerate(self.labels):
             # Filter to user instances
-            if self.data_config.user_instances_only:
+            if self.user_instances_only:
                 if lf.user_instances is not None and len(lf.user_instances) > 0:
                     lf.instances = lf.user_instances
             is_empty = True
@@ -159,9 +171,17 @@ class BottomUpDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
@@ -183,10 +203,12 @@ class BottomUpDataset(BaseDataset):
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         confmap_head_config: DictConfig,
         pafs_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
@@ -197,8 +219,10 @@ class BottomUpDataset(BaseDataset):
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
@@ -233,13 +257,13 @@ class BottomUpDataset(BaseDataset):
             lf,
             video_idx=video_idx,
             max_instances=self.max_instances,
-            user_instances_only=self.data_config.user_instances_only,
+            user_instances_only=self.user_instances_only,
         )
 
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.data_config.preprocessing.is_rgb:
+        if self.is_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
         else:
             sample["image"] = convert_to_grayscale(sample["image"])
@@ -265,19 +289,19 @@ class BottomUpDataset(BaseDataset):
         )
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.intensity,
+                    **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.geometric,
+                    **self.augmentation_config.geometric,
                 )
 
         img_hw = sample["image"].shape[-2:]
@@ -313,9 +337,17 @@ class CenteredInstanceDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
@@ -336,10 +368,12 @@ class CenteredInstanceDataset(BaseDataset):
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         crop_hw: Tuple[int],
         confmap_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
@@ -350,8 +384,10 @@ class CenteredInstanceDataset(BaseDataset):
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
@@ -369,7 +405,7 @@ class CenteredInstanceDataset(BaseDataset):
         instance_idx_list = []
         for lf_idx, lf in enumerate(self.labels):
             # Filter to user instances
-            if self.data_config.user_instances_only:
+            if self.user_instances_only:
                 if lf.user_instances is not None and len(lf.user_instances) > 0:
                     lf.instances = lf.user_instances
             for inst_idx, inst in enumerate(lf.instances):
@@ -430,7 +466,7 @@ class CenteredInstanceDataset(BaseDataset):
         # apply normalization
         image = apply_normalization(image)
 
-        if self.data_config.preprocessing.is_rgb:
+        if self.is_rgb:
             image = convert_to_rgb(image)
         else:
             image = convert_to_grayscale(image)
@@ -470,22 +506,22 @@ class CenteredInstanceDataset(BaseDataset):
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["instance_image"], sample["instance"] = (
                     apply_intensity_augmentation(
                         sample["instance_image"],
                         sample["instance"],
-                        **self.data_config.augmentation_config.intensity,
+                        **self.augmentation_config.intensity,
                     )
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["instance_image"], sample["instance"] = (
                     apply_geometric_augmentation(
                         sample["instance_image"],
                         sample["instance"],
-                        **self.data_config.augmentation_config.geometric,
+                        **self.augmentation_config.geometric,
                     )
                 )
 
@@ -532,9 +568,17 @@ class CentroidDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
@@ -553,9 +597,11 @@ class CentroidDataset(BaseDataset):
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
@@ -566,8 +612,10 @@ class CentroidDataset(BaseDataset):
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
@@ -579,7 +627,6 @@ class CentroidDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
-
         lf_idx = self.lf_idx_list[index]
 
         lf = self.labels[lf_idx]
@@ -600,13 +647,13 @@ class CentroidDataset(BaseDataset):
             lf,
             video_idx=video_idx,
             max_instances=self.max_instances,
-            user_instances_only=self.data_config.user_instances_only,
+            user_instances_only=self.user_instances_only,
         )
 
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.data_config.preprocessing.is_rgb:
+        if self.is_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
         else:
             sample["image"] = convert_to_grayscale(sample["image"])
@@ -639,19 +686,19 @@ class CentroidDataset(BaseDataset):
         )
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["image"], sample["centroids"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["centroids"],
-                    **self.data_config.augmentation_config.intensity,
+                    **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["image"], sample["centroids"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["centroids"],
-                    **self.data_config.augmentation_config.geometric,
+                    **self.augmentation_config.geometric,
                 )
 
         img_hw = sample["image"].shape[-2:]
@@ -676,9 +723,17 @@ class SingleInstanceDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
@@ -697,9 +752,11 @@ class SingleInstanceDataset(BaseDataset):
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
@@ -710,8 +767,10 @@ class SingleInstanceDataset(BaseDataset):
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
@@ -743,13 +802,13 @@ class SingleInstanceDataset(BaseDataset):
             lf,
             video_idx=video_idx,
             max_instances=self.max_instances,
-            user_instances_only=self.data_config.user_instances_only,
+            user_instances_only=self.user_instances_only,
         )
 
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.data_config.preprocessing.is_rgb:
+        if self.is_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
         else:
             sample["image"] = convert_to_grayscale(sample["image"])
@@ -775,19 +834,19 @@ class SingleInstanceDataset(BaseDataset):
         )
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.intensity,
+                    **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.geometric,
+                    **self.augmentation_config.geometric,
                 )
 
         img_hw = sample["image"].shape[-2:]
