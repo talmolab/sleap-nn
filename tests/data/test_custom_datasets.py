@@ -76,8 +76,10 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
+        cache_img="memory",
         apply_aug=base_bottom_config.use_augmentations_train,
     )
+    dataset._fill_cache()
 
     gt_sample_keys = [
         "image",
@@ -178,7 +180,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
         apply_aug=base_bottom_config.use_augmentations_train,
-        cache_img=True,
+        cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
     dataset._fill_cache()
@@ -229,7 +231,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         crop_hw=crop_hw,
         labels=sio.load_slp(minimal_instance),
         apply_aug=base_topdown_data_config.use_augmentations_train,
-        cache_img=True,
+        cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
     dataset._fill_cache()
@@ -253,7 +255,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     assert sample["instance_image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
 
-    ## no saving imgs
+    ## memory caching
 
     dataset = CenteredInstanceDataset(
         max_stride=16,
@@ -261,8 +263,10 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         crop_hw=crop_hw,
         labels=sio.load_slp(minimal_instance),
+        cache_img="memory",
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
+    dataset._fill_cache()
 
     gt_sample_keys = [
         "centroid",
@@ -453,7 +457,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=sio.load_slp(minimal_instance),
-        cache_img=True,
+        cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
     dataset._fill_cache()
@@ -483,9 +487,11 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         is_rgb=True,
         scale=1.0,
         confmap_head_config=confmap_head,
+        cache_img="memory",
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=sio.load_slp(minimal_instance),
     )
+    dataset._fill_cache()
 
     gt_sample_keys = [
         "image",
@@ -607,7 +613,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
-        cache_img=True,
+        cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
     dataset._fill_cache()
@@ -638,8 +644,10 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         scale=2.0,
         confmap_head_config=confmap_head,
         labels=labels,
+        cache_img="memory",
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
     )
+    dataset._fill_cache()
 
     sample = next(iter(dataset))
     assert len(dataset) == 1
@@ -757,7 +765,7 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
-        cache_img=False,
+        cache_img=None,
     )
 
     assert len(list(iter(dataset))) == 1

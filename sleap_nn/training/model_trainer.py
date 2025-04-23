@@ -140,7 +140,8 @@ class ModelTrainer:
 
         elif (
             self.data_pipeline_fw == "torch_dataset"
-            or self.data_pipeline_fw == "torch_dataset_cache_img"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_memory"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_disk"
         ):
             self.train_dataset = None
             self.val_dataset = None
@@ -150,7 +151,11 @@ class ModelTrainer:
                 else Path(self.dir_path)
             )
             # Get cache img path
-            self.cache_img = True if "cache_img" in self.data_pipeline_fw else False
+            self.cache_img = (
+                self.data_pipeline_fw.split("_")[-1]
+                if "cache_img" in self.data_pipeline_fw
+                else None
+            )
             self.train_cache_img_path = Path(self.cache_img_path) / "train_imgs"
             self.val_cache_img_path = Path(self.cache_img_path) / "val_imgs"
             if self.use_existing_imgs:
@@ -292,7 +297,7 @@ class ModelTrainer:
 
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
-        if self.data_pipeline_fw == "torch_dataset":
+        if self.data_pipeline_fw == "torch_dataset_cache_img_memory":
             train_cache_memory = check_memory(
                 self.train_labels,
                 max_hw=(self.max_height, self.max_width),
@@ -314,8 +319,8 @@ class ModelTrainer:
             )  # available memory in bytes
 
             if total_cache_memory > available_memory:
-                self.data_pipeline_fw = "torch_dataset_cache_img"
-                self.cache_img = True
+                self.data_pipeline_fw = "torch_dataset_cache_img_disk"
+                self.cache_img = "disk"
                 self.train_torch_dataset_cache_img = Path("./train_imgs")
                 self.val_torch_dataset_cache_img = Path("./train_imgs")
                 logger.info(
@@ -829,22 +834,13 @@ class ModelTrainer:
 
         elif (
             self.data_pipeline_fw == "torch_dataset"
-            or self.data_pipeline_fw == "torch_dataset_cache_img"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_memory"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_disk"
         ):
             self._create_data_loaders_torch_dataset()
-            if not self.use_existing_imgs:
-                if (
-                    self.trainer.global_rank == 0
-                ):  # fill cache if there are no distributed process or the rank = 0
-                    self.train_dataset._fill_cache()
-                    self.val_dataset._fill_cache()
-                if (
-                    is_distributed_initialized()
-                ):  # if rank!=0 and distributed processes are initialized
-                    dist.barrier()
 
         else:
-            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
+            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata`, `torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`"
             logger.error(message)
             raise ValueError(message)
 
@@ -881,7 +877,7 @@ class ModelTrainer:
             )
 
             if (
-                self.data_pipeline_fw == "torch_dataset_cache_img"
+                self.data_pipeline_fw == "torch_dataset_cache_img_disk"
                 and self.config.data_config.delete_cache_imgs_after_training
             ):
                 if (self.train_cache_img_path).exists():

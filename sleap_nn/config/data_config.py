@@ -149,19 +149,19 @@ class DataConfig:
     user_instances_only: (bool) True if only user labeled instances should be used for
         training. If False, both user labeled and predicted instances would be used. Default: True.
     data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`,
-            `torch_dataset_cache_img`]. Default: "torch_dataset".
-        cache_img_path_path: Path to save `.jpg` images created with `torch_dataset_cache_img` data pipeline
-            framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_imgs` and `val_imgs` dirs are created inside this path. Default: None.
-        litdata_chunks_path: Path to save `.bin` files created with `litdata` data pipeline
-            framework. If `None`, the path provided in `trainer_config.save_ckpt` is used
-            (else working dir is used). The `train_chunks` and `val_chunks` dirs are created
-            inside this path. Default: None.
-        use_existing_imgs: Use existing train and val images/ chunks in the `cache_img_path` or
-            `litdata_chunks_path` for `torch_dataset_cache_img` or `litdata` frameworks. If `True`, the `cache_img_path` (or `litdata_chunks_path`) should have `train_imgs` and `val_imgs` dirs.
-            Default: False.
-        chunk_size: Size of each chunk (in MB). Default: 100.
-        delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img or litdata chunks) are
-            retained after training. Else, the files are deleted. Default: True.
+            `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`]. Default: "torch_dataset".
+    cache_img_path: Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline
+        framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_imgs` and `val_imgs` dirs are created inside this path. Default: None.
+    litdata_chunks_path: Path to save `.bin` files created with `litdata` data pipeline
+        framework. If `None`, the path provided in `trainer_config.save_ckpt` is used
+        (else working dir is used). The `train_chunks` and `val_chunks` dirs are created
+        inside this path. Default: None.
+    use_existing_imgs: Use existing train and val images/ chunks in the `cache_img_path` or
+        `litdata_chunks_path` for `torch_dataset_cache_img_disk` or `litdata` frameworks. If `True`, the `cache_img_path` (or `litdata_chunks_path`) should have `train_imgs` and `val_imgs` dirs.
+        Default: False.
+    chunk_size: Size of each chunk (in MB). Default: 100.
+    delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
+        retained after training. Else, the files are deleted. Default: True.
     preprocessing: Configuration options related to data preprocessing.
     use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
     augmentation_config: Configurations related to augmentation.
