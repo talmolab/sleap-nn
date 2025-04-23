@@ -148,20 +148,20 @@ class DataConfig:
         supported for the training pipeline.
     user_instances_only: (bool) True if only user labeled instances should be used for
         training. If False, both user labeled and predicted instances would be used. Default: True.
-    data_pipeline_fw: (str) Framework to create the data loaders.
-        One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`].
-    np_chunks_path: (str) Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework.
-        If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used).
-        The `train_chunks` and `val_chunks` dirs are created inside this path.
-    litdata_chunks_path: (str) Path to save `.bin` files created with `litdata` data pipeline framework.
-        If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used).
-        The `train_chunks` and `val_chunks` dirs are created inside this path.
-    use_existing_chunks: (bool) Use existing train and val chunks in the `np_chunks_path`
-        or `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks.
-        If `True`, the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs.
-    chunk_size: (int) Size of each chunk (in MB). Default: 100.  # Your list shows "100" in quotes.
-    delete_chunks_after_training: (bool) If `False`, the chunks (numpy or litdata chunks)
-        are retained after training. Else, the chunks are deleted.
+    data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`,
+            `torch_dataset_cache_img`]. Default: "torch_dataset".
+        cache_img_path_path: Path to save `.jpg` images created with `torch_dataset_cache_img` data pipeline
+            framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_imgs` and `val_imgs` dirs are created inside this path. Default: None.
+        litdata_chunks_path: Path to save `.bin` files created with `litdata` data pipeline
+            framework. If `None`, the path provided in `trainer_config.save_ckpt` is used
+            (else working dir is used). The `train_chunks` and `val_chunks` dirs are created
+            inside this path. Default: None.
+        use_existing_imgs: Use existing train and val images/ chunks in the `cache_img_path` or
+            `litdata_chunks_path` for `torch_dataset_cache_img` or `litdata` frameworks. If `True`, the `cache_img_path` (or `litdata_chunks_path`) should have `train_imgs` and `val_imgs` dirs.
+            Default: False.
+        chunk_size: Size of each chunk (in MB). Default: 100.
+        delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img or litdata chunks) are
+            retained after training. Else, the files are deleted. Default: True.
     preprocessing: Configuration options related to data preprocessing.
     use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False.
     augmentation_config: Configurations related to augmentation.
@@ -176,11 +176,11 @@ class DataConfig:
     provider: str = "LabelsReader"
     user_instances_only: bool = True
     data_pipeline_fw: str = "torch_dataset"
-    np_chunks_path: Optional[str] = None
+    cache_img_path: Optional[str] = None
     litdata_chunks_path: Optional[str] = None
-    use_existing_chunks: bool = False
+    use_existing_imgs: bool = False
     chunk_size: int = 100
-    delete_chunks_after_training: bool = True
+    delete_cache_imgs_after_training: bool = True
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None

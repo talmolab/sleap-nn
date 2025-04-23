@@ -2,6 +2,7 @@
 
 import torch
 import numpy as np
+from PIL import Image
 import pytest
 from omegaconf import OmegaConf
 import lightning as L
@@ -56,18 +57,20 @@ def test_create_data_loader_torch_dataset(caplog, config, tmp_path):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    # with np chunks
+    # with saving imgs
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(
-        config_copy, "data_config.data_pipeline_fw", "torch_dataset_np_chunks"
+        config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img"
     )
     OmegaConf.update(
-        config_copy, "data_config.np_chunks_path", f"{tmp_path}/np_chunks/"
+        config_copy, "data_config.cache_img_path", f"{tmp_path}/cache_imgs/"
     )
     model_trainer = ModelTrainer(config_copy)
     model_trainer._create_data_loaders_torch_dataset()
+    model_trainer.train_dataset._fill_cache()
+    model_trainer.val_dataset._fill_cache()
     assert len(list(iter(model_trainer.train_dataset))) == 2
     assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
@@ -362,28 +365,30 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
         model_trainer.train()
     assert f"simple_torch is not a valid option" in caplog.text
 
-    ##### test for reusing np chunks path
+    ##### test for reusing imgs path
     OmegaConf.update(config, "trainer_config.profiler", "simple")
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
-    OmegaConf.update(config, "data_config.np_chunks_path", tmp_path)
-    OmegaConf.update(config, "data_config.use_existing_chunks", True)
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
+    OmegaConf.update(config, "data_config.cache_img_path", tmp_path)
+    OmegaConf.update(config, "data_config.use_existing_imgs", True)
     with pytest.raises(Exception):
         model_trainer = ModelTrainer(
             config,
         )
-    assert "There are no numpy chunks in the path" in caplog.text
+    assert "There are no images in the path" in caplog.text
 
-    Path.mkdir(Path(tmp_path) / "train_chunks", parents=True)
-    file_path = Path(tmp_path) / "train_chunks" / "sample.npz"
-    np.savez_compressed(file_path, {1: 10})
+    Path.mkdir(Path(tmp_path) / "train_imgs", parents=True)
+    file_path = Path(tmp_path) / "train_imgs" / "sample.jpg"
+    Image.fromarray(
+        np.random.randint(low=0, high=255, size=(100, 100)).astype(np.uint8)
+    ).save(file_path, format="JPEG")
 
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
-    OmegaConf.update(config, "data_config.np_chunks_path", tmp_path)
-    OmegaConf.update(config, "data_config.use_existing_chunks", True)
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
+    OmegaConf.update(config, "data_config.cache_img_path", tmp_path)
+    OmegaConf.update(config, "data_config.use_existing_imgs", True)
 
     with pytest.raises(Exception):
         model_trainer = ModelTrainer(config)
-    assert "There are no numpy chunks in the path" in caplog.text
+    assert "There are no images in the path" in caplog.text
 
     #####
 
@@ -393,9 +398,9 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
         "trainer_config.save_ckpt_path",
         f"{tmp_path}/test_trainer_torch_dataset/",
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
-    OmegaConf.update(config, "data_config.np_chunks_path", f"{tmp_path}/np_chunks/")
-    OmegaConf.update(config, "data_config.use_existing_chunks", False)
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
+    OmegaConf.update(config, "data_config.cache_img_path", f"{tmp_path}/cache_imgs/")
+    OmegaConf.update(config, "data_config.use_existing_imgs", False)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -738,7 +743,9 @@ def test_reuse_bin_files(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
-    OmegaConf.update(centroid_config, "data_config.delete_chunks_after_training", False)
+    OmegaConf.update(
+        centroid_config, "data_config.delete_cache_imgs_after_training", False
+    )
     OmegaConf.update(
         centroid_config,
         "data_config.litdata_chunks_path",
@@ -751,12 +758,12 @@ def test_reuse_bin_files(config, tmp_path: str):
 
     OmegaConf.update(
         centroid_config,
-        "data_config.chunks_dir_path",
+        "data_config.litdata_chunks_path",
         (trainer1.train_litdata_chunks_path).split("train_chunks")[0],
     )
     OmegaConf.update(
         centroid_config,
-        "data_config.use_existing_chunks",
+        "data_config.use_existing_imgs",
         True,
     )
     trainer2 = ModelTrainer(centroid_config)
@@ -772,7 +779,7 @@ def test_reuse_bin_files(config, tmp_path: str):
 def test_reuse_npz_files(config, tmp_path: str):
     """Test reusing `.npz` files."""
     # Centroid model
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
     centroid_config = config.copy()
     head_config = config.model_config.head_configs.centered_instance
     OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
@@ -807,11 +814,13 @@ def test_reuse_npz_files(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
     OmegaConf.update(centroid_config, "trainer_config.profiler", "simple")
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
-    OmegaConf.update(centroid_config, "data_config.delete_chunks_after_training", False)
+    OmegaConf.update(
+        centroid_config, "data_config.delete_cache_imgs_after_training", False
+    )
     OmegaConf.update(
         centroid_config,
-        "data_config.np_chunks_path",
-        Path(tmp_path) / "new_chunks",
+        "data_config.cache_img_path",
+        Path(tmp_path) / "new_imags",
     )
 
     # test reusing bin files
@@ -820,12 +829,12 @@ def test_reuse_npz_files(config, tmp_path: str):
 
     OmegaConf.update(
         centroid_config,
-        "data_config.np_chunks_path",
-        (trainer1.np_chunks_path.as_posix()),
+        "data_config.cache_img_path",
+        (trainer1.cache_img_path.as_posix()),
     )
     OmegaConf.update(
         centroid_config,
-        "data_config.use_existing_chunks",
+        "data_config.use_existing_imgs",
         True,
     )
     trainer2 = ModelTrainer(centroid_config)

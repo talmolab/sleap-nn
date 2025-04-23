@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import torch
 from torch.utils.data import DataLoader
+import torch.distributed as dist
 import sleap_io as sio
 from omegaconf import DictConfig, OmegaConf
 import lightning as L
@@ -101,7 +102,7 @@ class ModelTrainer:
         """Initialise the class with configs and set the seed and device as class attributes."""
         self.config = verify_training_cfg(config)
         self.data_pipeline_fw = self.config.data_config.data_pipeline_fw
-        self.use_existing_chunks = self.config.data_config.use_existing_chunks
+        self.use_existing_imgs = self.config.data_config.use_existing_imgs
         self.user_instances_only = OmegaConf.select(
             self.config, "data_config.user_instances_only", default=True
         )
@@ -139,35 +140,39 @@ class ModelTrainer:
 
         elif (
             self.data_pipeline_fw == "torch_dataset"
-            or self.data_pipeline_fw == "torch_dataset_np_chunks"
+            or self.data_pipeline_fw == "torch_dataset_cache_img"
         ):
             self.train_dataset = None
             self.val_dataset = None
-            self.np_chunks_path = (
-                Path(self.config.data_config.np_chunks_path)
-                if self.config.data_config.np_chunks_path is not None
+            self.cache_img_path = (
+                Path(self.config.data_config.cache_img_path)
+                if self.config.data_config.cache_img_path is not None
                 else Path(self.dir_path)
             )
-            # Get np chunks path
-            self.np_chunks = True if "np_chunks" in self.data_pipeline_fw else False
-            self.train_np_chunks_path = Path(self.np_chunks_path) / "train_chunks"
-            self.val_np_chunks_path = Path(self.np_chunks_path) / "val_chunks"
-            if self.use_existing_chunks:
+            # Get cache img path
+            self.cache_img = True if "cache_img" in self.data_pipeline_fw else False
+            self.train_cache_img_path = Path(self.cache_img_path) / "train_imgs"
+            self.val_cache_img_path = Path(self.cache_img_path) / "val_imgs"
+            if self.use_existing_imgs:
                 if not (
-                    self.train_np_chunks_path.exists()
-                    and self.train_np_chunks_path.is_dir()
-                    and any(self.train_np_chunks_path.glob("*.npz"))
+                    self.train_cache_img_path.exists()
+                    and self.train_cache_img_path.is_dir()
+                    and any(self.train_cache_img_path.glob("*.jpg"))
                 ):
-                    message = f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
+                    message = (
+                        f"There are no images in the path: {self.train_cache_img_path}"
+                    )
                     logger.error(message)
                     raise Exception(message)
 
                 if not (
-                    self.val_np_chunks_path.exists()
-                    and self.val_np_chunks_path.is_dir()
-                    and any(self.val_np_chunks_path.glob("*.npz"))
+                    self.val_cache_img_path.exists()
+                    and self.val_cache_img_path.is_dir()
+                    and any(self.val_cache_img_path.glob("*.jpg"))
                 ):
-                    message = f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
+                    message = (
+                        f"There are no images in the path: {self.val_cache_img_path}"
+                    )
                     logger.error(message)
                     raise Exception(message)
 
@@ -176,6 +181,7 @@ class ModelTrainer:
 
         # initialize attributes
         self.model = None
+        self.train_labels, self.val_labels = None, None
 
         self.train_data_loader = None
         self.val_data_loader = None
@@ -210,134 +216,92 @@ class ModelTrainer:
         if self.config.data_config.preprocessing.scale is None:
             self.config.data_config.preprocessing.scale = 1.0
 
-        if self.use_existing_chunks:  # load preprocessing params
-            if self.data_pipeline_fw == "litdata":
-                config_path = Path(self.litdata_chunks_path) / "config.yaml"
-            elif self.data_pipeline_fw == "torch_dataset_np_chunks":
-                config_path = Path(self.np_chunks_path) / "config.yaml"
-            chunks_config = OmegaConf.load(config_path.as_posix())
-            self.skeletons = get_skeleton_from_config(
-                chunks_config.data_config.skeletons
-            )
-            self.edge_inds = self.skeletons[0].edge_inds
-            self.max_height, self.max_width = (
-                chunks_config.data_config.preprocessing.max_height,
-                chunks_config.data_config.preprocessing.max_width,
-            )
-            self.crop_hw = chunks_config.data_config.preprocessing.crop_hw[0]
+        self.train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        self.val_labels = sio.load_slp(self.config.data_config.val_labels_path)
 
-        else:
-            train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-
-            self.max_height, self.max_width = get_max_height_width(train_labels)
-            if (
-                self.config.data_config.preprocessing.max_height is None
-                and self.config.data_config.preprocessing.max_width is None
-            ):
-                self.config.data_config.preprocessing.max_height = self.max_height
-                self.config.data_config.preprocessing.max_width = self.max_width
-
-            if self.model_type == "centered_instance":
-                # compute crop size
-                self.crop_hw = self.config.data_config.preprocessing.crop_hw
-                if self.crop_hw is None:
-
-                    min_crop_size = (
-                        self.config.data_config.preprocessing.min_crop_size
-                        if "min_crop_size" in self.config.data_config.preprocessing
-                        else None
-                    )
-                    crop_size = find_instance_crop_size(
-                        train_labels,
-                        maximum_stride=self.max_stride,
-                        min_crop_size=min_crop_size,
-                        input_scaling=self.config.data_config.preprocessing.scale,
-                    )
-                    self.crop_hw = crop_size
-                    self.config.data_config.preprocessing.crop_hw = (
-                        self.crop_hw,
-                        self.crop_hw,
-                    )
-                else:
-                    self.crop_hw = self.crop_hw[0]
-
-            self.skeletons = train_labels.skeletons
-            # save the skeleton in the config
-            self.config["data_config"]["skeletons"] = {}
-            for skl in self.skeletons:
-                if skl.symmetries:
-                    symm = [list(s.nodes) for s in skl.symmetries]
-                else:
-                    symm = None
-                skl_name = skl.name if skl.name is not None else "skeleton-0"
-                self.config["data_config"]["skeletons"][skl_name] = {
-                    "nodes": skl.nodes,
-                    "edges": skl.edges,
-                    "symmetries": symm,
-                }
-
-            # if edges and part names aren't set in config, get it from `sio.Labels` object.
-            head_config = self.config.model_config.head_configs[self.model_type]
-            for key in head_config:
-                if "part_names" in head_config[key].keys():
-                    if head_config[key]["part_names"] is None:
-                        part_names = [x.name for x in self.skeletons[0].nodes]
-                        self.config.model_config.head_configs[self.model_type][key][
-                            "part_names"
-                        ] = part_names
-
-                if "edges" in head_config[key].keys():
-                    if head_config[key]["edges"] is None:
-                        edges = [
-                            (x.source.name, x.destination.name)
-                            for x in self.skeletons[0].edges
-                        ]
-                        self.config.model_config.head_configs[self.model_type][key][
-                            "edges"
-                        ] = edges
-
-            self.edge_inds = train_labels.skeletons[0].edge_inds
-
+        self.max_height, self.max_width = get_max_height_width(self.train_labels)
         if (
-            rank is None or rank == 0
-        ):  # save config if there are no distributed process or the rank = 0
-            OmegaConf.save(
-                config=self.config, f=f"{self.dir_path}/training_config.yaml"
-            )
+            self.config.data_config.preprocessing.max_height is None
+            and self.config.data_config.preprocessing.max_width is None
+        ):
+            self.config.data_config.preprocessing.max_height = self.max_height
+            self.config.data_config.preprocessing.max_width = self.max_width
 
-        # save config to chunks folder
-        if not self.use_existing_chunks and self.data_pipeline_fw in [
-            "litdata",
-            "torch_dataset_np_chunks",
-        ]:
-            if self.data_pipeline_fw == "litdata":
-                save_path = Path(self.litdata_chunks_path) / "config.yaml"
-            elif self.data_pipeline_fw == "torch_dataset_np_chunks":
-                save_path = Path(self.np_chunks_path) / "config.yaml"
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            if (
-                rank is None or rank == 0
-            ):  # save config if there are no distributed process or the rank = 0
-                OmegaConf.save(config=self.config, f=save_path.as_posix())
+        if self.model_type == "centered_instance":
+            # compute crop size
+            self.crop_hw = self.config.data_config.preprocessing.crop_hw
+            if self.crop_hw is None:
+
+                min_crop_size = (
+                    self.config.data_config.preprocessing.min_crop_size
+                    if "min_crop_size" in self.config.data_config.preprocessing
+                    else None
+                )
+                crop_size = find_instance_crop_size(
+                    self.train_labels,
+                    maximum_stride=self.max_stride,
+                    min_crop_size=min_crop_size,
+                    input_scaling=self.config.data_config.preprocessing.scale,
+                )
+                self.crop_hw = crop_size
+                self.config.data_config.preprocessing.crop_hw = (
+                    self.crop_hw,
+                    self.crop_hw,
+                )
+            else:
+                self.crop_hw = self.crop_hw[0]
+
+        self.skeletons = self.train_labels.skeletons
+        # save the skeleton in the config
+        self.config["data_config"]["skeletons"] = {}
+        for skl in self.skeletons:
+            if skl.symmetries:
+                symm = [list(s.nodes) for s in skl.symmetries]
+            else:
+                symm = None
+            skl_name = skl.name if skl.name is not None else "skeleton-0"
+            self.config["data_config"]["skeletons"][skl_name] = {
+                "nodes": skl.nodes,
+                "edges": skl.edges,
+                "symmetries": symm,
+            }
+
+        # if edges and part names aren't set in config, get it from `sio.Labels` object.
+        head_config = self.config.model_config.head_configs[self.model_type]
+        for key in head_config:
+            if "part_names" in head_config[key].keys():
+                if head_config[key]["part_names"] is None:
+                    part_names = [x.name for x in self.skeletons[0].nodes]
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "part_names"
+                    ] = part_names
+
+            if "edges" in head_config[key].keys():
+                if head_config[key]["edges"] is None:
+                    edges = [
+                        (x.source.name, x.destination.name)
+                        for x in self.skeletons[0].edges
+                    ]
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "edges"
+                    ] = edges
+
+        self.edge_inds = self.train_labels.skeletons[0].edge_inds
+
+        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
-        if self.use_existing_chunks:
-            train_labels, val_labels = None, None
-        else:
-            train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-            val_labels = sio.load_slp(self.config.data_config.val_labels_path)
-
         if self.data_pipeline_fw == "torch_dataset":
             train_cache_memory = check_memory(
-                train_labels,
+                self.train_labels,
                 max_hw=(self.max_height, self.max_width),
                 model_type=self.model_type,
                 input_scaling=self.config.data_config.preprocessing.scale,
                 crop_size=self.crop_hw if self.crop_hw != -1 else None,
             )
             val_cache_memory = check_memory(
-                val_labels,
+                self.val_labels,
                 max_hw=(self.max_height, self.max_width),
                 model_type=self.model_type,
                 input_scaling=self.config.data_config.preprocessing.scale,
@@ -350,128 +314,136 @@ class ModelTrainer:
             )  # available memory in bytes
 
             if total_cache_memory > available_memory:
-                self.data_pipeline_fw = "torch_dataset_np_chunks"
-                self.np_chunks = True
-                self.train_np_chunks_path = Path("./train_chunks")
-                self.val_np_chunks_path = Path("./val_chunks")
+                self.data_pipeline_fw = "torch_dataset_cache_img"
+                self.cache_img = True
+                self.train_torch_dataset_cache_img = Path("./train_imgs")
+                self.val_torch_dataset_cache_img = Path("./train_imgs")
                 logger.info(
-                    f"Insufficient memory for in-memory caching. `npz` files will be created."
+                    f"Insufficient memory for in-memory caching. `jpg` files will be created."
                 )
 
         if self.model_type == "bottomup":
             self.train_dataset = BottomUpDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
             self.val_dataset = BottomUpDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
 
         elif self.model_type == "centered_instance":
             self.train_dataset = CenteredInstanceDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
             self.val_dataset = CenteredInstanceDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
 
         elif self.model_type == "centroid":
             self.train_dataset = CentroidDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
             self.val_dataset = CentroidDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
 
         elif self.model_type == "single_instance":
             self.train_dataset = SingleInstanceDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
             self.val_dataset = SingleInstanceDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
-                rank=self.trainer.global_rank if self.trainer else None,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
             )
 
         else:
@@ -588,7 +560,7 @@ class ModelTrainer:
             logger.info("Standard Output:\n", stdout)
             logger.info("Standard Error:\n", stderr)
 
-        if not self.use_existing_chunks:
+        if not self.use_existing_imgs:
             try:
                 run_subprocess()
 
@@ -857,9 +829,19 @@ class ModelTrainer:
 
         elif (
             self.data_pipeline_fw == "torch_dataset"
-            or self.data_pipeline_fw == "torch_dataset_np_chunks"
+            or self.data_pipeline_fw == "torch_dataset_cache_img"
         ):
             self._create_data_loaders_torch_dataset()
+            if not self.use_existing_imgs:
+                if (
+                    self.trainer.global_rank == 0
+                ):  # fill cache if there are no distributed process or the rank = 0
+                    self.train_dataset._fill_cache()
+                    self.val_dataset._fill_cache()
+                if (
+                    is_distributed_initialized()
+                ):  # if rank!=0 and distributed processes are initialized
+                    dist.barrier()
 
         else:
             message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
@@ -899,25 +881,25 @@ class ModelTrainer:
             )
 
             if (
-                self.data_pipeline_fw == "torch_dataset_np_chunks"
-                and self.config.data_config.delete_chunks_after_training
+                self.data_pipeline_fw == "torch_dataset_cache_img"
+                and self.config.data_config.delete_cache_imgs_after_training
             ):
-                if (self.train_np_chunks_path).exists():
+                if (self.train_cache_img_path).exists():
                     shutil.rmtree(
-                        (self.train_np_chunks_path).as_posix(),
+                        (self.train_cache_img_path).as_posix(),
                         ignore_errors=True,
                     )
 
-                if (self.val_np_chunks_path).exists():
+                if (self.val_cache_img_path).exists():
                     shutil.rmtree(
-                        (self.val_np_chunks_path).as_posix(),
+                        (self.val_cache_img_path).as_posix(),
                         ignore_errors=True,
                     )
 
             # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
             if (
                 self.data_pipeline_fw == "litdata"
-                and self.config.data_config.delete_chunks_after_training
+                and self.config.data_config.delete_cache_imgs_after_training
             ):
                 logger.info("Deleting training and validation files...")
                 if (Path(self.train_litdata_chunks_path)).exists():

@@ -16,10 +16,10 @@ def sample_cfg(minimal_instance, tmp_path):
                 "val_labels_path": f"{minimal_instance}",
                 "user_instances_only": True,
                 "data_pipeline_fw": "torch_dataset",
-                "np_chunks_path": None,
+                "cache_img_path": None,
                 "litdata_chunks_path": None,
-                "use_existing_chunks": False,
-                "delete_chunks_after_training": True,
+                "use_existing_imgs": False,
+                "delete_cache_imgs_after_training": True,
                 "chunk_size": 100,
                 "preprocessing": {
                     "is_rgb": False,
