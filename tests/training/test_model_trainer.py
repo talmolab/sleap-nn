@@ -48,10 +48,27 @@ def test_create_data_loader_torch_dataset(caplog, config, tmp_path):
     # without explicitly providing crop_hw
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "trainer_config.train_data_loader.num_workers", 0)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(config_copy, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer(config_copy)
     model_trainer._create_data_loaders_torch_dataset()
+    assert len(list(iter(model_trainer.train_dataset))) == 2
+    assert len(list(iter(model_trainer.val_dataset))) == 2
+    sample = next(iter(model_trainer.train_data_loader))
+    assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
+
+    # memory caching
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(
+        config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
+    model_trainer = ModelTrainer(config_copy)
+    model_trainer._create_data_loaders_torch_dataset()
+    model_trainer.train_dataset._fill_cache()
+    model_trainer.val_dataset._fill_cache()
     assert len(list(iter(model_trainer.train_dataset))) == 2
     assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
@@ -62,7 +79,7 @@ def test_create_data_loader_torch_dataset(caplog, config, tmp_path):
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(
-        config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img"
+        config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
     )
     OmegaConf.update(
         config_copy, "data_config.cache_img_path", f"{tmp_path}/cache_imgs/"
@@ -351,7 +368,9 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_trainer_torch_dataset(caplog, config, tmp_path: str):
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     model_trainer = ModelTrainer(config)
     assert model_trainer.dir_path == "."
@@ -367,7 +386,9 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
 
     ##### test for reusing imgs path
     OmegaConf.update(config, "trainer_config.profiler", "simple")
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
     OmegaConf.update(config, "data_config.cache_img_path", tmp_path)
     OmegaConf.update(config, "data_config.use_existing_imgs", True)
     with pytest.raises(Exception):
@@ -382,7 +403,9 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
         np.random.randint(low=0, high=255, size=(100, 100)).astype(np.uint8)
     ).save(file_path, format="JPEG")
 
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
     OmegaConf.update(config, "data_config.cache_img_path", tmp_path)
     OmegaConf.update(config, "data_config.use_existing_imgs", True)
 
@@ -398,7 +421,9 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
         "trainer_config.save_ckpt_path",
         f"{tmp_path}/test_trainer_torch_dataset/",
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
     OmegaConf.update(config, "data_config.cache_img_path", f"{tmp_path}/cache_imgs/")
     OmegaConf.update(config, "data_config.use_existing_imgs", False)
 
@@ -779,7 +804,9 @@ def test_reuse_bin_files(config, tmp_path: str):
 def test_reuse_npz_files(config, tmp_path: str):
     """Test reusing `.npz` files."""
     # Centroid model
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
     centroid_config = config.copy()
     head_config = config.model_config.head_configs.centered_instance
     OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)

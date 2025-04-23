@@ -3,6 +3,7 @@
 from kornia.geometry.transform import crop_and_resize
 from itertools import cycle
 from pathlib import Path
+import torch.distributed as dist
 from typing import Dict, Iterator, List, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
@@ -54,10 +55,12 @@ class BaseDataset(Dataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        cache_img: If `True`, `.jpg` files are generated and images are loaded from
-            these files during training. Else, in-memory caching is used.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
@@ -70,9 +73,10 @@ class BaseDataset(Dataset):
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        cache_img: bool = False,
+        cache_img: Optional[str] = None,
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
@@ -85,27 +89,32 @@ class BaseDataset(Dataset):
         self.scale = scale
         self.apply_aug = apply_aug
         self.max_hw = max_hw
+        self.rank = rank
         self.max_instances = get_max_instances(self.labels) if self.labels else None
         self.lf_idx_list = self._get_lf_idx_list() if self.labels else None
         self.cache_img = cache_img
         self.cache_img_path = cache_img_path
         self.use_existing_imgs = use_existing_imgs
-        if self.cache_img_path is None:
-            self.cache_img_path = "."
-        path = (
-            Path(self.cache_img_path)
-            if isinstance(self.cache_img_path, str)
-            else self.cache_img_path
-        )
-        if not path.is_dir():
-            path.mkdir(parents=True, exist_ok=True)
+        if self.cache_img is not None and "disk" in self.cache_img:
+            if self.cache_img_path is None:
+                self.cache_img_path = "."
+            path = (
+                Path(self.cache_img_path)
+                if isinstance(self.cache_img_path, str)
+                else self.cache_img_path
+            )
+            if not path.is_dir():
+                path.mkdir(parents=True, exist_ok=True)
 
         self.transform_to_pil = T.ToPILImage()
         self.transform_pil_to_tensor = T.ToTensor()
         self.cache = {}
 
-        if not self.cache_img:
-            self._fill_cache()
+        if self.cache_img is not None:
+            if self.rank is None or self.rank == 0:
+                self._fill_cache()
+            if is_distributed_initialized():
+                dist.barrier()
 
     def _get_lf_idx_list(self) -> List[Tuple[int]]:
         """Return list of indices of labelled frames."""
@@ -142,10 +151,10 @@ class BaseDataset(Dataset):
             img = self.labels[lf_idx].image
             if img.shape[-1] == 1:
                 img = np.squeeze(img)
-            if self.cache_img:
+            if self.cache_img == "disk":
                 f_name = f"{self.cache_img_path}/sample_{lf_idx}.jpg"
                 Image.fromarray(img).save(f_name, format="JPEG")
-            else:
+            if self.cache_img == "memory":
                 self.cache[lf_idx] = img
 
         for video in self.labels.videos:
@@ -194,10 +203,12 @@ class BottomUpDataset(BaseDataset):
         pafs_head_config: DictConfig object with all the keys in the `head_config` section
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type )
             for PAFs.
-        cache_img: If `True`, `.jpg` files are generated and images are loaded from
-            these files during training. Else, in-memory caching is used.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
@@ -212,9 +223,10 @@ class BottomUpDataset(BaseDataset):
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        cache_img: bool = False,
+        cache_img: Optional[str] = None,
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -229,6 +241,7 @@ class BottomUpDataset(BaseDataset):
             cache_img=cache_img,
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
@@ -242,10 +255,14 @@ class BottomUpDataset(BaseDataset):
         lf = self.labels[lf_idx]
 
         # load the img
-        if self.cache_img:
-            img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
-        else:
-            img = self.cache[lf_idx].copy()
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+            elif self.cache_img == "memory":
+                img = self.cache[lf_idx].copy()
+
+        else:  # load from slp file if not cached
+            img = lf.image
 
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
@@ -355,11 +372,13 @@ class CenteredInstanceDataset(BaseDataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        cache_img: If `True`, `.jpg` files are generated and images are loaded from
-            these files during training. Else, in-memory caching is used.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         crop_hw: Height and width of the crop in pixels.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -377,9 +396,10 @@ class CenteredInstanceDataset(BaseDataset):
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        cache_img: bool = False,
+        cache_img: Optional[str] = None,
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -420,27 +440,29 @@ class CenteredInstanceDataset(BaseDataset):
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
         lf_idx, inst_idx = self.instance_idx_list[index]
+        lf = self.labels[lf_idx]
+
         if lf_idx == self.cache_lf[0]:
             img = self.cache_lf[1]
         else:
-            if self.cache_img:
-                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
-            else:
-                img = self.cache[lf_idx].copy()
+            # load the img
+            if self.cache_img is not None:
+                if self.cache_img == "disk":
+                    img = np.array(
+                        Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg")
+                    )
+                elif self.cache_img == "memory":
+                    img = self.cache[lf_idx].copy()
+
+            else:  # load from slp file if not cached
+                img = lf.image  # TODO: doesn't work when num_workers > 0
 
             if img.ndim == 2:
                 img = np.expand_dims(img, axis=2)
 
             self.cache_lf = [lf_idx, img]
 
-        lf = self.labels[lf_idx]
         video_idx = self._get_video_idx(lf)
-
-        # if lf_idx == self.cache_lf[0]:
-        #     img = self.cache_lf[1]
-        # else:
-        #     img = lf.image
-        #     self.cache_lf = [lf_idx, img]
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
@@ -586,12 +608,14 @@ class CentroidDataset(BaseDataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        cache_img: If `True`, `.jpg` files are generated and images are loaded from
-            these files during training. Else, in-memory caching is used.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
@@ -605,9 +629,10 @@ class CentroidDataset(BaseDataset):
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        cache_img: bool = False,
+        cache_img: Optional[str] = None,
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -632,10 +657,14 @@ class CentroidDataset(BaseDataset):
         lf = self.labels[lf_idx]
 
         # load the img
-        if self.cache_img:
-            img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
-        else:
-            img = self.cache[lf_idx].copy()
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+            elif self.cache_img == "memory":
+                img = self.cache[lf_idx].copy()
+
+        else:  # load from slp file if not cached
+            img = lf.image
 
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
@@ -741,12 +770,14 @@ class SingleInstanceDataset(BaseDataset):
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        cache_img: If `True`, `.jpg` files are generated and images are loaded from
-            these files during training. Else, in-memory caching is used.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
@@ -760,9 +791,10 @@ class SingleInstanceDataset(BaseDataset):
         scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        cache_img: bool = False,
+        cache_img: Optional[str] = None,
         cache_img_path: Optional[str] = None,
         use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
@@ -787,10 +819,14 @@ class SingleInstanceDataset(BaseDataset):
         lf = self.labels[lf_idx]
 
         # load the img
-        if self.cache_img:
-            img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
-        else:
-            img = self.cache[lf_idx].copy()
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+            elif self.cache_img == "memory":
+                img = self.cache[lf_idx].copy()
+
+        else:  # load from slp file if not cached
+            img = lf.image
 
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
