@@ -2,6 +2,7 @@
 
 import torch
 import numpy as np
+from PIL import Image
 import pytest
 from omegaconf import OmegaConf
 import lightning as L
@@ -377,7 +378,9 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
 
     Path.mkdir(Path(tmp_path) / "train_imgs", parents=True)
     file_path = Path(tmp_path) / "train_imgs" / "sample.jpg"
-    np.savez_compressed(file_path, np.random.randint(low=0, high=255, size=(100, 100)))
+    Image.fromarray(
+        np.random.randint(low=0, high=255, size=(100, 100)).astype(np.uint8)
+    ).save(file_path, format="JPEG")
 
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_cache_img")
     OmegaConf.update(config, "data_config.cache_img_path", tmp_path)
