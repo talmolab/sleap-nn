@@ -172,7 +172,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     assert sample["confidence_maps"].shape == (1, 2, 256, 256)
     assert sample["part_affinity_fields"].shape == (2, 128, 128)
 
-    ## test with np chunks
+    ## test with disk caching
     dataset = BottomUpDataset(
         data_config=base_bottom_config,
         max_stride=32,
@@ -181,9 +181,10 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         pafs_head_config=pafs_head,
         labels=sio.load_slp(minimal_instance),
         apply_aug=base_bottom_config.use_augmentations_train,
-        np_chunks=True,
-        np_chunks_path=f"{tmp_path}/np_chunks",
+        cache_img=True,
+        cache_img_path=f"{tmp_path}/cache_imgs",
     )
+    dataset._fill_cache()
 
     gt_sample_keys = [
         "image",
@@ -223,7 +224,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
 
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
-    ## npz chunks
+    ## save imgs
     dataset = CenteredInstanceDataset(
         data_config=base_topdown_data_config,
         max_stride=16,
@@ -232,9 +233,10 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         crop_hw=crop_hw,
         labels=sio.load_slp(minimal_instance),
         apply_aug=base_topdown_data_config.use_augmentations_train,
-        np_chunks=True,
-        np_chunks_path=f"{tmp_path}/np_chunks",
+        cache_img=True,
+        cache_img_path=f"{tmp_path}/cache_imgs",
     )
+    dataset._fill_cache()
 
     gt_sample_keys = [
         "centroid",
@@ -255,7 +257,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     assert sample["instance_image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
 
-    ## no chunks
+    ## no saving imgs
 
     dataset = CenteredInstanceDataset(
         data_config=base_topdown_data_config,
@@ -449,7 +451,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     )
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
-    ## np chunks
+    ## save imgs
     dataset = CentroidDataset(
         data_config=base_centroid_data_config,
         max_stride=32,
@@ -457,9 +459,10 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=sio.load_slp(minimal_instance),
-        np_chunks=True,
-        np_chunks_path=f"{tmp_path}/np_chunks",
+        cache_img=True,
+        cache_img_path=f"{tmp_path}/cache_imgs",
     )
+    dataset._fill_cache()
 
     gt_sample_keys = [
         "image",
@@ -479,7 +482,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     assert sample["image"].shape == (1, 3, 384, 384)
     assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
 
-    ## no chunks
+    ## no saving imgs
 
     dataset = CentroidDataset(
         data_config=base_centroid_data_config,
@@ -603,7 +606,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
 
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
 
-    ## np chunks
+    ## saving imgs
     dataset = SingleInstanceDataset(
         data_config=base_singleinstance_data_config,
         max_stride=8,
@@ -611,9 +614,10 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
-        np_chunks=True,
-        np_chunks_path=f"{tmp_path}/np_chunks",
+        cache_img=True,
+        cache_img_path=f"{tmp_path}/cache_imgs",
     )
+    dataset._fill_cache()
 
     sample = next(iter(dataset))
     assert len(dataset) == 1
@@ -633,7 +637,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     assert sample["image"].shape == (1, 3, 768, 768)
     assert sample["confidence_maps"].shape == (1, 2, 384, 384)
 
-    ## no chunks
+    ## no saving imgs
 
     dataset = SingleInstanceDataset(
         data_config=base_singleinstance_data_config,
@@ -761,7 +765,7 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         labels=labels,
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
-        np_chunks=False,
+        cache_img=False,
     )
 
     assert len(list(iter(dataset))) == 1
