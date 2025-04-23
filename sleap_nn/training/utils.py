@@ -59,17 +59,6 @@ def plot_pred_confmaps_peaks(
 
     ax.imshow(confmaps, alpha=0.5, extent=[0, img_w, img_h, 0])
 
-    if peaks is not None:
-        for peak in peaks:
-            ax.plot(
-                peak[:, 0],
-                peak[:, 1],
-                "rx",
-                markersize=8,
-                markeredgewidth=2,
-                label="Predicted peaks",
-            )
-
     if gt_instances is not None:
         for instance in gt_instances:
             ax.plot(
@@ -79,6 +68,17 @@ def plot_pred_confmaps_peaks(
                 markersize=8,
                 markeredgewidth=2,
                 label="GT keypoints",
+            )
+
+    if peaks is not None:
+        for peak in peaks:
+            ax.plot(
+                peak[:, 0],
+                peak[:, 1],
+                "rx",
+                markersize=8,
+                markeredgewidth=2,
+                label="Predicted peaks",
             )
 
     if plot_title is not None:
