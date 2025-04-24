@@ -16,7 +16,7 @@ data_config:
     0: minimal_instance.pkg.slp
     1: minimal_instance.pkg.slp
     2: minimal_instance.pkg.slp
-  data_pipeline_fw: torch_dataset_cache_img_disk
+  data_pipeline_fw: torch_dataset_cache_img_disk # one of `torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`
   cache_img_path: ./img_dir/
   use_existing_imgs:
     0:
