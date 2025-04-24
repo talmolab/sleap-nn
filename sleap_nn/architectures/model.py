@@ -241,7 +241,9 @@ class MultiHeadModel(nn.Module):
         output_strides = []
         for head_type in head_configs:
             head_config = head_configs[head_type]
-            output_strides.extend([cfg.output_stride for cfg in head_config])
+            output_strides.extend(
+                [head_config[cfg].output_stride for cfg in head_config]
+            )
 
         min_output_stride = min(output_strides)
         min_output_stride = min(min_output_stride, self.backbone_config.output_stride)
