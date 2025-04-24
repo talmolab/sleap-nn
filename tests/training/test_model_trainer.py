@@ -16,7 +16,6 @@ from sleap_nn.training.lightning_modules import (
     CentroidLightningModule,
     BottomUpLightningModule,
 )
-from torch.nn.functional import mse_loss
 import os
 import wandb
 from lightning.pytorch.loggers import WandbLogger

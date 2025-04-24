@@ -3,7 +3,6 @@
 from typing import Dict, Iterator, Optional, Tuple, List, Union
 
 import torch
-import torch.nn.functional as F
 from sleap_nn.data.providers import LabelsReaderDP, VideoReader
 import torchvision.transforms.v2.functional as tvf
 from torch.utils.data.datapipes.datapipe import IterDataPipe
@@ -60,11 +59,18 @@ def apply_pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
             max_stride=max_stride,
         )
 
+        pad_width_left = pad_width // 2
+        pad_width_right = pad_width - pad_width_left
+
+        pad_height_top = pad_height // 2
+        pad_height_bottom = pad_height - pad_height_top
+
         if pad_height > 0 or pad_width > 0:
-            image = F.pad(
+            image = tvf.pad(
                 image,
-                (0, pad_width, 0, pad_height),
-                mode="constant",
+                (pad_width_left, pad_height_top, pad_width_right, pad_height_bottom),
+                0,
+                "constant",
             ).to(torch.float32)
     return image
 
@@ -134,10 +140,17 @@ def apply_sizematcher(
         pad_height = max_height - target_h
         pad_width = max_width - target_w
 
-        image = F.pad(
+        pad_width_left = pad_width // 2
+        pad_width_right = pad_width - pad_width_left
+
+        pad_height_top = pad_height // 2
+        pad_height_bottom = pad_height - pad_height_top
+
+        image = tvf.pad(
             image,
-            (0, pad_width, 0, pad_height),
-            mode="constant",
+            (pad_width_left, pad_height_top, pad_width_right, pad_height_bottom),
+            0,
+            "constant",
         ).to(torch.float32)
 
         return image, eff_scale_ratio
