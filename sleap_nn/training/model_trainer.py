@@ -993,7 +993,7 @@ class MultiHeadModelTrainer:
                         if not (
                             self.val_cache_img_paths[d_num].exists()
                             and self.val_cache_img_paths[d_num].is_dir()
-                            and any(self.val_cache_img_paths[d_num].glob("*.npz"))
+                            and any(self.val_cache_img_paths[d_num].glob("*.jpg"))
                         ):
                             message = f"There are no images in the path: {self.val_cache_img_paths[d_num]}"
                             logger.error(message)
