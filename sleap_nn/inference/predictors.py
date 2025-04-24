@@ -755,11 +755,13 @@ class TopDownPredictor(Predictor):
                 skeletons = get_skeleton_from_config(
                     confmap_config.data_config.skeletons
                 )
-                confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
-                    checkpoint_path=ckpt_path,
-                    config=confmap_config,
+                confmap_model = (
+                    TopDownCenteredInstanceLightningModule.load_from_checkpoint(
+                        checkpoint_path=ckpt_path,
+                        config=confmap_config,
                         model_type="centered_instance",
-                    backbone_type=centered_instance_backbone_type,
+                        backbone_type=centered_instance_backbone_type,
+                    )
                 )
 
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
@@ -1198,7 +1200,7 @@ class SingleInstancePredictor(Predictor):
             confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
-                    model_type="single_instance",
+                model_type="single_instance",
                 backbone_type=backbone_type,
             )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
@@ -1672,7 +1674,7 @@ class BottomUpPredictor(Predictor):
             bottomup_model = BottomUpLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=bottomup_config,
-                    backbone_type=backbone_type,
+                backbone_type=backbone_type,
                 model_type="bottomup",
             )
 
