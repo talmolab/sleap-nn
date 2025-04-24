@@ -674,10 +674,9 @@ class TopDownPredictor(Predictor):
                     skeletons_dict[k] = get_skeleton_from_config(
                         centroid_config.data_config.skeletons[k]
                     )
-                centroid_model = CentroidMultiHeadModel.load_from_checkpoint(
+                centroid_model = CentroidMultiHeadLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     config=centroid_config,
-                    skeletons_dict=skeletons_dict,
                     model_type="centroid",
                     backbone_type=centroid_backbone_type,
                 )
@@ -745,14 +744,11 @@ class TopDownPredictor(Predictor):
                     skeletons_dict[k] = get_skeleton_from_config(
                         confmap_config.data_config.skeletons[k]
                     )
-                confmap_model = (
-                    TopDownCenteredInstanceMultiHeadModel.load_from_checkpoint(
-                        checkpoint_path=ckpt_path,
-                        config=confmap_config,
-                        skeletons_dict=skeletons_dict,
-                        model_type="centered_instance",
-                        backbone_type=centered_instance_backbone_type,
-                    )
+                confmap_model = TopDownCenteredInstanceMultiHeadLightningModule.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    config=confmap_config,
+                    model_type="centered_instance",
+                    backbone_type=centered_instance_backbone_type,
                 )
                 skeletons = skeletons_dict[output_head_skeleton_num]
             else:
@@ -1191,10 +1187,9 @@ class SingleInstancePredictor(Predictor):
                 skeletons_dict[k] = get_skeleton_from_config(
                     confmap_config.data_config.skeletons[k]
                 )
-            confmap_model = SingleInstanceMultiHeadModel.load_from_checkpoint(
+            confmap_model = SingleInstanceMultiHeadLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
-                skeletons_dict=skeletons_dict,
                 model_type="single_instance",
                 backbone_type=backbone_type,
             )
@@ -1666,10 +1661,9 @@ class BottomUpPredictor(Predictor):
                     bottomup_config.data_config.skeletons[k]
                 )
 
-            bottomup_model = BottomUpMultiHeadModel.load_from_checkpoint(
+            bottomup_model = BottomUpMultiHeadLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=bottomup_config,
-                skeletons_dict=skeletons_dict,
                 backbone_type=backbone_type,
                 model_type="bottomup",
             )
