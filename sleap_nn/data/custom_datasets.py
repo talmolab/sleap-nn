@@ -111,10 +111,11 @@ class BaseDataset(Dataset):
         self.cache = {}
 
         if self.cache_img is not None:
-            if self.rank is None or self.rank == 0:
-                self._fill_cache()
-            if is_distributed_initialized():
-                dist.barrier()
+            if self.cache_img == "memory" or not self.use_existing_imgs:
+                if self.rank is None or self.rank == 0:
+                    self._fill_cache()
+                if is_distributed_initialized():
+                    dist.barrier()
 
     def _get_lf_idx_list(self) -> List[Tuple[int]]:
         """Return list of indices of labelled frames."""
