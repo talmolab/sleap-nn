@@ -584,3 +584,23 @@ class BottomUpModel(TrainingModel):
             on_epoch=True,
             logger=True,
         )
+
+
+class MultiHeadLightningModule(L.LightningModule):
+    pass
+
+
+class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
+    pass
+
+
+class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModule):
+    pass
+
+
+class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
+    pass
+
+
+class BottomUpMultiHeadLightningModule(MultiHeadLightningModule):
+    pass
