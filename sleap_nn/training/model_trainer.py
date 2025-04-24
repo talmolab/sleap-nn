@@ -75,10 +75,10 @@ MODEL_WEIGHTS = {
     "ConvNeXt_Large_Weights": ConvNeXt_Large_Weights,
 }
 from sleap_nn.training.lightning_modules import (
-    BottomUpModel,
-    CentroidModel,
-    TopDownCenteredInstanceModel,
-    SingleInstanceModel,
+    BottomUpLightningModule,
+    CentroidLightningModule,
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
     BottomUpMultiHeadLightningModule,
     CentroidMultiHeadLightningModule,
     TopDownCenteredInstanceMultiHeadLightningModule,
@@ -210,11 +210,7 @@ class ModelTrainer:
                 self.model_type = k
                 break
 
-        rank = get_dist_rank()
-        if (
-            rank is None or rank == 0
-        ):  # save cfg if there are no distributed process or the rank = 0
-            OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
+        OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
         # set seed
         torch.manual_seed(self.seed)
@@ -719,14 +715,13 @@ class ModelTrainer:
         self,
     ):
         models = {
-            "single_instance": SingleInstanceModel,
-            "centered_instance": TopDownCenteredInstanceModel,
-            "centroid": CentroidModel,
-            "bottomup": BottomUpModel,
+            "single_instance": SingleInstanceLightningModule,
+            "centered_instance": TopDownCenteredInstanceLightningModule,
+            "centroid": CentroidLightningModule,
+            "bottomup": BottomUpLightningModule,
         }
         self.model = models[self.model_type](
             config=self.config,
-            skeletons=self.skeletons,
             model_type=self.model_type,
             backbone_type=self.backbone_type,
         )

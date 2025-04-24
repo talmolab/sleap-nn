@@ -49,7 +49,7 @@ MODEL_WEIGHTS = {
 }
 
 
-class TrainingModel(L.LightningModule):
+class BaseLightningModule(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
 
     This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
@@ -60,7 +60,6 @@ class TrainingModel(L.LightningModule):
                 a pipeline class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
     """
@@ -68,14 +67,12 @@ class TrainingModel(L.LightningModule):
     def __init__(
         self,
         config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
         model_type: str,
         backbone_type: str,
     ):
         """Initialise the configs and the model."""
         super().__init__()
         self.config = config
-        self.skeletons = skeletons
         self.model_config = self.config.model_config
         self.trainer_config = self.config.trainer_config
         self.data_config = self.config.data_config
@@ -94,7 +91,7 @@ class TrainingModel(L.LightningModule):
                 self.model_config.pre_trained_weights
             ].DEFAULT.get_state_dict(progress=True, check_hash=True)
             input_channels = ckpt["features.0.0.weight"].shape[-3]
-            if self.in_channels != input_channels:
+            if self.in_channels != input_channels:  # TODO: not working!
                 self.input_expand_channels = input_channels
                 OmegaConf.update(
                     self.model_config,
@@ -106,7 +103,6 @@ class TrainingModel(L.LightningModule):
             backbone_type=self.backbone_type,
             backbone_config=self.model_config.backbone_config[f"{self.backbone_type}"],
             head_configs=self.model_config.head_configs[self.model_type],
-            input_expand_channels=self.input_expand_channels,
             model_type=self.model_type,
         )
 
@@ -259,10 +255,10 @@ class TrainingModel(L.LightningModule):
         }
 
 
-class SingleInstanceModel(TrainingModel):
+class SingleInstanceLightningModule(BaseLightningModule):
     """Lightning Module for SingleInstance Model.
 
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
+    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps and
     forward pass specific to Single Instance model.
 
     Args:
@@ -271,7 +267,6 @@ class SingleInstanceModel(TrainingModel):
             `TopdownConfmapsPipeline` class.
             (ii) model_config: backbone and head configs to be passed to `Model` class.
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
@@ -280,14 +275,12 @@ class SingleInstanceModel(TrainingModel):
     def __init__(
         self,
         config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config=config,
-            skeletons=skeletons,
             model_type=model_type,
             backbone_type=backbone_type,
         )
@@ -337,10 +330,10 @@ class SingleInstanceModel(TrainingModel):
         )
 
 
-class TopDownCenteredInstanceModel(TrainingModel):
+class TopDownCenteredInstanceLightningModule(BaseLightningModule):
     """Lightning Module for TopDownCenteredInstance Model.
 
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
     and forward pass specific to TopDown Centered instance model.
 
     Args:
@@ -349,7 +342,6 @@ class TopDownCenteredInstanceModel(TrainingModel):
                 `TopdownConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
@@ -358,14 +350,12 @@ class TopDownCenteredInstanceModel(TrainingModel):
     def __init__(
         self,
         config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config=config,
-            skeletons=skeletons,
             backbone_type=backbone_type,
             model_type=model_type,
         )
@@ -415,10 +405,10 @@ class TopDownCenteredInstanceModel(TrainingModel):
         )
 
 
-class CentroidModel(TrainingModel):
+class CentroidLightningModule(BaseLightningModule):
     """Lightning Module for Centroid Model.
 
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
     and forward pass specific to centroid model.
 
     Args:
@@ -427,7 +417,6 @@ class CentroidModel(TrainingModel):
                 `CentroidConfmapsPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
@@ -436,14 +425,12 @@ class CentroidModel(TrainingModel):
     def __init__(
         self,
         config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config=config,
-            skeletons=skeletons,
             backbone_type=backbone_type,
             model_type=model_type,
         )
@@ -493,10 +480,10 @@ class CentroidModel(TrainingModel):
         )
 
 
-class BottomUpModel(TrainingModel):
+class BottomUpLightningModule(BaseLightningModule):
     """Lightning Module for BottomUp Model.
 
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps
+    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
     and forward pass specific to BottomUp model.
 
     Args:
@@ -505,7 +492,6 @@ class BottomUpModel(TrainingModel):
                 `BottomUpPipeline` class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
 
@@ -514,14 +500,12 @@ class BottomUpModel(TrainingModel):
     def __init__(
         self,
         config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
         backbone_type: str,
         model_type: str,
     ):
         """Initialise the configs and the model."""
         super().__init__(
             config=config,
-            skeletons=skeletons,
             backbone_type=backbone_type,
             model_type=model_type,
         )

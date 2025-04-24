@@ -24,10 +24,10 @@ from sleap_nn.data.normalization import (
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.training.lightning_modules import (
-    TopDownCenteredInstanceModel,
-    SingleInstanceModel,
-    CentroidModel,
-    BottomUpModel,
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
+    CentroidLightningModule,
+    BottomUpLightningModule,
     TopDownCenteredInstanceMultiHeadLightningModule,
     SingleInstanceMultiHeadLightningModule,
     CentroidMultiHeadLightningModule,
@@ -685,7 +685,7 @@ class TopDownPredictor(Predictor):
                 skeletons = get_skeleton_from_config(
                     centroid_config.data_config.skeletons
                 )
-                centroid_model = CentroidModel.load_from_checkpoint(
+                centroid_model = CentroidLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     config=centroid_config,
                     skeletons=skeletons,
@@ -755,11 +755,10 @@ class TopDownPredictor(Predictor):
                 skeletons = get_skeleton_from_config(
                     confmap_config.data_config.skeletons
                 )
-                confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+                confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     config=confmap_config,
-                    skeletons=skeletons,
-                    model_type="centered_instance",
+                        model_type="centered_instance",
                     backbone_type=centered_instance_backbone_type,
                 )
 
@@ -1196,11 +1195,10 @@ class SingleInstancePredictor(Predictor):
             skeletons = skeletons_dict[output_head_skeleton_num]
         else:
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
-            confmap_model = SingleInstanceModel.load_from_checkpoint(
+            confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
-                skeletons=skeletons,
-                model_type="single_instance",
+                    model_type="single_instance",
                 backbone_type=backbone_type,
             )
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
@@ -1671,11 +1669,10 @@ class BottomUpPredictor(Predictor):
 
         else:
             skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
-            bottomup_model = BottomUpModel.load_from_checkpoint(
+            bottomup_model = BottomUpLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=bottomup_config,
-                skeletons=skeletons,
-                backbone_type=backbone_type,
+                    backbone_type=backbone_type,
                 model_type="bottomup",
             )
 
