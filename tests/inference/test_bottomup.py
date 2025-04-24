@@ -6,7 +6,7 @@ import shutil
 import sleap_io as sio
 from sleap_nn.data.providers import process_lf
 from sleap_nn.data.normalization import apply_normalization
-from sleap_nn.training.model_trainer import BottomUpModel
+from sleap_nn.training.lightning_modules import BottomUpLightningModule
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.inference.bottomup import (
     BottomUpInferenceModel,
@@ -39,10 +39,9 @@ def test_bottomup_inference_model(
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["eff_scale"] = torch.Tensor([1.0])
 
-    torch_model = BottomUpModel.load_from_checkpoint(
+    torch_model = BottomUpLightningModule.load_from_checkpoint(
         f"{minimal_instance_bottomup_ckpt}/best.ckpt",
         config=train_config,
-        skeletons=None,
         model_type="bottomup",
         backbone_type="unet",
     )

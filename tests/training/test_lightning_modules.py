@@ -4,10 +4,10 @@ import numpy as np
 from omegaconf import OmegaConf
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.training.lightning_modules import (
-    TopDownCenteredInstanceModel,
-    SingleInstanceModel,
-    CentroidModel,
-    BottomUpModel,
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
+    CentroidLightningModule,
+    BottomUpLightningModule,
 )
 from torch.nn.functional import mse_loss
 
@@ -15,9 +15,8 @@ from torch.nn.functional import mse_loss
 def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # unet
-    model = TopDownCenteredInstanceModel(
+    model = TopDownCenteredInstanceLightningModule(
         config=config,
-        skeletons=None,
         model_type="centered_instance",
         backbone_type="unet",
     )
@@ -64,9 +63,8 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "max_stride": 16,
         },
     )
-    model = TopDownCenteredInstanceModel(
+    model = TopDownCenteredInstanceLightningModule(
         config=config,
-        skeletons=None,
         model_type="centered_instance",
         backbone_type="convnext",
     )
@@ -93,7 +91,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
 
 
 def test_centroid_model(config, tmp_path: str):
-    """Test CentroidModel training."""
+    """Test CentroidLightningModule training."""
     OmegaConf.update(
         config,
         "model_config.head_configs.centroid",
@@ -102,8 +100,8 @@ def test_centroid_model(config, tmp_path: str):
     del config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centroid["confmaps"].part_names
 
-    model = CentroidModel(
-        config=config, skeletons=None, model_type="centroid", backbone_type="unet"
+    model = CentroidLightningModule(
+        config=config, model_type="centroid", backbone_type="unet"
     )
 
     OmegaConf.update(
@@ -124,8 +122,8 @@ def test_centroid_model(config, tmp_path: str):
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
     # torch dataset
-    model = CentroidModel(
-        config=config, skeletons=None, backbone_type="unet", model_type="centroid"
+    model = CentroidLightningModule(
+        config=config, backbone_type="unet", model_type="centroid"
     )
 
     OmegaConf.update(
@@ -148,7 +146,7 @@ def test_centroid_model(config, tmp_path: str):
 
 
 def test_single_instance_model(config, tmp_path: str):
-    """Test the SingleInstanceModel training."""
+    """Test the SingleInstanceLightningModule training."""
     head_config = config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centered_instance
     OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
@@ -165,9 +163,8 @@ def test_single_instance_model(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders_litdata()
     input_ = next(iter(model_trainer.train_data_loader))
-    model = SingleInstanceModel(
+    model = SingleInstanceLightningModule(
         config=config,
-        skeletons=None,
         backbone_type="unet",
         model_type="single_instance",
     )
@@ -205,9 +202,8 @@ def test_single_instance_model(config, tmp_path: str):
     model_trainer = ModelTrainer(config)
     model_trainer._create_data_loaders_torch_dataset()
     input_ = next(iter(model_trainer.train_data_loader))
-    model = SingleInstanceModel(
+    model = SingleInstanceLightningModule(
         config=config,
-        skeletons=None,
         backbone_type="unet",
         model_type="single_instance",
     )
@@ -261,8 +257,8 @@ def test_bottomup_model(config, tmp_path: str):
     model_trainer._create_data_loaders_litdata()
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(
-        config=config, skeletons=None, backbone_type="unet", model_type="bottomup"
+    model = BottomUpLightningModule(
+        config=config, backbone_type="unet", model_type="bottomup"
     )
 
     preds = model(input_["image"])
@@ -296,9 +292,8 @@ def test_bottomup_model(config, tmp_path: str):
     skeletons = model_trainer.skeletons
     input_ = next(iter(model_trainer.train_data_loader))
 
-    model = BottomUpModel(
+    model = BottomUpLightningModule(
         config=model_trainer.config,
-        skeletons=skeletons,
         backbone_type="unet",
         model_type="bottomup",
     )

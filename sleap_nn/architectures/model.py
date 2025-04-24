@@ -102,8 +102,6 @@ class Model(nn.Module):
         backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
-        input_expand_channels: Integer representing the number of channels the image
-                                should be expanded to.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
     """
 
@@ -112,7 +110,6 @@ class Model(nn.Module):
         backbone_type: str,
         backbone_config: DictConfig,
         head_configs: DictConfig,
-        input_expand_channels: int,
         model_type: str,
     ) -> None:
         """Initialize the backbone and head based on the backbone_config."""
@@ -120,7 +117,6 @@ class Model(nn.Module):
         self.backbone_type = backbone_type
         self.backbone_config = backbone_config
         self.head_configs = head_configs
-        self.input_expand_channels = input_expand_channels
 
         self.heads = get_head(model_type, self.head_configs)
 
@@ -162,7 +158,6 @@ class Model(nn.Module):
         backbone_type: str,
         backbone_config: DictConfig,
         head_configs: DictConfig,
-        input_expand_channels: int,
         model_type: str,
     ) -> "Model":
         """Create the model from a config dictionary."""
@@ -170,7 +165,6 @@ class Model(nn.Module):
             backbone_type=backbone_type,
             backbone_config=backbone_config,
             head_configs=head_configs,
-            input_expand_channels=input_expand_channels,
             model_type=model_type,
         )
 

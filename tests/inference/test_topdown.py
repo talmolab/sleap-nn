@@ -14,9 +14,9 @@ from sleap_nn.data.normalization import apply_normalization, Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.data.instance_cropping import InstanceCropper, generate_crops
 from sleap_nn.training.model_trainer import (
-    CentroidModel,
+    CentroidLightningModule,
     ModelTrainer,
-    TopDownCenteredInstanceModel,
+    TopDownCenteredInstanceLightningModule,
 )
 from sleap_nn.inference.topdown import (
     FindInstancePeaks,
@@ -43,10 +43,9 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     """Returns trained torch model and FindInstancePeaks layer to test InferenceModels."""
     # for centered instance model
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+    torch_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt",
         config=config,
-        skeletons=None,
         model_type="centered_instance",
         backbone_type="unet",
     )
@@ -174,7 +173,7 @@ def test_find_instance_peaks_groundtruth(
     del config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centroid["confmaps"].part_names
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
-    torch_model = CentroidModel.load_from_checkpoint(
+    torch_model = CentroidLightningModule.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt",
         config=config,
         skeletons=None,
@@ -327,7 +326,7 @@ def test_topdown_inference_model(
     assert "Ground truth data was not detected." in caplog.text
     # centroid layer and find peaks
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
-    torch_model = CentroidModel.load_from_checkpoint(
+    torch_model = CentroidLightningModule.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt",
         config=config,
         skeletons=None,
