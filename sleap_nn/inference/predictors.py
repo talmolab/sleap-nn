@@ -24,10 +24,10 @@ from sleap_nn.data.normalization import (
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.training.lightning_modules import (
-    TopDownCenteredInstanceModel,
-    SingleInstanceModel,
-    CentroidModel,
-    BottomUpModel,
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
+    CentroidLightningModule,
+    BottomUpLightningModule,
 )
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import BottomUpInferenceModel
@@ -600,7 +600,7 @@ class TopDownPredictor(Predictor):
                     centroid_backbone_type = k
                     break
 
-            centroid_model = CentroidModel.load_from_checkpoint(
+            centroid_model = CentroidLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=centroid_config,
                 skeletons=skeletons,
@@ -650,10 +650,9 @@ class TopDownPredictor(Predictor):
                 if v is not None:
                     centered_instance_backbone_type = k
                     break
-            confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+            confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
-                skeletons=skeletons,
                 model_type="centered_instance",
                 backbone_type=centered_instance_backbone_type,
             )
@@ -1023,10 +1022,9 @@ class SingleInstancePredictor(Predictor):
                 backbone_type = k
                 break
 
-        confmap_model = SingleInstanceModel.load_from_checkpoint(
+        confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             config=confmap_config,
-            skeletons=skeletons,
             model_type="single_instance",
             backbone_type=backbone_type,
         )
@@ -1399,10 +1397,9 @@ class BottomUpPredictor(Predictor):
                 backbone_type = k
                 break
 
-        bottomup_model = BottomUpModel.load_from_checkpoint(
+        bottomup_model = BottomUpLightningModule.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             config=bottomup_config,
-            skeletons=skeletons,
             backbone_type=backbone_type,
             model_type="bottomup",
         )

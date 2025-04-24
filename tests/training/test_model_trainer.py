@@ -11,10 +11,10 @@ import pandas as pd
 import sys
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.training.lightning_modules import (
-    TopDownCenteredInstanceModel,
-    SingleInstanceModel,
-    CentroidModel,
-    BottomUpModel,
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
+    CentroidLightningModule,
+    BottomUpLightningModule,
 )
 from torch.nn.functional import mse_loss
 import os
@@ -282,7 +282,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, SingleInstanceModel)
+    assert isinstance(trainer.model, SingleInstanceLightningModule)
 
     #######
 
@@ -317,7 +317,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     trainer = ModelTrainer(centroid_config)
 
     trainer._initialize_model()
-    assert isinstance(trainer.model, CentroidModel)
+    assert isinstance(trainer.model, CentroidLightningModule)
 
     #######
 
@@ -359,7 +359,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, BottomUpModel)
+    assert isinstance(trainer.model, BottomUpLightningModule)
 
 
 @pytest.mark.skipif(
@@ -598,7 +598,7 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, SingleInstanceModel)
+    assert isinstance(trainer.model, SingleInstanceLightningModule)
 
     #######
 
@@ -635,7 +635,7 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     trainer = ModelTrainer(centroid_config)
 
     trainer._initialize_model()
-    assert isinstance(trainer.model, CentroidModel)
+    assert isinstance(trainer.model, CentroidLightningModule)
 
     #######
 
@@ -677,7 +677,7 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, BottomUpModel)
+    assert isinstance(trainer.model, BottomUpLightningModule)
 
 
 def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
