@@ -287,12 +287,13 @@ class BottomUpDataset(BaseDataset):
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
+        sample["image"], eff_scale, (pad_w_l, pad_h_t) = apply_sizematcher(
             sample["image"],
             max_height=self.max_hw[0],
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
+        sample["instances"] = sample["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -302,9 +303,10 @@ class BottomUpDataset(BaseDataset):
         )
 
         # Pad the image (if needed) according max stride
-        sample["image"] = apply_pad_to_stride(
+        sample["image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
             sample["image"], max_stride=self.max_stride
         )
+        sample["instances"] = sample["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
@@ -495,12 +497,13 @@ class CenteredInstanceDataset(BaseDataset):
             image = convert_to_grayscale(image)
 
         # size matcher
-        image, eff_scale = apply_sizematcher(
+        image, eff_scale, (pad_w_l, pad_h_t) = apply_sizematcher(
             image,
             max_height=self.max_hw[0],
             max_width=self.max_hw[1],
         )
         instances = instances * eff_scale
+        instances = instances + torch.Tensor((pad_w_l, pad_h_t))
 
         # resize image
         image, instances = apply_resizer(
@@ -567,9 +570,10 @@ class CenteredInstanceDataset(BaseDataset):
         sample["centroid"] = centered_centroid  # (n_samples=1, 2)
 
         # Pad the image (if needed) according max stride
-        sample["instance_image"] = apply_pad_to_stride(
+        sample["instance_image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
             sample["instance_image"], max_stride=self.max_stride
         )
+        sample["instance"] = sample["instance"] + torch.Tensor((pad_w_l, pad_h_t))
 
         img_hw = sample["instance_image"].shape[-2:]
 
@@ -689,12 +693,13 @@ class CentroidDataset(BaseDataset):
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
+        sample["image"], eff_scale, (pad_w_l, pad_h_t) = apply_sizematcher(
             sample["image"],
             max_height=self.max_hw[0],
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
+        sample["instances"] = sample["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -711,9 +716,11 @@ class CentroidDataset(BaseDataset):
         sample["centroids"] = centroids
 
         # Pad the image (if needed) according max stride
-        sample["image"] = apply_pad_to_stride(
+        sample["image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
             sample["image"], max_stride=self.max_stride
         )
+        sample["instances"] = sample["instances"] + torch.Tensor((pad_w_l, pad_h_t))
+        sample["centroids"] = sample["centroids"] + torch.Tensor((pad_w_l, pad_h_t))
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
@@ -851,12 +858,13 @@ class SingleInstanceDataset(BaseDataset):
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
-        sample["image"], eff_scale = apply_sizematcher(
+        sample["image"], eff_scale, (pad_w_l, pad_h_t) = apply_sizematcher(
             sample["image"],
             max_height=self.max_hw[0],
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
+        sample["instances"] = sample["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -866,9 +874,10 @@ class SingleInstanceDataset(BaseDataset):
         )
 
         # Pad the image (if needed) according max stride
-        sample["image"] = apply_pad_to_stride(
+        sample["image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
             sample["image"], max_stride=self.max_stride
         )
+        sample["instances"] = sample["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:

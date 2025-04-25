@@ -48,8 +48,9 @@ def apply_pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
             reduction layers in the model.
 
     Returns:
-        The input image with 0-padding applied to the bottom and/or right such that the
-        new shape's height and width are both divisible by `max_stride`.
+        A tuple with the input image with 0-padding applied to the bottom and/or right such that the
+        new shape's height and width are both divisible by `max_stride` and (pad_width_left, pad_height_top)
+        to shift the ground-truth keypoints according to the padded image.
     """
     if max_stride > 1:
         image_height, image_width = image.shape[-2:]
@@ -72,7 +73,7 @@ def apply_pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
                 0,
                 "constant",
             ).to(torch.float32)
-    return image
+    return image, (pad_width_left, pad_height_top)
 
 
 def resize_image(image: torch.Tensor, scale: float):
@@ -153,9 +154,9 @@ def apply_sizematcher(
             "constant",
         ).to(torch.float32)
 
-        return image, eff_scale_ratio
+        return image, eff_scale_ratio, (pad_width_left, pad_height_top)
     else:
-        return image, 1.0
+        return image, 1.0, (0, 0)
 
 
 class Resizer(IterDataPipe):
@@ -230,7 +231,7 @@ class PadToStride(IterDataPipe):
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the resized image and `orig_size` key to represent the original shape of the source image."""
         for ex in self.source_datapipe:
-            ex[self.image_key] = apply_pad_to_stride(
+            ex[self.image_key], _ = apply_pad_to_stride(
                 ex[self.image_key], self.max_stride
             )
             yield ex
