@@ -111,7 +111,9 @@ class BaseDataset(Dataset):
         self.cache = {}
 
         if self.cache_img is not None:
-            if self.cache_img == "memory" or not self.use_existing_imgs:
+            if self.cache_img == "memory":
+                self._fill_cache()
+            elif self.cache_img == "disk":
                 if self.rank is None or self.rank == 0:
                     self._fill_cache()
                 if is_distributed_initialized():
@@ -417,6 +419,7 @@ class CenteredInstanceDataset(BaseDataset):
             cache_img=cache_img,
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.crop_hw = crop_hw
         self.confmap_head_config = confmap_head_config
@@ -652,6 +655,7 @@ class CentroidDataset(BaseDataset):
             cache_img=cache_img,
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
 
@@ -817,6 +821,7 @@ class SingleInstanceDataset(BaseDataset):
             cache_img=cache_img,
             cache_img_path=cache_img_path,
             use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
 
