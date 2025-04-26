@@ -276,19 +276,21 @@ class Predictor(ABC):
             org_szs = []
             instances = []
             eff_scales = []
+            padding_offsets = []
             for _ in range(batch_size):
                 frame = self.pipeline.frame_buffer.get()
                 if frame["image"] is None:
                     done = True
                     break
                 frame["image"] = apply_normalization(frame["image"])
-                frame["image"], eff_scale = apply_sizematcher(
+                frame["image"], eff_scale, padding = apply_sizematcher(
                     frame["image"],
                     self.preprocess_config["max_height"],
                     self.preprocess_config["max_width"],
                 )
                 if self.instances_key:
                     frame["instances"] = frame["instances"] * eff_scale
+                    frame["instances"] = frame["instances"] + torch.Tensor(padding)
                 if self.preprocess_config["is_rgb"] and frame["image"].shape[-3] != 3:
                     frame["image"] = frame["image"].repeat(1, 3, 1, 1)
                 elif not self.preprocess_config["is_rgb"]:
@@ -297,6 +299,7 @@ class Predictor(ABC):
                     )
 
                 eff_scales.append(torch.tensor(eff_scale))
+                padding_offsets.append(torch.Tensor(padding))
                 imgs.append(frame["image"].unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])
                 vidxs.append(frame["video_idx"])
@@ -310,6 +313,7 @@ class Predictor(ABC):
                 vidxs = torch.tensor(vidxs, dtype=torch.int32)
                 org_szs = torch.concatenate(org_szs, dim=0)
                 eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
+                padding_offsets = torch.concatenate(padding_offsets, dim=0)
                 if self.instances_key:
                     instances = torch.concatenate(instances, dim=0)
                 ex = {
@@ -318,6 +322,7 @@ class Predictor(ABC):
                     "video_idx": vidxs,
                     "orig_size": org_szs,
                     "eff_scale": eff_scales,
+                    "padding_offsets": padding_offsets,
                 }
                 if self.instances_key:
                     ex["instances"] = instances
@@ -334,7 +339,7 @@ class Predictor(ABC):
                             )
                         else:
                             ex["image"] = resize_image(ex["image"], scale)
-                    ex["image"] = apply_pad_to_stride(
+                    ex["image"], padding = apply_pad_to_stride(
                         ex["image"], self.preprocess_config["max_stride"]
                     )
                 outputs_list = self.inference_model(ex)
