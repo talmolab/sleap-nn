@@ -338,6 +338,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.train_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = BottomUpDataset(
                 labels=self.val_labels,
@@ -353,6 +354,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.val_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         elif self.model_type == "centered_instance":
@@ -370,6 +372,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.train_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = CenteredInstanceDataset(
                 labels=self.val_labels,
@@ -385,6 +388,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.val_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         elif self.model_type == "centroid":
@@ -401,6 +405,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.train_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = CentroidDataset(
                 labels=self.val_labels,
@@ -415,6 +420,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.val_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         elif self.model_type == "single_instance":
@@ -431,6 +437,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.train_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = SingleInstanceDataset(
                 labels=self.val_labels,
@@ -445,6 +452,7 @@ class ModelTrainer:
                 cache_img=self.cache_img,
                 cache_img_path=self.val_cache_img_path,
                 use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         else:
