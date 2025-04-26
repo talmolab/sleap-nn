@@ -113,7 +113,7 @@ class BaseDataset(Dataset):
         if self.cache_img is not None:
             if self.cache_img == "memory":
                 self._fill_cache()
-            elif self.cache_img == "disk":
+            elif self.cache_img == "disk" and not self.use_existing_imgs:
                 if self.rank is None or self.rank == 0:
                     self._fill_cache()
                 if is_distributed_initialized():
