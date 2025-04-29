@@ -160,6 +160,10 @@ class BaseDataset(Dataset):
             if self.cache_img == "memory":
                 self.cache[lf_idx] = img
 
+        for video in self.labels.videos:
+            if video.is_open:
+                video.close()
+
     def _get_video_idx(self, lf):
         """Return indsample of `lf.video` in `labels.videos`."""
         return self.labels.videos.index(lf.video)
