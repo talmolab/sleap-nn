@@ -726,12 +726,10 @@ class CenteredInstanceDatasetFitBbox(CenteredInstanceDataset):
         instance = instances[0]  # (n_samples=1)
 
         bbox = get_fit_bbox(instance)  # bbox => (x_min, y_min, x_max, y_max)
-        bbox = (
-            bbox[0] - 16,
-            bbox[1] - 16,
-            bbox[2] + 16,
-            bbox[3] + 16,
-        )  # padding of 16 on all sides
+        bbox[0] = bbox[0] - 16
+        bbox[1] = bbox[1] - 16
+        bbox[2] = bbox[2] + 16
+        bbox[3] = bbox[3] + 16 # padding of 16 on all sides
         x_min, y_min, x_max, y_max = bbox
         crop_hw = (y_max - y_min, x_max - x_min)
 
@@ -751,7 +749,7 @@ class CenteredInstanceDatasetFitBbox(CenteredInstanceDataset):
                 ]
             ),
         )
-        instance = instance - torch.Tensor([bbox[0], bbox[1]])  # adjust for crops
+        instance = instance - bbox[:2]  # adjust for crops
 
         cropped_image_match_hw, eff_scale, pad_wh = apply_sizematcher(
             cropped_image, self.max_crop_h_w[0], self.max_crop_h_w[1]
