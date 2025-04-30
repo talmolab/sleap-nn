@@ -1150,32 +1150,33 @@ class MultiHeadModelTrainer:
                         if w > self.max_crop_hws[d_num][1]:
                             self.max_crop_hws[d_num][1] = int(w)
 
-                self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
-                    d_num
-                ]
-                if self.crop_hws[d_num] is None:
+                # self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
+                #     d_num
+                # ]
+                # if self.crop_hws[d_num] is None:
 
-                    min_crop_size = (
-                        self.config.data_config.preprocessing.min_crop_size
-                        if "min_crop_size" in self.config.data_config.preprocessing
-                        else None
-                    )
-                    crop_size = find_instance_crop_size(
-                        self.train_labels[d_num],
-                        maximum_stride=self.max_stride,
-                        min_crop_size=min_crop_size,
-                        input_scaling=self.config.data_config.preprocessing.scale[
-                            d_num
-                        ],
-                    )
-                    self.crop_hws[d_num] = crop_size
-                    self.config.data_config.preprocessing.crop_hw[d_num] = (
-                        self.crop_hws[d_num],
-                        self.crop_hws[d_num],
-                    )
-                else:
-                    self.crop_hws[d_num] = self.crop_hws[d_num][0]
+                #     min_crop_size = (
+                #         self.config.data_config.preprocessing.min_crop_size
+                #         if "min_crop_size" in self.config.data_config.preprocessing
+                #         else None
+                #     )
+                #     crop_size = find_instance_crop_size(
+                #         self.train_labels[d_num],
+                #         maximum_stride=self.max_stride,
+                #         min_crop_size=min_crop_size,
+                #         input_scaling=self.config.data_config.preprocessing.scale[
+                #             d_num
+                #         ],
+                #     )
+                #     self.crop_hws[d_num] = crop_size
+                #     self.config.data_config.preprocessing.crop_hw[d_num] = (
+                #         self.crop_hws[d_num],
+                #         self.crop_hws[d_num],
+                #     )
+                # else:
+                #     self.crop_hws[d_num] = self.crop_hws[d_num][0]
 
+        self.config.data_config.max_crop_sizes = self.max_crop_hws
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
     def _create_data_loaders_torch_dataset(self, d_num):
