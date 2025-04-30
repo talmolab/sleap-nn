@@ -21,14 +21,19 @@ from sleap_nn.data.normalization import (
     convert_to_rgb,
 )
 from sleap_nn.data.providers import get_max_instances, get_max_height_width, process_lf
-from sleap_nn.data.resizing import apply_pad_to_stride, apply_sizematcher, apply_resizer
+from sleap_nn.data.resizing import (
+    apply_pad_to_stride,
+    apply_sizematcher,
+    apply_resizer,
+    apply_padding,
+)
 from sleap_nn.data.augmentation import (
     apply_geometric_augmentation,
     apply_intensity_augmentation,
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.instance_cropping import make_centered_bboxes, get_fit_bbox
 from sleap_nn.training.utils import is_distributed_initialized, get_dist_rank
 
 
@@ -578,6 +583,180 @@ class CenteredInstanceDataset(BaseDataset):
             sample["instance_image"], max_stride=self.max_stride
         )
         sample["instance"] = sample["instance"] + torch.Tensor((pad_w_l, pad_h_t))
+
+        img_hw = sample["instance_image"].shape[-2:]
+
+        # Generate confidence maps
+        confidence_maps = generate_confmaps(
+            sample["instance"],
+            img_hw=img_hw,
+            sigma=self.confmap_head_config.sigma,
+            output_stride=self.confmap_head_config.output_stride,
+        )
+
+        sample["confidence_maps"] = confidence_maps
+
+        return sample
+
+
+class CenteredInstanceDatasetFitBbox(CenteredInstanceDataset):
+    def __init__(
+        self,
+        labels,
+        max_crop_hw,
+        confmap_head_config,
+        max_stride,
+        user_instances_only=True,
+        is_rgb=False,
+        augmentation_config=None,
+        scale=1,
+        apply_aug=False,
+        max_hw=(None, None),
+        cache_img=None,
+        cache_img_path=None,
+        use_existing_imgs=False,
+        rank=None,
+    ):
+        super().__init__(
+            labels,
+            max_crop_hw,
+            confmap_head_config,
+            max_stride,
+            user_instances_only,
+            is_rgb,
+            augmentation_config,
+            scale,
+            apply_aug,
+            max_hw,
+            cache_img,
+            cache_img_path,
+            use_existing_imgs,
+            rank,
+        )
+        self.max_crop_h_w = max_crop_hw
+
+    def __getitem__(self, index):
+        """Return dict with cropped image and confmaps of instance for given index."""
+        lf_idx, inst_idx = self.instance_idx_list[index]
+        lf = self.labels[lf_idx]
+
+        if lf_idx == self.cache_lf[0]:
+            img = self.cache_lf[1]
+        else:
+            # load the img
+            if self.cache_img is not None:
+                if self.cache_img == "disk":
+                    img = np.array(
+                        Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg")
+                    )
+                elif self.cache_img == "memory":
+                    img = self.cache[lf_idx].copy()
+
+            else:  # load from slp file if not cached
+                img = lf.image  # TODO: doesn't work when num_workers > 0
+
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=2)
+
+            self.cache_lf = [lf_idx, img]
+
+        video_idx = self._get_video_idx(lf)
+
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+
+        instances = []
+        for inst in lf:
+            instances.append(inst.numpy())
+        instances = np.stack(instances, axis=0)
+
+        # Add singleton time dimension for single frames.
+        image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
+        instances = np.expand_dims(
+            instances, axis=0
+        )  # (n_samples=1, num_instances, num_nodes, 2)
+
+        instances = torch.from_numpy(instances.astype("float32"))
+        image = torch.from_numpy(image)
+
+        num_instances, _ = instances.shape[1:3]
+        orig_img_height, orig_img_width = image.shape[-2:]
+
+        instances = instances[:, inst_idx]
+
+        # apply normalization
+        image = apply_normalization(image)
+
+        if self.is_rgb:
+            image = convert_to_rgb(image)
+        else:
+            image = convert_to_grayscale(image)
+
+        # size matcher
+        image, eff_scale, (pad_w_l, pad_h_t) = apply_sizematcher(
+            image,
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+        )
+        instances = instances * eff_scale
+        instances = instances + torch.Tensor((pad_w_l, pad_h_t))
+
+        # resize image
+        image, instances = apply_resizer(
+            image,
+            instances,
+            scale=self.scale,
+        )
+
+        instance = instances[0]  # (n_samples=1)
+
+        bbox = get_fit_bbox(instance)  # bbox => (x_min, y_min, x_max, y_max)
+
+        crop_hw = (bbox[3] - bbox[1], bbox[2] - bbox[0])
+
+        cropped_image = image[..., bbox[0] : bbox[2], bbox[3] : bbox[1]]
+        instance = instance - torch.Tensor([bbox[0], bbox[1]])
+
+        cropped_image_match_hw, pad_hw = apply_padding(
+            cropped_image, self.max_crop_h_w[0], self.max_crop_h_w[1]
+        )
+        instance = instance + torch.Tensor(pad_hw[::-1])
+        instance = torch.unsqueeze(instance)
+
+        sample = {}
+        sample["instance_image"] = cropped_image_match_hw
+        sample["instance_bbox"] = bbox
+        sample["instance"] = instance
+        sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
+        sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
+        sample["num_instances"] = num_instances
+        sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
+        sample["crop_hw"] = torch.Tensor([crop_hw])
+
+        # apply augmentation
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
+                sample["instance_image"], sample["instance"] = (
+                    apply_intensity_augmentation(
+                        sample["instance_image"],
+                        sample["instance"],
+                        **self.augmentation_config.intensity,
+                    )
+                )
+
+            if "geometric" in self.augmentation_config:
+                sample["instance_image"], sample["instance"] = (
+                    apply_geometric_augmentation(
+                        sample["instance_image"],
+                        sample["instance"],
+                        **self.augmentation_config.geometric,
+                    )
+                )
+
+        # Pad the image (if needed) according max stride
+        sample["instance_image"], pad_hw = apply_pad_to_stride(
+            sample["instance_image"], max_stride=self.max_stride
+        )
+        sample["instance"] = sample["instance"] + torch.Tensor(pad_hw)
 
         img_hw = sample["instance_image"].shape[-2:]
 

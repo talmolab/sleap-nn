@@ -61,6 +61,23 @@ def find_instance_crop_size(
     return int(crop_size)
 
 
+def get_fit_bbox(instance: torch.Tensor) -> torch.Tensor:
+    """Get a fit bbox around the instance.
+
+    Args:
+        instance: tensor with shape (..., nodes, 2)
+
+    Returns:
+        bbox coordinates of the form x_min, y_min, x_max, y_max representing the fit bbox around the given instance.
+    """
+    x, y = instance[:, 0], instance[:, 1]
+    x_min, x_max = torch.min(x), torch.max(x)
+    y_min, y_max = torch.min(y), torch.max(y)
+    bbox = torch.Tensor([x_min, y_min, x_max, y_max])
+
+    return bbox
+
+
 def make_centered_bboxes(
     centroids: torch.Tensor, box_height: int, box_width: int
 ) -> torch.Tensor:

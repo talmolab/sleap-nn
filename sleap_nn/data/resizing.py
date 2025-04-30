@@ -111,6 +111,41 @@ def apply_resizer(image: torch.Tensor, instances: torch.Tensor, scale: float = 1
     return image, instances
 
 
+def apply_padding(
+    image: torch.Tensor,
+    max_height: Optional[int] = None,
+    max_width: Optional[int] = None,
+):
+    """Apply scaling and padding to image to (max_height, max_width) shape."""
+    img_height, img_width = image.shape[-2:]
+    # pad images to max_height and max_width
+    if max_height is None:
+        max_height = img_height
+    if max_width is None:
+        max_width = img_width
+    if img_height != max_height or img_width != max_width:
+
+        pad_height = max_height - img_height
+        pad_width = max_width - img_width
+
+        pad_width_left = pad_width // 2
+        pad_width_right = pad_width - pad_width_left
+
+        pad_height_top = pad_height // 2
+        pad_height_bottom = pad_height - pad_height_top
+
+        image = tvf.pad(
+            image,
+            (pad_width_left, pad_height_top, pad_width_right, pad_height_bottom),
+            0,
+            "constant",
+        ).to(torch.float32)
+
+        return image, (pad_width_left, pad_height_top)
+    else:
+        return image, (0, 0)
+
+
 def apply_sizematcher(
     image: torch.Tensor,
     max_height: Optional[int] = None,

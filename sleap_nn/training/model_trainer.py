@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import os
+import numpy as np
 import psutil
 import shutil
 import subprocess
@@ -41,6 +42,7 @@ import sleap_io as sio
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
     CenteredInstanceDataset,
+    CenteredInstanceDatasetFitBbox,
     CentroidDataset,
     SingleInstanceDataset,
     CyclerDataLoader,
@@ -1035,6 +1037,7 @@ class MultiHeadModelTrainer:
         self.max_heights = {}
         self.max_widths = {}
         self.crop_hws = {}
+        self.max_crop_hws = {}
         self.skeletons_dict = {}
         OmegaConf.update(self.config.data_config, f"skeletons", {})
 
@@ -1134,6 +1137,18 @@ class MultiHeadModelTrainer:
 
             if self.model_type == "centered_instance":
                 # compute crop size
+                self.max_crop_hws[d_num] = (0, 0)
+                for lf in self.train_labels[d_num]:
+                    for inst in lf.instances:
+                        x, y = inst[:, 0], inst[:, 1]
+                        x_min, x_max = np.min(x), np.max(x)
+                        y_min, y_max = np.min(y), np.max(y)
+                        h, w = y_max - y_min, x_max, x_min
+                        if h > self.max_crop_hws[d_num][0]:
+                            self.max_crop_hws[d_num][0] = h
+                        if w > self.max_crop_hws[d_num][1]:
+                            self.max_crop_hws[d_num][1] = w
+
                 self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
                     d_num
                 ]
@@ -1233,7 +1248,7 @@ class MultiHeadModelTrainer:
             )
 
         elif self.model_type == "centered_instance":
-            self.train_datasets[d_num] = CenteredInstanceDataset(
+            self.train_datasets[d_num] = CenteredInstanceDatasetFitBbox(
                 labels=self.train_labels[d_num],
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
                     d_num
@@ -1244,14 +1259,14 @@ class MultiHeadModelTrainer:
                 augmentation_config=self.config.data_config.augmentation_config,
                 scale=self.config.data_config.preprocessing.scale[d_num],
                 apply_aug=self.config.data_config.use_augmentations_train,
-                crop_hw=(self.crop_hws[d_num], self.crop_hws[d_num]),
+                max_crop_hw=self.max_crop_hws[d_num],
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 cache_img=self.cache_img,
                 cache_img_path=self.train_cache_img_paths[d_num],
                 use_existing_imgs=self.use_existing_imgs[d_num],
                 rank=self.trainer.global_rank if self.trainer is not None else None,
             )
-            self.val_datasets[d_num] = CenteredInstanceDataset(
+            self.val_datasets[d_num] = CenteredInstanceDatasetFitBbox(
                 labels=self.val_labels[d_num],
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
                     d_num
@@ -1262,7 +1277,7 @@ class MultiHeadModelTrainer:
                 augmentation_config=None,
                 scale=self.config.data_config.preprocessing.scale[d_num],
                 apply_aug=False,
-                crop_hw=(self.crop_hws[d_num], self.crop_hws[d_num]),
+                max_crop_hw=self.max_crop_hws[d_num],
                 max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
                 cache_img=self.cache_img,
                 cache_img_path=self.val_cache_img_paths[d_num],
