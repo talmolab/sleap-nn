@@ -480,6 +480,16 @@ class ModelTrainer:
             else True
         )
 
+        # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
+        if "cache_img" in self.data_pipeline_fw:
+            for video in self.train_labels.videos:
+                if video.is_open:
+                    video.close()
+
+            for video in self.val_labels.videos:
+                if video.is_open:
+                    video.close()
+
         # train
         self.train_data_loader = DataLoader(
             dataset=self.train_dataset,
