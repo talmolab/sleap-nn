@@ -1,6 +1,6 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
-from kornia.geometry.transform import crop_and_resize
+from kornia.geometry.transform import crop_and_resize, crop_by_boxes
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
@@ -707,20 +707,58 @@ class CenteredInstanceDatasetFitBbox(CenteredInstanceDataset):
             scale=self.scale,
         )
 
+        # apply augmentation
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
+                image, instances = apply_intensity_augmentation(
+                    image,
+                    instances,
+                    **self.augmentation_config.intensity,
+                )
+
+            if "geometric" in self.augmentation_config:
+                image, instances = apply_geometric_augmentation(
+                    image,
+                    instances,
+                    **self.augmentation_config.geometric,
+                )
+
         instance = instances[0]  # (n_samples=1)
 
         bbox = get_fit_bbox(instance)  # bbox => (x_min, y_min, x_max, y_max)
+        bbox = (
+            bbox[0] - 16,
+            bbox[1] - 16,
+            bbox[2] + 16,
+            bbox[3] + 16,
+        )  # padding of 16 on all sides
+        x_min, y_min, x_max, y_max = bbox
+        crop_hw = (y_max - y_min, x_max - x_min)
 
-        crop_hw = (bbox[3] - bbox[1], bbox[2] - bbox[0])
-
-        cropped_image = image[..., bbox[0] : bbox[2], bbox[3] : bbox[1]]
-        instance = instance - torch.Tensor([bbox[0], bbox[1]])
-
-        cropped_image_match_hw, pad_hw = apply_padding(
-            cropped_image, self.max_crop_h_w[0], self.max_crop_h_w[1]
+        cropped_image = crop_by_boxes(
+            image,
+            src_box=torch.Tensor(
+                [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]
+            ).unsqueeze(dim=0),
+            dst_box=torch.tensor(
+                [
+                    [
+                        [0.0, 0.0],
+                        [crop_hw[1], 0.0],
+                        [crop_hw[1], crop_hw[0]],
+                        [0.0, crop_hw[0]],
+                    ]
+                ]
+            ),
         )
-        instance = instance + torch.Tensor(pad_hw[::-1])
-        instance = torch.unsqueeze(instance)
+        instance = instance - torch.Tensor([bbox[0], bbox[1]])  # adjust for crops
+
+        cropped_image_match_hw, eff_scale, pad_wh = apply_sizematcher(
+            cropped_image, self.max_crop_h_w[0], self.max_crop_h_w[1]
+        )  # resize and pad to max crfop  size
+        instance = instance * eff_scale  # adjust keypoints acc to resizing/ padding
+        instance = instance + torch.Tensor(pad_wh)
+        instance = torch.unsqueeze(instance, dim=0)
 
         sample = {}
         sample["instance_image"] = cropped_image_match_hw
@@ -732,31 +770,11 @@ class CenteredInstanceDatasetFitBbox(CenteredInstanceDataset):
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
         sample["crop_hw"] = torch.Tensor([crop_hw])
 
-        # apply augmentation
-        if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
-                sample["instance_image"], sample["instance"] = (
-                    apply_intensity_augmentation(
-                        sample["instance_image"],
-                        sample["instance"],
-                        **self.augmentation_config.intensity,
-                    )
-                )
-
-            if "geometric" in self.augmentation_config:
-                sample["instance_image"], sample["instance"] = (
-                    apply_geometric_augmentation(
-                        sample["instance_image"],
-                        sample["instance"],
-                        **self.augmentation_config.geometric,
-                    )
-                )
-
         # Pad the image (if needed) according max stride
-        sample["instance_image"], pad_hw = apply_pad_to_stride(
+        sample["instance_image"], pad_wh = apply_pad_to_stride(
             sample["instance_image"], max_stride=self.max_stride
         )
-        sample["instance"] = sample["instance"] + torch.Tensor(pad_hw)
+        sample["instance"] = sample["instance"] + torch.Tensor(pad_wh)
 
         img_hw = sample["instance_image"].shape[-2:]
 

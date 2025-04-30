@@ -1137,17 +1137,18 @@ class MultiHeadModelTrainer:
 
             if self.model_type == "centered_instance":
                 # compute crop size
-                self.max_crop_hws[d_num] = (0, 0)
+                self.max_crop_hws[d_num] = [0, 0]
                 for lf in self.train_labels[d_num]:
-                    for inst in lf.instances:
+                    for instance in lf.instances:
+                        inst = instance.numpy()
                         x, y = inst[:, 0], inst[:, 1]
-                        x_min, x_max = np.min(x), np.max(x)
-                        y_min, y_max = np.min(y), np.max(y)
-                        h, w = y_max - y_min, x_max, x_min
+                        x_min, x_max = np.nanmin(x), np.nanmax(x)
+                        y_min, y_max = np.nanmin(y), np.nanmax(y)
+                        h, w = y_max - y_min, x_max - x_min
                         if h > self.max_crop_hws[d_num][0]:
-                            self.max_crop_hws[d_num][0] = h
+                            self.max_crop_hws[d_num][0] = int(h)
                         if w > self.max_crop_hws[d_num][1]:
-                            self.max_crop_hws[d_num][1] = w
+                            self.max_crop_hws[d_num][1] = int(w)
 
                 self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
                     d_num
