@@ -215,93 +215,76 @@ class ModelTrainer:
         if self.config.data_config.preprocessing.scale is None:
             self.config.data_config.preprocessing.scale = 1.0
 
-        if self.use_existing_chunks:  # load preprocessing params
-            if self.data_pipeline_fw == "litdata":
-                config_path = Path(self.litdata_chunks_path) / "config.yaml"
-            elif self.data_pipeline_fw == "torch_dataset_np_chunks":
-                config_path = Path(self.np_chunks_path) / "config.yaml"
-            chunks_config = OmegaConf.load(config_path.as_posix())
-            self.skeletons = get_skeleton_from_config(
-                chunks_config.data_config.skeletons
-            )
-            self.edge_inds = self.skeletons[0].edge_inds
-            self.max_height, self.max_width = (
-                chunks_config.data_config.preprocessing.max_height,
-                chunks_config.data_config.preprocessing.max_width,
-            )
-            self.crop_hw = chunks_config.data_config.preprocessing.crop_hw[0]
+        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
 
-        else:
-            train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        self.max_height, self.max_width = get_max_height_width(train_labels)
+        if (
+            self.config.data_config.preprocessing.max_height is None
+            and self.config.data_config.preprocessing.max_width is None
+        ):
+            self.config.data_config.preprocessing.max_height = self.max_height
+            self.config.data_config.preprocessing.max_width = self.max_width
 
-            self.max_height, self.max_width = get_max_height_width(train_labels)
-            if (
-                self.config.data_config.preprocessing.max_height is None
-                and self.config.data_config.preprocessing.max_width is None
-            ):
-                self.config.data_config.preprocessing.max_height = self.max_height
-                self.config.data_config.preprocessing.max_width = self.max_width
+        if self.model_type == "centered_instance":
+            # compute crop size
+            self.crop_hw = self.config.data_config.preprocessing.crop_hw
+            if self.crop_hw is None:
 
-            if self.model_type == "centered_instance":
-                # compute crop size
-                self.crop_hw = self.config.data_config.preprocessing.crop_hw
-                if self.crop_hw is None:
+                min_crop_size = (
+                    self.config.data_config.preprocessing.min_crop_size
+                    if "min_crop_size" in self.config.data_config.preprocessing
+                    else None
+                )
+                crop_size = find_instance_crop_size(
+                    train_labels,
+                    maximum_stride=self.max_stride,
+                    min_crop_size=min_crop_size,
+                    input_scaling=self.config.data_config.preprocessing.scale,
+                )
+                self.crop_hw = crop_size
+                self.config.data_config.preprocessing.crop_hw = (
+                    self.crop_hw,
+                    self.crop_hw,
+                )
+            else:
+                self.crop_hw = self.crop_hw[0]
 
-                    min_crop_size = (
-                        self.config.data_config.preprocessing.min_crop_size
-                        if "min_crop_size" in self.config.data_config.preprocessing
-                        else None
-                    )
-                    crop_size = find_instance_crop_size(
-                        train_labels,
-                        maximum_stride=self.max_stride,
-                        min_crop_size=min_crop_size,
-                        input_scaling=self.config.data_config.preprocessing.scale,
-                    )
-                    self.crop_hw = crop_size
-                    self.config.data_config.preprocessing.crop_hw = (
-                        self.crop_hw,
-                        self.crop_hw,
-                    )
-                else:
-                    self.crop_hw = self.crop_hw[0]
+        self.skeletons = train_labels.skeletons
+        # save the skeleton in the config
+        self.config["data_config"]["skeletons"] = {}
+        for skl in self.skeletons:
+            if skl.symmetries:
+                symm = [list(s.nodes) for s in skl.symmetries]
+            else:
+                symm = None
+            skl_name = skl.name if skl.name is not None else "skeleton-0"
+            self.config["data_config"]["skeletons"][skl_name] = {
+                "nodes": skl.nodes,
+                "edges": skl.edges,
+                "symmetries": symm,
+            }
 
-            self.skeletons = train_labels.skeletons
-            # save the skeleton in the config
-            self.config["data_config"]["skeletons"] = {}
-            for skl in self.skeletons:
-                if skl.symmetries:
-                    symm = [list(s.nodes) for s in skl.symmetries]
-                else:
-                    symm = None
-                skl_name = skl.name if skl.name is not None else "skeleton-0"
-                self.config["data_config"]["skeletons"][skl_name] = {
-                    "nodes": skl.nodes,
-                    "edges": skl.edges,
-                    "symmetries": symm,
-                }
+        # if edges and part names aren't set in config, get it from `sio.Labels` object.
+        head_config = self.config.model_config.head_configs[self.model_type]
+        for key in head_config:
+            if "part_names" in head_config[key].keys():
+                if head_config[key]["part_names"] is None:
+                    part_names = [x.name for x in self.skeletons[0].nodes]
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "part_names"
+                    ] = part_names
 
-            # if edges and part names aren't set in config, get it from `sio.Labels` object.
-            head_config = self.config.model_config.head_configs[self.model_type]
-            for key in head_config:
-                if "part_names" in head_config[key].keys():
-                    if head_config[key]["part_names"] is None:
-                        part_names = [x.name for x in self.skeletons[0].nodes]
-                        self.config.model_config.head_configs[self.model_type][key][
-                            "part_names"
-                        ] = part_names
+            if "edges" in head_config[key].keys():
+                if head_config[key]["edges"] is None:
+                    edges = [
+                        (x.source.name, x.destination.name)
+                        for x in self.skeletons[0].edges
+                    ]
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "edges"
+                    ] = edges
 
-                if "edges" in head_config[key].keys():
-                    if head_config[key]["edges"] is None:
-                        edges = [
-                            (x.source.name, x.destination.name)
-                            for x in self.skeletons[0].edges
-                        ]
-                        self.config.model_config.head_configs[self.model_type][key][
-                            "edges"
-                        ] = edges
-
-            self.edge_inds = train_labels.skeletons[0].edge_inds
+        self.edge_inds = train_labels.skeletons[0].edge_inds
 
         if (
             rank is None or rank == 0
