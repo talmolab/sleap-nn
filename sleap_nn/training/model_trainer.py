@@ -1128,9 +1128,9 @@ class MultiHeadModelTrainer:
 
             if self.model_type == "centered_instance":
                 # compute crop size
-                self.crop_hws[d_num] = (
-                    self.config.data_config.preprocessing.crop_hw[d_num]
-                )
+                self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
+                    d_num
+                ]
                 if self.crop_hws[d_num] is None:
 
                     min_crop_size = (
@@ -1162,9 +1162,7 @@ class MultiHeadModelTrainer:
                 if self.data_pipeline_fw == "litdata":
                     save_path = Path(self.litdata_chunks_path) / "config.yaml"
                 elif self.data_pipeline_fw == "torch_dataset_np_chunks":
-                    save_path = (
-                        Path(self.np_chunks_dir) / f"{d_name}" / "config.yaml"
-                    )
+                    save_path = Path(self.np_chunks_dir) / f"{d_name}" / "config.yaml"
                 save_path.parent.mkdir(parents=True, exist_ok=True)
                 if (
                     rank is None or rank == 0
@@ -1815,7 +1813,7 @@ class MultiHeadModelTrainer:
             logger.error(message)
             raise ValueError(message)
 
-        if (rank is None or rank == 0) and self.config.trainer_config.use_wandb:
+        if self.trainer.global_rank == 0 and self.config.trainer_config.use_wandb:
             wandb_logger.experiment.config.update({"run_name": wandb_config.name})
             wandb_logger.experiment.config.update(
                 {"run_config": OmegaConf.to_container(self.config, resolve=True)}
