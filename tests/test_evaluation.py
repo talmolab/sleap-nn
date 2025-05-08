@@ -89,7 +89,7 @@ def create_labels_two_match_one_missed_inst(minimal_instance):
 
     # Create user labelled instance.
     user_inst_1 = sio.Instance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [11.4, 13.4],
                 [13.6, 15.1],
@@ -101,7 +101,7 @@ def create_labels_two_match_one_missed_inst(minimal_instance):
 
     # Create Predicted Instance.
     pred_inst_1 = sio.PredictedInstance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [11.2, 17.4],
                 [12.8, 15.1],
@@ -110,12 +110,12 @@ def create_labels_two_match_one_missed_inst(minimal_instance):
         ),
         skeleton=skeleton,
         point_scores=np.array([0.7, 0.6, 0.8]),
-        instance_score=0.7,
+        score=0.7,
     )
 
     # create second user instance
     user_inst_2 = sio.Instance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [1.4, 2.9],
                 [30.6, 9.5],
@@ -126,7 +126,7 @@ def create_labels_two_match_one_missed_inst(minimal_instance):
     )
 
     pred_inst_2 = sio.PredictedInstance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [2.3, 2.2],
                 [25.6, 10.0],
@@ -135,12 +135,12 @@ def create_labels_two_match_one_missed_inst(minimal_instance):
         ),
         skeleton=skeleton,
         point_scores=np.array([0.7, 0.6, 0.6]),
-        instance_score=0.6,
+        score=0.6,
     )
 
     # create a user instance which shouldn't be matched with other predicted instances
     user_inst_3 = sio.Instance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [55.6, 30.2],
                 [10.1, 18.5],
@@ -236,7 +236,7 @@ def create_labels_no_match_frame_pairs(minimal_instance):
 
     # Create user labelled instance.
     user_inst_1 = sio.Instance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [11.4, 13.4],
                 [13.6, 15.1],
@@ -248,7 +248,7 @@ def create_labels_no_match_frame_pairs(minimal_instance):
 
     # Create Predicted Instance.
     pred_inst_1 = sio.PredictedInstance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [11.2, 17.4],
                 [12.8, 15.1],
@@ -257,7 +257,7 @@ def create_labels_no_match_frame_pairs(minimal_instance):
         ),
         skeleton=skeleton,
         point_scores=np.array([0.7, 0.6, 0.8]),
-        instance_score=0.7,
+        score=0.7,
     )
 
     user_lf = sio.LabeledFrame(
@@ -310,7 +310,7 @@ def create_labels_more_predicted_instances(minimal_instance):
 
     # Create user labelled instance.
     user_inst_1 = sio.Instance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [11.4, 13.4],
                 [13.6, 15.1],
@@ -322,7 +322,7 @@ def create_labels_more_predicted_instances(minimal_instance):
 
     # create predicted instance
     pred_inst_1 = sio.PredictedInstance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [11.2, 17.4],
                 [12.8, 13.1],
@@ -331,12 +331,12 @@ def create_labels_more_predicted_instances(minimal_instance):
         ),
         skeleton=skeleton,
         point_scores=np.array([0.7, 0.6, 0.8]),
-        instance_score=0.8,
+        score=0.8,
     )
 
     # create second user instance
     user_inst_2 = sio.Instance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [1.4, 2.9],
                 [30.6, 9.5],
@@ -348,7 +348,7 @@ def create_labels_more_predicted_instances(minimal_instance):
 
     # create second predicted instance
     pred_inst_2 = sio.PredictedInstance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [1.3, 2.9],
                 [29.6, 9.2],
@@ -357,12 +357,12 @@ def create_labels_more_predicted_instances(minimal_instance):
         ),
         skeleton=skeleton,
         point_scores=np.array([0.7, 0.6, 0.6]),
-        instance_score=0.7,
+        score=0.7,
     )
 
     # create a predicted instance with nan values
     pred_inst_3 = sio.PredictedInstance.from_numpy(
-        points=np.array(
+        points_data=np.array(
             [
                 [np.nan, np.nan],
                 [np.nan, np.nan],
@@ -371,7 +371,7 @@ def create_labels_more_predicted_instances(minimal_instance):
         ),
         skeleton=skeleton,
         point_scores=np.array([0.7, 0.6, 0.6]),
-        instance_score=0.7,
+        score=0.7,
     )
 
     # create labeled frame with the instances
