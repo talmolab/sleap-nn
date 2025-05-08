@@ -869,10 +869,10 @@ class TopDownPredictor(Predictor):
                 pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
-                        points=pred_instances,
+                        points_data=pred_instances,
                         skeleton=self.skeletons[skeleton_idx],
                         point_scores=pred_values,
-                        instance_score=instance_score,
+                        score=instance_score,
                     )
                 )
         for key, inst in preds.items():
@@ -1205,9 +1205,9 @@ class SingleInstancePredictor(Predictor):
             ):
 
                 inst = sio.PredictedInstance.from_numpy(
-                    points=pred_instances,
+                    points_data=pred_instances,
                     skeleton=self.skeletons[skeleton_idx],
-                    instance_score=np.nansum(pred_values),
+                    score=np.nansum(pred_values),
                     point_scores=pred_values,
                 )
                 predicted_frames.append(
@@ -1589,9 +1589,9 @@ class BottomUpPredictor(Predictor):
 
                     predicted_instances.append(
                         sio.PredictedInstance.from_numpy(
-                            points=pts,
+                            points_data=pts,
                             point_scores=confs,
-                            instance_score=score,
+                            score=score,
                             skeleton=self.skeletons[skeleton_idx],
                         )
                     )
