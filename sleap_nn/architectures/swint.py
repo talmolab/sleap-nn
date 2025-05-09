@@ -5,7 +5,7 @@ See the `SwinTWrapper` class docstring for more information.
 
 from functools import partial
 from typing import Any, Callable, List, Optional, Dict, Tuple
-
+import numpy as np
 import torch
 from torch import nn
 from sleap_nn.architectures.encoder_decoder import Decoder
@@ -227,7 +227,7 @@ class SwinTWrapper(nn.Module):
         else:
             self.arch = arch_types["tiny"]
 
-        self.up_blocks = len(self.arch["depths"]) - 1
+        self.up_blocks = np.log2(self.max_stride / output_stride).astype(int) - 1
         self.convs_per_block = convs_per_block
         self.stem_patch_stride = stem_patch_stride
         self.down_blocks = len(self.arch["depths"]) - 1
