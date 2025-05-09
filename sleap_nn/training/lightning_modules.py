@@ -1262,7 +1262,9 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
                     sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
-                    output = self.centroid_inf_layer(sample)
+                    output = self.centroid_inf_layer(
+                        sample, output_head_skeleton_num=d_num
+                    )
                     batch_idx = 1
 
                     # plot predictions on sample image
@@ -1328,17 +1330,29 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
             batch_data = batch[d_num]
             X, y = torch.squeeze(batch_data["image"], dim=1).to(
                 self.device
-            ), torch.squeeze(batch_data["centroids_confidence_maps"], dim=1).to(
-                self.device
-            )
+            ), torch.squeeze(batch_data["centroids_confidence_maps"], dim=1)
 
             output = self.model(X)["CentroidConfmapsHead"]
 
-            y_preds = output[0]
+            for h_num in batch.keys():
+                if d_num != h_num:
+                    with torch.no_grad():
+                        output[h_num] = output[h_num].detach()
+
+            y_preds = output[d_num]
             curr_loss = 1.0 * self.loss_func(y_preds, y)
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)
+
+            self.log(
+                f"train_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+            )
 
         self.log(
             f"train_loss",

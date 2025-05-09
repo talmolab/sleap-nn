@@ -596,7 +596,6 @@ class TopDownPredictor(Predictor):
                 centered_fitbbox=self.centered_fitbbox,
             )
             centroid_crop_layer.precrop_resize = scale
-            centroid_crop_layer.output_head_skeleton_num = self.output_head_skeleton_num
             if self.preprocess_config.centered_max_height is None:
                 self.preprocess_config.centered_max_height = (
                     self.confmap_config.data_config.preprocessing.max_height[

@@ -219,9 +219,10 @@ class MultiHeadModel(nn.Module):
                 )
 
         elif self.model_type == "centroid":
-            centroid_confmaps = self.head_configs.confmaps[0].copy()
-            centroid_confmaps.anchor_part = None
-            self.heads.append(CentroidConfmapsHead(**centroid_confmaps))
+            for d_num, _ in self.head_configs.confmaps.items():
+                self.heads.append(
+                    CentroidConfmapsHead(**self.head_configs.confmaps[d_num])
+                )
 
         elif self.model_type == "bottomup":
             for d_num, _ in self.head_configs.confmaps.items():
