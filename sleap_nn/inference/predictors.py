@@ -101,6 +101,7 @@ class Predictor(ABC):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         output_head_skeleton_num: int = 1,
+        centered_fitbbox: bool = False,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -190,6 +191,7 @@ class Predictor(ABC):
                 device=device,
                 preprocess_config=preprocess_config,
                 output_head_skeleton_num=output_head_skeleton_num,
+                centered_fitbbox=centered_fitbbox,
             )
 
         elif "bottomup" in model_names:
@@ -270,34 +272,64 @@ class Predictor(ABC):
         batch_size = self.preprocess_config["batch_size"]
         done = False
         while not done:
+            source_imgs = []
             imgs = []
             fidxs = []
             vidxs = []
             org_szs = []
             instances = []
             eff_scales = []
+            pad_shifts = []
+            pad_shifts_stride = []
             for _ in range(batch_size):
                 frame = self.pipeline.frame_buffer.get()
                 if frame["image"] is None:
                     done = True
                     break
                 frame["image"] = apply_normalization(frame["image"])
-                frame["image"], eff_scale = apply_sizematcher(
+                source_img = frame["image"].clone()
+                frame["image"], eff_scale, (pad_w_l, pad_h_t) = apply_sizematcher(
                     frame["image"],
                     self.preprocess_config["max_height"],
                     self.preprocess_config["max_width"],
                 )
+                pad_shift = torch.Tensor((pad_w_l, pad_h_t))
                 if self.instances_key:
                     frame["instances"] = frame["instances"] * eff_scale
+                    frame["instances"] = frame["instances"] + pad_shift.unsqueeze(
+                        dim=0
+                    ).unsqueeze(dim=0).unsqueeze(dim=0)
                 if self.preprocess_config["is_rgb"] and frame["image"].shape[-3] != 3:
                     frame["image"] = frame["image"].repeat(1, 3, 1, 1)
+                    source_img = source_img.repeat(1, 3, 1, 1)
                 elif not self.preprocess_config["is_rgb"]:
                     frame["image"] = F.rgb_to_grayscale(
                         frame["image"], num_output_channels=1
                     )
+                    source_img = F.rgb_to_grayscale(source_img, num_output_channels=1)
+
+                pad_shift_stride = torch.tensor((0, 0))
+                if self.preprocess:
+                    scale = self.preprocess_config["scale"]
+                    if scale != 1.0:
+                        if self.instances_key:
+                            frame["image"], frame["instances"] = apply_resizer(
+                                frame["image"], frame["instances"]
+                            )
+                        else:
+                            frame["image"] = resize_image(frame["image"], scale)
+                    frame["image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
+                        frame["image"], self.preprocess_config["max_stride"]
+                    )
+                    pad_shift_stride = torch.Tensor((pad_w_l, pad_h_t))
+                    if self.instances_key:
+                        frame["instances"] = frame["instances"] + pad_shift_stride
 
                 eff_scales.append(torch.tensor(eff_scale))
+                pad_shifts.append(pad_shift.unsqueeze(dim=0))
+                pad_shifts_stride.append(pad_shift_stride.unsqueeze(dim=0))
                 imgs.append(frame["image"].unsqueeze(dim=0))
+                source_imgs.append(source_img.unsqueeze(dim=0))
                 fidxs.append(frame["frame_idx"])
                 vidxs.append(frame["video_idx"])
                 org_szs.append(frame["orig_size"].unsqueeze(dim=0))
@@ -306,37 +338,28 @@ class Predictor(ABC):
             if imgs:
                 # TODO: all preprocessing should be moved into InferenceModels to be exportable.
                 imgs = torch.concatenate(imgs, dim=0)
+                source_imgs = torch.concatenate(source_imgs, dim=0)
                 fidxs = torch.tensor(fidxs, dtype=torch.int32)
                 vidxs = torch.tensor(vidxs, dtype=torch.int32)
                 org_szs = torch.concatenate(org_szs, dim=0)
+                pad_shifts = torch.concatenate(pad_shifts, dim=0)
+                pad_shifts_stride = torch.concatenate(pad_shifts_stride, dim=0)
                 eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
                 if self.instances_key:
                     instances = torch.concatenate(instances, dim=0)
                 ex = {
                     "image": imgs,
+                    "source_image": source_imgs,
                     "frame_idx": fidxs,
                     "video_idx": vidxs,
                     "orig_size": org_szs,
                     "eff_scale": eff_scales,
+                    "pad_shifts": pad_shifts,
+                    "pad_shifts_stride": pad_shifts_stride,
                 }
                 if self.instances_key:
                     ex["instances"] = instances
-                if self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 3:
-                    ex["image"] = ex["image"].repeat(1, 1, 3, 1, 1)
-                elif not self.preprocess_config["is_rgb"]:
-                    ex["image"] = F.rgb_to_grayscale(ex["image"], num_output_channels=1)
-                if self.preprocess:
-                    scale = self.preprocess_config["scale"]
-                    if scale != 1.0:
-                        if self.instances_key:
-                            ex["image"], ex["instances"] = apply_resizer(
-                                ex["image"], ex["instances"]
-                            )
-                        else:
-                            ex["image"] = resize_image(ex["image"], scale)
-                    ex["image"] = apply_pad_to_stride(
-                        ex["image"], self.preprocess_config["max_stride"]
-                    )
+
                 outputs_list = self.inference_model(ex)
                 if outputs_list is not None:
                     for output in outputs_list:
@@ -455,6 +478,7 @@ class TopDownPredictor(Predictor):
     anchor_ind: Optional[int] = None
     is_multi_head_model: bool = False
     output_head_skeleton_num: int = 0
+    centered_fitbbox: bool = False
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -569,8 +593,30 @@ class TopDownPredictor(Predictor):
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
                 input_scale=scale,
+                centered_fitbbox=self.centered_fitbbox,
             )
             centroid_crop_layer.precrop_resize = scale
+            centroid_crop_layer.output_head_skeleton_num = self.output_head_skeleton_num
+            if self.preprocess_config.centered_max_height is None:
+                self.preprocess_config.centered_max_height = (
+                    self.confmap_config.data_config.preprocessing.max_height[
+                        self.output_head_skeleton_num
+                    ]
+                )
+            if self.preprocess_config.centered_max_width is None:
+                self.preprocess_config.centered_max_width = (
+                    self.confmap_config.data_config.preprocessing.max_width[
+                        self.output_head_skeleton_num
+                    ]
+                )
+            if self.preprocess_config.max_crop_size is None:
+                self.preprocess_config.max_crop_size = (
+                    self.confmap_config.data_config.max_crop_sizes[
+                        self.output_head_skeleton_num
+                    ]
+                )
+            centroid_crop_layer.preprocess_config = self.preprocess_config
+            centroid_crop_layer.centered_fitbbox = self.centered_fitbbox
 
         if self.centroid_config is None and self.confmap_config is not None:
             self.instances_key = (
@@ -611,6 +657,7 @@ class TopDownPredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         output_head_skeleton_num: int = 1,
+        centered_fitbbox: bool = False,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -815,6 +862,7 @@ class TopDownPredictor(Predictor):
             anchor_ind=preprocess_config["anchor_ind"],
             output_head_skeleton_num=output_head_skeleton_num,
             is_multi_head_model=is_multi_head_model,
+            centered_fitbbox=centered_fitbbox,
         )
 
         obj._initialize_inference_model()
@@ -1937,6 +1985,9 @@ def main(
     max_instances: Optional[int] = None,
     max_width: Optional[int] = None,
     max_height: Optional[int] = None,
+    centered_fitbbox: bool = False,
+    centered_max_height: Optional[int] = None,
+    centered_max_width: Optional[int] = None,
     is_rgb: bool = False,
     anchor_ind: Optional[int] = None,
     provider: Optional[str] = None,
@@ -1945,6 +1996,7 @@ def main(
     videoreader_start_idx: Optional[int] = None,
     videoreader_end_idx: Optional[int] = None,
     crop_hw: Optional[List[int]] = None,
+    max_crop_size: Optional[list] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
     integral_refinement: str = None,
     integral_patch_size: int = 5,
@@ -2094,6 +2146,9 @@ def main(
         "max_width": max_width,
         "max_height": max_height,
         "anchor_ind": anchor_ind,
+        "centered_max_height": centered_max_height,
+        "centered_max_width": centered_max_width,
+        "max_crop_size": max_crop_size,
     }
 
     if provider is None:
@@ -2121,6 +2176,7 @@ def main(
         device=device,
         preprocess_config=OmegaConf.create(preprocess_config),
         output_head_skeleton_num=output_head_skeleton_num,
+        centered_fitbbox=centered_fitbbox,
     )
 
     if tracking:

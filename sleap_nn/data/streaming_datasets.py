@@ -80,7 +80,10 @@ class BottomUpStreamingDataset(ld.StreamingDataset):
                 )
 
         # Pad the image (if needed) according max stride
-        ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
+        ex["image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
+            ex["image"], max_stride=self.max_stride
+        )
+        ex["instances"] = ex["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         img_hw = ex["image"].shape[-2:]
 
@@ -187,9 +190,10 @@ class CenteredInstanceStreamingDataset(ld.StreamingDataset):
         ex["centroid"] = centered_centroid.unsqueeze(0)  # (n_samples=1, 2)
 
         # Pad the image (if needed) according max stride
-        ex["instance_image"] = apply_pad_to_stride(
+        ex["instance_image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
             ex["instance_image"], max_stride=self.max_stride
         )
+        ex["instance"] = ex["instance"] + torch.Tensor((pad_w_l, pad_h_t))
 
         img_hw = ex["instance_image"].shape[-2:]
 
@@ -261,7 +265,10 @@ class CentroidStreamingDataset(ld.StreamingDataset):
                 )
 
         # Pad the image (if needed) according max stride
-        ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
+        ex["image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
+            ex["image"], max_stride=self.max_stride
+        )
+        ex["instances"] = ex["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         img_hw = ex["image"].shape[-2:]
 
@@ -335,7 +342,10 @@ class SingleInstanceStreamingDataset(ld.StreamingDataset):
                 )
 
         # Pad the image (if needed) according max stride
-        ex["image"] = apply_pad_to_stride(ex["image"], max_stride=self.max_stride)
+        ex["image"], (pad_w_l, pad_h_t) = apply_pad_to_stride(
+            ex["image"], max_stride=self.max_stride
+        )
+        ex["instances"] = ex["instances"] + torch.Tensor((pad_w_l, pad_h_t))
 
         img_hw = ex["image"].shape[-2:]
 

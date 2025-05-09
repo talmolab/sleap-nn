@@ -116,11 +116,12 @@ def test_apply_pad_to_stride(minimal_instance):
     lf = labels[0]
     ex = process_lf(lf, 0, 2)
 
-    image = apply_pad_to_stride(ex["image"], max_stride=2)
+    image, _ = apply_pad_to_stride(ex["image"], max_stride=2)
     assert image.shape == torch.Size([1, 1, 384, 384])
 
-    image = apply_pad_to_stride(ex["image"], max_stride=200)
+    image, padding = apply_pad_to_stride(ex["image"], max_stride=200)
     assert image.shape == torch.Size([1, 1, 400, 400])
+    assert padding == (8, 8)
 
 
 def test_apply_sizematcher(caplog, minimal_instance):
@@ -129,14 +130,15 @@ def test_apply_sizematcher(caplog, minimal_instance):
     lf = labels[0]
     ex = process_lf(lf, 0, 2)
 
-    image, _ = apply_sizematcher(ex["image"], 500, 500)
+    image, _, _ = apply_sizematcher(ex["image"], 500, 500)
     assert image.shape == torch.Size([1, 1, 500, 500])
 
-    image, _ = apply_sizematcher(ex["image"], 700, 600)
+    image, _, _ = apply_sizematcher(ex["image"], 700, 600)
     assert image.shape == torch.Size([1, 1, 700, 600])
 
-    image, _ = apply_sizematcher(ex["image"])
+    image, _, padding = apply_sizematcher(ex["image"])
     assert image.shape == torch.Size([1, 1, 384, 384])
+    assert padding == (0, 0)
 
-    image, eff = apply_sizematcher(ex["image"], 100, 480)
+    image, eff, _ = apply_sizematcher(ex["image"], 100, 480)
     assert image.shape == torch.Size([1, 1, 100, 480])

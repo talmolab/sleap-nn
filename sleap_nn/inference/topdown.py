@@ -5,15 +5,18 @@ import torch
 import lightning as L
 import numpy as np
 from sleap_nn.data.resizing import (
+    apply_sizematcher,
     resize_image,
     apply_pad_to_stride,
 )
 from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_centroids import generate_centroids
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.instance_cropping import make_centered_bboxes, get_fit_bbox
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
 from loguru import logger
 from collections import defaultdict
+from omegaconf import DictConfig
+from kornia.geometry.transform import crop_and_resize, crop_by_boxes
 
 
 class CentroidCrop(L.LightningModule):
@@ -77,6 +80,9 @@ class CentroidCrop(L.LightningModule):
         max_stride: int = 1,
         use_gt_centroids: bool = False,
         anchor_ind: Optional[int] = None,
+        output_head_skeleton_num: Optional[int] = 0,
+        preprocess_config: Optional[dict] = None,
+        centered_fitbbox: bool = False,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -95,19 +101,35 @@ class CentroidCrop(L.LightningModule):
         self.max_stride = max_stride
         self.use_gt_centroids = use_gt_centroids
         self.anchor_ind = anchor_ind
+        self.output_head_skeleton_num = output_head_skeleton_num
+        self.preprocess_config = preprocess_config
+        self.centered_fitbbox = centered_fitbbox
 
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-        for centroid, centroid_val, image, fidx, vidx, sz, eff_sc in zip(
+        for centroid, centroid_val, image, fidx, vidx, sz, eff_sc, pad_shifts in zip(
             self.refined_peaks_batched,
             self.peak_vals_batched,
-            inputs["image"],
+            inputs["source_image"],
             inputs["frame_idx"],
             inputs["video_idx"],
             inputs["orig_size"],
             inputs["eff_scale"],
+            inputs["pad_shifts"],
         ):
+
+            # size matcher
+            max_h = self.preprocess_config.centered_max_height
+            max_w = self.preprocess_config.centered_max_width
+            image, eff_sc, (pad_w_l, pad_h_t) = apply_sizematcher(image, max_h, max_w)
+            centroid = centroid * eff_sc
+            pad_shifts = torch.Tensor((pad_w_l, pad_h_t))
+            centroid = centroid + pad_shifts
+
+            image = resize_image(image, self.precrop_resize)
+            centroid = centroid * self.precrop_resize
+
             if torch.any(torch.isnan(centroid)):
                 if torch.all(torch.isnan(centroid)):
                     continue
@@ -148,6 +170,114 @@ class CentroidCrop(L.LightningModule):
             ex["instance_image"] = instance_image.unsqueeze(dim=1)
             ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
             ex["eff_scale"] = torch.Tensor([eff_sc] * n)
+            ex["pad_shifts"] = pad_shifts.unsqueeze(0).repeat(n, 1)
+            crops_dict.append(ex)
+
+        return crops_dict
+
+    def _generate_fitbbox_crops(self, inputs):
+        """Generate Crops from the predicted centroids."""
+        crops_dict = []
+        for (
+            centroid,
+            centroid_val,
+            image,
+            fidx,
+            vidx,
+            sz,
+            eff_sc,
+            pad_shifts,
+            instances,
+        ) in zip(
+            self.refined_peaks_batched,
+            self.peak_vals_batched,
+            inputs["source_image"],
+            inputs["frame_idx"],
+            inputs["video_idx"],
+            inputs["orig_size"],
+            inputs["eff_scale"],
+            inputs["pad_shifts"],
+            inputs["instances"],
+        ):
+
+            # adjust for initial size matching in preprocessing
+
+            instances = (
+                instances - pad_shifts
+            )  # .unsqueeze(dim=0).unsqueeze(dim=0).unsqueeze(dim=0)
+            instances = instances / eff_sc
+
+            # size matcher
+            max_h = self.preprocess_config.centered_max_height
+            max_w = self.preprocess_config.centered_max_width
+            image, eff_sc, (pad_w_l, pad_h_t) = apply_sizematcher(image, max_h, max_w)
+            instances = instances * eff_sc
+            pad_shifts = torch.Tensor((pad_w_l, pad_h_t))
+            instances = instances + pad_shifts.unsqueeze(dim=0).unsqueeze(
+                dim=0
+            ).unsqueeze(dim=0)
+
+            image = resize_image(image, self.precrop_resize)
+            instances = instances * self.precrop_resize
+
+            n = centroid.shape[0]
+
+            # get max bbox size for this batch
+            max_crop_size = self.preprocess_config.max_crop_size
+
+            instance_images = []
+            bbox_shifts = []
+            eff_scale_crops = []
+            padding_shifts_crops = []
+            for instance in instances[0]:
+                if torch.all(torch.isnan(instance)):
+                    continue
+                bbox = get_fit_bbox(instance)  # bbox => (x_min, y_min, x_max, y_max)
+                bbox[0] = bbox[0] - 16
+                bbox[1] = bbox[1] - 16
+                bbox[2] = bbox[2] + 16
+                bbox[3] = bbox[3] + 16  # padding of 16 on all sides
+                x_min, y_min, x_max, y_max = bbox
+                crop_hw = (y_max - y_min, x_max - x_min)
+
+                cropped_image = crop_by_boxes(
+                    image,
+                    src_box=torch.Tensor(
+                        [[x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]]
+                    ).unsqueeze(dim=0),
+                    dst_box=torch.tensor(
+                        [
+                            [
+                                [0.0, 0.0],
+                                [crop_hw[1], 0.0],
+                                [crop_hw[1], crop_hw[0]],
+                                [0.0, crop_hw[0]],
+                            ]
+                        ]
+                    ),
+                )
+                bbox_shifts.append(bbox[:2].unsqueeze(dim=0))
+
+                cropped_image_match_hw, eff_scale, pad_wh = apply_sizematcher(
+                    cropped_image, max_crop_size[0], max_crop_size[1]
+                )  # resize and pad to max crfop  size
+                instance_images.append(cropped_image_match_hw.unsqueeze(dim=0))
+                eff_scale_crops.append(eff_scale)
+                padding_shifts_crops.append(torch.Tensor(pad_wh).unsqueeze(dim=0))
+
+            ex = {}
+            ex["image"] = torch.cat([image] * n)
+            ex["centroid_val"] = centroid_val
+            ex["frame_idx"] = torch.Tensor([fidx] * n)
+            ex["video_idx"] = torch.Tensor([vidx] * n)
+            ex["instance_bbox"] = torch.zeros((n, 1, 4, 2))
+            ex["instance_image"] = torch.cat(instance_images, dim=0)
+            ex["eff_scale_crops"] = torch.Tensor(eff_scale_crops)
+            ex["padding_shifts_crops"] = torch.cat(padding_shifts_crops, dim=0)
+            ex["bbox_shifts"] = torch.cat(bbox_shifts, dim=0)
+            ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
+            ex["eff_scale"] = torch.Tensor([eff_sc] * n)
+            ex["pad_shifts"] = pad_shifts.unsqueeze(0).repeat(n, 1)
             crops_dict.append(ex)
 
         return crops_dict
@@ -176,21 +306,21 @@ class CentroidCrop(L.LightningModule):
             centroids = generate_centroids(
                 inputs["instances"], anchor_ind=self.anchor_ind
             )
+
             centroid_vals = torch.ones(centroids.shape)[..., 0]
             self.refined_peaks_batched = [x[0] for x in centroids]
             self.peak_vals_batched = [x[0] for x in centroid_vals]
 
-            max_instances = (
-                self.max_instances
-                if self.max_instances is not None
-                else inputs["instances"].shape[-3]
-            )
+            max_instances = inputs["instances"].shape[-3]
 
             refined_peaks_with_nans = torch.zeros((batch, max_instances, 2))
             peak_vals_with_nans = torch.zeros((batch, max_instances))
             for ind, (r, p) in enumerate(
                 zip(self.refined_peaks_batched, self.peak_vals_batched)
             ):
+                if not self.centered_fitbbox:
+                    r -= inputs["pad_shifts"][ind].unsqueeze(dim=0)
+                    r /= inputs["eff_scale"][ind]
                 refined_peaks_with_nans[ind] = r
                 peak_vals_with_nans[ind] = p
 
@@ -202,12 +332,13 @@ class CentroidCrop(L.LightningModule):
             )
 
             if self.return_crops:
-                crops_dict = self._generate_crops(inputs)
-                inputs["image"] = resize_image(inputs["image"], self.precrop_resize)
-                inputs["centroids"] *= self.precrop_resize
+                if self.centered_fitbbox:
+                    crops_dict = self._generate_fitbbox_crops(inputs)
+                else:
+                    crops_dict = self._generate_crops(inputs)
                 scaled_refined_peaks = []
                 for ref_peak in self.refined_peaks_batched:
-                    scaled_refined_peaks.append(ref_peak * self.precrop_resize)
+                    scaled_refined_peaks.append(ref_peak)
                 self.refined_peaks_batched = scaled_refined_peaks
                 return crops_dict
             else:
@@ -217,7 +348,9 @@ class CentroidCrop(L.LightningModule):
         orig_image = inputs["image"]
         scaled_image = resize_image(orig_image, self.input_scale)
         if self.max_stride != 1:
-            scaled_image = apply_pad_to_stride(scaled_image, self.max_stride)
+            scaled_image, (pad_stride_w, pad_stride_h) = apply_pad_to_stride(
+                scaled_image, self.max_stride
+            )
 
         cms = self.torch_model(scaled_image)
         if isinstance(cms, list):  # only one head for centroid model
@@ -231,7 +364,6 @@ class CentroidCrop(L.LightningModule):
         )
         # Adjust for stride and scale.
         refined_peaks = refined_peaks * self.output_stride  # (n_centroids, 2)
-        refined_peaks = refined_peaks / self.input_scale
 
         batch = cms.shape[0]
 
@@ -275,10 +407,17 @@ class CentroidCrop(L.LightningModule):
 
             # Generate crops if return_crops=True to pass the crops to CenteredInstance model.
             if self.return_crops:
-                inputs["image"] = resize_image(inputs["image"], self.precrop_resize)
                 scaled_refined_peaks = []
-                for ref_peak in self.refined_peaks_batched:
-                    scaled_refined_peaks.append(ref_peak * self.precrop_resize)
+                for ind, ref_peak in enumerate(self.refined_peaks_batched):
+                    # remove padding stride -> input scale
+                    ref_peak = ref_peak - torch.tensor((pad_stride_w, pad_stride_h)).to(
+                        ref_peak.device
+                    )
+                    ref_peak = ref_peak / self.input_scale
+                    ref_peak = ref_peak - inputs["pad_shifts"][ind]
+                    ref_peak = ref_peak / (inputs["eff_scale"][ind].to(ref_peak.device))
+
+                    scaled_refined_peaks.append(ref_peak)
                 self.refined_peaks_batched = scaled_refined_peaks
 
                 inputs.update(
@@ -296,6 +435,11 @@ class CentroidCrop(L.LightningModule):
                 for ind, (r, p) in enumerate(
                     zip(self.refined_peaks_batched, self.peak_vals_batched)
                 ):
+                    # remove padding from max stride -> input scale -> size matcher padding -> size matcher scaling
+                    r = r - torch.tensor((pad_stride_w, pad_stride_h)).to(r.device)
+                    r = r / self.input_scale
+                    r = r - inputs["pad_shifts"][ind]
+
                     refined_peaks_with_nans[ind] = r
                     peak_vals_with_nans[ind] = p
                 refined_peaks_with_nans = refined_peaks_with_nans / (
@@ -478,6 +622,7 @@ class FindInstancePeaks(L.LightningModule):
         return_confmaps: Optional[bool] = False,
         input_scale: float = 1.0,
         max_stride: int = 1,
+        centered_fitbbox: bool = False,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -490,6 +635,7 @@ class FindInstancePeaks(L.LightningModule):
         self.return_confmaps = return_confmaps
         self.input_scale = input_scale
         self.max_stride = max_stride
+        self.centered_fitbbox = centered_fitbbox
 
     def forward(
         self, inputs: Dict[str, torch.Tensor], output_head_skeleton_num: int = 0
@@ -525,7 +671,9 @@ class FindInstancePeaks(L.LightningModule):
         # resize and pad the input image
         input_image = inputs["instance_image"]
         if self.max_stride != 1:
-            input_image = apply_pad_to_stride(input_image, self.max_stride)
+            input_image, (pad_w_l, pad_h_t) = apply_pad_to_stride(
+                input_image, self.max_stride
+            )
 
         cms = self.torch_model(input_image)
         if isinstance(cms, list):
@@ -540,14 +688,41 @@ class FindInstancePeaks(L.LightningModule):
 
         # Adjust for stride and scale.
         peak_points = peak_points * self.output_stride
+
+        # adjust for padding for max stride
+        pad_shift_strides = torch.Tensor((pad_w_l, pad_h_t))
+        peak_points = peak_points - pad_shift_strides
+        # inputs["instance_bbox"] = inputs["instance_bbox"] - pad_shift_strides
+
+        if self.centered_fitbbox:
+            # max crop size size matching
+            peak_points = peak_points - inputs["padding_shifts_crops"].unsqueeze(dim=1)
+
+            peak_points = peak_points / (
+                inputs["eff_scale_crops"]
+                .unsqueeze(dim=1)
+                .unsqueeze(dim=2)
+                .to(inputs["eff_scale_crops"].device)
+            )
+
+            # bbox shifts (for fit bbox)
+            peak_points = peak_points + (inputs["bbox_shifts"].unsqueeze(dim=1))
+
+        # adjust for scaling: resizing
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
 
+            inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
+
+        # adjust for sizematcher: padding
+        peak_points = peak_points - inputs["pad_shifts"].unsqueeze(dim=1)
+
+        # inputs["instance_bbox"] = inputs["instance_bbox"] - (inputs["pad_shifts"].unsqueeze(dim=1).unsqueeze(dim=2))
+
+        # # adjust for sizematcher: scaling
         peak_points = peak_points / (
             inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
         )
-
-        inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
 
         inputs["instance_bbox"] = inputs["instance_bbox"] / (
             inputs["eff_scale"]
@@ -561,6 +736,7 @@ class FindInstancePeaks(L.LightningModule):
         outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}
         if self.return_confmaps:
             outputs["pred_confmaps"] = cms.detach()
+        inputs["instance_image"] = input_image
         inputs.update(outputs)
         return inputs
 
