@@ -729,7 +729,7 @@ class CenteredInstanceDatasetFitBbox(CenteredInstanceDataset):
         bbox[0] = bbox[0] - 16
         bbox[1] = bbox[1] - 16
         bbox[2] = bbox[2] + 16
-        bbox[3] = bbox[3] + 16 # padding of 16 on all sides
+        bbox[3] = bbox[3] + 16  # padding of 16 on all sides
         x_min, y_min, x_max, y_max = bbox
         crop_hw = (y_max - y_min, x_max - x_min)
 
