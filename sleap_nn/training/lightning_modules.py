@@ -948,8 +948,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             for c in range(y.shape[-3]):
                 l = self.loss_func(y_preds[..., c, :, :], y[..., c, :, :])
                 self.log(
-                    f"node_losses_dataset:{d_num}_node:`{self.part_names[d_num][c]}`",
-                    l,
+                    f"node_inv_losses_dataset:{d_num}_node:`{self.part_names[d_num][c]}`",
+                    1 / l,
                     prog_bar=True,
                     on_step=False,
                     on_epoch=True,
