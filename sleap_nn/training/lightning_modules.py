@@ -943,6 +943,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     with torch.no_grad():
                         output[h_num] = output[h_num].detach()
 
+            y_preds = output[d_num]
+
             confidence_map_losses = []
             for c in range(y.shape[-3]):
                 confidence_map_losses.append(
@@ -957,7 +959,6 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     logger=True,
                 )
 
-            y_preds = output[d_num]
             curr_loss = 1.0 * self.loss_func(y_preds, y)
             loss += curr_loss
 
