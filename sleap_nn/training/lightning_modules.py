@@ -945,14 +945,11 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
 
             y_preds = output[d_num]
 
-            confidence_map_losses = []
             for c in range(y.shape[-3]):
-                confidence_map_losses.append(
-                    self.loss_func(y_preds[..., c, :, :], y[..., c, :, :])
-                )
+                l = self.loss_func(y_preds[..., c, :, :], y[..., c, :, :])
                 self.log(
                     f"node_losses_dataset:{d_num}_node:`{self.part_names[d_num][c]}`",
-                    curr_loss,
+                    l,
                     prog_bar=True,
                     on_step=False,
                     on_epoch=True,
