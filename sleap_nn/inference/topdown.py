@@ -411,9 +411,10 @@ class CentroidCrop(L.LightningModule):
                 scaled_refined_peaks = []
                 for ind, ref_peak in enumerate(self.refined_peaks_batched):
                     # remove padding stride -> input scale
-                    ref_peak = ref_peak - torch.tensor((pad_stride_w, pad_stride_h)).to(
-                        ref_peak.device
-                    )
+                    if self.max_stride != 1:
+                        ref_peak = ref_peak - torch.tensor(
+                            (pad_stride_w, pad_stride_h)
+                        ).to(ref_peak.device)
                     ref_peak = ref_peak / self.input_scale
                     ref_peak = ref_peak - inputs["pad_shifts"][ind]
                     ref_peak = ref_peak / (inputs["eff_scale"][ind].to(ref_peak.device))
@@ -437,7 +438,8 @@ class CentroidCrop(L.LightningModule):
                     zip(self.refined_peaks_batched, self.peak_vals_batched)
                 ):
                     # remove padding from max stride -> input scale -> size matcher padding -> size matcher scaling
-                    r = r - torch.tensor((pad_stride_w, pad_stride_h)).to(r.device)
+                    if self.max_stride != 1:
+                        r = r - torch.tensor((pad_stride_w, pad_stride_h)).to(r.device)
                     r = r / self.input_scale
                     r = r - inputs["pad_shifts"][ind]
 
@@ -691,8 +693,9 @@ class FindInstancePeaks(L.LightningModule):
         peak_points = peak_points * self.output_stride
 
         # adjust for padding for max stride
-        pad_shift_strides = torch.Tensor((pad_w_l, pad_h_t))
-        peak_points = peak_points - pad_shift_strides
+        if self.max_stride != 1:
+            pad_shift_strides = torch.Tensor((pad_w_l, pad_h_t))
+            peak_points = peak_points - pad_shift_strides
         # inputs["instance_bbox"] = inputs["instance_bbox"] - pad_shift_strides
 
         if self.centered_fitbbox:

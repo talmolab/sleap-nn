@@ -823,7 +823,10 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             model_type=model_type,
         )
         self.inf_layer = FindInstancePeaks(
-            torch_model=self.forward, peak_threshold=0.2, return_confmaps=True
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            centered_fitbbox=True,
         )
 
     def on_train_epoch_start(self):
@@ -840,6 +843,13 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                 for d_num in self.config.dataset_mapper:
                     sample = next(iter(self.trainer.val_dataloaders[d_num]))
                     sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
+                    sample["pad_shifts"] = torch.zeros(
+                        (sample["video_idx"].shape[0], 2)
+                    )
+                    sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
+                    sample["padding_shifts_crops"] = torch.zeros(
+                        (sample["video_idx"].shape[0], 2)
+                    )
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
                     self.inf_layer.output_stride = self.config.model_config.head_configs.centered_instance.confmaps[
@@ -1260,6 +1270,9 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
                     sample = next(iter(self.trainer.val_dataloaders[d_num]))
                     gt_centroids = sample["centroids"]
                     sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
+                    sample["pad_shifts"] = torch.zeros(
+                        (sample["video_idx"].shape[0], 2)
+                    )
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
                     output = self.centroid_inf_layer(

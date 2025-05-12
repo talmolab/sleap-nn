@@ -609,11 +609,12 @@ class TopDownPredictor(Predictor):
                     ]
                 )
             if self.preprocess_config.max_crop_size is None:
-                self.preprocess_config.max_crop_size = (
-                    self.confmap_config.data_config.max_crop_sizes[
-                        self.output_head_skeleton_num
-                    ]
-                )
+                if self.centered_fitbbox:
+                    self.preprocess_config.max_crop_size = (
+                        self.confmap_config.data_config.max_crop_sizes[
+                            self.output_head_skeleton_num
+                        ]
+                    )
             centroid_crop_layer.preprocess_config = self.preprocess_config
             centroid_crop_layer.centered_fitbbox = self.centered_fitbbox
 
