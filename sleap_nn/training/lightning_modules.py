@@ -826,7 +826,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             torch_model=self.forward,
             peak_threshold=0.2,
             return_confmaps=True,
-            centered_fitbbox=True,
+            centered_fitbbox=False,
         )
         self.part_names = {}
         for (
@@ -852,10 +852,11 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     sample["pad_shifts"] = torch.zeros(
                         (sample["video_idx"].shape[0], 2)
                     )
-                    sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
-                    sample["padding_shifts_crops"] = torch.zeros(
-                        (sample["video_idx"].shape[0], 2)
-                    )
+                    # for fit bbox croppinig
+                    # sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
+                    # sample["padding_shifts_crops"] = torch.zeros(
+                    #     (sample["video_idx"].shape[0], 2)
+                    # )
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
                     self.inf_layer.output_stride = self.config.model_config.head_configs.centered_instance.confmaps[
