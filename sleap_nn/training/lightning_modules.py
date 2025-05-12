@@ -852,7 +852,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     sample["pad_shifts"] = torch.zeros(
                         (sample["video_idx"].shape[0], 2)
                     )
-                    # for fit bbox croppinig
+                    # for fit bbox cropping
                     # sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
                     # sample["padding_shifts_crops"] = torch.zeros(
                     #     (sample["video_idx"].shape[0], 2)
