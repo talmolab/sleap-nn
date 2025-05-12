@@ -828,6 +828,12 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             return_confmaps=True,
             centered_fitbbox=True,
         )
+        self.part_names = {}
+        for (
+            d_num,
+            cfg,
+        ) in self.config.model_config.head_configs.centered_instance.confmaps.items():
+            self.part_names[d_num] = cfg.part_names
 
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
@@ -935,6 +941,20 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                 if d_num != h_num:
                     with torch.no_grad():
                         output[h_num] = output[h_num].detach()
+
+            confidence_map_losses = []
+            for c in range(y.shape[-3]):
+                confidence_map_losses.append(
+                    self.loss_func(y_preds[..., c, :, :], y[..., c, :, :])
+                )
+                self.log(
+                    f"node_losses_dataset:{d_num}_node:`{self.part_names[d_num][c]}`",
+                    curr_loss,
+                    prog_bar=True,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                )
 
             y_preds = output[d_num]
             curr_loss = 1.0 * self.loss_func(y_preds, y)
