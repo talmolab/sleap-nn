@@ -416,7 +416,7 @@ class CentroidCrop(L.LightningModule):
                             (pad_stride_w, pad_stride_h)
                         ).to(ref_peak.device)
                     ref_peak = ref_peak / self.input_scale
-                    ref_peak = ref_peak - inputs["pad_shifts"][ind]
+                    ref_peak = ref_peak - inputs["pad_shifts"][ind].to(ref_peak.device)
                     ref_peak = ref_peak / (inputs["eff_scale"][ind].to(ref_peak.device))
 
                     scaled_refined_peaks.append(ref_peak)
@@ -441,7 +441,7 @@ class CentroidCrop(L.LightningModule):
                     if self.max_stride != 1:
                         r = r - torch.tensor((pad_stride_w, pad_stride_h)).to(r.device)
                     r = r / self.input_scale
-                    r = r - inputs["pad_shifts"][ind]
+                    r = r - inputs["pad_shifts"][ind].to(r.device)
 
                     refined_peaks_with_nans[ind] = r
                     peak_vals_with_nans[ind] = p
@@ -508,6 +508,14 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
         """Return the ground truth instance peaks given a set of crops."""
         b, _, max_inst, nodes, _ = batch["instances"].shape
+        batch["instances"] = batch["instances"] - batch["pad_shifts"].unsqueeze(
+            dim=1
+        ).unsqueeze(dim=2).unsqueeze(dim=3).to(batch["instances"].device)
+        batch["instances"] = batch["instances"] / batch["eff_scale"].unsqueeze(
+            dim=1
+        ).unsqueeze(dim=2).unsqueeze(dim=3).unsqueeze(dim=4).to(
+            batch["instances"].device
+        )
         inst = (
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
@@ -569,14 +577,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
                 peaks_vals = vals
 
         peaks_output = batch
-        if peaks.size(0) != 0:
-            peaks = peaks / (
-                batch["eff_scale"]
-                .unsqueeze(dim=1)
-                .unsqueeze(dim=2)
-                .unsqueeze(dim=3)
-                .to(peaks.device)
-            )
+        peaks_output["instance_bbox"] = torch.Tensor([0, 0]).to(peaks.device)
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
 
@@ -694,24 +695,27 @@ class FindInstancePeaks(L.LightningModule):
 
         # adjust for padding for max stride
         if self.max_stride != 1:
-            pad_shift_strides = torch.Tensor((pad_w_l, pad_h_t))
+            pad_shift_strides = torch.Tensor((pad_w_l, pad_h_t)).to(peak_points.device)
             peak_points = peak_points - pad_shift_strides
         # inputs["instance_bbox"] = inputs["instance_bbox"] - pad_shift_strides
 
         if self.centered_fitbbox:
             # max crop size size matching
-            peak_points = peak_points - inputs["padding_shifts_crops"].unsqueeze(dim=1)
+            peak_points = peak_points - inputs["padding_shifts_crops"].unsqueeze(
+                dim=1
+            ).to(peak_points.device)
 
             peak_points = peak_points / (
                 inputs["eff_scale_crops"]
                 .unsqueeze(dim=1)
                 .unsqueeze(dim=2)
-                .to(inputs["eff_scale_crops"].device)
+                .to(peak_points.device)
             )
 
             # bbox shifts (for fit bbox)
-            peak_points = peak_points + (inputs["bbox_shifts"].unsqueeze(dim=1))
-
+            peak_points = peak_points + (
+                inputs["bbox_shifts"].unsqueeze(dim=1).to(peak_points.device)
+            )
         # adjust for scaling: resizing
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
@@ -719,7 +723,9 @@ class FindInstancePeaks(L.LightningModule):
             inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
 
         # adjust for sizematcher: padding
-        peak_points = peak_points - inputs["pad_shifts"].unsqueeze(dim=1)
+        peak_points = peak_points - inputs["pad_shifts"].unsqueeze(dim=1).to(
+            peak_points.device
+        )
 
         # inputs["instance_bbox"] = inputs["instance_bbox"] - (inputs["pad_shifts"].unsqueeze(dim=1).unsqueeze(dim=2))
 
