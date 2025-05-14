@@ -60,6 +60,10 @@ model_config:
   pretrained_backbone_weights:
   pretrained_head_weights:
   backbone_type: unet
+  dataset_loss_weights:
+    0: 1.0
+    1: 1.0
+    2: 1.0
   backbone_config:
       in_channels: 1
       kernel_size: 3

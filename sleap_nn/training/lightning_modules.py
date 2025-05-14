@@ -638,6 +638,11 @@ class MultiHeadLightningModule(L.LightningModule):
             model_type=self.model_type,
         )
 
+        self.dataset_loss_weights = self.config.get(
+            "model_config.dataset_loss_weights",
+            {k: 1.0 for k in self.config.dataset_mapper},
+        )
+
         if (
             len(self.model_config.head_configs[self.model_type]) > 1
         ):  # TODO: online mining for each dataset
@@ -956,7 +961,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     logger=True,
                 )
 
-            curr_loss = 1.0 * self.loss_func(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * self.loss_func(y_preds, y)
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)
@@ -992,7 +997,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
 
             y_preds = self.model(X)["CenteredInstanceConfmapsHead"][d_num]
-            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * nn.MSELoss()(y_preds, y)
             total_loss += curr_loss
 
             self.log(
@@ -1162,7 +1167,7 @@ class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                         output[h_num] = output[h_num].detach()
 
             y_preds = output[d_num]
-            curr_loss = 1.0 * self.loss_func(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * self.loss_func(y_preds, y)
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)
@@ -1198,7 +1203,7 @@ class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
 
             y_preds = self.model(X)["SingleInstanceConfmapsHead"][d_num]
-            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * nn.MSELoss()(y_preds, y)
             total_loss += curr_loss
 
             self.log(
@@ -1366,11 +1371,21 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
 
             output = self.model(X)["CentroidConfmapsHead"]
 
+
             y_preds = output[0]
-            curr_loss = 1.0 * self.loss_func(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * self.loss_func(y_preds, y)
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)
+
+            self.log(
+                f"train_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+            )
 
         self.log(
             f"train_loss",
@@ -1396,7 +1411,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
             )
 
             y_preds = self.model(X)["CentroidConfmapsHead"][0]
-            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * nn.MSELoss()(y_preds, y)
             total_loss += curr_loss
 
             self.log(
@@ -1634,7 +1649,7 @@ class BottomUpMultiHeadLightningModule(MultiHeadLightningModule):
                 ),
                 "PartAffinityFieldsHead": nn.MSELoss()(output_pafs[d_num], y_paf),
             }
-            curr_loss = 1.0 * sum(
+            curr_loss = self.dataset_loss_weights[d_num] * sum(
                 [s * losses[t] for s, t in zip(self.loss_weights, losses)]
             )
 
@@ -1686,7 +1701,7 @@ class BottomUpMultiHeadLightningModule(MultiHeadLightningModule):
                 "PartAffinityFieldsHead": nn.MSELoss()(output_pafs[d_num], y_paf),
             }
 
-            curr_loss = 1.0 * sum(
+            curr_loss = self.dataset_loss_weights[d_num] * sum(
                 [s * losses[t] for s, t in zip(self.loss_weights, losses)]
             )
             total_loss += curr_loss
