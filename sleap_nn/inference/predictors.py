@@ -338,7 +338,7 @@ class Predictor(ABC):
             if imgs:
                 # TODO: all preprocessing should be moved into InferenceModels to be exportable.
                 imgs = torch.concatenate(imgs, dim=0)
-                source_imgs = torch.concatenate(source_imgs, dim=0)
+                source_imgs = torch.nested.nested_tensor(source_imgs)
                 fidxs = torch.tensor(fidxs, dtype=torch.int32)
                 vidxs = torch.tensor(vidxs, dtype=torch.int32)
                 org_szs = torch.concatenate(org_szs, dim=0)
@@ -1025,57 +1025,117 @@ class TopDownPredictor(Predictor):
         preds = defaultdict(list)
         predicted_frames = []
         skeleton_idx = 0
-        # Loop through each predicted instance.
-        for ex in generator:
-            # loop through each sample in a batch
-            for (
-                video_idx,
-                frame_idx,
-                bbox,
-                pred_instances,
-                pred_values,
-                instance_score,
-                org_size,
-            ) in zip(
-                ex["video_idx"],
-                ex["frame_idx"],
-                ex["instance_bbox"],
-                ex["pred_instance_peaks"],
-                ex["pred_peak_values"],
-                ex["centroid_val"],
-                ex["orig_size"],
-            ):
-                pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
-                preds[(int(video_idx), int(frame_idx))].append(
-                    sio.PredictedInstance.from_numpy(
-                        points_data=pred_instances,
-                        skeleton=self.skeletons[skeleton_idx],
-                        point_scores=pred_values,
-                        score=instance_score,
+        if isinstance(
+            self.inference_model.instance_peaks, FindInstancePeaksGroundTruth
+        ):
+            for ex in generator:
+                # loop through each sample in a batch
+                for (
+                    video_idx,
+                    frame_idx,
+                    pred_instances,
+                    pred_values,
+                    instance_score,
+                    org_size,
+                ) in zip(
+                    ex["video_idx"],
+                    ex["frame_idx"],
+                    ex["pred_instance_peaks"],
+                    ex["pred_peak_values"],
+                    ex["centroid_vals"],
+                    ex["orig_size"],
+                ):
+                    # Loop over instances.
+                    predicted_instances = []
+                    for pts, confs, score in zip(
+                        pred_instances, pred_values, instance_score
+                    ):
+                        if np.isnan(pts).all():
+                            continue
+
+                        predicted_instances.append(
+                            sio.PredictedInstance.from_numpy(
+                                points_data=pts,
+                                point_scores=confs,
+                                score=score,
+                                skeleton=self.skeletons[skeleton_idx],
+                            )
+                        )
+
+                    lf = sio.LabeledFrame(
+                        video=self.videos[video_idx],
+                        frame_idx=frame_idx,
+                        instances=predicted_instances,
                     )
-                )
-        for key, inst in preds.items():
-            # Create list of LabeledFrames.
-            video_idx, frame_idx = key
-            lf = sio.LabeledFrame(
-                video=self.videos[video_idx],
-                frame_idx=frame_idx,
-                instances=inst,
+
+                    if self.tracker:
+                        lf.instances = self.tracker.track(
+                            untracked_instances=inst,
+                            frame_idx=frame_idx,
+                            image=lf.image,
+                        )
+
+                    predicted_frames.append(lf)
+
+            pred_labels = sio.Labels(
+                videos=self.videos,
+                skeletons=self.skeletons,
+                labeled_frames=predicted_frames,
             )
+            return pred_labels
 
-            if self.tracker:
-                lf.instances = self.tracker.track(
-                    untracked_instances=inst, frame_idx=frame_idx, image=lf.image
+        else:
+            # Loop through each predicted instance.
+            for ex in generator:
+                # loop through each sample in a batch
+                for (
+                    video_idx,
+                    frame_idx,
+                    bbox,
+                    pred_instances,
+                    pred_values,
+                    instance_score,
+                    org_size,
+                ) in zip(
+                    ex["video_idx"],
+                    ex["frame_idx"],
+                    ex["instance_bbox"],
+                    ex["pred_instance_peaks"],
+                    ex["pred_peak_values"],
+                    ex["centroid_val"],
+                    ex["orig_size"],
+                ):
+                    pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
+                    preds[(int(video_idx), int(frame_idx))].append(
+                        sio.PredictedInstance.from_numpy(
+                            points_data=pred_instances,
+                            skeleton=self.skeletons[skeleton_idx],
+                            point_scores=pred_values,
+                            score=instance_score,
+                        )
+                    )
+            for key, inst in preds.items():
+                # Create list of LabeledFrames.
+                video_idx, frame_idx = key
+                lf = sio.LabeledFrame(
+                    video=self.videos[video_idx],
+                    frame_idx=frame_idx,
+                    instances=inst,
                 )
 
-            predicted_frames.append(lf)
+                if self.tracker:
+                    lf.instances = self.tracker.track(
+                        untracked_instances=inst, frame_idx=frame_idx, image=lf.image
+                    )
 
-        pred_labels = sio.Labels(
-            videos=self.videos,
-            skeletons=self.skeletons,
-            labeled_frames=predicted_frames,
-        )
-        return pred_labels
+                predicted_frames.append(lf)
+
+            pred_labels = sio.Labels(
+                videos=self.videos,
+                skeletons=self.skeletons,
+                labeled_frames=predicted_frames,
+            )
+            return pred_labels
 
 
 @attrs.define
