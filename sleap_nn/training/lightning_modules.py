@@ -961,7 +961,43 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     logger=True,
                 )
 
-            curr_loss = self.dataset_loss_weights[d_num] * self.loss_func(y_preds, y)
+            if OmegaConf.select(
+                self.config, "model_config.keypoint_mining.online_mining", default=False
+            ):
+                mse_loss = (y_preds - y) ** 2
+                batch_shape = mse_loss.shape
+                l = torch.sum(mse_loss, dim=(0, 2, 3))
+                best_loss = torch.min(l)
+                is_hard_keypoint = (
+                    l / best_loss
+                ) >= self.config.model_config.keypoint_mining.hard_to_easy_ratio
+                n_hard_keypoints = torch.sum(is_hard_keypoint.to(torch.int32))
+                if self.config.model_config.keypoint_mining.max_hard_keypoints < 0:
+                    max_hard_keypoints = loss.shape[0]
+                else:
+                    max_hard_keypoints = min(
+                        self.config.model_config.keypoint_mining.max_hard_keypoints,
+                        loss.shape[0],
+                    )
+
+                k = min(
+                    max(
+                        n_hard_keypoints,
+                        self.config.model_config.keypoint_mining.min_hard_keypoints,
+                    ),
+                    max_hard_keypoints,
+                )
+                k_vals, k_inds = torch.top_k(loss, k=k, largest=True, sorted=False)
+                k_loss = k_vals * self.config.model_config.keypoint_mining.loss_scale
+                n_elements = (batch_shape[0] * batch_shape[2] * batch_shape[3] * k).to(
+                    torch.floast32
+                )
+                k_loss = torch.sum(k_loss) / n_elements
+                mse_loss = k_loss
+            else:
+                mse_loss = self.loss_func(y_preds, y)
+
+            curr_loss = self.dataset_loss_weights[d_num] * mse_loss
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)

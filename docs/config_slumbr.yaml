@@ -64,6 +64,12 @@ model_config:
     0: 1.0
     1: 1.0
     2: 1.0
+  keypoint_mining:
+    online_mining: False
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints:
+    loss_scale:
   backbone_config:
       in_channels: 1
       kernel_size: 3
