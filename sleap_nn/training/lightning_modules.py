@@ -638,6 +638,11 @@ class MultiHeadLightningModule(L.LightningModule):
             model_type=self.model_type,
         )
 
+        self.dataset_loss_weights = self.config.get(
+            "model_config.dataset_loss_weights",
+            {k: 1.0 for k in self.config.dataset_mapper},
+        )
+
         if (
             len(self.model_config.head_configs[self.model_type]) > 1
         ):  # TODO: online mining for each dataset
@@ -826,8 +831,14 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             torch_model=self.forward,
             peak_threshold=0.2,
             return_confmaps=True,
-            centered_fitbbox=True,
+            centered_fitbbox=False,
         )
+        self.part_names = {}
+        for (
+            d_num,
+            cfg,
+        ) in self.config.model_config.head_configs.centered_instance.confmaps.items():
+            self.part_names[d_num] = cfg.part_names
 
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
@@ -846,10 +857,11 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     sample["pad_shifts"] = torch.zeros(
                         (sample["video_idx"].shape[0], 2)
                     )
-                    sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
-                    sample["padding_shifts_crops"] = torch.zeros(
-                        (sample["video_idx"].shape[0], 2)
-                    )
+                    # for fit bbox cropping
+                    # sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
+                    # sample["padding_shifts_crops"] = torch.zeros(
+                    #     (sample["video_idx"].shape[0], 2)
+                    # )
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
                     self.inf_layer.output_stride = self.config.model_config.head_configs.centered_instance.confmaps[
@@ -937,7 +949,55 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                         output[h_num] = output[h_num].detach()
 
             y_preds = output[d_num]
-            curr_loss = 1.0 * self.loss_func(y_preds, y)
+
+            for c in range(y.shape[-3]):
+                l = self.loss_func(y_preds[..., c, :, :], y[..., c, :, :])
+                self.log(
+                    f"node_inv_losses_dataset:{d_num}_node:`{self.part_names[d_num][c]}`",
+                    1 / l,
+                    prog_bar=True,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                )
+
+            if OmegaConf.select(
+                self.config, "model_config.keypoint_mining.online_mining", default=False
+            ):
+                mse_loss = (y_preds - y) ** 2
+                batch_shape = mse_loss.shape
+                l = torch.sum(mse_loss, dim=(0, 2, 3))
+                best_loss = torch.min(l)
+                is_hard_keypoint = (
+                    l / best_loss
+                ) >= self.config.model_config.keypoint_mining.hard_to_easy_ratio
+                n_hard_keypoints = torch.sum(is_hard_keypoint.to(torch.int32))
+                if self.config.model_config.keypoint_mining.max_hard_keypoints < 0:
+                    max_hard_keypoints = loss.shape[0]
+                else:
+                    max_hard_keypoints = min(
+                        self.config.model_config.keypoint_mining.max_hard_keypoints,
+                        loss.shape[0],
+                    )
+
+                k = min(
+                    max(
+                        n_hard_keypoints,
+                        self.config.model_config.keypoint_mining.min_hard_keypoints,
+                    ),
+                    max_hard_keypoints,
+                )
+                k_vals, k_inds = torch.top_k(loss, k=k, largest=True, sorted=False)
+                k_loss = k_vals * self.config.model_config.keypoint_mining.loss_scale
+                n_elements = (batch_shape[0] * batch_shape[2] * batch_shape[3] * k).to(
+                    torch.floast32
+                )
+                k_loss = torch.sum(k_loss) / n_elements
+                mse_loss = k_loss
+            else:
+                mse_loss = self.loss_func(y_preds, y)
+
+            curr_loss = self.dataset_loss_weights[d_num] * mse_loss
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)
@@ -973,7 +1033,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
 
             y_preds = self.model(X)["CenteredInstanceConfmapsHead"][d_num]
-            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * nn.MSELoss()(y_preds, y)
             total_loss += curr_loss
 
             self.log(
@@ -1143,7 +1203,7 @@ class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                         output[h_num] = output[h_num].detach()
 
             y_preds = output[d_num]
-            curr_loss = 1.0 * self.loss_func(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * self.loss_func(y_preds, y)
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)
@@ -1179,7 +1239,7 @@ class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             ), torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
 
             y_preds = self.model(X)["SingleInstanceConfmapsHead"][d_num]
-            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * nn.MSELoss()(y_preds, y)
             total_loss += curr_loss
 
             self.log(
@@ -1337,6 +1397,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
         loss = 0
         opt = self.optimizers()
         opt.zero_grad()
+
+        dataset_losses = {}
         for d_num in batch.keys():
             batch_data = batch[d_num]
             X, y = torch.squeeze(batch_data["image"], dim=1).to(
@@ -1348,10 +1410,44 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
             output = self.model(X)["CentroidConfmapsHead"]
 
             y_preds = output[0]
-            curr_loss = 1.0 * self.loss_func(y_preds, y)
-            loss += curr_loss
+            curr_loss = self.dataset_loss_weights[d_num] * self.loss_func(y_preds, y)
+            dataset_losses[d_num] = curr_loss
 
-            self.manual_backward(curr_loss, retain_graph=True)
+            self.log(
+                f"train_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+            )
+
+        # compute dynamic loss weights for each dataset
+        with torch.no_grad():
+            total_loss = sum(l.detach() for l in dataset_losses.values())
+            dynamic_weights = {
+                d_num: (dataset_losses[d_num].detach() / total_loss).clamp(
+                    min=1e-4
+                )  # avoid zero
+                for d_num in dataset_losses
+            }
+
+        # apply weights and compute total loss
+        for d_num, loss in dataset_losses.items():
+            weighted_loss = dynamic_weights[d_num] * loss
+
+            self.manual_backward(weighted_loss, retain_graph=True)
+
+            loss += weighted_loss
+
+            self.log(
+                f"dynamic_weights_for_head_{d_num}",
+                dynamic_weights[d_num],
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+            )
 
         self.log(
             f"train_loss",
@@ -1377,7 +1473,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
             )
 
             y_preds = self.model(X)["CentroidConfmapsHead"][0]
-            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            curr_loss = self.dataset_loss_weights[d_num] * nn.MSELoss()(y_preds, y)
             total_loss += curr_loss
 
             self.log(
@@ -1615,7 +1711,7 @@ class BottomUpMultiHeadLightningModule(MultiHeadLightningModule):
                 ),
                 "PartAffinityFieldsHead": nn.MSELoss()(output_pafs[d_num], y_paf),
             }
-            curr_loss = 1.0 * sum(
+            curr_loss = self.dataset_loss_weights[d_num] * sum(
                 [s * losses[t] for s, t in zip(self.loss_weights, losses)]
             )
 
@@ -1667,7 +1763,7 @@ class BottomUpMultiHeadLightningModule(MultiHeadLightningModule):
                 "PartAffinityFieldsHead": nn.MSELoss()(output_pafs[d_num], y_paf),
             }
 
-            curr_loss = 1.0 * sum(
+            curr_loss = self.dataset_loss_weights[d_num] * sum(
                 [s * losses[t] for s, t in zip(self.loss_weights, losses)]
             )
             total_loss += curr_loss
