@@ -1397,6 +1397,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
         loss = 0
         opt = self.optimizers()
         opt.zero_grad()
+
+        dataset_losses = {}
         for d_num in batch.keys():
             batch_data = batch[d_num]
             X, y = torch.squeeze(batch_data["image"], dim=1).to(
@@ -1407,16 +1409,40 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModule):
 
             output = self.model(X)["CentroidConfmapsHead"]
 
-
             y_preds = output[0]
             curr_loss = self.dataset_loss_weights[d_num] * self.loss_func(y_preds, y)
-            loss += curr_loss
-
-            self.manual_backward(curr_loss, retain_graph=True)
+            dataset_losses[d_num] = curr_loss
 
             self.log(
                 f"train_loss_on_head_{d_num}",
                 curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+            )
+
+        # compute dynamic loss weights for each dataset
+        with torch.no_grad():
+            total_loss = sum(l.detach() for l in dataset_losses.values())
+            dynamic_weights = {
+                d_num: (dataset_losses[d_num].detach() / total_loss).clamp(
+                    min=1e-4
+                )  # avoid zero
+                for d_num in dataset_losses
+            }
+
+        # apply weights and compute total loss
+        for d_num, loss in dataset_losses.items():
+            weighted_loss = dynamic_weights[d_num] * loss
+
+            self.manual_backward(weighted_loss, retain_graph=True)
+
+            loss += weighted_loss
+
+            self.log(
+                f"dynamic_weights_for_head_{d_num}",
+                dynamic_weights[d_num],
                 prog_bar=True,
                 on_step=False,
                 on_epoch=True,
