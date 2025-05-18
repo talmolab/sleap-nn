@@ -84,6 +84,7 @@ from sleap_nn.training.lightning_modules import (
     BottomUpMultiHeadLightningModule,
     CentroidMultiHeadLightningModule,
     TopDownCenteredInstanceMultiHeadLightningModule,
+    TopDownCenteredInstanceFitbboxMultiHeadLightningModule,
     SingleInstanceMultiHeadLightningModule,
 )
 from sleap_nn.config.training_job_config import verify_training_cfg
@@ -956,6 +957,7 @@ class MultiHeadModelTrainer:
         self.user_instances_only = OmegaConf.select(
             self.config, "data_config.user_instances_only", default=True
         )
+        self.is_fitbbox = OmegaConf.select(self.config, "model_config.head_configs.centered_instance.fitbbox", default=False)
 
         # Get ckpt dir path
         self.dir_path = self.config.trainer_config.save_ckpt_path
@@ -1137,44 +1139,46 @@ class MultiHeadModelTrainer:
 
             if self.model_type == "centered_instance":
                 # compute crop size
-                # self.max_crop_hws[d_num] = [0, 0]
-                # for lf in self.train_labels[d_num]:
-                #     for instance in lf.instances:
-                #         inst = instance.numpy()
-                #         x, y = inst[:, 0], inst[:, 1]
-                #         x_min, x_max = np.nanmin(x), np.nanmax(x)
-                #         y_min, y_max = np.nanmin(y), np.nanmax(y)
-                #         h, w = y_max - y_min, x_max - x_min
-                #         if h > self.max_crop_hws[d_num][0]:
-                #             self.max_crop_hws[d_num][0] = int(h)
-                #         if w > self.max_crop_hws[d_num][1]:
-                #             self.max_crop_hws[d_num][1] = int(w)
+                if self.is_fitbbox:
+                    self.max_crop_hws[d_num] = [0, 0]
+                    for lf in self.train_labels[d_num]:
+                        for instance in lf.instances:
+                            inst = instance.numpy()
+                            x, y = inst[:, 0], inst[:, 1]
+                            x_min, x_max = np.nanmin(x), np.nanmax(x)
+                            y_min, y_max = np.nanmin(y), np.nanmax(y)
+                            h, w = y_max - y_min, x_max - x_min
+                            if h > self.max_crop_hws[d_num][0]:
+                                self.max_crop_hws[d_num][0] = int(h)
+                            if w > self.max_crop_hws[d_num][1]:
+                                self.max_crop_hws[d_num][1] = int(w)
 
-                self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
-                    d_num
-                ]
-                if self.crop_hws[d_num] is None:
-
-                    min_crop_size = (
-                        self.config.data_config.preprocessing.min_crop_size
-                        if "min_crop_size" in self.config.data_config.preprocessing
-                        else None
-                    )
-                    crop_size = find_instance_crop_size(
-                        self.train_labels[d_num],
-                        maximum_stride=self.max_stride,
-                        min_crop_size=min_crop_size,
-                        input_scaling=self.config.data_config.preprocessing.scale[
-                            d_num
-                        ],
-                    )
-                    self.crop_hws[d_num] = crop_size
-                    self.config.data_config.preprocessing.crop_hw[d_num] = (
-                        self.crop_hws[d_num],
-                        self.crop_hws[d_num],
-                    )
                 else:
-                    self.crop_hws[d_num] = self.crop_hws[d_num][0]
+                    self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
+                        d_num
+                    ]
+                    if self.crop_hws[d_num] is None:
+
+                        min_crop_size = (
+                            self.config.data_config.preprocessing.min_crop_size
+                            if "min_crop_size" in self.config.data_config.preprocessing
+                            else None
+                        )
+                        crop_size = find_instance_crop_size(
+                            self.train_labels[d_num],
+                            maximum_stride=self.max_stride,
+                            min_crop_size=min_crop_size,
+                            input_scaling=self.config.data_config.preprocessing.scale[
+                                d_num
+                            ],
+                        )
+                        self.crop_hws[d_num] = crop_size
+                        self.config.data_config.preprocessing.crop_hw[d_num] = (
+                            self.crop_hws[d_num],
+                            self.crop_hws[d_num],
+                        )
+                    else:
+                        self.crop_hws[d_num] = self.crop_hws[d_num][0]
 
         self.config.data_config.max_crop_sizes = self.max_crop_hws
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
@@ -1250,42 +1254,82 @@ class MultiHeadModelTrainer:
             )
 
         elif self.model_type == "centered_instance":
-            self.train_datasets[d_num] = CenteredInstanceDataset(
-                labels=self.train_labels[d_num],
-                confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
-                    d_num
-                ],
-                max_stride=self.max_stride,
-                user_instances_only=self.config.data_config.user_instances_only,
-                is_rgb=self.config.data_config.preprocessing.is_rgb,
-                augmentation_config=self.config.data_config.augmentation_config,
-                scale=self.config.data_config.preprocessing.scale[d_num],
-                apply_aug=self.config.data_config.use_augmentations_train,
-                crop_hw=(self.crop_hws[d_num], self.crop_hws[d_num]),
-                max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
-                cache_img=self.cache_img,
-                cache_img_path=self.train_cache_img_paths[d_num],
-                use_existing_imgs=self.use_existing_imgs[d_num],
-                rank=self.trainer.global_rank if self.trainer is not None else None,
-            )
-            self.val_datasets[d_num] = CenteredInstanceDataset(
-                labels=self.val_labels[d_num],
-                confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
-                    d_num
-                ],
-                max_stride=self.max_stride,
-                user_instances_only=self.config.data_config.user_instances_only,
-                is_rgb=self.config.data_config.preprocessing.is_rgb,
-                augmentation_config=None,
-                scale=self.config.data_config.preprocessing.scale[d_num],
-                apply_aug=False,
-                crop_hw=(self.crop_hws[d_num], self.crop_hws[d_num]),
-                max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
-                cache_img=self.cache_img,
-                cache_img_path=self.val_cache_img_paths[d_num],
-                use_existing_imgs=self.use_existing_imgs[d_num],
-                rank=self.trainer.global_rank if self.trainer is not None else None,
-            )
+            if self.is_fitbbox:
+                self.train_datasets[d_num] = CenteredInstanceDatasetFitBbox(
+                    labels=self.train_labels[d_num],
+                    confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
+                        d_num
+                    ],
+                    max_stride=self.max_stride,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                    is_rgb=self.config.data_config.preprocessing.is_rgb,
+                    augmentation_config=self.config.data_config.augmentation_config,
+                    scale=self.config.data_config.preprocessing.scale[d_num],
+                    apply_aug=self.config.data_config.use_augmentations_train,
+                    max_crop_hw=self.max_crop_hws[d_num],
+                    max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
+                    cache_img=self.cache_img,
+                    cache_img_path=self.train_cache_img_paths[d_num],
+                    use_existing_imgs=self.use_existing_imgs[d_num],
+                    rank=self.trainer.global_rank if self.trainer is not None else None,
+                )
+                self.val_datasets[d_num] = CenteredInstanceDatasetFitBbox(
+                    labels=self.val_labels[d_num],
+                    confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
+                        d_num
+                    ],
+                    max_stride=self.max_stride,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                    is_rgb=self.config.data_config.preprocessing.is_rgb,
+                    augmentation_config=None,
+                    scale=self.config.data_config.preprocessing.scale[d_num],
+                    apply_aug=False,
+                    max_crop_hw=self.max_crop_hws[d_num],
+                    max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
+                    cache_img=self.cache_img,
+                    cache_img_path=self.val_cache_img_paths[d_num],
+                    use_existing_imgs=self.use_existing_imgs[d_num],
+                    rank=self.trainer.global_rank if self.trainer is not None else None,
+                )
+
+            else:
+
+                self.train_datasets[d_num] = CenteredInstanceDataset(
+                    labels=self.train_labels[d_num],
+                    confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
+                        d_num
+                    ],
+                    max_stride=self.max_stride,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                    is_rgb=self.config.data_config.preprocessing.is_rgb,
+                    augmentation_config=self.config.data_config.augmentation_config,
+                    scale=self.config.data_config.preprocessing.scale[d_num],
+                    apply_aug=self.config.data_config.use_augmentations_train,
+                    crop_hw=(self.crop_hws[d_num], self.crop_hws[d_num]),
+                    max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
+                    cache_img=self.cache_img,
+                    cache_img_path=self.train_cache_img_paths[d_num],
+                    use_existing_imgs=self.use_existing_imgs[d_num],
+                    rank=self.trainer.global_rank if self.trainer is not None else None,
+                )
+                self.val_datasets[d_num] = CenteredInstanceDataset(
+                    labels=self.val_labels[d_num],
+                    confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps[
+                        d_num
+                    ],
+                    max_stride=self.max_stride,
+                    user_instances_only=self.config.data_config.user_instances_only,
+                    is_rgb=self.config.data_config.preprocessing.is_rgb,
+                    augmentation_config=None,
+                    scale=self.config.data_config.preprocessing.scale[d_num],
+                    apply_aug=False,
+                    crop_hw=(self.crop_hws[d_num], self.crop_hws[d_num]),
+                    max_hw=(self.max_heights[d_num], self.max_widths[d_num]),
+                    cache_img=self.cache_img,
+                    cache_img_path=self.val_cache_img_paths[d_num],
+                    use_existing_imgs=self.use_existing_imgs[d_num],
+                    rank=self.trainer.global_rank if self.trainer is not None else None,
+                )
 
         elif self.model_type == "centroid":
             self.train_datasets[d_num] = CentroidDataset(
@@ -1492,7 +1536,7 @@ class MultiHeadModelTrainer:
     ):
         models = {
             "single_instance": SingleInstanceMultiHeadLightningModule,
-            "centered_instance": TopDownCenteredInstanceMultiHeadLightningModule,
+            "centered_instance": TopDownCenteredInstanceMultiHeadLightningModule if not self.is_fitbbox else TopDownCenteredInstanceFitbboxMultiHeadLightningModule,
             "centroid": CentroidMultiHeadLightningModule,
             "bottomup": BottomUpMultiHeadLightningModule,
         }

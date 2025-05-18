@@ -85,7 +85,8 @@ model_config:
     single_instance:
     centroid:
     bottomup:
-    centered_instance: 
+    centered_instance:
+      fitbbox: False # False: centroid crop, True: crop with fit bbox
       confmaps:
         0: 
           part_names:

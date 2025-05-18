@@ -857,11 +857,6 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     sample["pad_shifts"] = torch.zeros(
                         (sample["video_idx"].shape[0], 2)
                     )
-                    # for fit bbox cropping
-                    # sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
-                    # sample["padding_shifts_crops"] = torch.zeros(
-                    #     (sample["video_idx"].shape[0], 2)
-                    # )
                     for k, v in sample.items():
                         sample[k] = v.to(device=self.device)
                     self.inf_layer.output_stride = self.config.model_config.head_configs.centered_instance.confmaps[
@@ -1063,6 +1058,117 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             on_epoch=True,
             logger=True,
         )
+
+class TopDownCenteredInstanceFitbboxMultiHeadLightningModule(TopDownCenteredInstanceMultiHeadLightningModule):
+    def __init__(
+        self,
+        config: OmegaConf,
+        model_type: str,
+        backbone_type: str,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            config=config,
+            backbone_type=backbone_type,
+            model_type=model_type,
+        )
+        self.inf_layer = FindInstancePeaks(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            centered_fitbbox=True,
+        )
+        self.part_names = {}
+        for (
+            d_num,
+            cfg,
+        ) in self.config.model_config.head_configs.centered_instance.confmaps.items():
+            self.part_names[d_num] = cfg.part_names
+
+    def on_train_epoch_start(self):
+        """Configure the train timer at the beginning of each epoch."""
+        # add eval
+        if self.config.trainer_config.log_inf_epochs is not None:
+            if (
+                self.current_epoch > 0
+                and self.global_rank == 0
+                and (self.current_epoch % self.config.trainer_config.log_inf_epochs)
+                == 0
+            ):
+                img_array = []
+                for d_num in self.config.dataset_mapper:
+                    sample = next(iter(self.trainer.val_dataloaders[d_num]))
+                    sample["eff_scale"] = torch.ones(sample["video_idx"].shape)
+                    sample["pad_shifts"] = torch.zeros(
+                        (sample["video_idx"].shape[0], 2)
+                    )
+                    # for fit bbox cropping
+                    sample["eff_scale_crops"] = torch.ones(sample["video_idx"].shape)
+                    sample["padding_shifts_crops"] = torch.zeros(
+                        (sample["video_idx"].shape[0], 2)
+                    )
+                    for k, v in sample.items():
+                        sample[k] = v.to(device=self.device)
+                    self.inf_layer.output_stride = self.config.model_config.head_configs.centered_instance.confmaps[
+                        d_num
+                    ][
+                        "output_stride"
+                    ]
+                    output = self.inf_layer(sample, output_head_skeleton_num=d_num)
+                    batch_idx = 0
+
+                    # plot predictions on sample image
+                    if self.use_wandb or self.save_ckpt:
+                        peaks = output["pred_instance_peaks"][batch_idx].cpu().numpy()
+                        gt_instances = sample["instance"][batch_idx, 0].cpu().numpy()
+                        img = output["instance_image"][batch_idx, 0].cpu().numpy()
+                        confmaps = output["pred_confmaps"][batch_idx].cpu().numpy()
+                        fig = plot_pred_confmaps_peaks(
+                            img=img,
+                            confmaps=confmaps,
+                            peaks=np.expand_dims(peaks, axis=0),
+                            gt_instances=np.expand_dims(gt_instances, axis=0),
+                            plot_title=f"{self.config.dataset_mapper[d_num]}",
+                        )
+
+                    if self.save_ckpt:
+                        curr_results_path = (
+                            Path(self.config.trainer_config.save_ckpt_path)
+                            / "visualizations"
+                            / f"epoch_{self.current_epoch}"
+                        )
+                        if not Path(curr_results_path).exists():
+                            Path(curr_results_path).mkdir(parents=True, exist_ok=True)
+                        fig.savefig(
+                            (Path(curr_results_path) / f"pred_on_{d_num}").as_posix(),
+                            bbox_inches="tight",
+                        )
+
+                    if self.use_wandb:
+                        fig.canvas.draw()
+                        img = Image.frombytes(
+                            "RGB",
+                            fig.canvas.get_width_height(),
+                            fig.canvas.tostring_rgb(),
+                        )
+
+                        img_array.append(wandb.Image(img))
+
+                    plt.close(fig)
+
+                if self.use_wandb and img_array:
+                    # wandb logging metrics in table
+
+                    wandb_table = wandb.Table(
+                        columns=[
+                            "epoch",
+                            "Predictions on test set",
+                        ],
+                        data=[[self.current_epoch, img_array]],
+                    )
+                    wandb.log({"Performance": wandb_table})
+
+        self.train_start_time = time.time()
 
 
 class SingleInstanceMultiHeadLightningModule(MultiHeadLightningModule):
