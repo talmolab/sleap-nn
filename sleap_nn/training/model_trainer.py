@@ -957,7 +957,11 @@ class MultiHeadModelTrainer:
         self.user_instances_only = OmegaConf.select(
             self.config, "data_config.user_instances_only", default=True
         )
-        self.is_fitbbox = OmegaConf.select(self.config, "model_config.head_configs.centered_instance.fitbbox", default=False)
+        self.is_fitbbox = OmegaConf.select(
+            self.config,
+            "model_config.head_configs.centered_instance.fitbbox",
+            default=False,
+        )
 
         # Get ckpt dir path
         self.dir_path = self.config.trainer_config.save_ckpt_path
@@ -1154,9 +1158,9 @@ class MultiHeadModelTrainer:
                                 self.max_crop_hws[d_num][1] = int(w)
 
                 else:
-                    self.crop_hws[d_num] = self.config.data_config.preprocessing.crop_hw[
-                        d_num
-                    ]
+                    self.crop_hws[d_num] = (
+                        self.config.data_config.preprocessing.crop_hw[d_num]
+                    )
                     if self.crop_hws[d_num] is None:
 
                         min_crop_size = (
@@ -1536,7 +1540,11 @@ class MultiHeadModelTrainer:
     ):
         models = {
             "single_instance": SingleInstanceMultiHeadLightningModule,
-            "centered_instance": TopDownCenteredInstanceMultiHeadLightningModule if not self.is_fitbbox else TopDownCenteredInstanceFitbboxMultiHeadLightningModule,
+            "centered_instance": (
+                TopDownCenteredInstanceMultiHeadLightningModule
+                if not self.is_fitbbox
+                else TopDownCenteredInstanceFitbboxMultiHeadLightningModule
+            ),
             "centroid": CentroidMultiHeadLightningModule,
             "bottomup": BottomUpMultiHeadLightningModule,
         }

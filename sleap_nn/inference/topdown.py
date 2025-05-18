@@ -257,7 +257,6 @@ class CentroidCrop(L.LightningModule):
                         ]
                     ),
                 )
-                n = cropped_image.shape[0]
 
                 bbox_shifts.append(bbox[:2].unsqueeze(dim=0))
 
@@ -267,6 +266,8 @@ class CentroidCrop(L.LightningModule):
                 instance_images.append(cropped_image_match_hw.unsqueeze(dim=0))
                 eff_scale_crops.append(eff_scale)
                 padding_shifts_crops.append(torch.Tensor(pad_wh).unsqueeze(dim=0))
+
+            n = len(instance_images)
 
             ex = {}
             ex["image"] = torch.cat([image] * n)

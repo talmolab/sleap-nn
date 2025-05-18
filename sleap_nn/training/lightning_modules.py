@@ -1059,7 +1059,10 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
             logger=True,
         )
 
-class TopDownCenteredInstanceFitbboxMultiHeadLightningModule(TopDownCenteredInstanceMultiHeadLightningModule):
+
+class TopDownCenteredInstanceFitbboxMultiHeadLightningModule(
+    TopDownCenteredInstanceMultiHeadLightningModule
+):
     def __init__(
         self,
         config: OmegaConf,
