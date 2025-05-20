@@ -968,11 +968,11 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                 ) >= self.config.model_config.keypoint_mining.hard_to_easy_ratio
                 n_hard_keypoints = torch.sum(is_hard_keypoint.to(torch.int32))
                 if self.config.model_config.keypoint_mining.max_hard_keypoints < 0:
-                    max_hard_keypoints = loss.shape[0]
+                    max_hard_keypoints = l.shape[0]
                 else:
                     max_hard_keypoints = min(
                         self.config.model_config.keypoint_mining.max_hard_keypoints,
-                        loss.shape[0],
+                        l.shape[0],
                     )
 
                 k = min(
@@ -982,11 +982,9 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModule):
                     ),
                     max_hard_keypoints,
                 )
-                k_vals, k_inds = torch.top_k(loss, k=k, largest=True, sorted=False)
+                k_vals, k_inds = torch.topk(l, k=k, largest=True, sorted=False)
                 k_loss = k_vals * self.config.model_config.keypoint_mining.loss_scale
-                n_elements = (batch_shape[0] * batch_shape[2] * batch_shape[3] * k).to(
-                    torch.floast32
-                )
+                n_elements = batch_shape[0] * batch_shape[2] * batch_shape[3] * k
                 k_loss = torch.sum(k_loss) / n_elements
                 mse_loss = k_loss
             else:
