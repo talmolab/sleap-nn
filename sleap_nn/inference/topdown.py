@@ -118,6 +118,7 @@ class CentroidCrop(L.LightningModule):
             inputs["eff_scale"],
             inputs["pad_shifts"],
         ):
+            image = image[0]  # source imgs: nested tensor
 
             # size matcher
             max_h = self.preprocess_config.centered_max_height
@@ -200,6 +201,8 @@ class CentroidCrop(L.LightningModule):
             inputs["instances"],
         ):
 
+            image = image[0]  # source imgs: nested tensor
+
             # adjust for initial size matching in preprocessing
 
             instances = (
@@ -219,8 +222,6 @@ class CentroidCrop(L.LightningModule):
 
             image = resize_image(image, self.precrop_resize)
             instances = instances * self.precrop_resize
-
-            n = centroid.shape[0]
 
             # get max bbox size for this batch
             max_crop_size = self.preprocess_config.max_crop_size
@@ -256,6 +257,7 @@ class CentroidCrop(L.LightningModule):
                         ]
                     ),
                 )
+
                 bbox_shifts.append(bbox[:2].unsqueeze(dim=0))
 
                 cropped_image_match_hw, eff_scale, pad_wh = apply_sizematcher(
@@ -264,6 +266,8 @@ class CentroidCrop(L.LightningModule):
                 instance_images.append(cropped_image_match_hw.unsqueeze(dim=0))
                 eff_scale_crops.append(eff_scale)
                 padding_shifts_crops.append(torch.Tensor(pad_wh).unsqueeze(dim=0))
+
+            n = len(instance_images)
 
             ex = {}
             ex["image"] = torch.cat([image] * n)

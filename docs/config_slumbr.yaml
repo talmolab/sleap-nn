@@ -60,6 +60,16 @@ model_config:
   pretrained_backbone_weights:
   pretrained_head_weights:
   backbone_type: unet
+  dataset_loss_weights:
+    0: 1.0
+    1: 1.0
+    2: 1.0
+  keypoint_mining:
+    online_mining: False
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints:
+    loss_scale:
   backbone_config:
       in_channels: 1
       kernel_size: 3
@@ -75,7 +85,8 @@ model_config:
     single_instance:
     centroid:
     bottomup:
-    centered_instance: 
+    centered_instance:
+      fitbbox: False # False: centroid crop, True: crop with fit bbox
       confmaps:
         0: 
           part_names:
