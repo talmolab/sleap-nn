@@ -122,7 +122,7 @@ def config(sleap_data_dir):
                 "train_data_loader": {
                     "batch_size": 1,
                     "shuffle": True,
-                    "num_workers": 1,
+                    "num_workers": 0,
                 },
                 "val_data_loader": {
                     "batch_size": 1,
