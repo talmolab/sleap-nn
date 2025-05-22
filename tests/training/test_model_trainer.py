@@ -16,6 +16,7 @@ from sleap_nn.training.lightning_modules import (
     CentroidLightningModule,
     BottomUpLightningModule,
 )
+import sleap_io as sio
 from torch.nn.functional import mse_loss
 import os
 import wandb
@@ -36,6 +37,22 @@ def caplog(caplog: LogCaptureFixture):
     )
     yield caplog
     logger.remove(handler_id)
+
+
+def test_cfg_without_val_labels_path(config, tmp_path, minimal_instance):
+    """Test Model Trainer if no val labels path is provided."""
+    labels = sio.load_slp(minimal_instance)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_vals_fraction/"
+    )
+    config.data_config.val_labels_path = None
+    trainer = ModelTrainer(config)
+    assert np.all(trainer.train_labels[0].instances[0].numpy()) == np.all(
+        labels[0].instances[0].numpy()
+    )
+    assert np.all(trainer.val_labels[0].instances[0].numpy()) == np.all(
+        labels[0].instances[0].numpy()
+    )
 
 
 def test_create_data_loader_torch_dataset(caplog, config, tmp_path):
