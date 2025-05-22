@@ -142,6 +142,10 @@ class DataConfig:
 
     train_labels_path: (str) Path to training data (.slp file)
     val_labels_path: (str) Path to validation data (.slp file)
+    validation_fraction: Float between 0 and 1 specifying the fraction of the
+        training set to sample for generating the validation set. The remaining
+        labeled frames will be left in the training set. If the `validation_labels`
+        are already specified, this has no effect. Default: 0.1.
     test_file_path: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only
         with CLI to get evaluation on test set after training is completed.
     provider: (str) Provider class to read the input sleap files. Only "LabelsReader"
@@ -172,6 +176,7 @@ class DataConfig:
 
     train_labels_path: Optional[str] = None
     val_labels_path: Optional[str] = None  # TODO : revisit MISSING!
+    validation_fraction: int = 0.1
     test_file_path: Optional[str] = None
     provider: str = "LabelsReader"
     user_instances_only: bool = True
@@ -205,6 +210,9 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         ),
         val_labels_path=legacy_config_data.get("labels", {}).get(
             "validation_labels", None
+        ),
+        validation_fraction=legacy_config_data.get("labels", {}).get(
+            "validation_fraction", None
         ),
         test_file_path=legacy_config_data.get("labels", {}).get("test_labels", None),
         preprocessing=PreprocessingConfig(

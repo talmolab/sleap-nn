@@ -217,8 +217,18 @@ class ModelTrainer:
         if self.config.data_config.preprocessing.scale is None:
             self.config.data_config.preprocessing.scale = 1.0
 
-        self.train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-        self.val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        val_labels_path = self.config.data_config.val_labels_path
+        if val_labels_path is None:
+            val_fraction = OmegaConf.select(
+                self.config, "data_config.validation_fraction", default=0.1
+            )
+            self.train_labels, self.val_labels = train_labels.make_training_splits(
+                n_train=1 - val_fraction, n_val=val_fraction
+            )
+        else:
+            self.train_labels = train_labels
+            self.val_labels = sio.load_slp(val_labels_path)
 
         self.max_height, self.max_width = get_max_height_width(self.train_labels)
         if (
@@ -290,6 +300,8 @@ class ModelTrainer:
         self.edge_inds = self.train_labels.skeletons[0].edge_inds
 
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
+        self.train_labels.save(Path(self.dir_path) / "labels_train_gt.slp")
+        self.val_labels.save(Path(self.dir_path) / "labels_val_gt.slp")
 
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""

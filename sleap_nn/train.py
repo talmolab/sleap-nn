@@ -213,6 +213,7 @@ def get_head_configs(head_cfg):
 def get_data_config(
     train_labels_path: str,
     val_labels_path: str,
+    validation_fraction: int = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
@@ -240,6 +241,10 @@ def get_data_config(
     Args:
         train_labels_path: Path to training data (`.slp` file).
         val_labels_path: Path to validation data (`.slp` file).
+        validation_fraction: Float between 0 and 1 specifying the fraction of the
+            training set to sample for generating the validation set. The remaining
+            labeled frames will be left in the training set. If the `validation_labels`
+            are already specified, this has no effect. Default: 0.1.
         test_file_path: Path to test dataset (`.slp` file or `.mp4` file).
             Note: This is used to get evaluation on test set after training is completed.
         provider: Provider class to read the input sleap files. Only "LabelsReader"
@@ -310,6 +315,7 @@ def get_data_config(
     data_config = DataConfig(
         train_labels_path=train_labels_path,
         val_labels_path=val_labels_path,
+        validation_fraction=validation_fraction,
         test_file_path=test_file_path,
         provider=provider,
         user_instances_only=user_instances_only,
@@ -586,31 +592,37 @@ def run_training(config: DictConfig):
 
     # run inference on val dataset
     if config.trainer_config.save_ckpt:
-        val_labels = sio.load_slp(config.data_config.val_labels_path)
+        labels_path = config.data_config.val_labels_path
+        if labels_path is None:
+            labels_path = config.data_config.train_labels_path
+            dataset = "train"
+        else:
+            dataset = "val"
+        labels = sio.load_slp(labels_path)
 
-        pred_val_labels = predict(
-            data_path=config.data_config.val_labels_path,
+        pred_labels = predict(
+            data_path=labels_path,
             model_paths=[trainer.dir_path],
             provider="LabelsReader",
             peak_threshold=0.2,
             make_labels=True,
-            save_path=Path(trainer.dir_path) / "pred_val.slp",
+            save_path=Path(trainer.dir_path) / f"preds_{dataset}.slp",
         )
 
         evaluator = Evaluator(
-            ground_truth_instances=val_labels, predicted_instances=pred_val_labels
+            ground_truth_instances=labels, predicted_instances=pred_labels
         )
-        val_metrics = evaluator.evaluate()
+        metrics = evaluator.evaluate()
         np.savez(
-            (Path(trainer.dir_path) / "val_pred_metrics.npz").as_posix(),
-            **val_metrics,
+            (Path(trainer.dir_path) / f"{dataset}_pred_metrics.npz").as_posix(),
+            **metrics,
         )
 
-        logger.info(f"EVALUATION ON VALIDATION DATASET")
-        logger.info(f"OKS: {val_metrics['voc_metrics']['oks_voc.mAP']}")
-        logger.info(f"Average distance: {val_metrics['distance_metrics']['avg']}")
-        logger.info(f"p90 dist: {val_metrics['distance_metrics']['p90']}")
-        logger.info(f"p50 dist: {val_metrics['distance_metrics']['p50']}")
+        logger.info(f"Evaluation on `{dataset}` dataset")
+        logger.info(f"OKS: {metrics['voc_metrics']['oks_voc.mAP']}")
+        logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
+        logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
+        logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
 
         # run inference on test data
         if (
@@ -651,6 +663,7 @@ def run_training(config: DictConfig):
 def train(
     train_labels_path: str,
     val_labels_path: str,
+    validation_fraction: int = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
@@ -713,6 +726,10 @@ def train(
     Args:
         train_labels_path: Path to training data (`.slp` file).
         val_labels_path: Path to validation data (`.slp` file).
+        validation_fraction: Float between 0 and 1 specifying the fraction of the
+            training set to sample for generating the validation set. The remaining
+            labeled frames will be left in the training set. If the `validation_labels`
+            are already specified, this has no effect. Default: 0.1.
         test_file_path: Path to test dataset (`.slp` file or `.mp4` file).
             Note: This is used to get evaluation on test set after training is completed.
         provider: Provider class to read the input sleap files. Only "LabelsReader"
@@ -883,6 +900,7 @@ def train(
     data_config = get_data_config(
         train_labels_path=train_labels_path,
         val_labels_path=val_labels_path,
+        validation_fraction=validation_fraction,
         test_file_path=test_file_path,
         provider=provider,
         user_instances_only=user_instances_only,
