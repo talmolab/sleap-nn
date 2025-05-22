@@ -157,7 +157,6 @@ def test_unet_model():
         backbone_type="unet",
         backbone_config=base_unet_model_config,
         head_configs=base_unet_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -207,7 +206,6 @@ def test_unet_model():
         backbone_type="unet",
         backbone_config=base_unet_model_config,
         head_configs=base_unet_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -257,7 +255,6 @@ def test_unet_model():
         backbone_type="unet",
         backbone_config=base_unet_model_config,
         head_configs=base_unet_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -310,7 +307,6 @@ def test_convnext_model():
         backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -332,7 +328,6 @@ def test_convnext_model():
         backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -379,7 +374,6 @@ def test_convnext_model():
         backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -401,7 +395,6 @@ def test_convnext_model():
         backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -448,7 +441,6 @@ def test_convnext_model():
         backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -470,7 +462,6 @@ def test_convnext_model():
         backbone_type="convnext",
         backbone_config=base_convnext_model_config,
         head_configs=base_convnext_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -522,7 +513,6 @@ def test_swint_model():
         backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -544,7 +534,6 @@ def test_swint_model():
         backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -593,7 +582,6 @@ def test_swint_model():
         backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 
@@ -615,7 +603,6 @@ def test_swint_model():
         backbone_type="swint",
         backbone_config=base_swint_model_config,
         head_configs=base_swint_head_config,
-        input_expand_channels=1,
         model_type="single_instance",
     ).to(device)
 

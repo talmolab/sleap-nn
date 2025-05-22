@@ -6,10 +6,10 @@ channels:
   - conda-forge
 
 dependencies:
-  - python=3.9
+  - python=3.11
   - pytorch-cuda=11.8
   - numpy
-  - sleap-io
+  - sleap-io>=0.2.0
   - pydantic
   - lightning
   - cudnn

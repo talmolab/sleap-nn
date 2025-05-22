@@ -1,22 +1,20 @@
-"""Test ModelTrainer and TrainingModule classes."""
+"""Test ModelTrainer classes."""
 
 import torch
-import sleap_io as sio
-from typing import Text
 import numpy as np
+from PIL import Image
 import pytest
 from omegaconf import OmegaConf
-from omegaconf.omegaconf import DictConfig
 import lightning as L
 from pathlib import Path
 import pandas as pd
 import sys
-from sleap_nn.training.model_trainer import (
-    ModelTrainer,
-    TopDownCenteredInstanceModel,
-    SingleInstanceModel,
-    CentroidModel,
-    BottomUpModel,
+from sleap_nn.training.model_trainer import ModelTrainer
+from sleap_nn.training.lightning_modules import (
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
+    CentroidLightningModule,
+    BottomUpLightningModule,
 )
 from torch.nn.functional import mse_loss
 import os
@@ -50,6 +48,7 @@ def test_create_data_loader_torch_dataset(caplog, config, tmp_path):
     # without explicitly providing crop_hw
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "trainer_config.train_data_loader.num_workers", 0)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(config_copy, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer(config_copy)
@@ -59,18 +58,36 @@ def test_create_data_loader_torch_dataset(caplog, config, tmp_path):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    # with np chunks
+    # memory caching
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(
-        config_copy, "data_config.data_pipeline_fw", "torch_dataset_np_chunks"
-    )
-    OmegaConf.update(
-        config_copy, "data_config.np_chunks_path", f"{tmp_path}/np_chunks/"
+        config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
     model_trainer = ModelTrainer(config_copy)
     model_trainer._create_data_loaders_torch_dataset()
+    model_trainer.train_dataset._fill_cache()
+    model_trainer.val_dataset._fill_cache()
+    assert len(list(iter(model_trainer.train_dataset))) == 2
+    assert len(list(iter(model_trainer.val_dataset))) == 2
+    sample = next(iter(model_trainer.train_data_loader))
+    assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
+
+    # with saving imgs
+    config_copy = config.copy()
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(
+        config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
+    OmegaConf.update(
+        config_copy, "data_config.cache_img_path", f"{tmp_path}/cache_imgs/"
+    )
+    model_trainer = ModelTrainer(config_copy)
+    model_trainer._create_data_loaders_torch_dataset()
+    model_trainer.train_dataset._fill_cache()
+    model_trainer.val_dataset._fill_cache()
     assert len(list(iter(model_trainer.train_dataset))) == 2
     assert len(list(iter(model_trainer.val_dataset))) == 2
     sample = next(iter(model_trainer.train_data_loader))
@@ -92,7 +109,9 @@ def test_create_data_loader_litdata(caplog, config, tmp_path: str):
     # test centered-instance pipeline
     OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
     OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+        config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_create_data_loader_litdata_1/",
     )
     # without explicitly providing crop_hw
     config_copy = config.copy()
@@ -105,11 +124,13 @@ def test_create_data_loader_litdata(caplog, config, tmp_path: str):
     sample = next(iter(model_trainer.train_data_loader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
     # test exception
     config_copy = config.copy()
+    OmegaConf.update(
+        config_copy,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_create_data_loader_litdata_2/",
+    )
     head_config = config_copy.model_config.head_configs.centered_instance
     del config_copy.model_config.head_configs.centered_instance
     OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
@@ -150,7 +171,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
     # # for topdown centered instance model
     OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_trainer_litdata/"
     )
 
     model_trainer = ModelTrainer(config)
@@ -170,6 +191,9 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     #######
 
     # update save_ckpt to True and test step lr
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_trainer_litdata_2/"
+    )
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
@@ -258,7 +282,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, SingleInstanceModel)
+    assert isinstance(trainer.model, SingleInstanceLightningModule)
 
     #######
 
@@ -293,7 +317,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     trainer = ModelTrainer(centroid_config)
 
     trainer._initialize_model()
-    assert isinstance(trainer.model, CentroidModel)
+    assert isinstance(trainer.model, CentroidLightningModule)
 
     #######
 
@@ -335,7 +359,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, BottomUpModel)
+    assert isinstance(trainer.model, BottomUpLightningModule)
 
 
 @pytest.mark.skipif(
@@ -344,42 +368,64 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_trainer_torch_dataset(caplog, config, tmp_path: str):
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     model_trainer = ModelTrainer(config)
     assert model_trainer.dir_path == "."
 
-    ##### test for reusing np chunks path
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
-    OmegaConf.update(config, "data_config.np_chunks_path", tmp_path)
-    OmegaConf.update(config, "data_config.use_existing_chunks", True)
+    ### invalid profiler
+    OmegaConf.update(config, "trainer_config.profiler", "simple_torch")
+    with pytest.raises(ValueError):
+        model_trainer = ModelTrainer(
+            config,
+        )
+        model_trainer.train()
+    assert f"simple_torch is not a valid option" in caplog.text
+
+    ##### test for reusing imgs path
+    OmegaConf.update(config, "trainer_config.profiler", "simple")
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
+    OmegaConf.update(config, "data_config.cache_img_path", tmp_path)
+    OmegaConf.update(config, "data_config.use_existing_imgs", True)
     with pytest.raises(Exception):
         model_trainer = ModelTrainer(
             config,
         )
-    assert "There are no numpy chunks in the path" in caplog.text
+    assert "There are no images in the path" in caplog.text
 
-    Path.mkdir(Path(tmp_path) / "train_chunks", parents=True)
-    file_path = Path(tmp_path) / "train_chunks" / "sample.npz"
-    np.savez_compressed(file_path, {1: 10})
+    Path.mkdir(Path(tmp_path) / "train_imgs", parents=True)
+    file_path = Path(tmp_path) / "train_imgs" / "sample.jpg"
+    Image.fromarray(
+        np.random.randint(low=0, high=255, size=(100, 100)).astype(np.uint8)
+    ).save(file_path, format="JPEG")
 
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
-    OmegaConf.update(config, "data_config.np_chunks_path", tmp_path)
-    OmegaConf.update(config, "data_config.use_existing_chunks", True)
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
+    OmegaConf.update(config, "data_config.cache_img_path", tmp_path)
+    OmegaConf.update(config, "data_config.use_existing_imgs", True)
 
     with pytest.raises(Exception):
         model_trainer = ModelTrainer(config)
-    assert "There are no numpy chunks in the path" in caplog.text
+    assert "There are no images in the path" in caplog.text
 
     #####
 
     # # for topdown centered instance model
     OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+        config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_trainer_torch_dataset/",
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset_np_chunks")
-    OmegaConf.update(config, "data_config.np_chunks_path", f"{tmp_path}/np_chunks/")
-    OmegaConf.update(config, "data_config.use_existing_chunks", False)
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
+    OmegaConf.update(config, "data_config.cache_img_path", f"{tmp_path}/cache_imgs/")
+    OmegaConf.update(config, "data_config.use_existing_imgs", False)
 
     model_trainer = ModelTrainer(config)
     model_trainer.train()
@@ -552,7 +598,7 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, SingleInstanceModel)
+    assert isinstance(trainer.model, SingleInstanceLightningModule)
 
     #######
 
@@ -589,7 +635,7 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     trainer = ModelTrainer(centroid_config)
 
     trainer._initialize_model()
-    assert isinstance(trainer.model, CentroidModel)
+    assert isinstance(trainer.model, CentroidLightningModule)
 
     #######
 
@@ -631,7 +677,7 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
 
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
-    assert isinstance(trainer.model, BottomUpModel)
+    assert isinstance(trainer.model, BottomUpLightningModule)
 
 
 def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
@@ -722,7 +768,9 @@ def test_reuse_bin_files(config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
     OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
-    OmegaConf.update(centroid_config, "data_config.delete_chunks_after_training", False)
+    OmegaConf.update(
+        centroid_config, "data_config.delete_cache_imgs_after_training", False
+    )
     OmegaConf.update(
         centroid_config,
         "data_config.litdata_chunks_path",
@@ -735,313 +783,86 @@ def test_reuse_bin_files(config, tmp_path: str):
 
     OmegaConf.update(
         centroid_config,
-        "data_config.chunks_dir_path",
+        "data_config.litdata_chunks_path",
         (trainer1.train_litdata_chunks_path).split("train_chunks")[0],
     )
     OmegaConf.update(
         centroid_config,
-        "data_config.use_existing_chunks",
+        "data_config.use_existing_imgs",
         True,
     )
     trainer2 = ModelTrainer(centroid_config)
     trainer2.train()
 
 
-def test_topdown_centered_instance_model(config, tmp_path: str):
-
-    # unet
-    model = TopDownCenteredInstanceModel(
-        config=config,
-        skeletons=None,
-        model_type="centered_instance",
-        backbone_type="unet",
-    )
+@pytest.mark.skipif(
+    sys.platform.startswith("li"),
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
+# TODO: Revisit this test later (Failing on ubuntu)
+# torch dataset
+def test_reuse_npz_files(config, tmp_path: str):
+    """Test reusing `.npz` files."""
+    # Centroid model
     OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
+    centroid_config = config.copy()
+    head_config = config.model_config.head_configs.centered_instance
+    OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
+    del centroid_config.model_config.head_configs.centered_instance
+    del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
-    input_ = next(iter(model_trainer.train_data_loader))
-    input_cm = input_["confidence_maps"]
-    preds = model(input_["instance_image"])
-
-    # check the output shape
-    assert preds.shape == (1, 2, 80, 80)
-
-    # check the loss value
-    loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
-
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
-    # convnext with pretrained weights
     OmegaConf.update(
-        config, "model_config.pre_trained_weights", "ConvNeXt_Tiny_Weights"
+        centroid_config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_model_trainer/",
     )
-    OmegaConf.update(config, "data_config.preprocessing.is_rgb", True)
-    OmegaConf.update(config, "model_config.backbone_config.unet", None)
-    OmegaConf.update(
-        config,
-        "model_config.backbone_config.convnext",
-        {
-            "in_channels": 3,
-            "model_type": "tiny",
-            "arch": None,
-            "kernel_size": 3,
-            "filters_rate": 2,
-            "convs_per_block": 2,
-            "up_interpolate": True,
-            "stem_patch_kernel": 4,
-            "stem_patch_stride": 2,
-            "output_stride": 2,
-            "max_stride": 16,
-        },
-    )
-    model = TopDownCenteredInstanceModel(
-        config=config,
-        skeletons=None,
-        model_type="centered_instance",
-        backbone_type="convnext",
-    )
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
-    input_ = next(iter(model_trainer.train_data_loader))
-    input_cm = input_["confidence_maps"]
-    preds = model(input_["instance_image"])
 
-    # check the output shape
-    assert preds.shape == (1, 2, 80, 80)
-    assert all(
-        np.abs(
-            next(model.parameters())[0, 0, 0, :].detach().numpy()
-            - np.array([-0.1019, -0.1258, -0.0777, -0.0484])
+    if (Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt"
+            ).as_posix()
         )
-        < 1e-4
-    )
+        os.remove(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
+            ).as_posix()
+        )
+        shutil.rmtree(
+            (
+                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
+            ).as_posix()
+        )
 
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
-
-def test_centroid_model(config, tmp_path: str):
-    """Test CentroidModel training."""
+    OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
+    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
+    OmegaConf.update(centroid_config, "trainer_config.profiler", "simple")
+    OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
     OmegaConf.update(
-        config,
-        "model_config.head_configs.centroid",
-        config.model_config.head_configs.centered_instance,
+        centroid_config, "data_config.delete_cache_imgs_after_training", False
     )
-    del config.model_config.head_configs.centered_instance
-    del config.model_config.head_configs.centroid["confmaps"].part_names
-
-    model = CentroidModel(
-        config=config, skeletons=None, model_type="centroid", backbone_type="unet"
-    )
-
     OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+        centroid_config,
+        "data_config.cache_img_path",
+        Path(tmp_path) / "new_imags",
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
-    input_ = next(iter(model_trainer.train_data_loader))
-    input_cm = input_["centroids_confidence_maps"]
-    preds = model(input_["image"])
 
-    # check the output shape
-    assert preds.shape == (1, 1, 192, 192)
-
-    # check the loss value
-    loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
-
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
-    # torch dataset
-    model = CentroidModel(
-        config=config, skeletons=None, backbone_type="unet", model_type="centroid"
-    )
+    # test reusing bin files
+    trainer1 = ModelTrainer(centroid_config)
+    trainer1.train()
 
     OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+        centroid_config,
+        "data_config.cache_img_path",
+        (trainer1.cache_img_path.as_posix()),
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
-    input_cm = input_["centroids_confidence_maps"]
-    preds = model(input_["image"])
-
-    # check the output shape
-    assert preds.shape == (1, 1, 192, 192)
-
-    # check the loss value
-    loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
-
-
-def test_single_instance_model(config, tmp_path: str):
-    """Test the SingleInstanceModel training."""
-    head_config = config.model_config.head_configs.centered_instance
-    del config.model_config.head_configs.centered_instance
-    OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
-    del config.model_config.head_configs.single_instance.confmaps.anchor_part
-
-    OmegaConf.update(config, "model_config.init_weights", "xavier")
-
     OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
+        centroid_config,
+        "data_config.use_existing_imgs",
+        True,
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
-    input_ = next(iter(model_trainer.train_data_loader))
-    model = SingleInstanceModel(
-        config=config,
-        skeletons=None,
-        backbone_type="unet",
-        model_type="single_instance",
-    )
-
-    img = input_["image"]
-    img_shape = img.shape[-2:]
-    preds = model(img)
-
-    # check the output shape
-    assert preds.shape == (
-        1,
-        2,
-        int(
-            img_shape[0]
-            / config.model_config.head_configs.single_instance.confmaps.output_stride
-        ),
-        int(
-            img_shape[1]
-            / config.model_config.head_configs.single_instance.confmaps.output_stride
-        ),
-    )
-
-    # check the loss value
-    input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
-    loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
-
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
-    # torch dataset
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
-    model = SingleInstanceModel(
-        config=config,
-        skeletons=None,
-        backbone_type="unet",
-        model_type="single_instance",
-    )
-
-    img = input_["image"]
-    img_shape = img.shape[-2:]
-    preds = model(img)
-
-    # check the output shape
-    assert preds.shape == (
-        1,
-        2,
-        int(
-            img_shape[0]
-            / config.model_config.head_configs.single_instance.confmaps.output_stride
-        ),
-        int(
-            img_shape[1]
-            / config.model_config.head_configs.single_instance.confmaps.output_stride
-        ),
-    )
-
-    # check the loss value
-    input_["confidence_maps"] = input_["confidence_maps"][:, :, :2, :, :]
-    loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
-
-
-def test_bottomup_model(config, tmp_path: str):
-    """Test BottomUp model training."""
-    config_copy = config.copy()
-
-    head_config = config.model_config.head_configs.centered_instance
-    OmegaConf.update(config, "model_config.head_configs.bottomup", head_config)
-    paf = {
-        "edges": [("part1", "part2")],
-        "sigma": 4,
-        "output_stride": 4,
-        "loss_weight": 1.0,
-    }
-    del config.model_config.head_configs.bottomup["confmaps"].anchor_part
-    del config.model_config.head_configs.centered_instance
-    config.model_config.head_configs.bottomup["pafs"] = paf
-    config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
-
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
-    input_ = next(iter(model_trainer.train_data_loader))
-
-    model = BottomUpModel(
-        config=config, skeletons=None, backbone_type="unet", model_type="bottomup"
-    )
-
-    preds = model(input_["image"])
-
-    # check the output shape
-    loss = model.training_step(input_, 0)
-    assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
-    assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
-
-    shutil.rmtree((Path(model_trainer.train_litdata_chunks_path)).as_posix())
-    shutil.rmtree((Path(model_trainer.val_litdata_chunks_path)).as_posix())
-
-    # with edges as None
-    config = config_copy
-    head_config = config.model_config.head_configs.centered_instance
-    OmegaConf.update(config, "model_config.head_configs.bottomup", head_config)
-    paf = {
-        "edges": None,
-        "sigma": 4,
-        "output_stride": 4,
-        "loss_weight": 1.0,
-    }
-    del config.model_config.head_configs.bottomup["confmaps"].anchor_part
-    del config.model_config.head_configs.centered_instance
-    config.model_config.head_configs.bottomup["pafs"] = paf
-    config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
-
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    skeletons = model_trainer.skeletons
-    input_ = next(iter(model_trainer.train_data_loader))
-
-    model = BottomUpModel(
-        config=config, skeletons=skeletons, backbone_type="unet", model_type="bottomup"
-    )
-
-    preds = model(input_["image"])
-
-    # check the output shape
-    loss = model.training_step(input_, 0)
-    assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
-    assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+    trainer2 = ModelTrainer(centroid_config)
+    trainer2.train()

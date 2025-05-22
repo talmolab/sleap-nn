@@ -17,13 +17,13 @@ The config file has three main sections:
     - `val_labels_path`: (str) Path to validation data (`.slp` file)
     - `test_file_path`: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only with CLI to get evaluation on test set after training is completed. 
     - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
-    - `data_pipeline_fw`: (str) Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_np_chunks`].
+    - `data_pipeline_fw`: (str) Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`].
     *Default*: `"torch_dataset"`.
-    - `np_chunks_path`: (str) Path to save `.npz` chunks created with `torch_dataset_np_chunks` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_chunks` and `val_chunks` dirs are created inside this path. *Default*: `None`.
+    - `cache_img_path`: (str) Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_imgs` and `val_imgs` dirs are created inside this path. *Default*: `None`.
     - `litdata_chunks_path`: (str) Path to save `.bin` files created with `litdata` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_chunks` and `val_chunks` dirs are created inside this path. *Default*: `None`.
-    - `use_existing_chunks`: (bool) Use existing train and val chunks in the `np_chunks_path` or `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks. If `True`, the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs. *Default*: `False`.
+    - `use_existing_imgs`: (bool) Use existing train and val images/ chunks in the `cache_img_path` or `litdata_chunks_path` for `torch_dataset_cache_img_disk` or `litdata` frameworks. If `True`, the `cache_img_path` (or `litdata_chunks_path`) should have `train_imgs` and `val_imgs` dirs. *Default*: `False`.
     - `chunk_size`: (int) Size of each chunk (in MB). *Default*: `100`.
-    - `delete_chunks_after_training`: (bool) If `False`, the chunks (numpy or litdata chunks) are retained after training. Else, the chunks are deleted. *Default*: `True`.
+    - `delete_cache_imgs_after_training`: (bool) If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are retained after training. Else, the files are deleted. *Default*: `True`.
     #TODO: change in inference ckpts
     - `preprocessing`:
         - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
@@ -164,6 +164,8 @@ The config file has three main sections:
         - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. *Default*: `False`.
     - `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. *Default*: `"auto"`.
     - `trainer_accelerator`: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to. *Default*: `"auto"`.
+    - `profiler`: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"]. *Default*: `None`.
+    - `trainer_strategy`: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. *Default*: `"auto"`.
     - `enable_progress_bar`: (bool) When True, enables printing the logs during training.
     *Default*: `False`.
     - `steps_per_epoch`: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer `limit_train_batches` parameter of Torch `Trainer`. If `None`, the number of iterations depends on the number of samples in the train dataset.

@@ -217,11 +217,11 @@ def get_data_config(
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
     data_pipeline_fw: str = "torch_dataset",
-    np_chunks_path: Optional[str] = None,
+    cache_img_path: Optional[str] = None,
     litdata_chunks_path: Optional[str] = None,
-    use_existing_chunks: bool = False,
+    use_existing_imgs: bool = False,
     chunk_size: int = 100,
-    delete_chunks_after_training: bool = True,
+    delete_cache_imgs_after_training: bool = True,
     is_rgb: bool = False,
     scale: float = 1.0,
     max_height: Optional[int] = None,
@@ -247,23 +247,20 @@ def get_data_config(
         user_instances_only: `True` if only user labeled instances should be used for
             training. If `False`, both user labeled and predicted instances would be used.
             Default: `True`.
-        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`,
-            `torch_dataset`, `torch_dataset_np_chunks`]. Default: "torch_dataset".
-        np_chunks_path: Path to save `.npz` chunks created with `torch_dataset_np_chunks`
-            data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt`
-            is used (else working dir is used). The `train_chunks` and `val_chunks` dirs
-            are created inside this path. Default: None.
+        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`,
+            `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`]. Default: "torch_dataset".
+        cache_img_path: Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline
+            framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_imgs` and `val_imgs` dirs are created inside this path. Default: None.
         litdata_chunks_path: Path to save `.bin` files created with `litdata` data pipeline
             framework. If `None`, the path provided in `trainer_config.save_ckpt` is used
             (else working dir is used). The `train_chunks` and `val_chunks` dirs are created
             inside this path. Default: None.
-        use_existing_chunks: Use existing train and val chunks in the `np_chunks_path` or
-            `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks. If `True`,
-            the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs.
+        use_existing_imgs: Use existing train and val images/ chunks in the `cache_img_path` or
+            `litdata_chunks_path` for `torch_dataset_cache_img_disk` or `litdata` frameworks. If `True`, the `cache_img_path` (or `litdata_chunks_path`) should have `train_imgs` and `val_imgs` dirs.
             Default: False.
         chunk_size: Size of each chunk (in MB). Default: 100.
-        delete_chunks_after_training: If `False`, the chunks (numpy or litdata chunks) are
-            retained after training. Else, the chunks are deleted. Default: True.
+        delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
+            retained after training. Else, the files are deleted. Default: True.
         is_rgb: True if the image has 3 channels (RGB image). If input has only one
             channel when this is set to `True`, then the images from single-channel
             is replicated along the channel axis. If input has three channels and this
@@ -317,11 +314,11 @@ def get_data_config(
         provider=provider,
         user_instances_only=user_instances_only,
         data_pipeline_fw=data_pipeline_fw,
-        np_chunks_path=np_chunks_path,
+        cache_img_path=cache_img_path,
         litdata_chunks_path=litdata_chunks_path,
-        use_existing_chunks=use_existing_chunks,
+        use_existing_imgs=use_existing_imgs,
         chunk_size=chunk_size,
-        delete_chunks_after_training=delete_chunks_after_training,
+        delete_cache_imgs_after_training=delete_cache_imgs_after_training,
         preprocessing=preprocessing_config,
         use_augmentations_train=use_augmentations_train,
         augmentation_config=augmentation_config,
@@ -658,11 +655,11 @@ def train(
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
     data_pipeline_fw: str = "torch_dataset",
-    np_chunks_path: Optional[str] = None,
+    cache_img_path: Optional[str] = None,
     litdata_chunks_path: Optional[str] = None,
-    use_existing_chunks: bool = False,
+    use_existing_imgs: bool = False,
     chunk_size: int = 100,
-    delete_chunks_after_training: bool = True,
+    delete_cache_imgs_after_training: bool = True,
     is_rgb: bool = False,
     scale: float = 1.0,
     max_height: Optional[int] = None,
@@ -723,23 +720,20 @@ def train(
         user_instances_only: `True` if only user labeled instances should be used for
             training. If `False`, both user labeled and predicted instances would be used.
             Default: `True`.
-        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`,
-            `torch_dataset`, `torch_dataset_np_chunks`]. Default: "torch_dataset".
-        np_chunks_path: Path to save `.npz` chunks created with `torch_dataset_np_chunks`
-            data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt`
-            is used (else working dir is used). The `train_chunks` and `val_chunks` dirs
-            are created inside this path. Default: None.
+        data_pipeline_fw: Framework to create the data loaders. One of [`litdata`, `torch_dataset`,
+            `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`]. Default: "torch_dataset".
+        cache_img_path: Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline
+            framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_imgs` and `val_imgs` dirs are created inside this path. Default: None.
         litdata_chunks_path: Path to save `.bin` files created with `litdata` data pipeline
             framework. If `None`, the path provided in `trainer_config.save_ckpt` is used
             (else working dir is used). The `train_chunks` and `val_chunks` dirs are created
             inside this path. Default: None.
-        use_existing_chunks: Use existing train and val chunks in the `np_chunks_path` or
-            `chunks_path` for `torch_dataset_np_chunks` or `litdata` frameworks. If `True`,
-            the `np_chunks_path` (or `chunks_path`) should have `train_chunks` and `val_chunks` dirs.
+        use_existing_imgs: Use existing train and val images/ chunks in the `cache_img_path` or
+            `litdata_chunks_path` for `torch_dataset_cache_img_disk` or `litdata` frameworks. If `True`, the `cache_img_path` (or `litdata_chunks_path`) should have `train_imgs` and `val_imgs` dirs.
             Default: False.
         chunk_size: Size of each chunk (in MB). Default: 100.
-        delete_chunks_after_training: If `False`, the chunks (numpy or litdata chunks) are
-            retained after training. Else, the chunks are deleted. Default: True.
+        delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
+            retained after training. Else, the files are deleted. Default: True.
         is_rgb: True if the image has 3 channels (RGB image). If input has only one
             channel when this is set to `True`, then the images from single-channel
             is replicated along the channel axis. If input has three channels and this
@@ -893,11 +887,11 @@ def train(
         provider=provider,
         user_instances_only=user_instances_only,
         data_pipeline_fw=data_pipeline_fw,
-        np_chunks_path=np_chunks_path,
+        cache_img_path=cache_img_path,
         litdata_chunks_path=litdata_chunks_path,
-        use_existing_chunks=use_existing_chunks,
+        use_existing_imgs=use_existing_imgs,
         chunk_size=chunk_size,
-        delete_chunks_after_training=delete_chunks_after_training,
+        delete_cache_imgs_after_training=delete_cache_imgs_after_training,
         is_rgb=is_rgb,
         scale=scale,
         max_height=max_height,
@@ -956,7 +950,7 @@ def train(
         model_config=model_config,
         trainer_config=trainer_config,
     )
-    omegaconf_config = OmegaConf.structured(training_job_config)
+    omegaconf_config = training_job_config.to_sleap_nn_cfg()
 
     # run training
     run_training(omegaconf_config.copy())
@@ -965,11 +959,7 @@ def train(
 @hydra.main(version_base=None, config_path="", config_name="config")
 def main(cfg: DictConfig):
     """Train SLEAP-NN model using CLI."""
-    training_job_config = TrainingJobConfig(**cfg)
-    omegaconf_config = OmegaConf.structured(training_job_config)
-
-    # Train sleap-nn model
-    run_training(omegaconf_config)
+    run_training(cfg)
 
 
 if __name__ == "__main__":

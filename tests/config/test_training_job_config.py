@@ -33,7 +33,7 @@ from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
 from sleap_nn.config.data_config import IntensityConfig
 from tests.assets.fixtures.datasets import *
-from omegaconf import OmegaConf, MissingMandatoryValue, ValidationError
+from omegaconf import DictConfig, OmegaConf, MissingMandatoryValue, ValidationError
 from dataclasses import asdict
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
@@ -83,45 +83,7 @@ def test_intensity_config_validation_logging(caplog):
     assert "gaussian_noise_p" in caplog.text
 
 
-def test_from_yaml(sample_config):
-    """Test creating a TrainingJobConfig from a valid YAML string."""
-    config_dict = {
-        "name": sample_config["name"],
-        "description": sample_config["description"],
-        "data_config": {
-            "train_labels_path": sample_config["data_config"].train_labels_path,
-            "val_labels_path": sample_config["data_config"].val_labels_path,
-            "provider": sample_config["data_config"].provider,
-        },
-        "model_config": {
-            "init_weights": sample_config["model_config"].init_weights,
-        },
-        "trainer_config": {
-            "early_stopping": {
-                "patience": sample_config["trainer_config"].early_stopping.patience,
-            },
-        },
-    }
-    yaml_data = OmegaConf.to_yaml(config_dict)
-    config = TrainingJobConfig.from_yaml(yaml_data)
-
-    assert config.name == sample_config["name"]
-    assert config.description == sample_config["description"]
-    assert (
-        config.data_config.train_labels_path
-        == sample_config["data_config"].train_labels_path
-    )
-    assert (
-        config.data_config.val_labels_path
-        == sample_config["data_config"].val_labels_path
-    )
-    assert (
-        config.trainer_config.early_stopping.patience
-        == sample_config["trainer_config"].early_stopping.patience
-    )
-
-
-def test_to_yaml(sample_config):
+def test_to_sleap_nn_cfg():
     """Test serializing a TrainingJobConfig to YAML."""
     config_dict = {
         "name": sample_config["name"],
@@ -380,3 +342,12 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
     # assert topdown.class_vectors.classes == ["female", "male"]
     # assert topdown.class_vectors.num_fc_layers == 3
     # pprint(config.model_config.head_configs)
+    cfg = TrainingJobConfig()
+    cfg.data_config.train_labels_path = "test.slp"
+    cfg.data_config.val_labels_path = "test.slp"
+    omegacfg = cfg.to_sleap_nn_cfg()
+    assert isinstance(omegacfg, DictConfig)
+    assert omegacfg.data_config.train_labels_path == "test.slp"
+
+    with pytest.raises(MissingMandatoryValue):
+        config = TrainingJobConfig().to_sleap_nn_cfg()

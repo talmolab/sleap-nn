@@ -3,8 +3,8 @@ from omegaconf import OmegaConf
 import numpy as np
 import torch
 from sleap_nn.data.resizing import resize_image
-from sleap_nn.training.model_trainer import (
-    SingleInstanceModel,
+from sleap_nn.training.lightning_modules import (
+    SingleInstanceLightningModule,
 )
 from sleap_nn.inference.single_instance import (
     SingleInstanceInferenceModel,
@@ -29,10 +29,9 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
     )
     del training_config.model_config.head_configs.single_instance.confmaps.anchor_part
 
-    torch_model = SingleInstanceModel.load_from_checkpoint(
+    torch_model = SingleInstanceLightningModule.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt",
         config=training_config,
-        skeletons=sio.load_slp(minimal_instance).skeletons,
         model_type="single_instance",
         backbone_type="unet",
     )

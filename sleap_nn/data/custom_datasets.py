@@ -3,6 +3,7 @@
 from kornia.geometry.transform import crop_and_resize
 from itertools import cycle
 from pathlib import Path
+import torch.distributed as dist
 from typing import Dict, Iterator, List, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
@@ -28,6 +29,7 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.training.utils import is_distributed_initialized, get_dist_rank
 
 
 class BaseDataset(Dataset):
@@ -35,65 +37,94 @@ class BaseDataset(Dataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
-            these chunks during training. Else, in-memory caching is used.
-        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
-        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
+        cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
+        use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        np_chunks: bool = False,
-        np_chunks_path: Optional[str] = None,
-        use_existing_chunks: bool = False,
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
         self.labels = labels
-        self.data_config = data_config
+        self.user_instances_only = user_instances_only
+        self.is_rgb = is_rgb
+        self.augmentation_config = augmentation_config
         self.curr_idx = 0
         self.max_stride = max_stride
+        self.scale = scale
         self.apply_aug = apply_aug
         self.max_hw = max_hw
-        self.max_instances = get_max_instances(self.labels)
-        self.lf_idx_list = self._get_lf_idx_list()
-        self.np_chunks = np_chunks
-        self.np_chunks_path = np_chunks_path
-        self.use_existing_chunks = use_existing_chunks
-        if self.np_chunks_path is None:
-            self.np_chunks_path = "."
-        path = (
-            Path(self.np_chunks_path)
-            if isinstance(self.np_chunks_path, str)
-            else self.np_chunks_path
-        )
-        if not path.is_dir():
-            path.mkdir(parents=True, exist_ok=True)
+        self.rank = rank
+        self.max_instances = get_max_instances(self.labels) if self.labels else None
+        self.lf_idx_list = self._get_lf_idx_list() if self.labels else None
+        self.cache_img = cache_img
+        self.cache_img_path = cache_img_path
+        self.use_existing_imgs = use_existing_imgs
+        if self.cache_img is not None and "disk" in self.cache_img:
+            if self.cache_img_path is None:
+                self.cache_img_path = "."
+            path = (
+                Path(self.cache_img_path)
+                if isinstance(self.cache_img_path, str)
+                else self.cache_img_path
+            )
+            if not path.is_dir():
+                path.mkdir(parents=True, exist_ok=True)
 
         self.transform_to_pil = T.ToPILImage()
         self.transform_pil_to_tensor = T.ToTensor()
         self.cache = {}
+
+        if self.cache_img is not None:
+            if self.cache_img == "memory":
+                self._fill_cache()
+            elif self.cache_img == "disk" and not self.use_existing_imgs:
+                if self.rank is None or self.rank == 0:
+                    self._fill_cache()
+                if is_distributed_initialized():
+                    dist.barrier()
 
     def _get_lf_idx_list(self) -> List[Tuple[int]]:
         """Return list of indices of labelled frames."""
         lf_idx_list = []
         for lf_idx, lf in enumerate(self.labels):
             # Filter to user instances
-            if self.data_config.user_instances_only:
+            if self.user_instances_only:
                 if lf.user_instances is not None and len(lf.user_instances) > 0:
                     lf.instances = lf.user_instances
             is_empty = True
@@ -119,60 +150,19 @@ class BaseDataset(Dataset):
 
     def _fill_cache(self):
         """Load all samples to cache."""
-        for idx, lf_idx in enumerate(self.lf_idx_list):
-            lf = self.labels[lf_idx]
-            video_idx = self._get_video_idx(lf)
-
-            # get dict
-            sample = process_lf(
-                lf,
-                video_idx=video_idx,
-                max_instances=self.max_instances,
-                user_instances_only=self.data_config.user_instances_only,
-            )
-
-            # apply normalization
-            sample["image"] = apply_normalization(sample["image"])
-
-            if self.data_config.preprocessing.is_rgb:
-                sample["image"] = convert_to_rgb(sample["image"])
-            else:
-                sample["image"] = convert_to_grayscale(sample["image"])
-
-            # size matcher
-            sample["image"], eff_scale = apply_sizematcher(
-                sample["image"],
-                max_height=self.max_hw[0],
-                max_width=self.max_hw[1],
-            )
-            sample["instances"] = sample["instances"] * eff_scale
-
-            # resize image
-            sample["image"], sample["instances"] = apply_resizer(
-                sample["image"],
-                sample["instances"],
-                scale=self.data_config.preprocessing.scale,
-            )
-
-            # Pad the image (if needed) according max stride
-            sample["image"] = apply_pad_to_stride(
-                sample["image"], max_stride=self.max_stride
-            )
-
-            if self.np_chunks:
-                sample["image"] = self.transform_to_pil(sample["image"].squeeze(dim=0))
-                for k, v in sample.items():
-                    if k != "image" and isinstance(v, torch.Tensor):
-                        sample[k] = v.numpy()
-                f_name = f"{self.np_chunks_path}/sample_{idx}.npz"
-                np.savez_compressed(f_name, **sample)
-                self.cache[idx] = f_name
-
-            else:
-                self.cache[idx] = sample.copy()
+        for lf_idx in self.lf_idx_list:
+            img = self.labels[lf_idx].image
+            if img.shape[-1] == 1:
+                img = np.squeeze(img)
+            if self.cache_img == "disk":
+                f_name = f"{self.cache_img_path}/sample_{lf_idx}.jpg"
+                Image.fromarray(img).save(f_name, format="JPEG")
+            if self.cache_img == "memory":
+                self.cache[lf_idx] = img
 
         for video in self.labels.videos:
-            video.close()
+            if video.is_open:
+                video.close()
 
     def _get_video_idx(self, lf):
         """Return indsample of `lf.video` in `labels.videos`."""
@@ -194,9 +184,18 @@ class BottomUpDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
@@ -208,72 +207,122 @@ class BottomUpDataset(BaseDataset):
         pafs_head_config: DictConfig object with all the keys in the `head_config` section
             (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type )
             for PAFs.
-        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
-            these chunks during training. Else, in-memory caching is used.
-        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
-        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
+        cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
+        use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         confmap_head_config: DictConfig,
         pafs_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        np_chunks: bool = False,
-        np_chunks_path: Optional[str] = None,
-        use_existing_chunks: bool = False,
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
-            np_chunks=np_chunks,
-            np_chunks_path=np_chunks_path,
-            use_existing_chunks=use_existing_chunks,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
 
         self.edge_inds = self.labels.skeletons[0].edge_inds
-        if not self.use_existing_chunks:
-            self._fill_cache()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
-        if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
-            sample = {}
-            for k, v in ex.items():
-                if k != "image":
-                    sample[k] = torch.from_numpy(v)
-                else:
-                    sample[k] = self.transform_pil_to_tensor(
-                        Image.fromarray(ex["image"])
-                    ).unsqueeze(dim=0)
+        lf_idx = self.lf_idx_list[index]
+
+        lf = self.labels[lf_idx]
+
+        # load the img
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+            elif self.cache_img == "memory":
+                img = self.cache[lf_idx].copy()
+
+        else:  # load from slp file if not cached
+            img = lf.image
+
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        video_idx = self._get_video_idx(lf)
+
+        # get dict
+        sample = process_lf(
+            lf,
+            video_idx=video_idx,
+            max_instances=self.max_instances,
+            user_instances_only=self.user_instances_only,
+        )
+
+        # apply normalization
+        sample["image"] = apply_normalization(sample["image"])
+
+        if self.is_rgb:
+            sample["image"] = convert_to_rgb(sample["image"])
         else:
-            sample = self.cache[index].copy()
+            sample["image"] = convert_to_grayscale(sample["image"])
+
+        # size matcher
+        sample["image"], eff_scale = apply_sizematcher(
+            sample["image"],
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+        )
+        sample["instances"] = sample["instances"] * eff_scale
+
+        # resize image
+        sample["image"], sample["instances"] = apply_resizer(
+            sample["image"],
+            sample["instances"],
+            scale=self.scale,
+        )
+
+        # Pad the image (if needed) according max stride
+        sample["image"] = apply_pad_to_stride(
+            sample["image"], max_stride=self.max_stride
+        )
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.intensity,
+                    **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.geometric,
+                    **self.augmentation_config.geometric,
                 )
 
         img_hw = sample["image"].shape[-2:]
@@ -309,22 +358,31 @@ class CenteredInstanceDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
-            these chunks during training. Else, in-memory caching is used.
-        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
-        confmap_head_config: DictConfig object with all the keys in the `head_config` section.
-        (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
+        cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
+        use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         crop_hw: Height and width of the crop in pixels.
-        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -333,132 +391,46 @@ class CenteredInstanceDataset(BaseDataset):
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         crop_hw: Tuple[int],
         confmap_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        np_chunks: bool = False,
-        np_chunks_path: Optional[str] = None,
-        use_existing_chunks: bool = False,
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
-            np_chunks=np_chunks,
-            np_chunks_path=np_chunks_path,
-            use_existing_chunks=use_existing_chunks,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.crop_hw = crop_hw
         self.confmap_head_config = confmap_head_config
-        self.instance_idx_list = self._get_instance_idx_list()
+        self.instance_idx_list = self._get_instance_idx_list() if self.labels else None
         self.cache_lf = [None, None]
-        if not self.use_existing_chunks:
-            self._fill_cache()
-
-    def _fill_cache(self):
-        """Load all samples to cache."""
-        for idx, (lf_idx, inst_idx) in enumerate(self.instance_idx_list):
-            lf = self.labels[lf_idx]
-            video_idx = self._get_video_idx(lf)
-
-            if lf_idx == self.cache_lf[0]:
-                img = self.cache_lf[1]
-            else:
-                img = lf.image
-                self.cache_lf = [lf_idx, img]
-
-            image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
-
-            instances = []
-            for inst in lf:
-                instances.append(inst.numpy())
-            instances = np.stack(instances, axis=0)
-
-            # Add singleton time dimension for single frames.
-            image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
-            instances = np.expand_dims(
-                instances, axis=0
-            )  # (n_samples=1, num_instances, num_nodes, 2)
-
-            instances = torch.from_numpy(instances.astype("float32"))
-            image = torch.from_numpy(image)
-
-            num_instances, _ = instances.shape[1:3]
-            orig_img_height, orig_img_width = image.shape[-2:]
-
-            instances = instances[:, inst_idx]
-
-            # apply normalization
-            image = apply_normalization(image)
-
-            if self.data_config.preprocessing.is_rgb:
-                image = convert_to_rgb(image)
-            else:
-                image = convert_to_grayscale(image)
-
-            # size matcher
-            image, eff_scale = apply_sizematcher(
-                image,
-                max_height=self.max_hw[0],
-                max_width=self.max_hw[1],
-            )
-            instances = instances * eff_scale
-
-            # resize image
-            image, instances = apply_resizer(
-                image,
-                instances,
-                scale=self.data_config.preprocessing.scale,
-            )
-
-            # get the centroids based on the anchor idx
-            centroids = generate_centroids(
-                instances, anchor_ind=self.confmap_head_config.anchor_part
-            )
-
-            instance, centroid = instances[0], centroids[0]  # (n_samples=1)
-
-            crop_size = np.array(self.crop_hw) * np.sqrt(
-                2
-            )  # crop extra for rotation augmentation
-            crop_size = crop_size.astype(np.int32).tolist()
-
-            sample = generate_crops(image, instance, centroid, crop_size)
-
-            sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
-            sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
-            sample["num_instances"] = num_instances
-            sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
-
-            if self.np_chunks:
-                sample["instance_image"] = self.transform_to_pil(
-                    sample["instance_image"].squeeze(dim=0)
-                )
-                for k, v in sample.items():
-                    if k != "instance_image" and isinstance(v, torch.Tensor):
-                        sample[k] = v.numpy()
-                f_name = f"{self.np_chunks_path}/sample_{idx}.npz"
-                np.savez_compressed(f_name, **sample)
-                self.cache[idx] = f_name
-
-            else:
-                self.cache[idx] = sample.copy()
-
-        for video in self.labels.videos:
-            video.close()
 
     def _get_instance_idx_list(self) -> List[Tuple[int]]:
         """Return list of tuples with indices of labelled frames and instances."""
         instance_idx_list = []
         for lf_idx, lf in enumerate(self.labels):
             # Filter to user instances
-            if self.data_config.user_instances_only:
+            if self.user_instances_only:
                 if lf.user_instances is not None and len(lf.user_instances) > 0:
                     lf.instances = lf.user_instances
             for inst_idx, inst in enumerate(lf.instances):
@@ -472,36 +444,111 @@ class CenteredInstanceDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
-        if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
-            sample = {}
-            for k, v in ex.items():
-                if k != "instance_image":
-                    sample[k] = torch.from_numpy(v)
-                else:
-                    sample[k] = self.transform_pil_to_tensor(
-                        Image.fromarray(ex["instance_image"])
-                    ).unsqueeze(dim=0)
+        lf_idx, inst_idx = self.instance_idx_list[index]
+        lf = self.labels[lf_idx]
+
+        if lf_idx == self.cache_lf[0]:
+            img = self.cache_lf[1]
         else:
-            sample = self.cache[index].copy()
+            # load the img
+            if self.cache_img is not None:
+                if self.cache_img == "disk":
+                    img = np.array(
+                        Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg")
+                    )
+                elif self.cache_img == "memory":
+                    img = self.cache[lf_idx].copy()
+
+            else:  # load from slp file if not cached
+                img = lf.image  # TODO: doesn't work when num_workers > 0
+
+            if img.ndim == 2:
+                img = np.expand_dims(img, axis=2)
+
+            self.cache_lf = [lf_idx, img]
+
+        video_idx = self._get_video_idx(lf)
+
+        image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+
+        instances = []
+        for inst in lf:
+            instances.append(inst.numpy())
+        instances = np.stack(instances, axis=0)
+
+        # Add singleton time dimension for single frames.
+        image = np.expand_dims(image, axis=0)  # (n_samples=1, C, H, W)
+        instances = np.expand_dims(
+            instances, axis=0
+        )  # (n_samples=1, num_instances, num_nodes, 2)
+
+        instances = torch.from_numpy(instances.astype("float32"))
+        image = torch.from_numpy(image)
+
+        num_instances, _ = instances.shape[1:3]
+        orig_img_height, orig_img_width = image.shape[-2:]
+
+        instances = instances[:, inst_idx]
+
+        # apply normalization
+        image = apply_normalization(image)
+
+        if self.is_rgb:
+            image = convert_to_rgb(image)
+        else:
+            image = convert_to_grayscale(image)
+
+        # size matcher
+        image, eff_scale = apply_sizematcher(
+            image,
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+        )
+        instances = instances * eff_scale
+
+        # resize image
+        image, instances = apply_resizer(
+            image,
+            instances,
+            scale=self.scale,
+        )
+
+        # get the centroids based on the anchor idx
+        centroids = generate_centroids(
+            instances, anchor_ind=self.confmap_head_config.anchor_part
+        )
+
+        instance, centroid = instances[0], centroids[0]  # (n_samples=1)
+
+        crop_size = np.array(self.crop_hw) * np.sqrt(
+            2
+        )  # crop extra for rotation augmentation
+        crop_size = crop_size.astype(np.int32).tolist()
+
+        sample = generate_crops(image, instance, centroid, crop_size)
+
+        sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
+        sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
+        sample["num_instances"] = num_instances
+        sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["instance_image"], sample["instance"] = (
                     apply_intensity_augmentation(
                         sample["instance_image"],
                         sample["instance"],
-                        **self.data_config.augmentation_config.intensity,
+                        **self.augmentation_config.intensity,
                     )
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["instance_image"], sample["instance"] = (
                     apply_geometric_augmentation(
                         sample["instance_image"],
                         sample["instance"],
-                        **self.data_config.augmentation_config.geometric,
+                        **self.augmentation_config.geometric,
                     )
                 )
 
@@ -548,143 +595,145 @@ class CentroidDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
-            these chunks during training. Else, in-memory caching is used.
-        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
+        cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
+        use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
-        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        np_chunks: bool = False,
-        np_chunks_path: Optional[str] = None,
-        use_existing_chunks: bool = False,
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
-            np_chunks=np_chunks,
-            np_chunks_path=np_chunks_path,
-            use_existing_chunks=use_existing_chunks,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
-        if not self.use_existing_chunks:
-            self._fill_cache()
-
-    def _fill_cache(self):
-        """Load all samples to cache."""
-        for idx, lf_idx in enumerate(self.lf_idx_list):
-            lf = self.labels[lf_idx]
-            video_idx = self._get_video_idx(lf)
-
-            # get dict
-            sample = process_lf(
-                lf,
-                video_idx=video_idx,
-                max_instances=self.max_instances,
-                user_instances_only=self.data_config.user_instances_only,
-            )
-
-            # apply normalization
-            sample["image"] = apply_normalization(sample["image"])
-
-            if self.data_config.preprocessing.is_rgb:
-                sample["image"] = convert_to_rgb(sample["image"])
-            else:
-                sample["image"] = convert_to_grayscale(sample["image"])
-
-            # size matcher
-            sample["image"], eff_scale = apply_sizematcher(
-                sample["image"],
-                max_height=self.max_hw[0],
-                max_width=self.max_hw[1],
-            )
-            sample["instances"] = sample["instances"] * eff_scale
-
-            # resize image
-            sample["image"], sample["instances"] = apply_resizer(
-                sample["image"],
-                sample["instances"],
-                scale=self.data_config.preprocessing.scale,
-            )
-
-            # get the centroids based on the anchor idx
-            centroids = generate_centroids(
-                sample["instances"], anchor_ind=self.confmap_head_config.anchor_part
-            )
-
-            sample["centroids"] = centroids
-
-            # Pad the image (if needed) according max stride
-            sample["image"] = apply_pad_to_stride(
-                sample["image"], max_stride=self.max_stride
-            )
-
-            if self.np_chunks:
-                sample["image"] = self.transform_to_pil(sample["image"].squeeze(dim=0))
-                for k, v in sample.items():
-                    if k != "image" and isinstance(v, torch.Tensor):
-                        sample[k] = v.numpy()
-                f_name = f"{self.np_chunks_path}/sample_{idx}.npz"
-                np.savez_compressed(f_name, **sample)
-                self.cache[idx] = f_name
-
-            else:
-                self.cache[idx] = sample.copy()
-
-        for video in self.labels.videos:
-            video.close()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
-        if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
-            sample = {}
-            for k, v in ex.items():
-                if k != "image":
-                    sample[k] = torch.from_numpy(v)
-                else:
-                    sample[k] = self.transform_pil_to_tensor(
-                        Image.fromarray(ex["image"])
-                    ).unsqueeze(dim=0)
+        lf_idx = self.lf_idx_list[index]
+
+        lf = self.labels[lf_idx]
+
+        # load the img
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+            elif self.cache_img == "memory":
+                img = self.cache[lf_idx].copy()
+
+        else:  # load from slp file if not cached
+            img = lf.image
+
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        video_idx = self._get_video_idx(lf)
+
+        # get dict
+        sample = process_lf(
+            lf,
+            video_idx=video_idx,
+            max_instances=self.max_instances,
+            user_instances_only=self.user_instances_only,
+        )
+
+        # apply normalization
+        sample["image"] = apply_normalization(sample["image"])
+
+        if self.is_rgb:
+            sample["image"] = convert_to_rgb(sample["image"])
         else:
-            sample = self.cache[index].copy()
+            sample["image"] = convert_to_grayscale(sample["image"])
+
+        # size matcher
+        sample["image"], eff_scale = apply_sizematcher(
+            sample["image"],
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+        )
+        sample["instances"] = sample["instances"] * eff_scale
+
+        # resize image
+        sample["image"], sample["instances"] = apply_resizer(
+            sample["image"],
+            sample["instances"],
+            scale=self.scale,
+        )
+
+        # get the centroids based on the anchor idx
+        centroids = generate_centroids(
+            sample["instances"], anchor_ind=self.confmap_head_config.anchor_part
+        )
+
+        sample["centroids"] = centroids
+
+        # Pad the image (if needed) according max stride
+        sample["image"] = apply_pad_to_stride(
+            sample["image"], max_stride=self.max_stride
+        )
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["image"], sample["centroids"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["centroids"],
-                    **self.data_config.augmentation_config.intensity,
+                    **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["image"], sample["centroids"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["centroids"],
-                    **self.data_config.augmentation_config.geometric,
+                    **self.augmentation_config.geometric,
                 )
 
         img_hw = sample["image"].shape[-2:]
@@ -709,79 +758,138 @@ class SingleInstanceDataset(BaseDataset):
 
     Attributes:
         labels: Source `sio.Labels` object.
-        data_config: Data-related configuration. (`data_config` section in the config file).
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If input has three channels and this
+            is set to False, then we convert the image to grayscale (single-channel)
+            image.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         apply_aug: `True` if augmentations should be applied to the data pipeline,
             else `False`. Default: `False`.
         max_hw: Maximum height and width of images across the labels file. If `max_height` and
            `max_width` in the config is None, then `max_hw` is used (computed with
             `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
             are used.
-        np_chunks: If `True`, `.npz` chunks are generated and samples are loaded from
-            these chunks during training. Else, in-memory caching is used.
-        np_chunks_path: Path to save the `.npz` chunks. If `None`, current working dir is used.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
+        cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
+        use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
-        use_existing_chunks: Use existing chunks in the `np_chunks_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
     """
 
     def __init__(
         self,
         labels: sio.Labels,
-        data_config: DictConfig,
         confmap_head_config: DictConfig,
         max_stride: int,
+        user_instances_only: bool = True,
+        is_rgb: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
+        scale: float = 1.0,
         apply_aug: bool = False,
         max_hw: Tuple[Optional[int]] = (None, None),
-        np_chunks: bool = False,
-        np_chunks_path: Optional[str] = None,
-        use_existing_chunks: bool = False,
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
     ) -> None:
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            data_config=data_config,
             max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            is_rgb=is_rgb,
+            augmentation_config=augmentation_config,
+            scale=scale,
             apply_aug=apply_aug,
             max_hw=max_hw,
-            np_chunks=np_chunks,
-            np_chunks_path=np_chunks_path,
-            use_existing_chunks=use_existing_chunks,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
         )
         self.confmap_head_config = confmap_head_config
-        if not self.use_existing_chunks:
-            self._fill_cache()
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
-        if self.np_chunks:
-            ex = np.load(f"{self.np_chunks_path}/sample_{index}.npz")
-            sample = {}
-            for k, v in ex.items():
-                if k != "image":
-                    sample[k] = torch.from_numpy(v)
-                else:
-                    sample[k] = self.transform_pil_to_tensor(
-                        Image.fromarray(ex["image"])
-                    ).unsqueeze(dim=0)
+        lf_idx = self.lf_idx_list[index]
+
+        lf = self.labels[lf_idx]
+
+        # load the img
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+            elif self.cache_img == "memory":
+                img = self.cache[lf_idx].copy()
+
+        else:  # load from slp file if not cached
+            img = lf.image
+
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        video_idx = self._get_video_idx(lf)
+
+        # get dict
+        sample = process_lf(
+            lf,
+            video_idx=video_idx,
+            max_instances=self.max_instances,
+            user_instances_only=self.user_instances_only,
+        )
+
+        # apply normalization
+        sample["image"] = apply_normalization(sample["image"])
+
+        if self.is_rgb:
+            sample["image"] = convert_to_rgb(sample["image"])
         else:
-            sample = self.cache[index].copy()
+            sample["image"] = convert_to_grayscale(sample["image"])
+
+        # size matcher
+        sample["image"], eff_scale = apply_sizematcher(
+            sample["image"],
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+        )
+        sample["instances"] = sample["instances"] * eff_scale
+
+        # resize image
+        sample["image"], sample["instances"] = apply_resizer(
+            sample["image"],
+            sample["instances"],
+            scale=self.scale,
+        )
+
+        # Pad the image (if needed) according max stride
+        sample["image"] = apply_pad_to_stride(
+            sample["image"], max_stride=self.max_stride
+        )
 
         # apply augmentation
-        if self.apply_aug:
-            if "intensity" in self.data_config.augmentation_config:
+        if self.apply_aug and self.augmentation_config is not None:
+            if "intensity" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.intensity,
+                    **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.data_config.augmentation_config:
+            if "geometric" in self.augmentation_config:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
-                    **self.data_config.augmentation_config.geometric,
+                    **self.augmentation_config.geometric,
                 )
 
         img_hw = sample["image"].shape[-2:]

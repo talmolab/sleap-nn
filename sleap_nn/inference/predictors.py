@@ -23,11 +23,11 @@ from sleap_nn.data.normalization import (
     apply_normalization,
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
-from sleap_nn.training.model_trainer import (
-    TopDownCenteredInstanceModel,
-    SingleInstanceModel,
-    CentroidModel,
-    BottomUpModel,
+from sleap_nn.training.lightning_modules import (
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
+    CentroidLightningModule,
+    BottomUpLightningModule,
 )
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import BottomUpInferenceModel
@@ -327,9 +327,10 @@ class Predictor(ABC):
                         ex["image"], self.preprocess_config["max_stride"]
                     )
                 outputs_list = self.inference_model(ex)
-                for output in outputs_list:
-                    output = self._convert_tensors_to_numpy(output)
-                    yield output
+                if outputs_list is not None:
+                    for output in outputs_list:
+                        output = self._convert_tensors_to_numpy(output)
+                        yield output
 
         self.pipeline.join()
 
@@ -599,7 +600,7 @@ class TopDownPredictor(Predictor):
                     centroid_backbone_type = k
                     break
 
-            centroid_model = CentroidModel.load_from_checkpoint(
+            centroid_model = CentroidLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=centroid_config,
                 skeletons=skeletons,
@@ -649,10 +650,9 @@ class TopDownPredictor(Predictor):
                 if v is not None:
                     centered_instance_backbone_type = k
                     break
-            confmap_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+            confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
                 config=confmap_config,
-                skeletons=skeletons,
                 model_type="centered_instance",
                 backbone_type=centered_instance_backbone_type,
             )
@@ -869,10 +869,10 @@ class TopDownPredictor(Predictor):
                 pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
-                        points=pred_instances,
+                        points_data=pred_instances,
                         skeleton=self.skeletons[skeleton_idx],
                         point_scores=pred_values,
-                        instance_score=instance_score,
+                        score=instance_score,
                     )
                 )
         for key, inst in preds.items():
@@ -1022,10 +1022,9 @@ class SingleInstancePredictor(Predictor):
                 backbone_type = k
                 break
 
-        confmap_model = SingleInstanceModel.load_from_checkpoint(
+        confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             config=confmap_config,
-            skeletons=skeletons,
             model_type="single_instance",
             backbone_type=backbone_type,
         )
@@ -1206,9 +1205,9 @@ class SingleInstancePredictor(Predictor):
             ):
 
                 inst = sio.PredictedInstance.from_numpy(
-                    points=pred_instances,
+                    points_data=pred_instances,
                     skeleton=self.skeletons[skeleton_idx],
-                    instance_score=np.nansum(pred_values),
+                    score=np.nansum(pred_values),
                     point_scores=pred_values,
                 )
                 predicted_frames.append(
@@ -1398,10 +1397,9 @@ class BottomUpPredictor(Predictor):
                 backbone_type = k
                 break
 
-        bottomup_model = BottomUpModel.load_from_checkpoint(
+        bottomup_model = BottomUpLightningModule.load_from_checkpoint(
             checkpoint_path=ckpt_path,
             config=bottomup_config,
-            skeletons=skeletons,
             backbone_type=backbone_type,
             model_type="bottomup",
         )
@@ -1591,9 +1589,9 @@ class BottomUpPredictor(Predictor):
 
                     predicted_instances.append(
                         sio.PredictedInstance.from_numpy(
-                            points=pts,
+                            points_data=pts,
                             point_scores=confs,
-                            instance_score=score,
+                            score=score,
                             skeleton=self.skeletons[skeleton_idx],
                         )
                     )
@@ -1638,12 +1636,12 @@ def main(
     model_paths: List[str],
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
-    max_instances: int = None,
-    max_width: int = None,
-    max_height: int = None,
+    max_instances: Optional[int] = None,
+    max_width: Optional[int] = None,
+    max_height: Optional[int] = None,
     is_rgb: bool = False,
     anchor_ind: Optional[int] = None,
-    provider: str = "LabelsReader",
+    provider: Optional[str] = None,
     batch_size: int = 4,
     queue_maxsize: int = 8,
     videoreader_start_idx: Optional[int] = None,
@@ -1701,7 +1699,7 @@ def main(
         anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
                 provided, the anchor idx in the `training_config.yaml` is used instead.
         provider: (str) Provider class to read the input sleap files.
-                Either "LabelsReader" or "VideoReader". Default: LabelsReader.
+                Either "LabelsReader" or "VideoReader". Default: None.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
         videoreader_start_idx: (int) Start index of the frames to read. Default: None.
@@ -1795,6 +1793,12 @@ def main(
         "max_height": max_height,
         "anchor_ind": anchor_ind,
     }
+
+    if provider is None:
+        if data_path.endswith(".slp"):
+            provider = "LabelsReader"
+        else:
+            provider = "VideoReader"
 
     if provider == "VideoReader":
         preprocess_config["video_queue_maxsize"] = queue_maxsize

@@ -1,22 +1,27 @@
 """This module is to train a sleap-nn model using Lightning."""
 
 from pathlib import Path
-import numpy as np
-from typing import Optional, List
-import time
-from torch import nn
 import os
 import psutil
 import shutil
 import subprocess
 import torch
+from torch.utils.data import DataLoader
+import torch.distributed as dist
 import sleap_io as sio
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 import lightning as L
 import litdata as ld
 import wandb
 from lightning.pytorch.loggers import WandbLogger, CSVLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from lightning.pytorch.profilers import (
+    SimpleProfiler,
+    AdvancedProfiler,
+    XLAProfiler,
+    PyTorchProfiler,
+    PassThroughProfiler,
+)
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -32,7 +37,6 @@ from torchvision.models.convnext import (
     ConvNeXt_Large_Weights,
 )
 import sleap_io as sio
-from sleap_nn.architectures.model import Model
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
     CenteredInstanceDataset,
@@ -51,8 +55,10 @@ from sleap_nn.data.streaming_datasets import (
 from loguru import logger
 from sleap_nn.training.utils import (
     check_memory,
-    xavier_init_weights,
+    is_distributed_initialized,
+    get_dist_rank,
 )
+from sleap_nn.inference.utils import get_skeleton_from_config
 
 
 MODEL_WEIGHTS = {
@@ -67,6 +73,13 @@ MODEL_WEIGHTS = {
     "ConvNeXt_Small_Weights": ConvNeXt_Small_Weights,
     "ConvNeXt_Large_Weights": ConvNeXt_Large_Weights,
 }
+from sleap_nn.training.lightning_modules import (
+    BottomUpLightningModule,
+    CentroidLightningModule,
+    TopDownCenteredInstanceLightningModule,
+    SingleInstanceLightningModule,
+)
+from sleap_nn.config.training_job_config import verify_training_cfg
 
 
 class ModelTrainer:
@@ -84,12 +97,15 @@ class ModelTrainer:
 
     def __init__(
         self,
-        config: OmegaConf,
+        config: DictConfig,
     ):
         """Initialise the class with configs and set the seed and device as class attributes."""
-        self.config = config
+        self.config = verify_training_cfg(config)
         self.data_pipeline_fw = self.config.data_config.data_pipeline_fw
-        self.use_existing_chunks = self.config.data_config.use_existing_chunks
+        self.use_existing_imgs = self.config.data_config.use_existing_imgs
+        self.user_instances_only = OmegaConf.select(
+            self.config, "data_config.user_instances_only", default=True
+        )
 
         # Get ckpt dir path
         self.dir_path = self.config.trainer_config.save_ckpt_path
@@ -124,38 +140,44 @@ class ModelTrainer:
 
         elif (
             self.data_pipeline_fw == "torch_dataset"
-            or self.data_pipeline_fw == "torch_dataset_np_chunks"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_memory"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_disk"
         ):
             self.train_dataset = None
             self.val_dataset = None
-            # Get np chunks path
-            self.np_chunks = True if "np_chunks" in self.data_pipeline_fw else False
-            self.train_np_chunks_path = (
-                Path(self.config.data_config.np_chunks_path) / "train_chunks"
-                if self.config.data_config.np_chunks_path is not None
-                else Path(self.dir_path) / "train_chunks"
+            self.cache_img_path = (
+                Path(self.config.data_config.cache_img_path)
+                if self.config.data_config.cache_img_path is not None
+                else Path(self.dir_path)
             )
-            self.val_np_chunks_path = (
-                Path(self.config.data_config.np_chunks_path) / "val_chunks"
-                if self.config.data_config.np_chunks_path is not None
-                else Path(self.dir_path) / "val_chunks"
+            # Get cache img path
+            self.cache_img = (
+                self.data_pipeline_fw.split("_")[-1]
+                if "cache_img" in self.data_pipeline_fw
+                else None
             )
-            if self.use_existing_chunks:
+            self.train_cache_img_path = Path(self.cache_img_path) / "train_imgs"
+            self.val_cache_img_path = Path(self.cache_img_path) / "val_imgs"
+            if self.use_existing_imgs:
                 if not (
-                    self.train_np_chunks_path.exists()
-                    and self.train_np_chunks_path.is_dir()
-                    and any(self.train_np_chunks_path.glob("*.npz"))
+                    self.train_cache_img_path.exists()
+                    and self.train_cache_img_path.is_dir()
+                    and any(self.train_cache_img_path.glob("*.jpg"))
                 ):
-                    message = f"There are no numpy chunks in the path: {self.train_np_chunks_path}"
+                    message = (
+                        f"There are no images in the path: {self.train_cache_img_path}"
+                    )
                     logger.error(message)
                     raise Exception(message)
 
                 if not (
-                    self.val_np_chunks_path.exists()
-                    and self.val_np_chunks_path.is_dir()
-                    and any(self.val_np_chunks_path.glob("*.npz"))
+                    self.val_cache_img_path.exists()
+                    and self.val_cache_img_path.is_dir()
+                    and any(self.val_cache_img_path.glob("*.jpg"))
                 ):
-                    message = f"There are no numpy chunks in the path: {self.val_np_chunks_path}"
+                    message = (
+                        f"There are no images in the path: {self.val_cache_img_path}"
+                    )
                     logger.error(message)
                     raise Exception(message)
 
@@ -164,6 +186,7 @@ class ModelTrainer:
 
         # initialize attributes
         self.model = None
+        self.train_labels, self.val_labels = None, None
 
         self.train_data_loader = None
         self.val_data_loader = None
@@ -187,34 +210,17 @@ class ModelTrainer:
         # set seed
         torch.manual_seed(self.seed)
 
-        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-        self.user_instances_only = (
-            self.config.data_config.user_instances_only
-            if "user_instances_only" in self.config.data_config
-            and self.config.data_config.user_instances_only is not None
-            else True
-        )  # TODO: defaults should be handles in config validation.
-        self.skeletons = train_labels.skeletons
-        # save the skeleton in the config
-        self.config["data_config"]["skeletons"] = {}
-        for skl in self.skeletons:
-            if skl.symmetries:
-                symm = [list(s.nodes) for s in skl.symmetries]
-            else:
-                symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"][skl_name] = {
-                "nodes": skl.nodes,
-                "edges": skl.edges,
-                "symmetries": symm,
-            }
-
         self.max_stride = self.config.model_config.backbone_config[
             f"{self.backbone_type}"
         ]["max_stride"]
-        self.edge_inds = train_labels.skeletons[0].edge_inds
 
-        self.max_height, self.max_width = get_max_height_width(train_labels)
+        if self.config.data_config.preprocessing.scale is None:
+            self.config.data_config.preprocessing.scale = 1.0
+
+        self.train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        self.val_labels = sio.load_slp(self.config.data_config.val_labels_path)
+
+        self.max_height, self.max_width = get_max_height_width(self.train_labels)
         if (
             self.config.data_config.preprocessing.max_height is None
             and self.config.data_config.preprocessing.max_width is None
@@ -233,7 +239,7 @@ class ModelTrainer:
                     else None
                 )
                 crop_size = find_instance_crop_size(
-                    train_labels,
+                    self.train_labels,
                     maximum_stride=self.max_stride,
                     min_crop_size=min_crop_size,
                     input_scaling=self.config.data_config.preprocessing.scale,
@@ -246,22 +252,57 @@ class ModelTrainer:
             else:
                 self.crop_hw = self.crop_hw[0]
 
+        self.skeletons = self.train_labels.skeletons
+        # save the skeleton in the config
+        self.config["data_config"]["skeletons"] = {}
+        for skl in self.skeletons:
+            if skl.symmetries:
+                symm = [list(s.nodes) for s in skl.symmetries]
+            else:
+                symm = None
+            skl_name = skl.name if skl.name is not None else "skeleton-0"
+            self.config["data_config"]["skeletons"][skl_name] = {
+                "nodes": skl.nodes,
+                "edges": skl.edges,
+                "symmetries": symm,
+            }
+
+        # if edges and part names aren't set in config, get it from `sio.Labels` object.
+        head_config = self.config.model_config.head_configs[self.model_type]
+        for key in head_config:
+            if "part_names" in head_config[key].keys():
+                if head_config[key]["part_names"] is None:
+                    part_names = [x.name for x in self.skeletons[0].nodes]
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "part_names"
+                    ] = part_names
+
+            if "edges" in head_config[key].keys():
+                if head_config[key]["edges"] is None:
+                    edges = [
+                        (x.source.name, x.destination.name)
+                        for x in self.skeletons[0].edges
+                    ]
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "edges"
+                    ] = edges
+
+        self.edge_inds = self.train_labels.skeletons[0].edge_inds
+
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
     def _create_data_loaders_torch_dataset(self):
         """Create a torch DataLoader for train, validation and test sets using the data_config."""
-        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
-        val_labels = sio.load_slp(self.config.data_config.val_labels_path)
-        if self.data_pipeline_fw == "torch_dataset":
+        if self.data_pipeline_fw == "torch_dataset_cache_img_memory":
             train_cache_memory = check_memory(
-                train_labels,
+                self.train_labels,
                 max_hw=(self.max_height, self.max_width),
                 model_type=self.model_type,
                 input_scaling=self.config.data_config.preprocessing.scale,
                 crop_size=self.crop_hw if self.crop_hw != -1 else None,
             )
             val_cache_memory = check_memory(
-                val_labels,
+                self.val_labels,
                 max_hw=(self.max_height, self.max_width),
                 model_type=self.model_type,
                 input_scaling=self.config.data_config.preprocessing.scale,
@@ -274,112 +315,144 @@ class ModelTrainer:
             )  # available memory in bytes
 
             if total_cache_memory > available_memory:
-                self.data_pipeline_fw = "torch_dataset_np_chunks"
-                self.np_chunks = True
-                self.train_np_chunks_path = Path("./train_chunks")
-                self.val_np_chunks_path = Path("./val_chunks")
+                self.data_pipeline_fw = "torch_dataset_cache_img_disk"
+                self.cache_img = "disk"
+                self.train_torch_dataset_cache_img = Path("./train_imgs")
+                self.val_torch_dataset_cache_img = Path("./train_imgs")
                 logger.info(
-                    f"Insufficient memory for in-memory caching. `npz` files will be created."
+                    f"Insufficient memory for in-memory caching. `jpg` files will be created."
                 )
 
         if self.model_type == "bottomup":
             self.train_dataset = BottomUpDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = BottomUpDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head_config=self.config.model_config.head_configs.bottomup.pafs,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         elif self.model_type == "centered_instance":
             self.train_dataset = CenteredInstanceDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = CenteredInstanceDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 crop_hw=(self.crop_hw, self.crop_hw),
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         elif self.model_type == "centroid":
             self.train_dataset = CentroidDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = CentroidDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         elif self.model_type == "single_instance":
             self.train_dataset = SingleInstanceDataset(
-                labels=train_labels,
-                data_config=self.config.data_config,
+                labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=self.config.data_config.augmentation_config,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=self.config.data_config.use_augmentations_train,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.train_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.train_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
             self.val_dataset = SingleInstanceDataset(
-                labels=val_labels,
-                data_config=self.config.data_config,
+                labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.single_instance.confmaps,
                 max_stride=self.max_stride,
+                user_instances_only=self.config.data_config.user_instances_only,
+                is_rgb=self.config.data_config.preprocessing.is_rgb,
+                augmentation_config=None,
+                scale=self.config.data_config.preprocessing.scale,
                 apply_aug=False,
                 max_hw=(self.max_height, self.max_width),
-                np_chunks=self.np_chunks,
-                np_chunks_path=self.val_np_chunks_path,
-                use_existing_chunks=self.use_existing_chunks,
+                cache_img=self.cache_img,
+                cache_img_path=self.val_cache_img_path,
+                use_existing_imgs=self.use_existing_imgs,
+                rank=self.trainer.global_rank if self.trainer is not None else None,
             )
 
         else:
@@ -402,10 +475,20 @@ class ModelTrainer:
             else True
         )
 
+        # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
+        if "cache_img" in self.data_pipeline_fw:
+            for video in self.train_labels.videos:
+                if video.is_open:
+                    video.close()
+
+            for video in self.val_labels.videos:
+                if video.is_open:
+                    video.close()
+
         # train
-        self.train_data_loader = CyclerDataLoader(
+        self.train_data_loader = DataLoader(
             dataset=self.train_dataset,
-            steps_per_epoch=self.steps_per_epoch,
+            # steps_per_epoch=self.steps_per_epoch,
             shuffle=self.config.trainer_config.train_data_loader.shuffle,
             batch_size=self.config.trainer_config.train_data_loader.batch_size,
             num_workers=self.config.trainer_config.train_data_loader.num_workers,
@@ -427,9 +510,9 @@ class ModelTrainer:
             len(self.val_dataset)
             // self.config.trainer_config.val_data_loader.batch_size
         )
-        self.val_data_loader = CyclerDataLoader(
+        self.val_data_loader = DataLoader(
             dataset=self.val_dataset,
-            steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
+            # steps_per_epoch=val_steps_per_epoch if val_steps_per_epoch != 0 else 1,
             shuffle=False,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
             num_workers=self.config.trainer_config.val_data_loader.num_workers,
@@ -496,7 +579,7 @@ class ModelTrainer:
             logger.info("Standard Output:\n", stdout)
             logger.info("Standard Error:\n", stderr)
 
-        if not self.use_existing_chunks:
+        if not self.use_existing_imgs:
             try:
                 run_subprocess()
 
@@ -645,14 +728,13 @@ class ModelTrainer:
         self,
     ):
         models = {
-            "single_instance": SingleInstanceModel,
-            "centered_instance": TopDownCenteredInstanceModel,
-            "centroid": CentroidModel,
-            "bottomup": BottomUpModel,
+            "single_instance": SingleInstanceLightningModule,
+            "centered_instance": TopDownCenteredInstanceLightningModule,
+            "centroid": CentroidLightningModule,
+            "bottomup": BottomUpLightningModule,
         }
         self.model = models[self.model_type](
             config=self.config,
-            skeletons=self.skeletons,
             model_type=self.model_type,
             backbone_type=self.backbone_type,
         )
@@ -717,28 +799,27 @@ class ModelTrainer:
             # save the configs as yaml in the checkpoint dir
             self.config.trainer_config.wandb.api_key = ""
 
-            wandb_logger.experiment.config.update({"run_name": wandb_config.name})
-            wandb_logger.experiment.config.update(
-                {"run_config": OmegaConf.to_container(self.config, resolve=True)}
-            )
-            wandb_logger.experiment.config.update({"model_params": total_params})
+        profilers = {
+            "advanced": AdvancedProfiler(),
+            "passthrough": PassThroughProfiler(),
+            "pytorch": PyTorchProfiler(),
+            "simple": SimpleProfiler(),
+        }
+        cfg_profiler = OmegaConf.select(
+            self.config, "trainer_config.profiler", default=None
+        )
+        profiler = None
+        if cfg_profiler is not None:
+            if cfg_profiler in profilers:
+                profiler = profilers[cfg_profiler]
+            else:
+                message = f"{cfg_profiler} is not a valid option. Please choose one of {list(profilers.keys())}"
+                logger.error(message)
+                raise ValueError(message)
 
-        # save the configs as yaml in the checkpoint dir
-        OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
-
-        if self.data_pipeline_fw == "litdata":
-            self._create_data_loaders_litdata()
-
-        elif (
-            self.data_pipeline_fw == "torch_dataset"
-            or self.data_pipeline_fw == "torch_dataset_np_chunks"
-        ):
-            self._create_data_loaders_torch_dataset()
-
-        else:
-            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata` or `torch_dataset`."
-            logger.error(message)
-            raise ValueError(message)
+        strategy = OmegaConf.select(
+            self.config, "trainer_config.trainer_strategy", default="auto"
+        )
 
         self.trainer = L.Trainer(
             callbacks=callbacks,
@@ -749,13 +830,42 @@ class ModelTrainer:
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
             limit_train_batches=self.steps_per_epoch,
-            strategy=(
-                "ddp_find_unused_parameters_false"
-                if isinstance(self.config.trainer_config.trainer_devices, int)
-                and self.config.trainer_config.trainer_devices > 1
-                else "auto"
-            ),
+            strategy=strategy,
+            profiler=profiler,
         )
+
+        # save the configs as yaml in the checkpoint dir
+        if (
+            self.trainer.global_rank == 0
+        ):  # save config if there are no distributed process or the rank = 0
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
+
+        if self.data_pipeline_fw == "litdata":
+            self._create_data_loaders_litdata()
+
+        elif (
+            self.data_pipeline_fw == "torch_dataset"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_memory"
+            or self.data_pipeline_fw == "torch_dataset_cache_img_disk"
+        ):
+            self._create_data_loaders_torch_dataset()
+
+        else:
+            message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata`, `torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`"
+            logger.error(message)
+            raise ValueError(message)
+
+        if self.config.trainer_config.use_wandb:
+            if (
+                self.trainer.global_rank == 0
+            ):  # save config if there are no distributed process or the rank = 0
+                wandb_logger.experiment.config.update({"run_name": wandb_config.name})
+                wandb_logger.experiment.config.update(
+                    {"run_config": OmegaConf.to_container(self.config, resolve=True)}
+                )
+                wandb_logger.experiment.config.update({"model_params": total_params})
 
         try:
 
@@ -780,25 +890,25 @@ class ModelTrainer:
             )
 
             if (
-                self.data_pipeline_fw == "torch_dataset_np_chunks"
-                and self.config.data_config.delete_chunks_after_training
+                self.data_pipeline_fw == "torch_dataset_cache_img_disk"
+                and self.config.data_config.delete_cache_imgs_after_training
             ):
-                if (self.train_np_chunks_path).exists():
+                if (self.train_cache_img_path).exists():
                     shutil.rmtree(
-                        (self.train_np_chunks_path).as_posix(),
+                        (self.train_cache_img_path).as_posix(),
                         ignore_errors=True,
                     )
 
-                if (self.val_np_chunks_path).exists():
+                if (self.val_cache_img_path).exists():
                     shutil.rmtree(
-                        (self.val_np_chunks_path).as_posix(),
+                        (self.val_cache_img_path).as_posix(),
                         ignore_errors=True,
                     )
 
             # TODO: (ubuntu test failing (running for > 6hrs) with the below lines)
             if (
                 self.data_pipeline_fw == "litdata"
-                and self.config.data_config.delete_chunks_after_training
+                and self.config.data_config.delete_cache_imgs_after_training
             ):
                 logger.info("Deleting training and validation files...")
                 if (Path(self.train_litdata_chunks_path)).exists():
@@ -811,556 +921,3 @@ class ModelTrainer:
                         (Path(self.val_litdata_chunks_path)).as_posix(),
                         ignore_errors=True,
                     )
-
-
-class TrainingModel(L.LightningModule):
-    """Base PyTorch Lightning Module for all sleap-nn models.
-
-    This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
-
-    Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                a pipeline class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-    """
-
-    def __init__(
-        self,
-        config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
-        model_type: str,
-        backbone_type: str,
-    ):
-        """Initialise the configs and the model."""
-        super().__init__()
-        self.config = config
-        self.skeletons = skeletons
-        self.model_config = self.config.model_config
-        self.trainer_config = self.config.trainer_config
-        self.data_config = self.config.data_config
-        self.model_type = model_type
-        self.backbone_type = backbone_type
-        self.pretrained_backbone_weights = (
-            self.config.model_config.pretrained_backbone_weights
-        )
-        self.pretrained_head_weights = self.config.model_config.pretrained_head_weights
-        self.in_channels = self.model_config.backbone_config[f"{self.backbone_type}"][
-            "in_channels"
-        ]
-        self.input_expand_channels = self.in_channels
-        if self.model_config.pre_trained_weights:  # only for swint and convnext
-            ckpt = MODEL_WEIGHTS[
-                self.model_config.pre_trained_weights
-            ].DEFAULT.get_state_dict(progress=True, check_hash=True)
-            input_channels = ckpt["features.0.0.weight"].shape[-3]
-            if self.in_channels != input_channels:
-                self.input_expand_channels = input_channels
-                OmegaConf.update(
-                    self.model_config,
-                    f"backbone_config.{self.backbone_type}.in_channels",
-                    input_channels,
-                )
-
-        # if edges and part names aren't set in config, get it from `sio.Labels` object.
-        head_config = self.model_config.head_configs[self.model_type]
-        for key in head_config:
-            if "part_names" in head_config[key].keys():
-                if head_config[key]["part_names"] is None:
-                    part_names = [x.name for x in self.skeletons[0].nodes]
-                    head_config[key]["part_names"] = part_names
-
-            if "edges" in head_config[key].keys():
-                if head_config[key]["edges"] is None:
-                    edges = [
-                        (x.source.name, x.destination.name)
-                        for x in self.skeletons[0].edges
-                    ]
-                    head_config[key]["edges"] = edges
-
-        self.model = Model(
-            backbone_type=self.backbone_type,
-            backbone_config=self.model_config.backbone_config[f"{self.backbone_type}"],
-            head_configs=head_config,
-            input_expand_channels=self.input_expand_channels,
-            model_type=self.model_type,
-        )
-
-        if len(self.model_config.head_configs[self.model_type]) > 1:
-            self.loss_weights = [
-                (
-                    self.model_config.head_configs[self.model_type][x].loss_weight
-                    if self.model_config.head_configs[self.model_type][x].loss_weight
-                    is not None
-                    else 1.0
-                )
-                for x in self.model_config.head_configs[self.model_type]
-            ]
-
-        self.training_loss = {}
-        self.val_loss = {}
-        self.learning_rate = {}
-
-        # Initialization for encoder and decoder stacks.
-        if self.model_config.init_weights == "xavier":
-            self.model.apply(xavier_init_weights)
-
-        # Pre-trained weights for the encoder stack - only for swint and convnext
-        if self.model_config.pre_trained_weights:
-            self.model.backbone.enc.load_state_dict(ckpt, strict=False)
-
-        # TODO: Handling different input channels
-        # Initializing backbone (encoder + decoder) with trained ckpts
-        if self.pretrained_backbone_weights is not None:
-            logger.info(
-                f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
-            )
-            ckpt = torch.load(self.pretrained_backbone_weights)
-            ckpt["state_dict"] = {
-                k: ckpt["state_dict"][k]
-                for k in ckpt["state_dict"].keys()
-                if ".backbone" in k
-            }
-            self.load_state_dict(ckpt["state_dict"], strict=False)
-
-        # Initializing head layers with trained ckpts.
-        if self.pretrained_head_weights is not None:
-            logger.info(
-                f"Loading head weights from `{self.pretrained_head_weights}` ..."
-            )
-            ckpt = torch.load(self.pretrained_head_weights)
-            ckpt["state_dict"] = {
-                k: ckpt["state_dict"][k]
-                for k in ckpt["state_dict"].keys()
-                if ".head_layers" in k
-            }
-            self.load_state_dict(ckpt["state_dict"], strict=False)
-
-    def forward(self, img):
-        """Forward pass of the model."""
-        pass
-
-    def on_save_checkpoint(self, checkpoint):
-        """Configure checkpoint to save parameters."""
-        # save the config to the checkpoint file
-        checkpoint["config"] = self.config
-
-    def on_train_epoch_start(self):
-        """Configure the train timer at the beginning of each epoch."""
-        self.train_start_time = time.time()
-
-    def on_train_epoch_end(self):
-        """Configure the train timer at the end of every epoch."""
-        train_time = time.time() - self.train_start_time
-        self.log(
-            "train_time",
-            train_time,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-
-    def on_validation_epoch_start(self):
-        """Configure the val timer at the beginning of each epoch."""
-        self.val_start_time = time.time()
-
-    def on_validation_epoch_end(self):
-        """Configure the val timer at the end of every epoch."""
-        val_time = time.time() - self.val_start_time
-        self.log(
-            "val_time",
-            val_time,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-
-    def training_step(self, batch, batch_idx):
-        """Training step."""
-        pass
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step."""
-        pass
-
-    def configure_optimizers(self):
-        """Configure optimiser and learning rate scheduler."""
-        if self.trainer_config.optimizer_name == "Adam":
-            optim = torch.optim.Adam
-        elif self.trainer_config.optimizer_name == "AdamW":
-            optim = torch.optim.AdamW
-
-        optimizer = optim(
-            self.parameters(),
-            lr=self.trainer_config.optimizer.lr,
-            amsgrad=self.trainer_config.optimizer.amsgrad,
-        )
-
-        scheduler = None
-        for k, v in self.trainer_config.lr_scheduler.items():
-            if v is not None:
-                if k == "step_lr":
-                    scheduler = torch.optim.lr_scheduler.StepLR(
-                        optimizer=optimizer,
-                        step_size=self.trainer_config.lr_scheduler.step_lr.step_size,
-                        gamma=self.trainer_config.lr_scheduler.step_lr.gamma,
-                    )
-                    break
-                elif k == "reduce_lr_on_plateau":
-                    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                        optimizer,
-                        mode="min",
-                        threshold=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold,
-                        threshold_mode=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
-                        cooldown=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.cooldown,
-                        patience=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.patience,
-                        factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
-                        min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
-                    )
-                    break
-
-        if scheduler is None:
-            return {
-                "optimizer": optimizer,
-            }
-
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "monitor": "val_loss",
-            },
-        }
-
-
-class SingleInstanceModel(TrainingModel):
-    """Lightning Module for SingleInstance Model.
-
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps and
-    forward pass specific to Single Instance model.
-
-    Args:
-        config: OmegaConf dictionary which has the following:
-            (i) data_config: data loading pre-processing configs to be passed to
-            `TopdownConfmapsPipeline` class.
-            (ii) model_config: backbone and head configs to be passed to `Model` class.
-            (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-
-    """
-
-    def __init__(
-        self,
-        config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
-        backbone_type: str,
-        model_type: str,
-    ):
-        """Initialise the configs and the model."""
-        super().__init__(
-            config=config,
-            skeletons=skeletons,
-            model_type=model_type,
-            backbone_type=backbone_type,
-        )
-
-    def forward(self, img):
-        """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
-        return self.model(img)["SingleInstanceConfmapsHead"]
-
-    def training_step(self, batch, batch_idx):
-        """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
-            batch["confidence_maps"], dim=1
-        ).to(self.device)
-
-        y_preds = self.model(X)["SingleInstanceConfmapsHead"]
-        loss = nn.MSELoss()(y_preds, y)
-        self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
-        )
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
-            batch["confidence_maps"], dim=1
-        ).to(self.device)
-
-        y_preds = self.model(X)["SingleInstanceConfmapsHead"]
-        val_loss = nn.MSELoss()(y_preds, y)
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-        self.log(
-            "val_loss",
-            val_loss,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-
-
-class TopDownCenteredInstanceModel(TrainingModel):
-    """Lightning Module for TopDownCenteredInstance Model.
-
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps
-    and forward pass specific to TopDown Centered instance model.
-
-    Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `TopdownConfmapsPipeline` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-
-    """
-
-    def __init__(
-        self,
-        config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
-        backbone_type: str,
-        model_type: str,
-    ):
-        """Initialise the configs and the model."""
-        super().__init__(
-            config=config,
-            skeletons=skeletons,
-            backbone_type=backbone_type,
-            model_type=model_type,
-        )
-
-    def forward(self, img):
-        """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
-        return self.model(img)["CenteredInstanceConfmapsHead"]
-
-    def training_step(self, batch, batch_idx):
-        """Training step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
-            self.device
-        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
-
-        y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
-        loss = nn.MSELoss()(y_preds, y)
-        self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
-        )
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        """Perform validation step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1).to(
-            self.device
-        ), torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
-
-        y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
-        val_loss = nn.MSELoss()(y_preds, y)
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-        self.log(
-            "val_loss",
-            val_loss,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-
-
-class CentroidModel(TrainingModel):
-    """Lightning Module for Centroid Model.
-
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps
-    and forward pass specific to centroid model.
-
-    Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `CentroidConfmapsPipeline` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-
-    """
-
-    def __init__(
-        self,
-        config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
-        backbone_type: str,
-        model_type: str,
-    ):
-        """Initialise the configs and the model."""
-        super().__init__(
-            config=config,
-            skeletons=skeletons,
-            backbone_type=backbone_type,
-            model_type=model_type,
-        )
-
-    def forward(self, img):
-        """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
-        return self.model(img)["CentroidConfmapsHead"]
-
-    def training_step(self, batch, batch_idx):
-        """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
-            batch["centroids_confidence_maps"], dim=1
-        ).to(self.device)
-
-        y_preds = self.model(X)["CentroidConfmapsHead"]
-        loss = nn.MSELoss()(y_preds, y)
-        self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
-        )
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1).to(self.device), torch.squeeze(
-            batch["centroids_confidence_maps"], dim=1
-        ).to(self.device)
-
-        y_preds = self.model(X)["CentroidConfmapsHead"]
-        val_loss = nn.MSELoss()(y_preds, y)
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-        self.log(
-            "val_loss",
-            val_loss,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-
-
-class BottomUpModel(TrainingModel):
-    """Lightning Module for BottomUp Model.
-
-    This is a subclass of the `TrainingModel` to configure the training/ validation steps
-    and forward pass specific to BottomUp model.
-
-    Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `BottomUpPipeline` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        skeletons: List of `sio.Skeleton` objects from the input `.slp` file.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-
-    """
-
-    def __init__(
-        self,
-        config: OmegaConf,
-        skeletons: Optional[List[sio.Skeleton]],
-        backbone_type: str,
-        model_type: str,
-    ):
-        """Initialise the configs and the model."""
-        super().__init__(
-            config=config,
-            skeletons=skeletons,
-            backbone_type=backbone_type,
-            model_type=model_type,
-        )
-
-    def forward(self, img):
-        """Forward pass of the model."""
-        img = torch.squeeze(img, dim=1).to(self.device)
-        output = self.model(img)
-        return {
-            "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
-            "PartAffinityFieldsHead": output["PartAffinityFieldsHead"],
-        }
-
-    def training_step(self, batch, batch_idx):
-        """Training step."""
-        X = torch.squeeze(batch["image"], dim=1).to(self.device)
-        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
-        y_paf = batch["part_affinity_fields"].to(self.device)
-        preds = self.model(X)
-        pafs = preds["PartAffinityFieldsHead"]
-        confmaps = preds["MultiInstanceConfmapsHead"]
-        losses = {
-            "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
-            "PartAffinityFieldsHead": nn.MSELoss()(pafs, y_paf),
-        }
-        loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-        self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
-        )
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        """Validation step."""
-        X = torch.squeeze(batch["image"], dim=1).to(self.device)
-        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1).to(self.device)
-        y_paf = batch["part_affinity_fields"].to(self.device)
-
-        preds = self.model(X)
-        pafs = preds["PartAffinityFieldsHead"]
-        confmaps = preds["MultiInstanceConfmapsHead"]
-        losses = {
-            "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
-            "PartAffinityFieldsHead": nn.MSELoss()(pafs, y_paf),
-        }
-        val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )
-        self.log(
-            "val_loss",
-            val_loss,
-            prog_bar=True,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-        )

@@ -14,9 +14,9 @@ from sleap_nn.data.normalization import apply_normalization, Normalizer
 from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
 from sleap_nn.data.instance_cropping import InstanceCropper, generate_crops
 from sleap_nn.training.model_trainer import (
-    CentroidModel,
+    CentroidLightningModule,
     ModelTrainer,
-    TopDownCenteredInstanceModel,
+    TopDownCenteredInstanceLightningModule,
 )
 from sleap_nn.inference.topdown import (
     FindInstancePeaks,
@@ -43,10 +43,9 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     """Returns trained torch model and FindInstancePeaks layer to test InferenceModels."""
     # for centered instance model
     config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    torch_model = TopDownCenteredInstanceModel.load_from_checkpoint(
+    torch_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
         f"{minimal_instance_ckpt}/best.ckpt",
         config=config,
-        skeletons=None,
         model_type="centered_instance",
         backbone_type="unet",
     )
@@ -90,11 +89,11 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
     # return crops = False
     layer = CentroidCrop(
         torch_model=model,
-        peak_threshold=0.0,
+        peak_threshold=0.0125,
         refinement="integral",
         integral_patch_size=5,
         output_stride=2,
-        return_confmaps=False,
+        return_confmaps=True,
         max_instances=6,
         return_crops=False,
         crop_hw=(160, 160),
@@ -104,6 +103,7 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
     assert tuple(out["centroids"].shape) == (1, 1, 6, 2)
     assert tuple(out["centroid_vals"].shape) == (1, 6)
     assert "instance_image" not in out.keys()
+    assert "pred_centroid_confmaps" in out.keys()
 
     # return crops = True
     layer = CentroidCrop(
@@ -112,7 +112,7 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
         refinement="integral",
         integral_patch_size=5,
         output_stride=2,
-        return_confmaps=False,
+        return_confmaps=True,
         max_instances=2,
         return_crops=True,
         crop_hw=(160, 160),
@@ -173,7 +173,7 @@ def test_find_instance_peaks_groundtruth(
     del config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centroid["confmaps"].part_names
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
-    torch_model = CentroidModel.load_from_checkpoint(
+    torch_model = CentroidLightningModule.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt",
         config=config,
         skeletons=None,
@@ -200,7 +200,7 @@ def test_find_instance_peaks_groundtruth(
     output = topdown_inf_layer(ex)[0]
 
     assert "pred_instance_peaks" in output.keys()
-    assert output["pred_instance_peaks"].shape == (2, 2, 2)
+    assert output["pred_instance_peaks"].shape == (1, 2, 2, 2)
     assert output["pred_peak_values"].shape == (2, 2)
 
 
@@ -326,7 +326,7 @@ def test_topdown_inference_model(
     assert "Ground truth data was not detected." in caplog.text
     # centroid layer and find peaks
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
-    torch_model = CentroidModel.load_from_checkpoint(
+    torch_model = CentroidLightningModule.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt",
         config=config,
         skeletons=None,
