@@ -974,7 +974,7 @@ def train(
     run_training(omegaconf_config.copy())
 
 
-@hydra.main(version_base=None, config_path="", config_name=None)
+@hydra.main(version_base=None, config_path=None, config_name=None)
 def main(cfg: DictConfig):
     """Train SLEAP-NN model using CLI."""
     run_training(cfg)
