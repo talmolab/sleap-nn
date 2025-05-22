@@ -160,6 +160,27 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_val.slp").exists()
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
 
+    # with no val labels path
+    train(
+        train_labels_path=minimal_instance,
+        val_labels_path=None,
+        validation_fraction=0.1,
+        test_file_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        head_configs="centered_instance",
+        save_ckpt=True,
+        save_ckpt_path=(Path(tmp_path) / "test_train_method").as_posix(),
+    )
+    folder_created = (Path(tmp_path) / "test_train_method").exists()
+    assert folder_created
+    assert (
+        (Path(tmp_path) / "test_train_method").joinpath("training_config.yaml").exists()
+    )
+    assert (Path(tmp_path) / "test_train_method").joinpath("best.ckpt").exists()
+    assert (Path(tmp_path) / "test_train_method").joinpath("pred_train.slp").exists()
+    assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
+
     # convnext
     train(
         train_labels_path=minimal_instance,
