@@ -6,7 +6,6 @@ the parameters required to initialize the trainer config.
 
 import pytest
 from omegaconf import OmegaConf
-from omegaconf import ValidationError
 from attrs import asdict
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
@@ -21,6 +20,7 @@ from sleap_nn.config.trainer_config import (
     ReduceLROnPlateauConfig,
     EarlyStoppingConfig,
     TrainerConfig,
+    trainer_mapper,
 )
 
 
@@ -234,3 +234,68 @@ def test_trainer_config(caplog):
     with pytest.raises(ValueError, match="trainer_devices"):
         TrainerConfig(trainer_devices=-1)
     assert "trainer_devices" in caplog.text
+
+
+def test_trainer_mapper():
+    """Test the trainer_mapper function with a sample legacy configuration."""
+    legacy_config = {
+        "optimization": {
+            "batch_size": 32,
+            "online_shuffling": True,
+            "epochs": 20,
+            "learning_rate_schedule": {
+                "plateau_patience": 5,
+                "min_learning_rate": 0.0001,
+                "reduce_on_plateau": True,
+                "plateau_min_delta": 0.01,
+            },
+            "optimizer": "Adam",
+            "initial_learning_rate": 0.001,
+            "checkpointing": {},
+            "early_stopping": {
+                "stop_training_on_plateau": True,
+                "plateau_min_delta": 1e-06,
+                "plateau_patience": 10,
+            },
+        },
+        "outputs": {
+            "save_outputs": True,
+        },
+    }
+
+    config = trainer_mapper(legacy_config)
+
+    # Assertions to check if the output matches expected values
+    assert config.train_data_loader.batch_size == 32
+    assert config.train_data_loader.shuffle is True
+    assert config.train_data_loader.num_workers == 1
+    assert config.max_epochs == 20
+    assert config.optimizer_name == "Adam"
+    assert config.optimizer.lr == 0.001
+    assert config.model_ckpt.save_last is False
+
+    # Test for default values (unspecified by legacy config)
+    assert config.trainer_devices == "auto"
+    assert config.trainer_accelerator == "auto"
+    assert config.enable_progress_bar is True
+    assert config.steps_per_epoch is None
+    assert config.seed is None
+    assert config.use_wandb is False
+    assert config.save_ckpt is True
+    assert config.save_ckpt_path is None
+    assert config.resume_ckpt_path is None
+    assert config.wandb.entity is None
+    assert config.wandb.project is None
+    assert config.wandb.name is None
+    assert config.wandb.api_key is None
+    assert config.wandb.wandb_mode is None
+    assert config.wandb.prv_runid is None
+    assert config.wandb.group is None
+    assert config.lr_scheduler is not None
+    assert config.lr_scheduler.reduce_lr_on_plateau is not None
+    assert config.lr_scheduler.reduce_lr_on_plateau.patience == 5
+    assert config.lr_scheduler.reduce_lr_on_plateau.min_lr == 0.0001
+    assert config.early_stopping is not None
+    assert config.early_stopping.patience == 10
+    assert config.early_stopping.min_delta == 1e-6
+    assert config.early_stopping.stop_training_on_plateau is True

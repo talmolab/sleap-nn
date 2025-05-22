@@ -17,6 +17,7 @@ from sleap_nn.config.data_config import (
     IntensityConfig,
     GeometricConfig,
     validate_proportion,
+    data_mapper,
 )
 
 
@@ -121,3 +122,79 @@ def test_validate_proportion(caplog):
 
     # Should pass
     validate_proportion(None, None, 0.5)
+
+
+def test_data_mapper():
+    """Test the data_mapper function with a sample legacy configuration."""
+    legacy_config = {
+        "data": {
+            "labels": {
+                "training_labels": "notMISSING",
+                "validation_labels": "notMISSING",
+                "skeletons": [{"edges": [[0, 1], [1, 2]]}],
+            },
+            "preprocessing": {
+                "ensure_rgb": True,
+                "target_height": 256,
+                "target_width": 256,
+                "input_scaling": 0.5,
+            },
+        },
+        "optimization": {
+            "augmentation_config": {
+                "uniform_noise_min_val": 0.1,
+                "uniform_noise_max_val": 0.9,
+                "uniform_noise": 0.8,
+                "gaussian_noise_mean": 0.0,
+                "gaussian_noise_stddev": 1.0,
+                "gaussian_noise": 0.7,
+                "contrast_min_gamma": 0.6,
+                "contrast_max_gamma": 1.8,
+                "contrast": 0.9,
+                "brightness_min_val": 0.8,
+                "brightness_max_val": 1.2,
+                "brightness": 0.6,
+                "rotation_max_angle": 90.0,
+                "rotation": True,
+                "scale_min": 0.8,
+                "scale_max": 1.2,
+                "scale": False,
+            },
+        },
+    }
+
+    config = data_mapper(legacy_config)
+
+    # Test preprocessing config
+    assert config.preprocessing.is_rgb is True
+    assert config.preprocessing.max_height == 256
+    assert config.preprocessing.max_width == 256
+    assert config.preprocessing.scale == 0.5
+    assert config.preprocessing.crop_hw is None
+    assert config.preprocessing.min_crop_size == 100
+
+    # Test augmentation config
+    assert config.use_augmentations_train is True
+    assert config.augmentation_config is not None
+
+    # Test intensity config
+    intensity = config.augmentation_config.intensity
+    assert intensity.uniform_noise_min == 0.1
+    assert intensity.uniform_noise_max == 0.9
+    assert intensity.uniform_noise_p == 0.8
+    assert intensity.gaussian_noise_mean == 0.0
+    assert intensity.gaussian_noise_std == 1.0
+    assert intensity.gaussian_noise_p == 0.7
+    assert intensity.contrast_min == 0.6
+    assert intensity.contrast_max == 1.8
+    assert intensity.contrast_p == 0.9
+    assert intensity.brightness == (0.8, 1.2)
+    assert intensity.brightness_p == 0.6
+
+    # Test geometric config
+    geometric = config.augmentation_config.geometric
+    assert geometric.rotation == 90.0
+    assert geometric.scale == (1.0, 1.0)
+
+    # Test skeletons
+    assert config.skeletons == {"edges": [[0, 1], [1, 2]]}
