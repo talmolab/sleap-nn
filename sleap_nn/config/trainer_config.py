@@ -205,7 +205,7 @@ class TrainerConfig:
         default="Adam",
         validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val),
     )
-    optimizer: OptimizerConfig = OptimizerConfig()
+    optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: Optional[LRSchedulerConfig] = None
     early_stopping: Optional[EarlyStoppingConfig] = None
 
@@ -249,29 +249,39 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         train_data_loader=DataLoaderConfig(
             batch_size=legacy_config_optimization.get("batch_size", 1),
             shuffle=legacy_config_optimization.get("online_shuffling", False),
+            num_workers=1,
         ),
         val_data_loader=DataLoaderConfig(
-            batch_size=legacy_config_optimization.get("batch_size", 1),
-            shuffle=legacy_config_optimization.get("online_shuffling", False),
+            batch_size=legacy_config_optimization.get("batch_size", 1), num_workers=1
         ),
         model_ckpt=ModelCkptConfig(
-            save_last=legacy_config_outputs.get("save_outputs", False),
+            save_last=legacy_config_outputs.get("checkpointing", {}).get(
+                "latest_model", False
+            ),
         ),
         max_epochs=legacy_config_optimization.get("epochs", 10),
-        save_ckpt=legacy_config_optimization.get("checkpointing", {}).get(
-            "latest_model", False
-        ),
+        save_ckpt=True,
+        save_ckpt_path=legacy_config_outputs.get("runs_folder", None),
         optimizer_name=re.sub(
             r"^[a-z]",
             lambda x: x.group().upper(),
             legacy_config_optimization.get("optimizer", "adam"),
         ),
         optimizer=OptimizerConfig(
-            lr=legacy_config_optimization.get("initial_learning_rate", 1e-3),
+            lr=legacy_config_optimization.get("initial_learning_rate", 1e-4),
         ),
         lr_scheduler=(
             LRSchedulerConfig(
                 reduce_lr_on_plateau=ReduceLROnPlateauConfig(
+                    threshold=legacy_config_optimization.get(
+                        "learning_rate_schedule", {}
+                    ).get("plateau_min_delta", 1e-4),
+                    cooldown=legacy_config_optimization.get(
+                        "learning_rate_schedule", {}
+                    ).get("plateau_cooldown", 3),
+                    factor=legacy_config_optimization.get(
+                        "learning_rate_schedule", {}
+                    ).get("reduction_factor", 0.1),
                     patience=legacy_config_optimization.get(
                         "learning_rate_schedule", {}
                     ).get("plateau_patience", 10),
@@ -280,22 +290,24 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
                     ).get("min_learning_rate", 0.0),
                 )
             )
-            if legacy_config_optimization.get("learning_rate_schedule")
+            if legacy_config_optimization.get("learning_rate_schedule", {}).get(
+                "reduce_on_plateau", False
+            )
             else None
         ),
         early_stopping=(
             EarlyStoppingConfig(
                 stop_training_on_plateau=legacy_config_optimization.get(
-                    "learning_rate_schedule", {}
-                ).get("reduce_on_plateau", False),
-                min_delta=legacy_config_optimization.get(
-                    "learning_rate_schedule", {}
-                ).get("plateau_min_delta", 0.0),
-                patience=legacy_config_optimization.get(
-                    "learning_rate_schedule", {}
-                ).get("plateau_patience", 1),
+                    "early_stopping", {}
+                ).get("stop_training_on_plateau", False),
+                min_delta=legacy_config_optimization.get("early_stopping", {}).get(
+                    "plateau_min_delta", 0.0
+                ),
+                patience=legacy_config_optimization.get("early_stopping", {}).get(
+                    "plateau_patience", 1
+                ),
             )
-            if legacy_config_optimization.get("learning_rate_schedule")
+            if legacy_config_optimization.get("early_stopping")
             else None
         ),
     )

@@ -874,7 +874,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                     .get("unet", {})
                     .get("output_stride", 1),
                 )
-                if legacy_config_model.get("backbone", {}).get("unet")
+                if legacy_config_model.get("backbone", {}).get("unet", None) is not None
                 else None
             ),
         ),
@@ -885,7 +885,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         confmaps=SingleInstanceConfMapsConfig(
                             part_names=legacy_config_model.get("heads", {})
                             .get("single_instance", {})
-                            .get("part_names"),
+                            .get("part_names", None),
                             sigma=legacy_config_model.get("heads", {})
                             .get("single_instance", {})
                             .get("sigma", 5.0),
@@ -895,7 +895,8 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         )
                     )
                 )
-                if legacy_config_model.get("heads", {}).get("single_instance")
+                if legacy_config_model.get("heads", {}).get("single_instance", None)
+                is not None
                 else None
             ),
             centroid=(
@@ -903,7 +904,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                     confmaps=CentroidConfMapsConfig(
                         anchor_part=legacy_config_model.get("heads", {})
                         .get("centroid", {})
-                        .get("anchor_part"),
+                        .get("anchor_part", None),
                         sigma=legacy_config_model.get("heads", {})
                         .get("centroid", {})
                         .get("sigma", 5.0),
@@ -912,7 +913,8 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         .get("output_stride", 1),
                     )
                 )
-                if legacy_config_model.get("heads", {}).get("centroid")
+                if legacy_config_model.get("heads", {}).get("centroid", None)
+                is not None
                 else None
             ),
             centered_instance=(
@@ -920,7 +922,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                     confmaps=CenteredInstanceConfMapsConfig(
                         anchor_part=legacy_config_model.get("heads", {})
                         .get("centered_instance", {})
-                        .get("anchor_part"),
+                        .get("anchor_part", None),
                         sigma=legacy_config_model.get("heads", {})
                         .get("centered_instance", {})
                         .get("sigma", 5.0),
@@ -932,7 +934,8 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         .get("part_names", None),
                     )
                 )
-                if legacy_config_model.get("heads", {}).get("centered_instance")
+                if legacy_config_model.get("heads", {}).get("centered_instance", None)
+                is not None
                 else None
             ),
             bottomup=(
@@ -974,7 +977,8 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         .get("loss_weight", None),
                     ),
                 )
-                if legacy_config_model.get("heads", {}).get("multi_instance")
+                if legacy_config_model.get("heads", {}).get("multi_instance", None)
+                is not None
                 else None
             ),
         ),

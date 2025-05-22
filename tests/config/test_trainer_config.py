@@ -252,6 +252,11 @@ def test_trainer_mapper():
             "optimizer": "Adam",
             "initial_learning_rate": 0.001,
             "checkpointing": {},
+            "early_stopping": {
+                "stop_training_on_plateau": True,
+                "plateau_min_delta": 1e-06,
+                "plateau_patience": 10,
+            },
         },
         "outputs": {
             "save_outputs": True,
@@ -263,11 +268,11 @@ def test_trainer_mapper():
     # Assertions to check if the output matches expected values
     assert config.train_data_loader.batch_size == 32
     assert config.train_data_loader.shuffle is True
-    assert config.train_data_loader.num_workers == 0  # Default value
+    assert config.train_data_loader.num_workers == 1
     assert config.max_epochs == 20
     assert config.optimizer_name == "Adam"
     assert config.optimizer.lr == 0.001
-    assert config.model_ckpt.save_last is True
+    assert config.model_ckpt.save_last is False
 
     # Test for default values (unspecified by legacy config)
     assert config.trainer_devices == "auto"
@@ -276,7 +281,7 @@ def test_trainer_mapper():
     assert config.steps_per_epoch is None
     assert config.seed is None
     assert config.use_wandb is False
-    assert config.save_ckpt is False
+    assert config.save_ckpt is True
     assert config.save_ckpt_path is None
     assert config.resume_ckpt_path is None
     assert config.wandb.entity is None
@@ -291,6 +296,6 @@ def test_trainer_mapper():
     assert config.lr_scheduler.reduce_lr_on_plateau.patience == 5
     assert config.lr_scheduler.reduce_lr_on_plateau.min_lr == 0.0001
     assert config.early_stopping is not None
-    assert config.early_stopping.patience == 5
-    assert config.early_stopping.min_delta == 0.01
+    assert config.early_stopping.patience == 10
+    assert config.early_stopping.min_delta == 1e-6
     assert config.early_stopping.stop_training_on_plateau is True

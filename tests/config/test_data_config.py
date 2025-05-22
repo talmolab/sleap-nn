@@ -138,8 +138,6 @@ def test_data_mapper():
                 "target_height": 256,
                 "target_width": 256,
                 "input_scaling": 0.5,
-                "crop_size": (100, 100),
-                "crop_size_detection_padding": 50,
             },
         },
         "optimization": {
@@ -157,8 +155,10 @@ def test_data_mapper():
                 "brightness_max_val": 1.2,
                 "brightness": 0.6,
                 "rotation_max_angle": 90.0,
+                "rotation": True,
                 "scale_min": 0.8,
                 "scale_max": 1.2,
+                "scale": False,
             },
         },
     }
@@ -170,8 +170,8 @@ def test_data_mapper():
     assert config.preprocessing.max_height == 256
     assert config.preprocessing.max_width == 256
     assert config.preprocessing.scale == 0.5
-    assert config.preprocessing.crop_hw == (100, 100)
-    assert config.preprocessing.min_crop_size == 50
+    assert config.preprocessing.crop_hw is None
+    assert config.preprocessing.min_crop_size == 100
 
     # Test augmentation config
     assert config.use_augmentations_train is True
@@ -194,7 +194,7 @@ def test_data_mapper():
     # Test geometric config
     geometric = config.augmentation_config.geometric
     assert geometric.rotation == 90.0
-    assert geometric.scale == (0.8, 1.2)
+    assert geometric.scale == (1.0, 1.0)
 
     # Test skeletons
     assert config.skeletons == {"edges": [[0, 1], [1, 2]]}

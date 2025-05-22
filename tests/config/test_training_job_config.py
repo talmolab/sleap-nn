@@ -210,27 +210,27 @@ def test_load_yaml(sample_config):
         )
 
 
-def test_missing_attributes(sample_config):
-    """Test creating a TrainingJobConfig from a valid YAML string."""
-    config_dict = {
-        "name": sample_config["name"],
-        "description": sample_config["description"],
-        "data_config": {
-            "provider": sample_config["data_config"].provider,
-        },
-        "model_config": {
-            "init_weights": sample_config["model_config"].init_weights,
-        },
-        "trainer_config": {
-            "early_stopping": {
-                "patience": sample_config["trainer_config"].early_stopping.patience,
-            },
-        },
-    }
-    yaml_data = OmegaConf.to_yaml(config_dict)
+# def test_missing_attributes(sample_config):
+#     """Test creating a TrainingJobConfig from a valid YAML string."""
+#     config_dict = {
+#         "name": sample_config["name"],
+#         "description": sample_config["description"],
+#         "data_config": {
+#             "provider": sample_config["data_config"].provider,
+#         },
+#         "model_config": {
+#             "init_weights": sample_config["model_config"].init_weights,
+#         },
+#         "trainer_config": {
+#             "early_stopping": {
+#                 "patience": sample_config["trainer_config"].early_stopping.patience,
+#             },
+#         },
+#     }
+#     yaml_data = OmegaConf.to_yaml(config_dict)
 
-    with pytest.raises(MissingMandatoryValue):
-        config = TrainingJobConfig.from_yaml(yaml_data)
+#     with pytest.raises(MissingMandatoryValue):
+#         config = TrainingJobConfig.from_yaml(yaml_data)
 
 
 def test_load_bottomup_multiclass_training_config_from_file(
@@ -241,30 +241,11 @@ def test_load_bottomup_multiclass_training_config_from_file(
 
     json_file_path = bottomup_multiclass_training_config_path
 
-    try:
-        config = TrainingJobConfig.load_sleap_config(json_file_path)
-    except ValidationError as e:
-        with open(json_file_path, "r") as f:
-            old_config = json.load(f)
-
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w"
-        ) as temp_file:
-            old_config["data"]["labels"]["training_labels"] = "notMISSING"
-            old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-            json.dump(old_config, temp_file)
-            temp_file_path = temp_file.name
-
-        config = TrainingJobConfig.load_sleap_config(temp_file_path)
-        os.remove(temp_file_path)
+    config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
-    assert (
-        config.data_config.train_labels_path == "notMISSING"
-    )  # As per the temp JSON file
-    assert (
-        config.data_config.val_labels_path == "notMISSING"
-    )  # As per the temp JSON file
+    assert config.data_config.train_labels_path == None
+    assert config.data_config.val_labels_path == None
     assert config.model_config.backbone_config.unet.filters == 8
     assert config.model_config.backbone_config.unet.max_stride == 16
     assert config.trainer_config.max_epochs == 200
@@ -288,34 +269,11 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
     json_file_path = bottomup_training_config_path
 
     # Load the configuration using the load_sleap_config method
-    try:
-        # Load the configuration using the load_sleap_config method
-        config = TrainingJobConfig.load_sleap_config(json_file_path)
-    except ValidationError as e:
-        # Handle the exception if mandatory values are missing
-        with open(json_file_path, "r") as f:
-            old_config = json.load(f)
-
-        # Create a temporary file to hold the modified configuration
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w"
-        ) as temp_file:
-            old_config["data"]["labels"]["training_labels"] = "notMISSING"
-            old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-
-            json.dump(old_config, temp_file)
-            temp_file_path = temp_file.name
-
-        config = TrainingJobConfig.load_sleap_config(temp_file_path)
-        os.remove(temp_file_path)
+    config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
-    assert (
-        config.data_config.train_labels_path == "notMISSING"
-    )  # As per the temp JSON file
-    assert (
-        config.data_config.val_labels_path == "notMISSING"
-    )  # As per the temp JSON file
+    assert config.data_config.train_labels_path == None
+    assert config.data_config.val_labels_path == None
     assert config.model_config.backbone_config.unet.filters == 16
     assert config.model_config.backbone_config.unet.max_stride == 8
     assert config.model_config.head_configs.bottomup.confmaps.part_names == ["A", "B"]
@@ -332,34 +290,11 @@ def test_load_centered_instance_training_config_from_file(
     json_file_path = centered_instance_training_config_path
 
     # Load the configuration using the load_sleap_config method
-    try:
-        # Load the configuration using the load_sleap_config method
-        config = TrainingJobConfig.load_sleap_config(json_file_path)
-    except ValidationError as e:
-        # Handle the exception if mandatory values are missing
-        with open(json_file_path, "r") as f:
-            old_config = json.load(f)
-
-        # Create a temporary file to hold the modified configuration
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w"
-        ) as temp_file:
-            old_config["data"]["labels"]["training_labels"] = "notMISSING"
-            old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-
-            json.dump(old_config, temp_file)
-            temp_file_path = temp_file.name
-
-        config = TrainingJobConfig.load_sleap_config(temp_file_path)
-        os.remove(temp_file_path)
+    config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
-    assert (
-        config.data_config.train_labels_path == "notMISSING"
-    )  # As per the temp JSON file
-    assert (
-        config.data_config.val_labels_path == "notMISSING"
-    )  # As per the temp JSON file
+    assert config.data_config.train_labels_path == None
+    assert config.data_config.val_labels_path == None
     assert config.model_config.head_configs.centered_instance.confmaps.part_names == [
         "A",
         "B",
@@ -373,22 +308,7 @@ def test_load_centered_instance_with_scaling_config_from_file(
     """Test loading centered instance with scaling configuration."""
     json_file_path = centered_instance_with_scaling_training_config_path
 
-    try:
-        config = TrainingJobConfig.load_sleap_config(json_file_path)
-    except ValidationError:
-        with open(json_file_path, "r") as f:
-            old_config = json.load(f)
-
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w"
-        ) as temp_file:
-            old_config["data"]["labels"]["training_labels"] = "notMISSING"
-            old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-            json.dump(old_config, temp_file)
-            temp_file_path = temp_file.name
-
-        config = TrainingJobConfig.load_sleap_config(temp_file_path)
-        os.remove(temp_file_path)
+    config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Test model backbone config
     assert config.model_config.backbone_config.unet.filters == 16
@@ -406,22 +326,7 @@ def test_load_centroid_training_config_from_file(centroid_training_config_path):
     """Test loading centroid configuration."""
     json_file_path = centroid_training_config_path
 
-    try:
-        config = TrainingJobConfig.load_sleap_config(json_file_path)
-    except ValidationError:
-        with open(json_file_path, "r") as f:
-            old_config = json.load(f)
-
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w"
-        ) as temp_file:
-            old_config["data"]["labels"]["training_labels"] = "notMISSING"
-            old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-            json.dump(old_config, temp_file)
-            temp_file_path = temp_file.name
-
-        config = TrainingJobConfig.load_sleap_config(temp_file_path)
-        os.remove(temp_file_path)
+    config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Test model backbone config
     assert config.model_config.backbone_config.unet.filters == 16
@@ -441,21 +346,7 @@ def test_load_single_instance_training_config_from_file(
     """Test loading single instance configuration."""
     json_file_path = single_instance_training_config_path
 
-    try:
-        config = TrainingJobConfig.load_sleap_config(json_file_path)
-    except ValidationError:
-        with open(json_file_path, "r") as f:
-            old_config = json.load(f)
-
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w"
-        ) as temp_file:
-            old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-            json.dump(old_config, temp_file)
-            temp_file_path = temp_file.name
-
-        config = TrainingJobConfig.load_sleap_config(temp_file_path)
-        os.remove(temp_file_path)
+    config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Test model backbone config
     assert config.model_config.backbone_config.unet.filters == 8
@@ -473,22 +364,7 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
     """Test loading topdown configuration."""
     json_file_path = topdown_training_config_path
 
-    try:
-        config = TrainingJobConfig.load_sleap_config(json_file_path)
-    except ValidationError:
-        with open(json_file_path, "r") as f:
-            old_config = json.load(f)
-
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".json", mode="w"
-        ) as temp_file:
-            old_config["data"]["labels"]["training_labels"] = "notMISSING"
-            old_config["data"]["labels"]["validation_labels"] = "notMISSING"
-            json.dump(old_config, temp_file)
-            temp_file_path = temp_file.name
-
-        config = TrainingJobConfig.load_sleap_config(temp_file_path)
-        os.remove(temp_file_path)
+    config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Test model backbone config
     assert config.model_config.backbone_config.unet.filters == 8

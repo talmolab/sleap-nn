@@ -170,8 +170,8 @@ class DataConfig:
         train dataset and saved to the `training_config.yaml`
     """
 
-    train_labels_path: str = MISSING
-    val_labels_path: str = MISSING
+    train_labels_path: Optional[str] = None
+    val_labels_path: Optional[str] = None  # TODO : revisit MISSING!
     test_file_path: Optional[str] = None
     provider: str = "LabelsReader"
     user_instances_only: bool = True
@@ -201,20 +201,35 @@ def data_mapper(legacy_config: dict) -> DataConfig:
 
     return DataConfig(
         train_labels_path=legacy_config_data.get("labels", {}).get(
-            "training_labels", MISSING
+            "training_labels", None
         ),
         val_labels_path=legacy_config_data.get("labels", {}).get(
-            "validation_labels", MISSING
+            "validation_labels", None
         ),
         test_file_path=legacy_config_data.get("labels", {}).get("test_labels", None),
         preprocessing=PreprocessingConfig(
             is_rgb=legacy_config_data.get("preprocessing", {}).get("ensure_rgb", False),
-            max_height=legacy_config_data.get("preprocessing", {}).get("target_height"),
-            max_width=legacy_config_data.get("preprocessing", {}).get("target_width"),
+            max_height=legacy_config_data.get("preprocessing", {}).get(
+                "target_height", None
+            ),
+            max_width=legacy_config_data.get("preprocessing", {}).get(
+                "target_width", None
+            ),
             scale=legacy_config_data.get("preprocessing", {}).get("input_scaling", 1.0),
-            crop_hw=legacy_config_data.get("preprocessing", {}).get("crop_size"),
-            min_crop_size=legacy_config_data.get("preprocessing", {}).get(
-                "crop_size_detection_padding", 100
+            crop_hw=(
+                (
+                    legacy_config_data.get("instance_cropping", {}).get(
+                        "crop_size", None
+                    ),
+                    legacy_config_data.get("instance_cropping", {}).get(
+                        "crop_size", None
+                    ),
+                )
+                if legacy_config_data.get("instance_cropping", {}).get(
+                    "crop_size", None
+                )
+                is not None
+                else None
             ),
         ),
         augmentation_config=(
@@ -271,20 +286,48 @@ def data_mapper(legacy_config: dict) -> DataConfig:
                     ),
                 ),
                 geometric=GeometricConfig(
-                    rotation=legacy_config_optimization.get(
-                        "augmentation_config", {}
-                    ).get("rotation_max_angle", 180.0),
+                    rotation=(
+                        legacy_config_optimization.get("augmentation_config", {}).get(
+                            "rotation_max_angle", 15.0
+                        )
+                        if legacy_config_optimization.get(
+                            "augmentation_config", {}
+                        ).get("rotate", True)
+                        else 0
+                    ),
                     scale=(
-                        legacy_config_optimization.get("augmentation_config", {}).get(
-                            "scale_min", None
-                        ),
-                        legacy_config_optimization.get("augmentation_config", {}).get(
-                            "scale_max", None
-                        ),
+                        (
+                            legacy_config_optimization.get(
+                                "augmentation_config", {}
+                            ).get("scale_min", 0.9),
+                            legacy_config_optimization.get(
+                                "augmentation_config", {}
+                            ).get("scale_max", 1.1),
+                        )
+                        if legacy_config_optimization.get(
+                            "augmentation_config", {}
+                        ).get("scale", False)
+                        else (1.0, 1.0)
+                    ),
+                    affine_p=(
+                        1.0
+                        if any(
+                            [
+                                legacy_config_optimization.get(
+                                    "augmentation_config", {}
+                                ).get("rotate", True),
+                                legacy_config_optimization.get(
+                                    "augmentation_config", {}
+                                ).get("scale", False),
+                            ]
+                        )
+                        else 0.0
                     ),
                 ),
             )
         ),
         use_augmentations_train=True,
-        skeletons=legacy_config_data.get("labels", {}).get("skeletons", [{}])[0],
+        skeletons=legacy_config_data.get("labels", {}).get("skeletons", [{}])[
+            0
+        ],  # TODO
     )
