@@ -213,7 +213,7 @@ def get_head_configs(head_cfg):
 def get_data_config(
     train_labels_path: str,
     val_labels_path: str,
-    validation_fraction: int = 0.1,
+    validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
@@ -606,7 +606,7 @@ def run_training(config: DictConfig):
             provider="LabelsReader",
             peak_threshold=0.2,
             make_labels=True,
-            save_path=Path(trainer.dir_path) / f"preds_{dataset}.slp",
+            save_path=Path(trainer.dir_path) / f"pred_{dataset}.slp",
         )
 
         evaluator = Evaluator(
@@ -663,7 +663,7 @@ def run_training(config: DictConfig):
 def train(
     train_labels_path: str,
     val_labels_path: str,
-    validation_fraction: int = 0.1,
+    validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
     user_instances_only: bool = True,

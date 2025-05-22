@@ -176,7 +176,7 @@ class DataConfig:
 
     train_labels_path: Optional[str] = None
     val_labels_path: Optional[str] = None  # TODO : revisit MISSING!
-    validation_fraction: int = 0.1
+    validation_fraction: float = 0.1
     test_file_path: Optional[str] = None
     provider: str = "LabelsReader"
     user_instances_only: bool = True
