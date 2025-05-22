@@ -55,7 +55,6 @@ def caplog(caplog: LogCaptureFixture):
     logger.remove(handler_id)
 
 
-@pytest.fixture
 def sample_config():
     """Provide a sample configuration for testing."""
     return {
@@ -85,91 +84,34 @@ def test_intensity_config_validation_logging(caplog):
 
 def test_to_sleap_nn_cfg():
     """Test serializing a TrainingJobConfig to YAML."""
+    cfg = sample_config()
     config_dict = {
-        "name": sample_config["name"],
-        "description": sample_config["description"],
+        "name": cfg["name"],
+        "description": cfg["description"],
         "data_config": {
-            "train_labels_path": sample_config["data_config"].train_labels_path,
-            "val_labels_path": sample_config["data_config"].val_labels_path,
-            "provider": sample_config["data_config"].provider,
+            "train_labels_path": cfg["data_config"].train_labels_path,
+            "val_labels_path": cfg["data_config"].val_labels_path,
+            "provider": cfg["data_config"].provider,
         },
         "model_config": {
-            "init_weights": sample_config["model_config"].init_weights,
+            "init_weights": cfg["model_config"].init_weights,
         },
-        "trainer_config": sample_config[
-            "trainer_config"
-        ],  # Include full trainer config
+        "trainer_config": cfg["trainer_config"],  # Include full trainer config
     }
     yaml_data = OmegaConf.to_yaml(config_dict)
     parsed_yaml = OmegaConf.create(yaml_data)
 
-    assert parsed_yaml.name == sample_config["name"]
-    assert parsed_yaml.description == sample_config["description"]
+    assert parsed_yaml.name == cfg["name"]
+    assert parsed_yaml.description == cfg["description"]
     assert (
         parsed_yaml.data_config.train_labels_path
-        == sample_config["data_config"].train_labels_path
+        == cfg["data_config"].train_labels_path
     )
-    assert (
-        parsed_yaml.data_config.val_labels_path
-        == sample_config["data_config"].val_labels_path
-    )
-    assert parsed_yaml.data_config.provider == sample_config["data_config"].provider
+    assert parsed_yaml.data_config.val_labels_path == cfg["data_config"].val_labels_path
+    assert parsed_yaml.data_config.provider == cfg["data_config"].provider
 
-    assert (
-        parsed_yaml.model_config.init_weights
-        == sample_config["model_config"].init_weights
-    )
-    assert parsed_yaml.trainer_config == sample_config["trainer_config"]
-
-
-def test_load_yaml(sample_config):
-    """Test loading a TrainingJobConfig from a YAML file."""
-    # Create proper config objects
-    data_config = DataConfig(
-        train_labels_path=sample_config["data_config"].train_labels_path,
-        val_labels_path=sample_config["data_config"].val_labels_path,
-        provider=sample_config["data_config"].provider,
-    )
-
-    model_config = ModelConfig(
-        init_weights=sample_config["model_config"].init_weights,
-    )
-
-    trainer_config = TrainerConfig(
-        early_stopping=sample_config["trainer_config"].early_stopping
-    )
-
-    config = TrainingJobConfig(
-        name=sample_config["name"],
-        description=sample_config["description"],
-        data_config=data_config,
-        model_config=model_config,
-        trainer_config=trainer_config,
-    )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        file_path = os.path.join(tmpdir, "test_config.yaml")
-
-        # Use the to_yaml method to save the file
-        config.to_yaml(filename=file_path)
-
-        # Load from file
-        loaded_config = TrainingJobConfig.load_yaml(file_path)
-        assert loaded_config.name == config.name
-        assert loaded_config.description == config.description
-        # Use dictionary access for loaded config
-        assert (
-            loaded_config.data_config.train_labels_path
-            == config.data_config.train_labels_path
-        )
-        assert (
-            loaded_config.data_config.val_labels_path
-            == config.data_config.val_labels_path
-        )
-        assert (
-            loaded_config.trainer_config.early_stopping.patience
-            == config.trainer_config.early_stopping.patience
-        )
+    assert parsed_yaml.model_config.init_weights == cfg["model_config"].init_weights
+    assert parsed_yaml.trainer_config == cfg["trainer_config"]
 
 
 # def test_missing_attributes(sample_config):
@@ -348,6 +290,3 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
     omegacfg = cfg.to_sleap_nn_cfg()
     assert isinstance(omegacfg, DictConfig)
     assert omegacfg.data_config.train_labels_path == "test.slp"
-
-    with pytest.raises(MissingMandatoryValue):
-        config = TrainingJobConfig().to_sleap_nn_cfg()

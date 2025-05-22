@@ -90,7 +90,6 @@ class TrainingJobConfig:
         OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
         return config
 
-
     @classmethod
     def load_sleap_config(cls, json_file_path: str) -> OmegaConf:
         """Load a SLEAP configuration from a JSON file and convert it to OmegaConf.
@@ -134,6 +133,7 @@ def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
         The parsed `OmegaConf`.
     """
     return TrainingJobConfig.load_yaml(filename)
+
 
 def verify_training_cfg(cfg: DictConfig) -> DictConfig:
     """Get sleap-nn training config from a DictConfig object."""
