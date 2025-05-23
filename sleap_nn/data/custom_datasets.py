@@ -360,6 +360,8 @@ class CenteredInstanceDataset(BaseDataset):
         labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        anchor_ind: Index of the node to use as the anchor point, based on its index in the
+            ordered list of skeleton nodes.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
         is_rgb: True if the image has 3 channels (RGB image). If input has only one
@@ -394,6 +396,7 @@ class CenteredInstanceDataset(BaseDataset):
         crop_hw: Tuple[int],
         confmap_head_config: DictConfig,
         max_stride: int,
+        anchor_ind: Optional[int] = None,
         user_instances_only: bool = True,
         is_rgb: bool = False,
         augmentation_config: Optional[DictConfig] = None,
@@ -421,6 +424,7 @@ class CenteredInstanceDataset(BaseDataset):
             rank=rank,
         )
         self.crop_hw = crop_hw
+        self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list() if self.labels else None
         self.cache_lf = [None, None]
@@ -514,9 +518,7 @@ class CenteredInstanceDataset(BaseDataset):
         )
 
         # get the centroids based on the anchor idx
-        centroids = generate_centroids(
-            instances, anchor_ind=self.confmap_head_config.anchor_part
-        )
+        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
@@ -597,6 +599,8 @@ class CentroidDataset(BaseDataset):
         labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
+        anchor_ind: Index of the node to use as the anchor point, based on its index in the
+            ordered list of skeleton nodes.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
         is_rgb: True if the image has 3 channels (RGB image). If input has only one
@@ -628,6 +632,7 @@ class CentroidDataset(BaseDataset):
         labels: sio.Labels,
         confmap_head_config: DictConfig,
         max_stride: int,
+        anchor_ind: Optional[int] = None,
         user_instances_only: bool = True,
         is_rgb: bool = False,
         augmentation_config: Optional[DictConfig] = None,
@@ -654,6 +659,7 @@ class CentroidDataset(BaseDataset):
             use_existing_imgs=use_existing_imgs,
             rank=rank,
         )
+        self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
 
     def __getitem__(self, index) -> Dict:
@@ -709,9 +715,7 @@ class CentroidDataset(BaseDataset):
         )
 
         # get the centroids based on the anchor idx
-        centroids = generate_centroids(
-            sample["instances"], anchor_ind=self.confmap_head_config.anchor_part
-        )
+        centroids = generate_centroids(sample["instances"], anchor_ind=self.anchor_ind)
 
         sample["centroids"] = centroids
 

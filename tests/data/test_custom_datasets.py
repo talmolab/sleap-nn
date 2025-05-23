@@ -221,7 +221,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         },
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
 
     ## save imgs
     dataset = CenteredInstanceDataset(
@@ -447,7 +447,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
             "use_augmentations_train": False,
         }
     )
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
 
     ## save imgs
     dataset = CentroidDataset(
@@ -603,7 +603,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         }
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
 
     ## saving imgs
     dataset = SingleInstanceDataset(
@@ -756,7 +756,7 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
         }
     )
 
-    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": 0})
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
 
     dataset = SingleInstanceDataset(
         max_stride=8,
