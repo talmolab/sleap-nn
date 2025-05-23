@@ -902,9 +902,9 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
             centroid=(
                 CentroidConfig(
                     confmaps=CentroidConfMapsConfig(
-                        anchor_part=legacy_config_model.get("heads", {})
-                        .get("centroid", {})
-                        .get("anchor_part", None),
+                        anchor_part=0,  # legacy_config_model.get("heads", {})
+                        # .get("centroid", {})
+                        # .get("anchor_part", None),
                         sigma=legacy_config_model.get("heads", {})
                         .get("centroid", {})
                         .get("sigma", 5.0),
@@ -920,9 +920,9 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
             centered_instance=(
                 CenteredInstanceConfig(
                     confmaps=CenteredInstanceConfMapsConfig(
-                        anchor_part=legacy_config_model.get("heads", {})
-                        .get("centered_instance", {})
-                        .get("anchor_part", None),
+                        anchor_part=0,  # legacy_config_model.get("heads", {})
+                        # .get("centered_instance", {})
+                        # .get("anchor_part", None),
                         sigma=legacy_config_model.get("heads", {})
                         .get("centered_instance", {})
                         .get("sigma", 5.0),

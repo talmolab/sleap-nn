@@ -38,7 +38,7 @@ def check_memory(
     if model_type == "centered_instance":
         num_samples = len(labels) * get_max_instances(labels)
         img = (labels[0].image / 255.0).astype(np.float32)
-        img_mem = (crop_size**2) * img.shape[-1] * img.itemsize * num_samples
+        img_mem = (crop_size ** 2) * img.shape[-1] * img.itemsize * num_samples
 
         return img_mem
 

@@ -535,21 +535,23 @@ class CenteredInstanceDataset(BaseDataset):
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
             if "intensity" in self.augmentation_config:
-                sample["instance_image"], sample["instance"] = (
-                    apply_intensity_augmentation(
-                        sample["instance_image"],
-                        sample["instance"],
-                        **self.augmentation_config.intensity,
-                    )
+                (
+                    sample["instance_image"],
+                    sample["instance"],
+                ) = apply_intensity_augmentation(
+                    sample["instance_image"],
+                    sample["instance"],
+                    **self.augmentation_config.intensity,
                 )
 
             if "geometric" in self.augmentation_config:
-                sample["instance_image"], sample["instance"] = (
-                    apply_geometric_augmentation(
-                        sample["instance_image"],
-                        sample["instance"],
-                        **self.augmentation_config.geometric,
-                    )
+                (
+                    sample["instance_image"],
+                    sample["instance"],
+                ) = apply_geometric_augmentation(
+                    sample["instance_image"],
+                    sample["instance"],
+                    **self.augmentation_config.geometric,
                 )
 
         # re-crop to original crop size

@@ -430,7 +430,7 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
             )
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
-
+        peaks_output["instance_bbox"] = torch.Tensor([0, 0]).to(peaks.device)
         return peaks_output
 
 

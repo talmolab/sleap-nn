@@ -81,4 +81,4 @@ def gaussian_pdf(x: torch.Tensor, sigma: float) -> torch.Tensor:
         A tensor of the same shape as `x`, but with values of a PDF of an unnormalized
         Gaussian distribution. Values of 0 have an unnormalized PDF value of 1.0.
     """
-    return torch.exp(-(x**2) / (2 * sigma**2))
+    return torch.exp(-(x ** 2) / (2 * sigma ** 2))

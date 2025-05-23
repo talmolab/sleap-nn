@@ -335,5 +335,5 @@ def data_mapper(legacy_config: dict) -> DataConfig:
             )
         ),
         use_augmentations_train=True,
-        skeletons=None,  # TODO
+        # skeletons=None,  # TODO
     )

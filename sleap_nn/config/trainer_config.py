@@ -5,9 +5,11 @@ the parameters required to initialize the trainer config.
 """
 
 from attrs import define, field, validators
+from pathlib import Path
 from typing import Optional, List, Any
 from loguru import logger
 import re
+import time
 
 
 @define
@@ -199,7 +201,7 @@ class TrainerConfig:
     enable_progress_bar: bool = True
     steps_per_epoch: Optional[int] = None
     max_epochs: int = 10
-    seed: Optional[int] = None
+    seed: int = 0
     use_wandb: bool = False
     save_ckpt: bool = False
     save_ckpt_path: Optional[str] = None
@@ -253,10 +255,10 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         train_data_loader=DataLoaderConfig(
             batch_size=legacy_config_optimization.get("batch_size", 1),
             shuffle=legacy_config_optimization.get("online_shuffling", False),
-            num_workers=1,
+            num_workers=0,
         ),
         val_data_loader=DataLoaderConfig(
-            batch_size=legacy_config_optimization.get("batch_size", 1), num_workers=1
+            batch_size=legacy_config_optimization.get("batch_size", 1), num_workers=0
         ),
         model_ckpt=ModelCkptConfig(
             save_last=legacy_config_outputs.get("checkpointing", {}).get(
@@ -265,7 +267,10 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         ),
         max_epochs=legacy_config_optimization.get("epochs", 10),
         save_ckpt=True,
-        save_ckpt_path=legacy_config_outputs.get("runs_folder", None),
+        save_ckpt_path=(
+            Path(legacy_config_outputs.get("runs_folder", "."))
+            / legacy_config_outputs.get("run_name", f"training_{time.time()}")
+        ).as_posix(),
         optimizer_name=re.sub(
             r"^[a-z]",
             lambda x: x.group().upper(),

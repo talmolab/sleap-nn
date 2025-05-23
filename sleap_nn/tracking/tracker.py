@@ -55,9 +55,9 @@ class Tracker:
 
     """
 
-    candidate: Union[FixedWindowCandidates, LocalQueueCandidates] = (
-        FixedWindowCandidates()
-    )
+    candidate: Union[
+        FixedWindowCandidates, LocalQueueCandidates
+    ] = FixedWindowCandidates()
     features: str = "keypoints"
     scoring_method: str = "oks"
     scoring_reduction: str = "mean"

@@ -73,9 +73,9 @@ class TrainingJobConfig:
                 backbone_type = k
                 break
         if output_strides:
-            config.model_config.backbone_config[f"{backbone_type}"]["output_stride"] = (
-                min(output_strides)
-            )
+            config.model_config.backbone_config[f"{backbone_type}"][
+                "output_stride"
+            ] = min(output_strides)
             if config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ] < max(output_strides):

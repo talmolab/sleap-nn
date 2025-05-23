@@ -190,7 +190,7 @@ class Encoder(nn.Module):
         self.encoder_stack = nn.ModuleList([])
         for block in range(stem_blocks):
             prev_block_filters = -1 if block == 0 else block_filters
-            block_filters = int(self.filters * (self.filters_rate**block))
+            block_filters = int(self.filters * (self.filters_rate ** block))
             self.encoder_stack.append(
                 SimpleConvBlock(
                     in_channels=in_channels if block == 0 else prev_block_filters,

@@ -149,7 +149,9 @@ class Model(nn.Module):
                 factor = strides.index(min_output_stride) - strides.index(
                     head.output_stride
                 )
-                in_channels = in_channels * (self.backbone_config.filters_rate**factor)
+                in_channels = in_channels * (
+                    self.backbone_config.filters_rate ** factor
+                )
             self.head_layers.append(head.make_head(x_in=int(in_channels)))
 
     @classmethod
