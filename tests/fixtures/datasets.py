@@ -109,10 +109,10 @@ def config(sleap_data_dir):
                     "centered_instance": {
                         "confmaps": {
                             "part_names": [
-                                "0",
-                                "1",
+                                "A",
+                                "B",
                             ],
-                            "anchor_part": 1,
+                            "anchor_part": "A",
                             "sigma": 1.5,
                             "output_stride": 2,
                         }

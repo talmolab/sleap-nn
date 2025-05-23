@@ -560,13 +560,12 @@ class CentroidConfMapsConfig:
     """Centroid configuration map.
 
     Attributes:
-        anchor_part: (int) Note: Only for 'CenteredInstanceConfmapsHead'. Index of the
-            anchor node to use as the anchor point. If None, the midpoint of the
-            bounding box of all visible instance points will be used as the anchor.
-            The bounding box midpoint will also be used if the anchor part is specified
-            but not visible in the instance. Setting a reliable anchor point can
-            significantly improve topdown model accuracy as they benefit from a
-            consistent geometry of the body parts relative to the center of the image.
+        anchor_part: (str) Node name to use as the anchor point. If None, the midpoint of the
+            bounding box of all visible instance points will be used as the anchor. The bounding
+            box midpoint will also be used if the anchor part is specified but not visible in the
+            instance. Setting a reliable anchor point can significantly improve topdown model
+            accuracy as they benefit from a consistent geometry of the body parts relative to the
+            center of the image. Default is None.
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as a
             scalar float. Smaller values are more precise but may be difficult to learn as
             they have a lower density within the image space. Larger values are easier to
@@ -580,7 +579,7 @@ class CentroidConfMapsConfig:
             decrease memory requirements, at the cost of decreased spatial resolution.
     """
 
-    anchor_part: Optional[int] = None
+    anchor_part: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
 
@@ -595,13 +594,12 @@ class CenteredInstanceConfMapsConfig:
             configured to produce. The number of parts determines the number of channels
             in the output. If not specified, all body parts in the skeleton will be used.
             This config does not apply for 'PartAffinityFieldsHead'.
-        anchor_part: (int) Note: Only for 'CenteredInstanceConfmapsHead'. Index of the
-            anchor node to use as the anchor point. If None, the midpoint of the
-            bounding box of all visible instance points will be used as the anchor.
-            The bounding box midpoint will also be used if the anchor part is specified
-            but not visible in the instance. Setting a reliable anchor point can
-            significantly improve topdown model accuracy as they benefit from a
-            consistent geometry of the body parts relative to the center of the image.
+        anchor_part: (str) Node name to use as the anchor point. If None, the midpoint of the
+            bounding box of all visible instance points will be used as the anchor. The bounding
+            box midpoint will also be used if the anchor part is specified but not visible in the
+            instance. Setting a reliable anchor point can significantly improve topdown model
+            accuracy as they benefit from a consistent geometry of the body parts relative to the
+            center of the image. Default is None.
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as a
             scalar float. Smaller values are more precise but may be difficult to learn
             as they have a lower density within the image space. Larger values are
@@ -616,7 +614,7 @@ class CenteredInstanceConfMapsConfig:
     """
 
     part_names: Optional[List[str]] = None
-    anchor_part: Optional[int] = None
+    anchor_part: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
 

@@ -277,6 +277,14 @@ class ModelTrainer:
                 "symmetries": symm,
             }
 
+        self.anchor_ind = None
+        if self.model_type in ["centroid", "centered_instance"]:
+            nodes = self.skeletons[0].node_names
+            anch_pt = self.config.model_config.head_configs[f"{self.model_type}"][
+                "confmaps"
+            ]["anchor_part"]
+            self.anchor_ind = nodes.index(anch_pt) if anch_pt is not None else None
+
         # if edges and part names aren't set in config, get it from `sio.Labels` object.
         head_config = self.config.model_config.head_configs[self.model_type]
         for key in head_config:
@@ -374,6 +382,7 @@ class ModelTrainer:
                 labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                anchor_ind=self.anchor_ind,
                 user_instances_only=self.config.data_config.user_instances_only,
                 is_rgb=self.config.data_config.preprocessing.is_rgb,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -390,6 +399,7 @@ class ModelTrainer:
                 labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.centered_instance.confmaps,
                 max_stride=self.max_stride,
+                anchor_ind=self.anchor_ind,
                 user_instances_only=self.config.data_config.user_instances_only,
                 is_rgb=self.config.data_config.preprocessing.is_rgb,
                 augmentation_config=None,
@@ -408,6 +418,7 @@ class ModelTrainer:
                 labels=self.train_labels,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                anchor_ind=self.anchor_ind,
                 user_instances_only=self.config.data_config.user_instances_only,
                 is_rgb=self.config.data_config.preprocessing.is_rgb,
                 augmentation_config=self.config.data_config.augmentation_config,
@@ -423,6 +434,7 @@ class ModelTrainer:
                 labels=self.val_labels,
                 confmap_head_config=self.config.model_config.head_configs.centroid.confmaps,
                 max_stride=self.max_stride,
+                anchor_ind=self.anchor_ind,
                 user_instances_only=self.config.data_config.user_instances_only,
                 is_rgb=self.config.data_config.preprocessing.is_rgb,
                 augmentation_config=None,
