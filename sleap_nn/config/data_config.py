@@ -335,7 +335,5 @@ def data_mapper(legacy_config: dict) -> DataConfig:
             )
         ),
         use_augmentations_train=True,
-        skeletons=legacy_config_data.get("labels", {}).get("skeletons", [{}])[
-            0
-        ],  # TODO
+        # skeletons=None,  # TODO
     )
