@@ -271,10 +271,12 @@ class ModelTrainer:
             else:
                 symm = None
             skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"][skl_name] = {
-                "nodes": skl.nodes,
-                "edges": skl.edges,
-                "symmetries": symm,
+            self.config["data_config"]["skeletons"] = {
+                skl_name: {
+                    "nodes": skl.nodes,
+                    "edges": skl.edges,
+                    "symmetries": symm,
+                }
             }
 
         self.anchor_ind = None
