@@ -415,8 +415,8 @@ class TopDownPredictor(Predictor):
         tracker: A `sleap_nn.tracking.Tracker` that will be called to associate
             detections over time. Predicted instances will not be assigned to tracks if
             if this is `None`.
-        anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
-            provided, the anchor idx in the `training_config.yaml` is used instead.
+        anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
+            provided, the anchor part in the `training_config.yaml` is used instead.
 
     """
 
@@ -437,7 +437,7 @@ class TopDownPredictor(Predictor):
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
     tracker: Optional[Tracker] = None
-    anchor_ind: Optional[int] = None
+    anchor_part: Optional[str] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -458,15 +458,29 @@ class TopDownPredictor(Predictor):
                 self.confmap_config.data_config.preprocessing.crop_hw
             )
 
+        if self.anchor_part is not None:
+            anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
+        else:
+            anch_pt = None
+            if self.centroid_config is not None:
+                anch_pt = (
+                    self.centroid_config.model_config.head_configs.centroid.confmaps.anchor_part
+                )
+            elif self.confmap_config is not None:
+                anch_pt = (
+                    self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+                )
+            anchor_ind = (
+                self.skeletons[0].node_names.index(anch_pt)
+                if anch_pt is not None
+                else None
+            )
+
         if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
                 crop_hw=self.data_config.crop_hw,
-                anchor_ind=(
-                    self.anchor_ind
-                    if self.anchor_ind is not None
-                    else self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
-                ),
+                anchor_ind=anchor_ind,
                 return_crops=return_crops,
             )
 
@@ -575,7 +589,7 @@ class TopDownPredictor(Predictor):
                 ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
-                in the `data_config.preprocessing` section and the `anchor_ind`.
+                in the `data_config.preprocessing` section and the `anchor_part`.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -704,7 +718,7 @@ class TopDownPredictor(Predictor):
             return_confmaps=return_confmaps,
             device=device,
             preprocess_config=preprocess_config,
-            anchor_ind=preprocess_config["anchor_ind"],
+            anchor_part=preprocess_config["anchor_part"],
         )
 
         obj._initialize_inference_model()
@@ -1640,7 +1654,7 @@ def main(
     max_width: Optional[int] = None,
     max_height: Optional[int] = None,
     is_rgb: bool = False,
-    anchor_ind: Optional[int] = None,
+    anchor_part: Optional[str] = None,
     provider: Optional[str] = None,
     batch_size: int = 4,
     queue_maxsize: int = 8,
@@ -1696,8 +1710,8 @@ def main(
                 is replicated along the channel axis. If input has three channels and this
                 is set to False, then we convert the image to grayscale (single-channel)
                 image. Default: False.
-        anchor_ind: (int) The index of the node to use as the anchor for the centroid. If not
-                provided, the anchor idx in the `training_config.yaml` is used instead.
+        anchor_part: (str) The node name to use as the anchor for the centroid. If not
+                provided, the anchor part in the `training_config.yaml` is used.
         provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader". Default: None.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -1791,7 +1805,7 @@ def main(
         "crop_hw": crop_hw,
         "max_width": max_width,
         "max_height": max_height,
-        "anchor_ind": anchor_ind,
+        "anchor_part": anchor_part,
     }
 
     if provider is None:

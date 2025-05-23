@@ -36,6 +36,7 @@ if __name__ == "__main__":
     train_labels = sio.load_slp(config.data_config.train_labels_path)
     val_labels = sio.load_slp(config.data_config.val_labels_path)
     user_instances_only = False if args.user_instances_only == "0" else True
+    nodes = train_labels.skeletons[0].node_names
 
     max_stride = config.model_config.backbone_config[f"{args.backbone_type}"][
         "max_stride"
@@ -72,12 +73,15 @@ if __name__ == "__main__":
 
     elif args.model_type == "centered_instance":
 
+        anchor_ind = nodes.index(
+            config.model_config.head_configs.centered_instance.confmaps.anchor_part
+        )
         factory_get_chunks = functools.partial(
             centered_instance_data_chunks,
             data_config=config.data_config,
             max_instances=max_instances,
             crop_size=(args.crop_hw, args.crop_hw),
-            anchor_ind=config.model_config.head_configs.centered_instance.confmaps.anchor_part,
+            anchor_ind=anchor_ind,
             user_instances_only=user_instances_only,
             max_hw=(args.max_height, args.max_width),
             scale=args.scale,
@@ -100,11 +104,14 @@ if __name__ == "__main__":
         )
 
     elif args.model_type == "centroid":
+        anchor_ind = nodes.index(
+            config.model_config.head_configs.centroid.confmaps.anchor_part
+        )
         factory_get_chunks = functools.partial(
             centroid_data_chunks,
             data_config=config.data_config,
             max_instances=max_instances,
-            anchor_ind=config.model_config.head_configs.centroid.confmaps.anchor_part,
+            anchor_ind=anchor_ind,
             user_instances_only=user_instances_only,
             max_hw=(args.max_height, args.max_width),
             scale=args.scale,

@@ -88,7 +88,7 @@ model_config:
     bottomup: 
     centroid:
       confmaps:
-        anchor_part: 0
+        anchor_part:
         sigma: 1.5
         output_stride: 2
 trainer_config:

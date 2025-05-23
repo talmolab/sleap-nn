@@ -74,7 +74,7 @@ model_config:
     centered_instance: 
       confmaps:
         part_names: None
-        anchor_part: 0
+        anchor_part:
         sigma: 1.5
         output_stride: 2
 trainer_config:
