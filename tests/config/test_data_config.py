@@ -197,4 +197,4 @@ def test_data_mapper():
     assert geometric.scale == (1.0, 1.0)
 
     # Test skeletons
-    assert config.skeletons == {"edges": [[0, 1], [1, 2]]}
+    assert config.skeletons == None

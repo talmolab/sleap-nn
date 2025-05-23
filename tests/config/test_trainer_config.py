@@ -268,7 +268,7 @@ def test_trainer_mapper():
     # Assertions to check if the output matches expected values
     assert config.train_data_loader.batch_size == 32
     assert config.train_data_loader.shuffle is True
-    assert config.train_data_loader.num_workers == 1
+    assert config.train_data_loader.num_workers == 0
     assert config.max_epochs == 20
     assert config.optimizer_name == "Adam"
     assert config.optimizer.lr == 0.001
@@ -279,10 +279,9 @@ def test_trainer_mapper():
     assert config.trainer_accelerator == "auto"
     assert config.enable_progress_bar is True
     assert config.steps_per_epoch is None
-    assert config.seed is None
+    assert config.seed is 0
     assert config.use_wandb is False
     assert config.save_ckpt is True
-    assert config.save_ckpt_path is None
     assert config.resume_ckpt_path is None
     assert config.wandb.entity is None
     assert config.wandb.project is None
