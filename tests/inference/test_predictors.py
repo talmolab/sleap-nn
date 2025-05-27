@@ -127,8 +127,8 @@ def test_topdown_predictor(
     )
     assert len(pred_labels) == 1
     assert (
-        pred_labels[0]["centroids"].shape[-2] <= max_instances
-    )  # centroids (1,1,max_instances,2)
+        pred_labels[0]["centroid"].shape[-2] <= max_instances
+    )  # centroids (1,max_instances,2)
 
     # Provider = VideoReader
     # centroid + centered-instance model inference
