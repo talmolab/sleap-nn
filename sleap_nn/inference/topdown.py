@@ -431,7 +431,34 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
 
-        return peaks_output
+        batch_size, num_centroids = (
+            batch["centroids"].shape[0],
+            batch["centroids"].shape[2],
+        )
+        output_dict = {}
+        output_dict["centroid"] = batch["centroids"].squeeze(dim=1).reshape(-1, 1, 2)
+        output_dict["centroid_val"] = batch["centroid_vals"].reshape(-1)
+        output_dict["pred_instance_peaks"] = batch["pred_instance_peaks"].reshape(
+            -1, nodes, 2
+        )
+        output_dict["pred_peak_values"] = batch["pred_peak_values"].reshape(-1, nodes)
+        output_dict["instance_bbox"] = torch.zeros(
+            (batch_size * num_centroids, 1, 4, 2)
+        )
+        frame_inds = []
+        video_inds = []
+        orig_szs = []
+        for b_idx in range(b):
+            curr_batch_size = len(batch["centroids"][b_idx][0])
+            frame_inds.extend([batch["frame_idx"][b_idx]] * curr_batch_size)
+            video_inds.extend([batch["video_idx"][b_idx]] * curr_batch_size)
+            orig_szs.append(torch.cat([batch["orig_size"][b_idx]] * curr_batch_size))
+
+        output_dict["frame_idx"] = torch.tensor(frame_inds)
+        output_dict["video_idx"] = torch.tensor(video_inds)
+        output_dict["orig_size"] = torch.concatenate(orig_szs, dim=0)
+
+        return output_dict
 
 
 class FindInstancePeaks(L.LightningModule):
