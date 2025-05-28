@@ -80,6 +80,7 @@ from sleap_nn.training.lightning_modules import (
     SingleInstanceLightningModule,
 )
 from sleap_nn.config.training_job_config import verify_training_cfg
+from sleap_nn.training.callbacks import ProgressReporterZMQ, TrainingControllerZMQ
 
 
 class ModelTrainer:
@@ -846,6 +847,17 @@ class ModelTrainer:
         strategy = OmegaConf.select(
             self.config, "trainer_config.trainer_strategy", default="auto"
         )
+
+        controller_address = OmegaConf.select(
+            self.config, "trainer_config.zmq.controller_address", default=None
+        )
+        publish_address = OmegaConf.select(
+            self.config, "trainer_config.zmq.publish_address", default=None
+        )
+        if controller_address is not None:
+            callbacks.append(TrainingControllerZMQ(address=controller_address))
+        if publish_address is not None:
+            callbacks.append(ProgressReporterZMQ(address=publish_address))
 
         self.trainer = L.Trainer(
             callbacks=callbacks,

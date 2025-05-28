@@ -186,6 +186,7 @@ class TrainerConfig:
         optimizer: create an optimizer configuration
         lr_scheduler: create an lr_scheduler configuration
         early_stopping: create an early_stopping configuration
+        zmq: Dict with keys ["publish_adddress", "controller_address"]. `publish_address` specifies the address and port to which the training logs (loss values) should be sent to. `controller_address` specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
     """
 
     train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
@@ -214,6 +215,7 @@ class TrainerConfig:
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: Optional[LRSchedulerConfig] = None
     early_stopping: Optional[EarlyStoppingConfig] = None
+    zmq: Optional[dict] = None  # Required for SLEAP GUI
 
     @staticmethod
     def validate_optimizer_name(value):
@@ -319,4 +321,18 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             if legacy_config_optimization.get("early_stopping")
             else None
         ),
+        zmq={
+            "publish_adddress": (
+                legacy_config_outputs.get("zmq", None).get("publish_address", None)
+                if legacy_config_outputs.get("zmq", None).get("publish_updates", False)
+                else None
+            ),
+            "controller_address": (
+                legacy_config_outputs.get("zmq", None).get("controller_address", None)
+                if legacy_config_outputs.get("zmq", None).get(
+                    "subscribe_to_controller", False
+                )
+                else None
+            ),
+        },
     )
