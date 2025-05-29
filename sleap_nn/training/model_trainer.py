@@ -870,6 +870,7 @@ class ModelTrainer:
             limit_train_batches=self.steps_per_epoch,
             strategy=strategy,
             profiler=profiler,
+            log_every_n_steps=1,
         )
 
         # save the configs as yaml in the checkpoint dir

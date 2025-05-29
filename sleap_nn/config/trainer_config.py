@@ -323,13 +323,13 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         ),
         zmq={
             "publish_adddress": (
-                legacy_config_outputs.get("zmq", None).get("publish_address", None)
-                if legacy_config_outputs.get("zmq", None).get("publish_updates", False)
+                legacy_config_outputs.get("zmq", {}).get("publish_address", None)
+                if legacy_config_outputs.get("zmq", {}).get("publish_updates", False)
                 else None
             ),
             "controller_address": (
-                legacy_config_outputs.get("zmq", None).get("controller_address", None)
-                if legacy_config_outputs.get("zmq", None).get(
+                legacy_config_outputs.get("zmq", {}).get("controller_address", None)
+                if legacy_config_outputs.get("zmq", {}).get(
                     "subscribe_to_controller", False
                 )
                 else None

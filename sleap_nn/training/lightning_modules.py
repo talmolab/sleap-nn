@@ -316,7 +316,7 @@ class SingleInstanceLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -391,7 +391,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -466,7 +466,7 @@ class CentroidLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -556,7 +556,7 @@ class BottomUpLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )

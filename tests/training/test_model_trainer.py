@@ -284,9 +284,17 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
             "lightning_logs/version_0/metrics.csv"
         )
     )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
+    assert (
+        abs(
+            df[~np.isnan(df["learning_rate_step"])].reset_index()["learning_rate_step"][
+                0
+            ]
+            - config.trainer_config.optimizer.lr
+        )
+        <= 1e-4
+    )
+    assert not df["val_loss_step"].isnull().all()
+    assert not df["train_loss_step"].isnull().all()
 
     #######
 
@@ -584,10 +592,17 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
             "lightning_logs/version_0/metrics.csv"
         )
     )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
-
+    assert (
+        abs(
+            df[~np.isnan(df["learning_rate_step"])].reset_index()["learning_rate_step"][
+                0
+            ]
+            - config.trainer_config.optimizer.lr
+        )
+        <= 1e-4
+    )
+    assert not df["val_loss_step"].isnull().all()
+    assert not df["train_loss_step"].isnull().all()
     #######
 
     # check resume training
