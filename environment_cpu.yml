@@ -15,6 +15,7 @@ dependencies:
   - torchvision
   - h5py
   - pandas
+  - jsonpickle
   - simplejson
   - scipy
   - attrs

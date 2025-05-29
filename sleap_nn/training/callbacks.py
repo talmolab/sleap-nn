@@ -3,10 +3,8 @@
 import zmq
 import jsonpickle
 from lightning.pytorch.callbacks import Callback
-import numpy as np
 from lightning.pytorch.utilities import rank_zero_only
 from loguru import logger
-import torch
 
 
 class TrainingControllerZMQ(Callback):
