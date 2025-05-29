@@ -23,6 +23,7 @@ dependencies:
   - ffmpeg
   - opencv
   - imageio
+  - pyzmq
   - av
   - omegaconf
   - wandb
