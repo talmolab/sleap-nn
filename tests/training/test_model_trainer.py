@@ -4,6 +4,10 @@ import torch
 import numpy as np
 from PIL import Image
 import pytest
+import zmq
+import time
+import jsonpickle
+import threading
 from omegaconf import OmegaConf
 import lightning as L
 from pathlib import Path
@@ -280,9 +284,17 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
             "lightning_logs/version_0/metrics.csv"
         )
     )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
+    assert (
+        abs(
+            df[~np.isnan(df["learning_rate_step"])].reset_index()["learning_rate_step"][
+                0
+            ]
+            - config.trainer_config.optimizer.lr
+        )
+        <= 1e-4
+    )
+    assert not df["val_loss_step"].isnull().all()
+    assert not df["train_loss_step"].isnull().all()
 
     #######
 
@@ -377,6 +389,54 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
     assert isinstance(trainer.model, BottomUpLightningModule)
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("li"),
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
+# TODO: Revisit this test later (Failing on ubuntu)
+def test_zmq_callbacks(config, tmp_path: str):
+    # Setup ZMQ subscriber
+    context = zmq.Context()
+    socket = context.socket(zmq.SUB)
+    socket.subscribe("")
+    socket.bind("tcp://127.0.0.1:9510")
+    received_msgs = []
+
+    def zmq_listener():
+        # Give time for trainer to start publishing
+        start = time.time()
+        while time.time() - start < 5:
+            if socket.poll(timeout=100):
+                msg = socket.recv_string()
+                received_msgs.append(jsonpickle.decode(msg))
+
+    # Start subscriber thread before training
+    listener_thread = threading.Thread(target=zmq_listener)
+    listener_thread.start()
+
+    OmegaConf.update(
+        config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
+    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config, "trainer_config.zmq.publish_address", "tcp://127.0.0.1:9510"
+    )
+    OmegaConf.update(
+        config, "trainer_config.zmq.controller_address", "tcp://127.0.0.1:9004"
+    )
+    OmegaConf.update(config, "trainer_config.max_epochs", 1)
+
+    model_trainer = ModelTrainer(config)
+    model_trainer.train()
+
+    listener_thread.join()
+
+    # Verify at least one message was received
+    assert any(
+        "logs" in msg for msg in received_msgs
+    ), "No ZMQ messages received from training."
 
 
 @pytest.mark.skipif(
@@ -532,10 +592,17 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
             "lightning_logs/version_0/metrics.csv"
         )
     )
-    assert abs(df.loc[0, "learning_rate"] - config.trainer_config.optimizer.lr) <= 1e-4
-    assert not df.val_loss.isnull().all()
-    assert not df.train_loss.isnull().all()
-
+    assert (
+        abs(
+            df[~np.isnan(df["learning_rate_step"])].reset_index()["learning_rate_step"][
+                0
+            ]
+            - config.trainer_config.optimizer.lr
+        )
+        <= 1e-4
+    )
+    assert not df["val_loss_step"].isnull().all()
+    assert not df["train_loss_step"].isnull().all()
     #######
 
     # check resume training

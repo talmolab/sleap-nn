@@ -17,12 +17,14 @@ dependencies:
   - torchvision
   - h5py
   - pandas
+  - jsonpickle
   - simplejson
   - scipy
   - attrs
   - ffmpeg
   - opencv
   - imageio
+  - pyzmq
   - av
   - omegaconf
   - wandb

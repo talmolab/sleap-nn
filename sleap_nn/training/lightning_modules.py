@@ -299,7 +299,7 @@ class SingleInstanceLightningModule(BaseLightningModule):
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
         return loss
 
@@ -316,7 +316,7 @@ class SingleInstanceLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -324,7 +324,7 @@ class SingleInstanceLightningModule(BaseLightningModule):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -374,7 +374,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
         return loss
 
@@ -391,7 +391,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -399,7 +399,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -449,7 +449,7 @@ class CentroidLightningModule(BaseLightningModule):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
         return loss
 
@@ -466,7 +466,7 @@ class CentroidLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -474,7 +474,7 @@ class CentroidLightningModule(BaseLightningModule):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -533,7 +533,7 @@ class BottomUpLightningModule(BaseLightningModule):
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=False, on_epoch=True, logger=True
+            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
         return loss
 
@@ -556,7 +556,7 @@ class BottomUpLightningModule(BaseLightningModule):
             "learning_rate",
             lr,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )
@@ -564,7 +564,7 @@ class BottomUpLightningModule(BaseLightningModule):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=False,
+            on_step=True,
             on_epoch=True,
             logger=True,
         )

@@ -258,9 +258,7 @@ def test_trainer_mapper():
                 "plateau_patience": 10,
             },
         },
-        "outputs": {
-            "save_outputs": True,
-        },
+        "outputs": {"save_outputs": True, "zmq": {}},
     }
 
     config = trainer_mapper(legacy_config)
