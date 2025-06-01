@@ -258,7 +258,7 @@ def test_trainer_mapper():
                 "plateau_patience": 10,
             },
         },
-        "outputs": {"save_outputs": True, "zmq": {}},
+        "outputs": {"save_outputs": True, "save_visualizations": True, "zmq": {}},
     }
 
     config = trainer_mapper(legacy_config)
@@ -271,6 +271,7 @@ def test_trainer_mapper():
     assert config.optimizer_name == "Adam"
     assert config.optimizer.lr == 0.001
     assert config.model_ckpt.save_last is False
+    assert config.visualize_preds_during_training is True
 
     # Test for default values (unspecified by legacy config)
     assert config.trainer_devices == "auto"

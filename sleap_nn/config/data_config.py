@@ -111,8 +111,8 @@ class GeometricConfig:
 
     rotation: float = 15.0
     scale: Optional[List[float]] = (0.9, 1.1)
-    translate_width: float = 0.2
-    translate_height: float = 0.2
+    translate_width: float = 0.0
+    translate_height: float = 0.0
     affine_p: float = field(default=0.0, validator=validate_proportion)
     erase_scale_min: float = 0.0001
     erase_scale_max: float = 0.01

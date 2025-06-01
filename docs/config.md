@@ -171,6 +171,7 @@ The config file has three main sections:
     *Default*: `False`.
     - `steps_per_epoch`: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer `limit_train_batches` parameter of Torch `Trainer`. If `None`, the number of iterations depends on the number of samples in the train dataset.
     *Default*: `None`.
+    - `visualize_preds_during_training`: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
     - `max_epochs`: (int) Maxinum number of epochs to run. *Default*: `100`.
     - `seed`: (int) Seed value for the current experiment. *Default*: `1000`.
     - `use_wandb`: (bool) True to enable wandb logging. *Default*: `False`.

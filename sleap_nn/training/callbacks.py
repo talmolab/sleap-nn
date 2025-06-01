@@ -2,9 +2,132 @@
 
 import zmq
 import jsonpickle
+from typing import Callable, Optional
 from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.utilities import rank_zero_only
 from loguru import logger
+import matplotlib
+import matplotlib.pyplot as plt
+from PIL import Image
+from pathlib import Path
+import wandb
+
+
+class WandBPredImageLogger(Callback):
+    """Callback for writing image predictions to wandb.
+
+    Attributes:
+        viz_folder: Path to viz directory.
+        wandb_run_name: WandB run name.
+    """
+
+    def __init__(
+        self,
+        viz_folder: str,
+        wandb_run_name: str,
+        is_bottomup: bool = False,
+    ):
+        self.viz_folder = viz_folder
+        self.wandb_run_name = wandb_run_name
+        self.is_bottomup = is_bottomup
+        # Callback initialization
+        super().__init__()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Called at the end of each epoch."""
+        epoch_num = trainer.current_epoch
+        train_img_path = (
+            Path(self.viz_folder) / f"train.{epoch_num:04d}.png"
+        ).as_posix()
+        val_img_path = (
+            Path(self.viz_folder) / f"validation.{epoch_num:04d}.png"
+        ).as_posix()
+        train_img = Image.open(train_img_path)
+        val_img = Image.open(val_img_path)
+
+        column_names = ["Run name", "Epoch", "Preds on train", "Preds on validation"]
+        data = [
+            [
+                f"{self.wandb_run_name}",
+                f"{epoch_num}",
+                wandb.Image(train_img),
+                wandb.Image(val_img),
+            ]
+        ]
+        if self.is_bottomup:
+            column_names.extend(["Pafs Preds on train", "Pafs Preds on validation"])
+            data[0].extend(
+                [
+                    wandb.Image(
+                        Image.open(
+                            (
+                                Path(self.viz_folder)
+                                / f"train_pafs_magnitude.{epoch_num:04d}.png"
+                            ).as_posix()
+                        )
+                    ),
+                    wandb.Image(
+                        Image.open(
+                            (
+                                Path(self.viz_folder)
+                                / f"validation_pafs_magnitude.{epoch_num:04d}.png"
+                            ).as_posix()
+                        )
+                    ),
+                ]
+            )
+        table = wandb.Table(columns=column_names, data=data)
+        wandb.log({f"{self.wandb_run_name}": table})
+
+
+class MatplotlibSaver(Callback):
+    """Callback for saving images rendered with matplotlib during training.
+
+    This is useful for saving visualizations of the training to disk. It will be called
+    at the end of each epoch.
+
+    Attributes:
+        plot_fn: Function with no arguments that returns a matplotlib figure handle.
+        save_folder: Path to a directory to save images to.
+        prefix: String that will be prepended to the filenames. This is useful for
+            indicating which dataset the visualization was sampled from.
+
+    Notes:
+        This will save images with the naming pattern:
+            "{save_folder}/{prefix}.{epoch}.png"
+        or:
+            "{save_folder}/{epoch}.png"
+        if a prefix is not specified.
+    """
+
+    def __init__(
+        self,
+        save_folder: str,
+        plot_fn: Callable[[], matplotlib.figure.Figure],
+        prefix: Optional[str] = None,
+    ):
+        """Initialize callback."""
+        self.save_folder = save_folder
+        self.plot_fn = plot_fn
+        self.prefix = prefix
+        super().__init__()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Save figure at the end of each epoch."""
+        # Call plotting function.
+        figure = self.plot_fn()
+
+        # Build filename.
+        prefix = ""
+        if self.prefix is not None:
+            prefix = self.prefix + "."
+        figure_path = (
+            Path(self.save_folder) / f"{prefix}{trainer.current_epoch:04d}.png"
+        ).as_posix()
+
+        # Save rendered figure.
+        figure.savefig(figure_path, format="png", pad_inches=0)
+        plt.close(figure)
 
 
 class TrainingControllerZMQ(Callback):

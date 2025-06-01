@@ -80,7 +80,12 @@ from sleap_nn.training.lightning_modules import (
     SingleInstanceLightningModule,
 )
 from sleap_nn.config.training_job_config import verify_training_cfg
-from sleap_nn.training.callbacks import ProgressReporterZMQ, TrainingControllerZMQ
+from sleap_nn.training.callbacks import (
+    ProgressReporterZMQ,
+    TrainingControllerZMQ,
+    MatplotlibSaver,
+    WandBPredImageLogger,
+)
 
 
 class ModelTrainer:
@@ -859,28 +864,6 @@ class ModelTrainer:
         if publish_address is not None:
             callbacks.append(ProgressReporterZMQ(address=publish_address))
 
-        self.trainer = L.Trainer(
-            callbacks=callbacks,
-            logger=training_loggers,
-            enable_checkpointing=self.config.trainer_config.save_ckpt,
-            devices=self.config.trainer_config.trainer_devices,
-            max_epochs=self.config.trainer_config.max_epochs,
-            accelerator=self.config.trainer_config.trainer_accelerator,
-            enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-            limit_train_batches=self.steps_per_epoch,
-            strategy=strategy,
-            profiler=profiler,
-            log_every_n_steps=1,
-        )
-
-        # save the configs as yaml in the checkpoint dir
-        if (
-            self.trainer.global_rank == 0
-        ):  # save config if there are no distributed process or the rank = 0
-            OmegaConf.save(
-                config=self.config, f=f"{self.dir_path}/training_config.yaml"
-            )
-
         if self.data_pipeline_fw == "litdata":
             self._create_data_loaders_litdata()
 
@@ -895,6 +878,89 @@ class ModelTrainer:
             message = f"{self.data_pipeline_fw} is not a valid option. Please choose one of `litdata`, `torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`"
             logger.error(message)
             raise ValueError(message)
+
+        if OmegaConf.select(
+            self.config, "trainer_config.visualize_preds_during_training", default=False
+        ):
+            train_viz_pipeline = iter(self.train_dataset)
+            val_viz_pipeline = iter(self.val_dataset)
+            viz_dir = Path(self.dir_path) / "viz"
+            if not Path(viz_dir).exists():
+                Path(viz_dir).mkdir(parents=True, exist_ok=True)
+            callbacks.append(
+                MatplotlibSaver(
+                    save_folder=viz_dir,
+                    plot_fn=lambda: self.model.visualize_example(
+                        next(train_viz_pipeline)
+                    ),
+                    prefix="train",
+                )
+            )
+            callbacks.append(
+                MatplotlibSaver(
+                    save_folder=viz_dir,
+                    plot_fn=lambda: self.model.visualize_example(
+                        next(val_viz_pipeline)
+                    ),
+                    prefix="validation",
+                )
+            )
+
+            if self.model_type == "bottomup":
+                callbacks.append(
+                    MatplotlibSaver(
+                        save_folder=viz_dir,
+                        plot_fn=lambda: self.model.visualize_pafs_example(
+                            next(train_viz_pipeline)
+                        ),
+                        prefix="train_pafs_magnitude",
+                    )
+                )
+                callbacks.append(
+                    MatplotlibSaver(
+                        save_folder=viz_dir,
+                        plot_fn=lambda: self.model.visualize_pafs_example(
+                            next(val_viz_pipeline)
+                        ),
+                        prefix="validation_pafs_magnitude",
+                    )
+                )
+
+            if self.config.trainer_config.use_wandb:
+                callbacks.append(
+                    WandBPredImageLogger(
+                        viz_folder=viz_dir,
+                        wandb_run_name=wandb_config.name,
+                        is_bottomup=(self.model_type == "bottomup"),
+                    )
+                )
+
+        if self.model_type == "bottomup":
+            if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+                # Explicitly avoid using MPS
+                self.config.trainer_config.trainer_accelerator = "cpu"
+
+        self.trainer = L.Trainer(
+            callbacks=callbacks,
+            logger=training_loggers,
+            enable_checkpointing=self.config.trainer_config.save_ckpt,
+            devices=self.config.trainer_config.trainer_devices,
+            max_epochs=self.config.trainer_config.max_epochs,
+            accelerator=self.config.trainer_config.trainer_accelerator,
+            enable_progress_bar=self.config.trainer_config.enable_progress_bar,
+            limit_train_batches=self.steps_per_epoch,
+            strategy=strategy,
+            profiler=profiler,
+            log_every_n_steps=1,
+        )  # TODO check any other methods to use rank in dataset creations!
+
+        # save the configs as yaml in the checkpoint dir
+        if (
+            self.trainer.global_rank == 0
+        ):  # save config if there are no distributed process or the rank = 0
+            OmegaConf.save(
+                config=self.config, f=f"{self.dir_path}/training_config.yaml"
+            )
 
         if self.config.trainer_config.use_wandb:
             if (

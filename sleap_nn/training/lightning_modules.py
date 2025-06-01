@@ -32,7 +32,11 @@ from sleap_nn.inference.bottomup import BottomUpInferenceModel
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.architectures.model import Model
 from loguru import logger
-from sleap_nn.training.utils import xavier_init_weights
+from sleap_nn.training.utils import (
+    xavier_init_weights,
+    plot_pred_confmaps_peaks,
+    plot_pafs,
+)
 import matplotlib.pyplot as plt
 
 MODEL_WEIGHTS = {
@@ -284,6 +288,37 @@ class SingleInstanceLightningModule(BaseLightningModule):
             model_type=model_type,
             backbone_type=backbone_type,
         )
+        if OmegaConf.select(
+            self.config, "trainer_config.visualize_preds_during_training", default=False
+        ):
+            self.single_instance_inf_layer = SingleInstanceInferenceModel(
+                torch_model=self.forward,
+                peak_threshold=0.2,
+                input_scale=1.0,
+                return_confmaps=True,
+                output_stride=self.config.model_config.head_configs.single_instance.confmaps.output_stride,
+            )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        sample["eff_scale"] = torch.tensor([1.0])
+        for k, v in sample.items():
+            if isinstance(v, torch.Tensor):
+                sample[k] = v.to(device=self.device)
+        sample["image"] = sample["image"].unsqueeze(dim=0)
+        output = self.single_instance_inf_layer(sample)[0]
+        peaks = output["pred_instance_peaks"].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy()
+        gt_instances = sample["instances"][0].cpu().numpy()
+        confmaps = output["pred_confmaps"][0].cpu().numpy()
+        fig = plot_pred_confmaps_peaks(
+            img=img,
+            confmaps=confmaps,
+            peaks=peaks,
+            gt_instances=gt_instances,
+            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
+        )
+        return fig
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -359,6 +394,36 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
             backbone_type=backbone_type,
             model_type=model_type,
         )
+        if OmegaConf.select(
+            self.config, "trainer_config.visualize_preds_during_training", default=False
+        ):
+            self.instance_peaks_inf_layer = FindInstancePeaks(
+                torch_model=self.forward,
+                peak_threshold=0.2,
+                return_confmaps=True,
+                output_stride=self.config.model_config.head_configs.centered_instance.confmaps.output_stride,
+            )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        sample["eff_scale"] = torch.tensor([1.0])
+        for k, v in sample.items():
+            if isinstance(v, torch.Tensor):
+                sample[k] = v.to(device=self.device)
+        sample["instance_image"] = sample["instance_image"].unsqueeze(dim=0)
+        output = self.instance_peaks_inf_layer(sample)
+        peaks = output["pred_instance_peaks"].cpu().numpy()
+        img = output["instance_image"][0, 0].cpu().numpy()
+        gt_instances = sample["instance"].cpu().numpy()
+        confmaps = output["pred_confmaps"][0].cpu().numpy()
+        fig = plot_pred_confmaps_peaks(
+            img=img,
+            confmaps=confmaps,
+            peaks=peaks,
+            gt_instances=gt_instances,
+            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
+        )
+        return fig
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -434,6 +499,37 @@ class CentroidLightningModule(BaseLightningModule):
             backbone_type=backbone_type,
             model_type=model_type,
         )
+        if OmegaConf.select(
+            self.config, "trainer_config.visualize_preds_during_training", default=False
+        ):
+            self.centroid_inf_layer = CentroidCrop(
+                torch_model=self.forward,
+                peak_threshold=0.2,
+                return_confmaps=True,
+                output_stride=self.config.model_config.head_configs.centroid.confmaps.output_stride,
+                input_scale=1.0,
+            )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        sample["eff_scale"] = torch.tensor([1.0])
+        for k, v in sample.items():
+            if isinstance(v, torch.Tensor):
+                sample[k] = v.to(device=self.device)
+        sample["image"] = sample["image"].unsqueeze(dim=0)
+        gt_centroids = sample["centroids"].cpu().numpy()
+        output = self.centroid_inf_layer(sample)
+        peaks = output["centroids"][0].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy()
+        confmaps = output["pred_centroid_confmaps"][0].cpu().numpy()
+        fig = plot_pred_confmaps_peaks(
+            img=img,
+            confmaps=confmaps,
+            peaks=peaks,
+            gt_instances=gt_centroids,
+            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
+        )
+        return fig
 
     def forward(self, img):
         """Forward pass of the model."""
@@ -509,6 +605,63 @@ class BottomUpLightningModule(BaseLightningModule):
             backbone_type=backbone_type,
             model_type=model_type,
         )
+
+        if OmegaConf.select(
+            self.config, "trainer_config.visualize_preds_during_training", default=False
+        ):
+            paf_scorer = PAFScorer(
+                part_names=self.config.model_config.head_configs.bottomup.confmaps.part_names,
+                edges=self.config.model_config.head_configs.bottomup.pafs.edges,
+                pafs_stride=self.config.model_config.head_configs.bottomup.pafs.output_stride,
+            )
+            self.bottomup_inf_layer = BottomUpInferenceModel(
+                torch_model=self.forward,
+                paf_scorer=paf_scorer,
+                peak_threshold=0.2,
+                input_scale=1.0,
+                return_confmaps=True,
+                return_pafs=True,
+                cms_output_stride=self.config.model_config.head_configs.bottomup.confmaps.output_stride,
+                pafs_output_stride=self.config.model_config.head_configs.bottomup.pafs.output_stride,
+            )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        sample["eff_scale"] = torch.tensor([1.0])
+        for k, v in sample.items():
+            if isinstance(v, torch.Tensor):
+                sample[k] = v.to(device=self.device)
+        sample["image"] = sample["image"].unsqueeze(dim=0)
+        output = self.bottomup_inf_layer(sample)[0]
+        peaks = output["pred_instance_peaks"][0].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy()
+        gt_instances = sample["instances"][0].cpu().numpy()
+        confmaps = output["pred_confmaps"][0].cpu().numpy()
+        fig = plot_pred_confmaps_peaks(
+            img=img,
+            confmaps=confmaps,
+            peaks=peaks,
+            gt_instances=gt_instances,
+            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
+        )
+        return fig
+
+    def visualize_pafs_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        sample["eff_scale"] = torch.tensor([1.0])
+        for k, v in sample.items():
+            if isinstance(v, torch.Tensor):
+                sample[k] = v.to(device=self.device)
+        sample["image"] = sample["image"].unsqueeze(dim=0)
+        output = self.bottomup_inf_layer(sample)[0]
+        img = output["image"][0, 0].cpu().numpy()
+        pafs = output["pred_part_affinity_fields"]  # (h, w, 2*edges)
+        fig = plot_pafs(
+            img=img,
+            pafs=pafs,
+            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
+        )
+        return fig
 
     def forward(self, img):
         """Forward pass of the model."""

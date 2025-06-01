@@ -175,6 +175,7 @@ class TrainerConfig:
         trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`.
         enable_progress_bar: (bool) When True, enables printing the logs during training.
         steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
+        visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: (int) Maxinum number of epochs to run.
         seed: (int) Seed value for the current experiment.
         use_wandb: (bool) True to enable wandb logging.
@@ -201,6 +202,7 @@ class TrainerConfig:
     trainer_strategy: str = "auto"
     enable_progress_bar: bool = True
     steps_per_epoch: Optional[int] = None
+    visualize_preds_during_training: bool = False
     max_epochs: int = 10
     seed: int = 0
     use_wandb: bool = False
@@ -266,6 +268,9 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             save_last=legacy_config_outputs.get("checkpointing", {}).get(
                 "latest_model", False
             ),
+        ),
+        visualize_preds_during_training=legacy_config_outputs.get(
+            "save_visualizations", False
         ),
         max_epochs=legacy_config_optimization.get("epochs", 10),
         save_ckpt=True,
