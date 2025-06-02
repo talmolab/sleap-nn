@@ -684,6 +684,10 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     OmegaConf.update(
         single_instance_config, "data_config.data_pipeline_fw", "torch_dataset"
     )
+    OmegaConf.update(
+        single_instance_config, "trainer_config.visualize_preds_during_training", True
+    )
+    OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
 
     trainer = ModelTrainer(single_instance_config)
     trainer._initialize_model()
@@ -720,10 +724,15 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     OmegaConf.update(centroid_config, "trainer_config.steps_per_epoch", 10)
 
     OmegaConf.update(centroid_config, "data_config.data_pipeline_fw", "torch_dataset")
+    OmegaConf.update(
+        centroid_config, "trainer_config.visualize_preds_during_training", True
+    )
+    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 2)
 
     trainer = ModelTrainer(centroid_config)
 
     trainer._initialize_model()
+    trainer.train()
     assert isinstance(trainer.model, CentroidLightningModule)
 
     #######
@@ -764,9 +773,14 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     OmegaConf.update(bottomup_config, "trainer_config.use_wandb", False)
     OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 1)
     OmegaConf.update(bottomup_config, "trainer_config.steps_per_epoch", 10)
+    OmegaConf.update(
+        bottomup_config, "trainer_config.visualize_preds_during_training", True
+    )
+    OmegaConf.update(bottomup_config, "trainer_config.max_epochs", 2)
 
     trainer = ModelTrainer(bottomup_config)
     trainer._initialize_model()
+    trainer.train()
     assert isinstance(trainer.model, BottomUpLightningModule)
 
 
