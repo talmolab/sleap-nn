@@ -19,6 +19,7 @@ class WandBPredImageLogger(Callback):
     Attributes:
         viz_folder: Path to viz directory.
         wandb_run_name: WandB run name.
+        is_bottomup: If the model type is bottomup or not.
     """
 
     def __init__(
@@ -27,6 +28,7 @@ class WandBPredImageLogger(Callback):
         wandb_run_name: str,
         is_bottomup: bool = False,
     ):
+        """Initialize attributes."""
         self.viz_folder = viz_folder
         self.wandb_run_name = wandb_run_name
         self.is_bottomup = is_bottomup
