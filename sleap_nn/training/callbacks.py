@@ -56,8 +56,12 @@ class WandBPredImageLogger(Callback):
         ]
         if self.is_bottomup:
             column_names.extend(["Pafs Preds on train", "Pafs Preds on validation"])
-            data[0].extend(
+            data = [
                 [
+                    f"{self.wandb_run_name}",
+                    f"{epoch_num}",
+                    wandb.Image(train_img),
+                    wandb.Image(val_img),
                     wandb.Image(
                         Image.open(
                             (
@@ -75,7 +79,7 @@ class WandBPredImageLogger(Callback):
                         )
                     ),
                 ]
-            )
+            ]
         table = wandb.Table(columns=column_names, data=data)
         wandb.log({f"{self.wandb_run_name}": table})
 

@@ -4,11 +4,13 @@ from pathlib import Path
 import os
 import psutil
 import shutil
+import copy
 import subprocess
 import torch
 from torch.utils.data import DataLoader
 import torch.distributed as dist
 import sleap_io as sio
+from itertools import cycle
 from omegaconf import DictConfig, OmegaConf
 import lightning as L
 import litdata as ld
@@ -882,8 +884,8 @@ class ModelTrainer:
         if OmegaConf.select(
             self.config, "trainer_config.visualize_preds_during_training", default=False
         ):
-            train_viz_pipeline = iter(self.train_dataset)
-            val_viz_pipeline = iter(self.val_dataset)
+            train_viz_pipeline = cycle(self.train_dataset)
+            val_viz_pipeline = cycle(self.val_dataset)
             viz_dir = Path(self.dir_path) / "viz"
             if not Path(viz_dir).exists():
                 Path(viz_dir).mkdir(parents=True, exist_ok=True)
@@ -907,11 +909,13 @@ class ModelTrainer:
             )
 
             if self.model_type == "bottomup":
+                train_viz_pipeline1 = cycle(copy.deepcopy(self.train_dataset))
+                val_viz_pipeline1 = cycle(copy.deepcopy(self.val_dataset))
                 callbacks.append(
                     MatplotlibSaver(
                         save_folder=viz_dir,
                         plot_fn=lambda: self.model.visualize_pafs_example(
-                            next(train_viz_pipeline)
+                            next(train_viz_pipeline1)
                         ),
                         prefix="train_pafs_magnitude",
                     )
@@ -920,7 +924,7 @@ class ModelTrainer:
                     MatplotlibSaver(
                         save_folder=viz_dir,
                         plot_fn=lambda: self.model.visualize_pafs_example(
-                            next(val_viz_pipeline)
+                            next(val_viz_pipeline1)
                         ),
                         prefix="validation_pafs_magnitude",
                     )
