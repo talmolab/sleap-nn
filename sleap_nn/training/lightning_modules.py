@@ -301,15 +301,16 @@ class SingleInstanceLightningModule(BaseLightningModule):
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
-        sample["eff_scale"] = torch.tensor([1.0])
-        for k, v in sample.items():
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
             if isinstance(v, torch.Tensor):
-                sample[k] = v.to(device=self.device)
-        sample["image"] = sample["image"].unsqueeze(dim=0)
-        output = self.single_instance_inf_layer(sample)[0]
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        output = self.single_instance_inf_layer(ex)[0]
         peaks = output["pred_instance_peaks"].cpu().numpy()
         img = output["image"][0, 0].cpu().numpy()
-        gt_instances = sample["instances"][0].cpu().numpy()
+        gt_instances = ex["instances"][0].cpu().numpy()
         confmaps = output["pred_confmaps"][0].cpu().numpy()
         fig = plot_pred_confmaps_peaks(
             img=img,
@@ -406,15 +407,16 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
-        sample["eff_scale"] = torch.tensor([1.0])
-        for k, v in sample.items():
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
             if isinstance(v, torch.Tensor):
-                sample[k] = v.to(device=self.device)
-        sample["instance_image"] = sample["instance_image"].unsqueeze(dim=0)
-        output = self.instance_peaks_inf_layer(sample)
+                ex[k] = v.to(device=self.device)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+        output = self.instance_peaks_inf_layer(ex)
         peaks = output["pred_instance_peaks"].cpu().numpy()
         img = output["instance_image"][0, 0].cpu().numpy()
-        gt_instances = sample["instance"].cpu().numpy()
+        gt_instances = ex["instance"].cpu().numpy()
         confmaps = output["pred_confmaps"][0].cpu().numpy()
         fig = plot_pred_confmaps_peaks(
             img=img,
@@ -512,13 +514,14 @@ class CentroidLightningModule(BaseLightningModule):
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
-        sample["eff_scale"] = torch.tensor([1.0])
-        for k, v in sample.items():
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
             if isinstance(v, torch.Tensor):
-                sample[k] = v.to(device=self.device)
-        sample["image"] = sample["image"].unsqueeze(dim=0)
-        gt_centroids = sample["centroids"].cpu().numpy()
-        output = self.centroid_inf_layer(sample)
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        gt_centroids = ex["centroids"].cpu().numpy()
+        output = self.centroid_inf_layer(ex)
         peaks = output["centroids"][0].cpu().numpy()
         img = output["image"][0, 0].cpu().numpy()
         confmaps = output["pred_centroid_confmaps"][0].cpu().numpy()
