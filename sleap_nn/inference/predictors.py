@@ -1645,7 +1645,7 @@ class BottomUpPredictor(Predictor):
         return pred_labels
 
 
-def main(
+def run_inference(
     data_path: str,
     model_paths: List[str],
     backbone_ckpt_path: Optional[str] = None,
@@ -1660,8 +1660,9 @@ def main(
     queue_maxsize: int = 8,
     videoreader_start_idx: Optional[int] = None,
     videoreader_end_idx: Optional[int] = None,
-    crop_hw: Optional[List[int]] = None,
+    crop_size: Optional[int] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
+    ##
     integral_refinement: str = None,
     integral_patch_size: int = 5,
     return_confmaps: bool = False,
@@ -1673,7 +1674,8 @@ def main(
     min_instance_peaks: Union[int, float] = 0,
     min_line_scores: float = 0.25,
     make_labels: bool = True,
-    save_path: str = "",
+    ##
+    output_path: str = "",
     device: str = "cpu",
     tracking: bool = False,
     tracking_window_size: int = 5,
@@ -1702,9 +1704,9 @@ def main(
                 from `backbone_ckpt_path` if provided.)
         max_instances: (int) Max number of instances to consider from the predictions.
         max_width: (int) Maximum width the image should be padded to. If not provided, the
-                original image size will be retained. Default: None.
+                values from the training config are used. Default: None.
         max_height: (int) Maximum height the image should be padded to. If not provided, the
-                original image size will be retained. Default: None.
+                values from the training config are used. Default: None.
         is_rgb: (bool) True if the image has 3 channels (RGB image). If input has only one
                 channel when this is set to `True`, then the images from single-channel
                 is replicated along the channel axis. If input has three channels and this
@@ -1718,7 +1720,8 @@ def main(
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
         videoreader_start_idx: (int) Start index of the frames to read. Default: None.
         videoreader_end_idx: (int) End index of the frames to read. Default: None.
-        crop_hw: List[int] Minimum height and width of the crop in pixels. Default: (160, 160).
+        crop_size: (int) Crop size. If not provided, the crop size from training_config.yaml is used.
+                Default: None.
         peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
                 centroid and centered-instance model, where the first element corresponds
@@ -1757,7 +1760,7 @@ def main(
                 `sio.PredictedInstance`s. If `False`, just return a list of
                 dictionaries containing the raw arrays returned by the inference model.
                 Default: True.
-        save_path: (str) Path to save the labels file if `make_labels` is True.
+        output_path: (str) Path to save the labels file if `make_labels` is True.
                 Default is current working directory.
         device: (str) Device on which torch.Tensor will be allocated. One of the
                 ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
@@ -1802,7 +1805,7 @@ def main(
     """
     preprocess_config = {  # if not given, then use from training config
         "is_rgb": is_rgb,
-        "crop_hw": crop_hw,
+        "crop_hw": (crop_size, crop_size) if crop_size is not None else None,
         "max_width": max_width,
         "max_height": max_height,
         "anchor_part": anchor_part,
@@ -1873,7 +1876,7 @@ def main(
     # run predict
     output = predictor.predict(
         make_labels=make_labels,
-        save_path=save_path,
+        save_path=output_path,
     )
 
     return output

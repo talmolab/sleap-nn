@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import torch
 from omegaconf import OmegaConf
-from sleap_nn.inference.predictors import Predictor, main
+from sleap_nn.inference.predictors import Predictor, run_inference
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
 
@@ -35,14 +35,14 @@ def test_topdown_predictor(
     # for centered instance model
     # check if labels are created from ckpt
 
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
         return_confmaps=False,
         make_labels=True,
         peak_threshold=0.0,
-        save_path=f"{tmp_path}/test.pkg.slp",
+        output_path=f"{tmp_path}/test.pkg.slp",
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -69,7 +69,7 @@ def test_topdown_predictor(
     assert lf.image.shape == gt_lf.image.shape
 
     # check if dictionaries are created when make labels is set to False
-    preds = main(
+    preds = run_inference(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
@@ -92,7 +92,7 @@ def test_topdown_predictor(
         del config_copy.model_config.head_configs.centered_instance
         OmegaConf.update(config_copy, "model_config.head_configs.topdown", head_config)
         OmegaConf.save(config_copy, f"{minimal_instance_ckpt}/training_config.yaml")
-        preds = main(
+        preds = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
             provider="LabelsReader",
@@ -103,7 +103,7 @@ def test_topdown_predictor(
     OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
     # centroid + centroid instance model
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
@@ -118,7 +118,7 @@ def test_topdown_predictor(
 
     # centroid model
     max_instances = 6
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         make_labels=False,
@@ -133,7 +133,7 @@ def test_topdown_predictor(
     # Provider = VideoReader
     # centroid + centered-instance model inference
 
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
         make_labels=True,
@@ -151,7 +151,7 @@ def test_topdown_predictor(
     with pytest.raises(
         Exception,
     ):
-        pred_labels = main(
+        pred_labels = run_inference(
             model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
             provider="Reader",
@@ -163,7 +163,7 @@ def test_topdown_predictor(
     # Provider = VideoReader
     # error in Videoreader but graceful execution
 
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
         provider="VideoReader",
@@ -180,7 +180,7 @@ def test_topdown_predictor(
     with pytest.raises(
         ValueError,
     ):
-        pred_labels = main(
+        pred_labels = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
             provider="VideoReader",
@@ -193,7 +193,7 @@ def test_topdown_predictor(
     assert "Error when reading video frame." in caplog.text
 
     # test with tracking
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
         provider="VideoReader",
@@ -684,7 +684,7 @@ def test_single_instance_predictor(
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
-        pred_labels = main(
+        pred_labels = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
             provider="LabelsReader",
@@ -711,7 +711,7 @@ def test_single_instance_predictor(
         assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
         # check if dictionaries are created when make labels is set to False
-        preds = main(
+        preds = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
             provider="LabelsReader",
@@ -744,7 +744,7 @@ def test_single_instance_predictor(
         OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
 
         # check if labels are created from ckpt
-        pred_labels = main(
+        pred_labels = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
             provider="VideoReader",
@@ -768,7 +768,7 @@ def test_single_instance_predictor(
         assert lf.frame_idx == 0
 
         # check if dictionaries are created when make labels is set to False
-        preds = main(
+        preds = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
             provider="VideoReader",
@@ -804,7 +804,7 @@ def test_single_instance_predictor(
         with pytest.raises(
             Exception,
         ):
-            preds = main(
+            preds = run_inference(
                 model_paths=[minimal_instance_ckpt],
                 data_path="./tests/assets/centered_pair_small.mp4",
                 provider="Reader",
@@ -923,7 +923,7 @@ def test_bottomup_predictor(
     # provider as LabelsReader
 
     # check if labels are created from ckpt
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
@@ -950,7 +950,7 @@ def test_bottomup_predictor(
     assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
     # check if dictionaries are created when make labels is set to False
-    preds = main(
+    preds = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
@@ -967,7 +967,7 @@ def test_bottomup_predictor(
     assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
 
     # with higher threshold
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
@@ -980,7 +980,7 @@ def test_bottomup_predictor(
     assert len(pred_labels[0].instances) == 0
 
     # change to video reader
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
         provider="VideoReader",
@@ -996,7 +996,7 @@ def test_bottomup_predictor(
     assert len(pred_labels[0].instances) <= 6
 
     # check if dictionaries are created when make labels is set to False
-    preds = main(
+    preds = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
         provider="VideoReader",
@@ -1018,7 +1018,7 @@ def test_bottomup_predictor(
     with pytest.raises(
         Exception,
     ):
-        preds = main(
+        preds = run_inference(
             model_paths=[minimal_instance_bottomup_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
             provider="Reader",
@@ -1029,7 +1029,7 @@ def test_bottomup_predictor(
     assert "Provider not recognised." in caplog.text
 
     # test with tracking
-    pred_labels = main(
+    pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",

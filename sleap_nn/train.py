@@ -22,7 +22,7 @@ from sleap_nn.config.trainer_config import (
 )
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
-from sleap_nn.inference.predictors import main as predict
+from sleap_nn.inference.predictors import run_inference as predict
 from sleap_nn.evaluation import Evaluator
 
 from sleap_nn.config.data_config import (
@@ -606,7 +606,7 @@ def run_training(config: DictConfig):
             provider="LabelsReader",
             peak_threshold=0.2,
             make_labels=True,
-            save_path=Path(trainer.dir_path) / f"pred_{dataset}.slp",
+            output_path=Path(trainer.dir_path) / f"pred_{dataset}.slp",
         )
 
         evaluator = Evaluator(
@@ -641,7 +641,7 @@ def run_training(config: DictConfig):
                 ),
                 peak_threshold=0.2,
                 make_labels=True,
-                save_path=Path(trainer.dir_path) / "pred_test.slp",
+                output_path=Path(trainer.dir_path) / "pred_test.slp",
             )
 
             evaluator = Evaluator(
