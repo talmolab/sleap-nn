@@ -39,7 +39,8 @@ def get_keypoints(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
     """Return keypoints as np.array from the `PredictedInstance` object."""
     if isinstance(pred_instance, np.ndarray):
         return pred_instance
-    return pred_instance.numpy()
+    pred_inst = np.nan_to_num(pred_instance.numpy(), nan=0.0, posinf=0.0, neginf=0.0)
+    return pred_inst
 
 
 def get_centroid(pred_instance: Union[sio.PredictedInstance, np.ndarray]):
