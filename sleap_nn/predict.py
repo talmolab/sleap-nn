@@ -109,6 +109,25 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--only_labeled_frames",
+        action="store_true",
+        default=False,
+        help=(
+            "Only run inference on user labeled frames when running on labels dataset. "
+            "This is useful for generating predictions to compare against ground truth."
+        ),
+    )
+    parser.add_argument(
+        "--only_suggested_frames",
+        action="store_true",
+        default=False,
+        help=(
+            "Only run inference on unlabeled suggested frames when running on labels "
+            "dataset. This is useful for generating predictions for initialization "
+            "during labeling."
+        ),
+    )
+    parser.add_argument(
         "--batch_size",
         type=int,
         default=4,

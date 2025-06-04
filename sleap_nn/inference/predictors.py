@@ -220,6 +220,8 @@ class Predictor(ABC):
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
     ):
         """Create the data pipeline."""
 
@@ -729,6 +731,8 @@ class TopDownPredictor(Predictor):
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
     ):
         """Make a data loading pipeline.
 
@@ -738,6 +742,8 @@ class TopDownPredictor(Predictor):
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
+            only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
+            only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
@@ -785,6 +791,8 @@ class TopDownPredictor(Predictor):
                 filename=data_path,
                 queue_maxsize=queue_maxsize,
                 instances_key=self.instances_key,
+                only_labeled_frames=only_labeled_frames,
+                only_suggested_frames=only_suggested_frames,
             )
             self.videos = self.pipeline.labels.videos
 
@@ -1086,6 +1094,8 @@ class SingleInstancePredictor(Predictor):
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
     ):
         """Make a data loading pipeline.
 
@@ -1095,6 +1105,8 @@ class SingleInstancePredictor(Predictor):
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
+            only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
+            only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
@@ -1132,6 +1144,8 @@ class SingleInstancePredictor(Predictor):
             self.pipeline = provider.from_filename(
                 filename=data_path,
                 queue_maxsize=queue_maxsize,
+                only_labeled_frames=only_labeled_frames,
+                only_suggested_frames=only_suggested_frames,
             )
             self.videos = self.pipeline.labels.videos
 
@@ -1456,6 +1470,8 @@ class BottomUpPredictor(Predictor):
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
     ):
         """Make a data loading pipeline.
 
@@ -1465,6 +1481,8 @@ class BottomUpPredictor(Predictor):
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
+            only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
+            only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
@@ -1500,6 +1518,8 @@ class BottomUpPredictor(Predictor):
             self.pipeline = provider.from_filename(
                 filename=data_path,
                 queue_maxsize=queue_maxsize,
+                only_labeled_frames=only_labeled_frames,
+                only_suggested_frames=only_suggested_frames,
             )
             self.videos = self.pipeline.labels.videos
 
@@ -1640,6 +1660,8 @@ def run_inference(
     is_rgb: bool = False,
     anchor_part: Optional[str] = None,
     provider: Optional[str] = None,
+    only_labeled_frames: bool = False,
+    only_suggested_frames: bool = False,
     batch_size: int = 4,
     queue_maxsize: int = 8,
     frames: Optional[list] = None,
@@ -1699,6 +1721,8 @@ def run_inference(
                 provided, the anchor part in the `training_config.yaml` is used.
         provider: (str) Provider class to read the input sleap files.
                 Either "LabelsReader" or "VideoReader". Default: None.
+        only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
+        only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
         frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
@@ -1850,7 +1874,14 @@ def run_inference(
 
     # initialize make_pipeline function
 
-    predictor.make_pipeline(provider, data_path, queue_maxsize, frames)
+    predictor.make_pipeline(
+        provider,
+        data_path,
+        queue_maxsize,
+        frames,
+        only_labeled_frames,
+        only_suggested_frames,
+    )
 
     # run predict
     output = predictor.predict(
