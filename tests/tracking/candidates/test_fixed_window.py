@@ -1,13 +1,13 @@
 from typing import DefaultDict, Deque, List
 import numpy as np
-from sleap_nn.inference.predictors import main
+from sleap_nn.inference.predictors import run_inference
 from sleap_nn.tracking.track_instance import TrackedInstanceFeature
 from sleap_nn.tracking.candidates.fixed_window import FixedWindowCandidates
 from sleap_nn.tracking.tracker import Tracker
 
 
 def get_pred_instances(minimal_instance_ckpt, n=10):
-    result_labels = main(
+    result_labels = run_inference(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
         provider="LabelsReader",
