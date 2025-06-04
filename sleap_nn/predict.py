@@ -290,7 +290,6 @@ def frame_list(frame_str: str) -> Optional[List[int]]:
     Returns:
         List of ints, or None if string does not represent valid range.
     """
-
     # Handle ranges of frames. Must be of the form "1-200" (or "1,-200")
     if "-" in frame_str:
         min_max = frame_str.split("-")
