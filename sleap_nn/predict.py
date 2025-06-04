@@ -1,7 +1,7 @@
 """Entry point for running inference."""
 
 import argparse
-from typing import Optional
+from typing import Optional, List
 from loguru import logger
 from sleap_nn.inference.predictors import run_inference
 
@@ -124,16 +124,15 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         help=("Maximum size of the frame buffer queue."),
     )
     parser.add_argument(
-        "--videoreader_start_idx",
-        type=int,
-        default=None,
-        help=("Start index of the frames to read."),
-    )
-    parser.add_argument(
-        "--videoreader_end_idx",
-        type=int,
-        default=None,
-        help=("End index of the frames to read."),
+        "--frames",
+        type=str,
+        default="",
+        help=(
+            "List of frames to predict when running on a video. Can be specified as a "
+            "comma separated list (e.g. 1,2,3) or a range separated by hyphen (e.g., "
+            "1-3, for 1,2,3). If not provided, defaults to predicting on the entire "
+            "video."
+        ),
     )
     parser.add_argument(
         "--crop_size",
@@ -282,6 +281,25 @@ def _make_cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def frame_list(frame_str: str) -> Optional[List[int]]:
+    """Converts 'n-m' string to list of ints.
+
+    Args:
+        frame_str: string representing range
+
+    Returns:
+        List of ints, or None if string does not represent valid range.
+    """
+    # Handle ranges of frames. Must be of the form "1-200" (or "1,-200")
+    if "-" in frame_str:
+        min_max = frame_str.split("-")
+        min_frame = int(min_max[0].rstrip(","))
+        max_frame = int(min_max[1])
+        return list(range(min_frame, max_frame + 1))
+
+    return [int(x) for x in frame_str.split(",")] if len(frame_str) else None
+
+
 def main(args: Optional[list] = None):
     """Entrypoint for sleap-nn CLI for running inference.
 
@@ -294,6 +312,9 @@ def main(args: Optional[list] = None):
     args, _ = parser.parse_known_args(args)
     logger.info("Args:")
     logger.info(vars(args))
+
+    if args.frames:
+        args.frames = frame_list(args.frames)
 
     _ = run_inference(**vars(args))
 

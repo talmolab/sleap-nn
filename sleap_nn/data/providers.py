@@ -220,32 +220,26 @@ class VideoReader(Thread):
         video: sleap_io.Video object that contains images that will be
                 accessed through a torchdata DataPipe.
         frame_buffer: Frame buffer queue.
-        start_idx: start index of the frames to read. If None, 0 is set as the default.
-        end_idx: end index of the frames to read. If None, length of the video is set as
-                the default.
+        frames: List of frames indices. If `None`, all frames in the video are used.
     """
 
     def __init__(
         self,
         video: sio.Video,
         frame_buffer: Queue,
-        start_idx: Optional[int] = None,
-        end_idx: Optional[int] = None,
+        frames: Optional[list] = None,
     ):
         """Initialize attribute of the class."""
         super().__init__()
         self.video = video
         self.frame_buffer = frame_buffer
-        self.start_idx = start_idx
-        self.end_idx = end_idx
-        if self.start_idx is None:
-            self.start_idx = 0
-        if self.end_idx is None:
-            self.end_idx = self.video.shape[0]
+        self.frames = frames
+        if self.frames is None:
+            self.frames = [x for x in range(0, len(self.video))]
 
     def total_len(self):
         """Returns the total number of frames in the video."""
-        return self.end_idx - self.start_idx
+        return len(self.frames)
 
     @property
     def max_height_and_width(self) -> Tuple[int, int]:
@@ -257,18 +251,17 @@ class VideoReader(Thread):
         cls,
         filename: str,
         queue_maxsize: int,
-        start_idx: Optional[int] = None,
-        end_idx: Optional[int] = None,
+        frames: Optional[list] = None,
     ):
         """Create VideoReader from a .slp filename."""
         video = sio.load_video(filename)
         frame_buffer = Queue(maxsize=queue_maxsize)
-        return cls(video, frame_buffer, start_idx, end_idx)
+        return cls(video, frame_buffer, frames)
 
     def run(self):
         """Adds frames to the buffer queue."""
         try:
-            for idx in range(self.start_idx, self.end_idx):
+            for idx in self.frames:
                 img = self.video[idx]
                 img = np.transpose(img, (2, 0, 1))  # convert H,W,C to C,H,W
                 img = np.expand_dims(img, axis=0)  # (1, C, H, W)

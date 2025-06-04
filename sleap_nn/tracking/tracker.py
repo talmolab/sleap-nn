@@ -354,7 +354,10 @@ class Tracker:
                     scoring_method(f, x.feature)
                     for x in candidates_feature_dict[track_id]
                 ]
-                oks = scoring_reduction(oks)  # scoring reduction
+                if len(oks):
+                    oks = scoring_reduction(oks)  # scoring reduction
+                else:
+                    oks = 0.0
                 scores[f_idx][track_id] = oks
 
         return scores
