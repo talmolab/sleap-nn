@@ -219,8 +219,7 @@ class Predictor(ABC):
         provider: str,
         data_path: str,
         queue_maxsize: int = 8,
-        video_start_idx=None,
-        video_end_idx=None,
+        frames: Optional[list] = None,
     ):
         """Create the data pipeline."""
 
@@ -729,8 +728,7 @@ class TopDownPredictor(Predictor):
         provider: str,
         data_path: str,
         queue_maxsize: int = 8,
-        video_start_idx=None,
-        video_end_idx=None,
+        frames: Optional[list] = None,
     ):
         """Make a data loading pipeline.
 
@@ -739,8 +737,7 @@ class TopDownPredictor(Predictor):
                 Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
-            video_start_idx: (int) Start index of the frames to read. Default: None.
-            video_end_idx: (int) End index of the frames to read. Default: None.
+            frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
@@ -825,10 +822,7 @@ class TopDownPredictor(Predictor):
             }
 
             self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
-                start_idx=video_start_idx,
-                end_idx=video_end_idx,
+                filename=data_path, queue_maxsize=queue_maxsize, frames=frames
             )
             self.videos = [self.pipeline.video]
 
@@ -1091,8 +1085,7 @@ class SingleInstancePredictor(Predictor):
         provider: str,
         data_path: str,
         queue_maxsize: int = 8,
-        video_start_idx=None,
-        video_end_idx=None,
+        frames: Optional[list] = None,
     ):
         """Make a data loading pipeline.
 
@@ -1101,8 +1094,7 @@ class SingleInstancePredictor(Predictor):
                 Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
-            video_start_idx: (int) Start index of the frames to read. Default: None.
-            video_end_idx: (int) End index of the frames to read. Default: None.
+            frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
@@ -1168,10 +1160,7 @@ class SingleInstancePredictor(Predictor):
             }
 
             self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
-                start_idx=video_start_idx,
-                end_idx=video_end_idx,
+                filename=data_path, queue_maxsize=queue_maxsize, frames=frames
             )
 
             self.videos = [self.pipeline.video]
@@ -1466,8 +1455,7 @@ class BottomUpPredictor(Predictor):
         provider: str,
         data_path: str,
         queue_maxsize: int = 8,
-        video_start_idx=None,
-        video_end_idx=None,
+        frames: Optional[list] = None,
     ):
         """Make a data loading pipeline.
 
@@ -1476,8 +1464,7 @@ class BottomUpPredictor(Predictor):
                 Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
-            video_start_idx: (int) Start index of the frames to read. Default: None.
-            video_end_idx: (int) End index of the frames to read. Default: None.
+            frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
@@ -1541,10 +1528,7 @@ class BottomUpPredictor(Predictor):
             }
 
             self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
-                start_idx=video_start_idx,
-                end_idx=video_end_idx,
+                filename=data_path, queue_maxsize=queue_maxsize, frames=frames
             )
 
             self.videos = [self.pipeline.video]
@@ -1658,8 +1642,7 @@ def run_inference(
     provider: Optional[str] = None,
     batch_size: int = 4,
     queue_maxsize: int = 8,
-    videoreader_start_idx: Optional[int] = None,
-    videoreader_end_idx: Optional[int] = None,
+    frames: Optional[list] = None,
     crop_size: Optional[int] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
     ##
@@ -1718,8 +1701,7 @@ def run_inference(
                 Either "LabelsReader" or "VideoReader". Default: None.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
-        videoreader_start_idx: (int) Start index of the frames to read. Default: None.
-        videoreader_end_idx: (int) End index of the frames to read. Default: None.
+        frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
         crop_size: (int) Crop size. If not provided, the crop size from training_config.yaml is used.
                 Default: None.
         peak_threshold: (float) Minimum confidence threshold. Peaks with values below
@@ -1819,8 +1801,7 @@ def run_inference(
 
     if provider == "VideoReader":
         preprocess_config["video_queue_maxsize"] = queue_maxsize
-        preprocess_config["videoreader_start_idx"] = videoreader_start_idx
-        preprocess_config["videoreader_end_idx"] = videoreader_end_idx
+        preprocess_config["frames"] = frames
 
     # initializes the inference model
     predictor = Predictor.from_model_paths(
@@ -1869,9 +1850,7 @@ def run_inference(
 
     # initialize make_pipeline function
 
-    predictor.make_pipeline(
-        provider, data_path, queue_maxsize, videoreader_start_idx, videoreader_end_idx
-    )
+    predictor.make_pipeline(provider, data_path, queue_maxsize, frames)
 
     # run predict
     output = predictor.predict(

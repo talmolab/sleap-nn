@@ -140,8 +140,7 @@ def test_topdown_predictor(
         max_instances=6,
         peak_threshold=[0.0, 0.0],
         integral_refinement="integral",
-        videoreader_start_idx=0,
-        videoreader_end_idx=100,
+        frames=[x for x in range(100)],
     )
 
     assert isinstance(pred_labels, sio.Labels)
@@ -169,8 +168,7 @@ def test_topdown_predictor(
         provider="VideoReader",
         make_labels=True,
         max_instances=6,
-        videoreader_start_idx=1100,
-        videoreader_end_idx=1103,
+        frames=[1100, 1101, 1102, 1103],
         peak_threshold=0.1,
     )
 
@@ -186,8 +184,7 @@ def test_topdown_predictor(
             provider="VideoReader",
             make_labels=True,
             max_instances=6,
-            videoreader_start_idx=0,
-            videoreader_end_idx=100,
+            frames=[x for x in range(100)],
             peak_threshold=0.1,
         )
     assert "Error when reading video frame." in caplog.text
@@ -200,8 +197,7 @@ def test_topdown_predictor(
         make_labels=True,
         max_instances=2,
         peak_threshold=0.1,
-        videoreader_start_idx=0,
-        videoreader_end_idx=20,
+        frames=[x for x in range(20)],
         tracking=True,
     )
 
@@ -774,7 +770,7 @@ def test_single_instance_predictor(
             provider="VideoReader",
             make_labels=False,
             peak_threshold=0.3,
-            videoreader_end_idx=100,
+            frames=[x for x in range(100)],
         )
         assert isinstance(preds, list)
         assert len(preds) == 25
@@ -987,8 +983,7 @@ def test_bottomup_predictor(
         make_labels=True,
         max_instances=6,
         peak_threshold=0.03,
-        videoreader_start_idx=0,
-        videoreader_end_idx=100,
+        frames=[x for x in range(100)],
     )
 
     assert isinstance(pred_labels, sio.Labels)
@@ -1003,8 +998,7 @@ def test_bottomup_predictor(
         make_labels=False,
         max_instances=6,
         peak_threshold=0.03,
-        videoreader_start_idx=0,
-        videoreader_end_idx=100,
+        frames=[x for x in range(100)],
     )
     assert isinstance(preds, list)
     assert len(preds) == 25

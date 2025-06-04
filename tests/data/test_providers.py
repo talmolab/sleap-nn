@@ -33,7 +33,7 @@ def test_videoreader_provider(centered_instance_video):
     """Test VideoReader class."""
     video = sio.load_video(centered_instance_video)
     queue = Queue(maxsize=4)
-    reader = VideoReader(video=video, frame_buffer=queue, start_idx=None, end_idx=4)
+    reader = VideoReader(video=video, frame_buffer=queue, frames=[0, 1, 2, 3])
     assert reader.max_height_and_width == (384, 384)
     reader.start()
     batch_size = 4
@@ -56,8 +56,7 @@ def test_videoreader_provider(centered_instance_video):
     reader = VideoReader.from_filename(
         filename=centered_instance_video,
         queue_maxsize=4,
-        start_idx=1099,
-        end_idx=1104,
+        frames=[1099, 1100, 1101, 1102, 1103],
     )
     reader.start()
     batch_size = 4
@@ -74,27 +73,6 @@ def test_videoreader_provider(centered_instance_video):
         raise
     finally:
         reader.join()
-
-    # end not specified
-    queue = Queue(maxsize=4)
-    reader = VideoReader(video=video, frame_buffer=queue, start_idx=1094, end_idx=None)
-    assert reader.max_height_and_width == (384, 384)
-    reader.start()
-    batch_size = 4
-    try:
-        data = []
-        for i in range(batch_size):
-            frame = reader.frame_buffer.get()
-            if frame["image"] is None:
-                break
-            data.append(frame)
-        assert len(data) == batch_size
-        assert data[0]["image"].shape == (1, 1, 384, 384)
-    except:
-        raise
-    finally:
-        reader.join()
-    assert reader.total_len() == 6
 
 
 def test_labelsreader_provider(minimal_instance):
