@@ -331,10 +331,11 @@ class LabelsReader(Thread):
                     lf.instances = lf.user_instances
                     self.filtered_lfs.append(lf)
 
-        # Filter to only suggested instances
+        # Filter to only unlabeled suggested instances
         elif self.only_suggested_frames:
             self.filtered_lfs = []
-            for lf in self.labels.suggestions:
+            for suggestion in self.labels.suggestions:
+                lf = self.labels.find(suggestion.video, suggestion.frame_idx)[0]
                 if lf is None or not lf.has_user_instances:
                     self.filtered_lfs.append(lf)
 
