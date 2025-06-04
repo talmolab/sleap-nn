@@ -301,10 +301,17 @@ class LabelsReader(Thread):
                 accessed through a torchdata DataPipe.
         frame_buffer: Frame buffer queue.
         instances_key: If `True`, then instances are appended to the output dictionary.
+        only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
+        only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
     """
 
     def __init__(
-        self, labels: sio.Labels, frame_buffer: Queue, instances_key: bool = False
+        self,
+        labels: sio.Labels,
+        frame_buffer: Queue,
+        instances_key: bool = False,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
     ):
         """Initialize attribute of the class."""
         super().__init__()
@@ -313,9 +320,30 @@ class LabelsReader(Thread):
         self.instances_key = instances_key
         self.max_instances = get_max_instances(self.labels)
 
+        self.only_labeled_frames = only_labeled_frames
+        self.only_suggested_frames = only_suggested_frames
+
+        # Filter to only user labeled instances
+        if self.only_labeled_frames:
+            self.filtered_lfs = []
+            for lf in self.labels:
+                if lf.user_instances is not None and len(lf.user_instances) > 0:
+                    lf.instances = lf.user_instances
+                    self.filtered_lfs.append(lf)
+
+        # Filter to only suggested instances
+        elif self.only_suggested_frames:
+            self.filtered_lfs = []
+            for lf in self.labels.suggestions:
+                if lf is None or not lf.has_user_instances:
+                    self.filtered_lfs.append(lf)
+
+        else:
+            self.filtered_lfs = [lf for lf in self.labels]
+
     def total_len(self):
         """Returns the total number of frames in the video."""
-        return len(self.labels)
+        return len(self.filtered_lfs)
 
     @property
     def max_height_and_width(self) -> Tuple[int, int]:
@@ -326,18 +354,28 @@ class LabelsReader(Thread):
 
     @classmethod
     def from_filename(
-        cls, filename: str, queue_maxsize: int, instances_key: bool = False
+        cls,
+        filename: str,
+        queue_maxsize: int,
+        instances_key: bool = False,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
         frame_buffer = Queue(maxsize=queue_maxsize)
-        return cls(labels, frame_buffer, instances_key)
+        return cls(
+            labels,
+            frame_buffer,
+            instances_key,
+            only_labeled_frames,
+            only_suggested_frames,
+        )
 
     def run(self):
         """Adds frames to the buffer queue."""
         try:
-            for idx in range(self.total_len()):
-                lf = self.labels[idx]
+            for lf in self.filtered_lfs:
                 img = lf.image
                 img = np.transpose(img, (2, 0, 1))  # convert H,W,C to C,H,W
                 img = np.expand_dims(img, axis=0)  # (1, C, H, W)
