@@ -133,7 +133,7 @@ class FixedWindowCandidates:
 
         """
         add_to_queue = True
-        if np.any(row_inds) and np.any(col_inds):
+        if row_inds is not None and col_inds is not None:
 
             for idx, (row, col) in enumerate(zip(row_inds, col_inds)):
                 current_instances.track_ids[row] = self.current_tracks[col]
