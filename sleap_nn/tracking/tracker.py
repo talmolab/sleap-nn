@@ -349,16 +349,13 @@ class Tracker:
         )
 
         for f_idx, f in enumerate(current_instances_features):
-            for track_id in self.candidate.current_tracks:
-                oks = [
+            for t_idx, track_id in enumerate(self.candidate.current_tracks):
+                scores_trackid = [
                     scoring_method(f, x.feature)
                     for x in candidates_feature_dict[track_id]
                 ]
-                if len(oks):
-                    oks = scoring_reduction(oks)  # scoring reduction
-                else:
-                    oks = 0.0
-                scores[f_idx][track_id] = oks
+                score_trackid = scoring_reduction(scores_trackid)  # scoring reduction
+                scores[f_idx][t_idx] = score_trackid
 
         return scores
 

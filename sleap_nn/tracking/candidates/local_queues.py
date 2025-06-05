@@ -94,10 +94,8 @@ class LocalQueueCandidates:
             new_track_id = 0
         else:
             new_track_id = max(self.current_tracks) + 1
-            if self.max_tracks is not None and new_track_id > self.max_tracks:  # TODO
-                message = "Exceeding max tracks"
-                logger.error(message)
-                raise Exception(message)
+            if self.max_tracks is not None and new_track_id >= self.max_tracks:
+                return None
         self.tracker_queue[new_track_id] = deque(maxlen=self.window_size)
         return new_track_id
 
@@ -109,10 +107,14 @@ class LocalQueueCandidates:
         for t in current_instances:
             if t.instance_score > self.instance_score_threshold:
                 new_track_id = self.get_new_track_id()
-                t.track_id = new_track_id
-                t.tracking_score = 1.0
-                self.current_tracks.append(new_track_id)
-                self.tracker_queue[new_track_id].append(t)
+                if new_track_id is not None:
+                    t.track_id = new_track_id
+                    t.tracking_score = 1.0
+                    self.current_tracks.append(new_track_id)
+                    self.tracker_queue[new_track_id].append(t)
+                else:
+                    continue
+                # if new_track_id = `None`, max tracks is reached and we skip this instance
             track_instances.append(t)
 
         return track_instances
@@ -134,10 +136,12 @@ class LocalQueueCandidates:
             tracking_scores: List of tracking scores from the cost matrix.
 
         """
-        if np.any(row_inds) and np.any(col_inds):
+        res = []
+        if row_inds is not None and col_inds is not None:
             for idx, (row, col) in enumerate(zip(row_inds, col_inds)):
                 current_instances[row].track_id = col
                 current_instances[row].tracking_score = tracking_scores[idx]
+                res.append(current_instances[row])
 
             for track_instance in current_instances:
                 if track_instance.track_id is not None:
@@ -149,9 +153,9 @@ class LocalQueueCandidates:
             ]
             if new_current_instances_inds:
                 for ind in new_current_instances_inds:
-                    self.add_new_tracks(current_instances[ind])
+                    res.extend(self.add_new_tracks([current_instances[ind]]))
 
-        return current_instances
+        return [x for x in res if x.track_id is not None]
 
     def get_instances_groupby_frame_idx(
         self, candidates_list: Optional[DefaultDict[int, Deque]]
