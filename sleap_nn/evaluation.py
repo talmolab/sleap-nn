@@ -58,10 +58,15 @@ def find_frame_pairs(
             if (
                 isinstance(video.backend, type(video_gt.backend))
                 and video.filename == video_gt.filename
-                and video.backend.dataset == video_gt.backend.dataset
             ):
-                video_pr = video
-                break
+                same_dataset = (
+                    (video.backend.dataset == video_gt.backend.dataset)
+                    if hasattr(video.backend, "dataset")
+                    else True
+                )  # `dataset` attr exists only for hdf5 backend not for mediavideo
+                if same_dataset:
+                    video_pr = video
+                    break
 
         if video_pr is None:
             continue
