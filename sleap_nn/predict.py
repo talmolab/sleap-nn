@@ -100,15 +100,6 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--provider",
-        type=str,
-        default=None,
-        help=(
-            "Provider class to read the input sleap files."
-            "Either 'LabelsReader' or 'VideoReader'"
-        ),
-    )
-    parser.add_argument(
         "--only_labeled_frames",
         action="store_true",
         default=False,
@@ -128,6 +119,35 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--video_index",
+        type=int,
+        default=None,
+        help=(
+            "Integer index of video in .slp file to predict on. To be used with an .slp"
+            " path as an alternative to specifying the video path."
+        ),
+    )
+    parser.add_argument(
+        "--video_dataset", type=str, default=None, help="The dataset for HDF5 videos."
+    )
+    parser.add_argument(
+        "--video_input_format",
+        type=str,
+        default="channels_last",
+        help="The input_format for HDF5 videos.",
+    )
+    parser.add_argument(
+        "--frames",
+        type=str,
+        default="",
+        help=(
+            "List of frames to predict when running on a video. Can be specified as a "
+            "comma separated list (e.g. 1,2,3) or a range separated by hyphen (e.g., "
+            "1-3, for 1,2,3). If not provided, defaults to predicting on the entire "
+            "video."
+        ),
+    )
+    parser.add_argument(
         "--batch_size",
         type=int,
         default=4,
@@ -141,17 +161,6 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         type=int,
         default=8,
         help=("Maximum size of the frame buffer queue."),
-    )
-    parser.add_argument(
-        "--frames",
-        type=str,
-        default="",
-        help=(
-            "List of frames to predict when running on a video. Can be specified as a "
-            "comma separated list (e.g. 1,2,3) or a range separated by hyphen (e.g., "
-            "1-3, for 1,2,3). If not provided, defaults to predicting on the entire "
-            "video."
-        ),
     )
     parser.add_argument(
         "--crop_size",

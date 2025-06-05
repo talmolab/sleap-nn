@@ -603,7 +603,6 @@ def run_training(config: DictConfig):
         pred_labels = predict(
             data_path=labels_path,
             model_paths=[trainer.dir_path],
-            provider="LabelsReader",
             peak_threshold=0.2,
             make_labels=True,
             output_path=Path(trainer.dir_path) / f"pred_{dataset}.slp",
@@ -634,11 +633,6 @@ def run_training(config: DictConfig):
             pred_labels = predict(
                 data_path=config.data_config.test_file_path,
                 model_paths=[trainer.dir_path],
-                provider=(
-                    "LabelsReader"
-                    if config.data_config.test_file_path.endswith(".slp")
-                    else "VideoReader"
-                ),
                 peak_threshold=0.2,
                 make_labels=True,
                 output_path=Path(trainer.dir_path) / "pred_test.slp",

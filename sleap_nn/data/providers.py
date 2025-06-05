@@ -252,9 +252,22 @@ class VideoReader(Thread):
         filename: str,
         queue_maxsize: int,
         frames: Optional[list] = None,
+        dataset: Optional[str] = None,
+        input_format: str = "channels_last",
     ):
         """Create VideoReader from a .slp filename."""
-        video = sio.load_video(filename)
+        video = sio.load_video(filename, dataset=dataset, input_format=input_format)
+        frame_buffer = Queue(maxsize=queue_maxsize)
+        return cls(video, frame_buffer, frames)
+
+    @classmethod
+    def from_video(
+        cls,
+        video: sio.Video,
+        queue_maxsize: int,
+        frames: Optional[list] = None,
+    ):
+        """Create VideoReader from a video object."""
         frame_buffer = Queue(maxsize=queue_maxsize)
         return cls(video, frame_buffer, frames)
 

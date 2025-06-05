@@ -94,3 +94,51 @@ def test_predict_main(
     pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
 
     assert len(pred) == 3
+
+    # test with video
+    main(
+        [
+            "--data_path",
+            "./tests/assets/centered_pair_small.mp4",
+            "--model_paths",
+            f"{minimal_instance_centroid_ckpt}",
+            "--model_paths",
+            f"{minimal_instance_ckpt}",
+            "-o",
+            f"{tmp_path}/minimal_inst_preds.slp",
+            "--frames",
+            "0-3",
+            "--peak_threshold",
+            f"{0.0}",
+        ]
+    )
+    assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
+
+    pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
+
+    assert len(pred) == 4
+
+    # test with video index
+    main(
+        [
+            "--data_path",
+            f"{minimal_instance}",
+            "--model_paths",
+            f"{minimal_instance_centroid_ckpt}",
+            "--model_paths",
+            f"{minimal_instance_ckpt}",
+            "-o",
+            f"{tmp_path}/minimal_inst_preds.slp",
+            "--video_index",
+            "0",
+            "--frames",
+            "0",
+            "--peak_threshold",
+            f"{0.0}",
+        ]
+    )
+    assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
+
+    pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
+
+    assert len(pred) == 1

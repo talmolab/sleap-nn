@@ -28,7 +28,7 @@ def test_providers(minimal_instance):
     assert l.max_height_and_width == (384, 384)
 
 
-def test_videoreader_provider(centered_instance_video):
+def test_videoreader_provider(centered_instance_video, minimal_instance):
     """Test VideoReader class."""
     video = sio.load_video(centered_instance_video)
     queue = Queue(maxsize=4)
@@ -50,6 +50,27 @@ def test_videoreader_provider(centered_instance_video):
     finally:
         reader.join()
     assert reader.total_len() == 4
+
+    # test with from_video method
+    labels = sio.load_slp(minimal_instance)
+    reader = VideoReader.from_video(video=labels.videos[0], queue_maxsize=4, frames=[0])
+    assert reader.max_height_and_width == (384, 384)
+    reader.start()
+    batch_size = 1
+    try:
+        data = []
+        for i in range(batch_size):
+            frame = reader.frame_buffer.get()
+            if frame["image"] is None:
+                break
+            data.append(frame)
+        assert len(data) == batch_size
+        assert data[0]["image"].shape == (1, 1, 384, 384)
+    except:
+        raise
+    finally:
+        reader.join()
+    assert reader.total_len() == 1
 
     # check graceful stop (video has 1100 frames)
     reader = VideoReader.from_filename(
