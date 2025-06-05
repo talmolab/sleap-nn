@@ -53,9 +53,7 @@ def test_videoreader_provider(centered_instance_video, minimal_instance):
 
     # test with from_video method
     labels = sio.load_slp(minimal_instance)
-    video = sio.load_video(labels.videos[0])
-    queue = Queue(maxsize=4)
-    reader = VideoReader.from_video(video=video, frame_buffer=queue, frames=[0])
+    reader = VideoReader.from_video(video=labels.videos[0], queue_maxsize=4, frames=[0])
     assert reader.max_height_and_width == (384, 384)
     reader.start()
     batch_size = 1
