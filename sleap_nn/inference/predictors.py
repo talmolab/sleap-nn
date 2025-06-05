@@ -54,8 +54,6 @@ class Predictor(ABC):
         preprocess_config: Preprocessing config with keys: [`batch_size`,
             `scale`, `is_rgb`, `max_stride`]. Default: {"batch_size": 4, "scale": 1.0,
             "is_rgb": False, "max_stride": 1}
-        provider: Provider for inference pipeline. One of ["LabelsReader", "VideoReader"].
-            Default: LabelsReader.
         pipeline: If provider is LabelsReader, pipeline is a `DataLoader` object. If provider
             is VideoReader, pipeline is an instance of `sleap_nn.data.providers.VideoReader`
             class. Default: None.
@@ -73,7 +71,6 @@ class Predictor(ABC):
         "max_height": None,
         "max_width": None,
     }
-    provider: Union[LabelsReader, VideoReader] = LabelsReader
     pipeline: Optional[Union[LabelsReader, VideoReader]] = None
     inference_model: Optional[
         Union[
@@ -216,12 +213,14 @@ class Predictor(ABC):
     @abstractmethod
     def make_pipeline(
         self,
-        provider: str,
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        video_index: Optional[int] = None,
+        video_dataset: Optional[str] = None,
+        video_input_format: str = "channels_last",
     ):
         """Create the data pipeline."""
 
@@ -727,29 +726,32 @@ class TopDownPredictor(Predictor):
 
     def make_pipeline(
         self,
-        provider: str,
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        video_index: Optional[int] = None,
+        video_dataset: Optional[str] = None,
+        video_input_format: str = "channels_last",
     ):
         """Make a data loading pipeline.
 
         Args:
-            provider: (str) Provider class to read the input sleap files.
-                Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            video_index: (int) Integer index of video in .slp file to predict on. To be used
+                with an .slp path as an alternative to specifying the video path.
+            video_dataset: (str) The dataset for HDF5 videos.
+            video_input_format: (str) The input_format for HDF5 videos.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
             Thread is started in Predictor._predict_generator() method.
         """
-        self.provider = provider
         if self.centroid_config is not None:
             max_stride = self.centroid_config.model_config.backbone_config[
                 f"{self.centroid_backbone_type}"
@@ -766,7 +768,7 @@ class TopDownPredictor(Predictor):
             max_width = self.confmap_config.data_config.preprocessing.max_width
 
         # LabelsReader provider
-        if self.provider == "LabelsReader":
+        if data_path.endswith(".slp") and video_index is None:
             provider = LabelsReader
 
             self.preprocess = False
@@ -796,8 +798,8 @@ class TopDownPredictor(Predictor):
             )
             self.videos = self.pipeline.labels.videos
 
-        # VideoReader provider
-        elif self.provider == "VideoReader":
+        else:
+            provider = VideoReader
             if self.centroid_config is None:
                 message = (
                     "Ground truth data was not detected... "
@@ -806,7 +808,6 @@ class TopDownPredictor(Predictor):
                 logger.error(message)
                 raise ValueError(message)
 
-            provider = VideoReader
             self.preprocess = False
             self.preprocess_config = {
                 "batch_size": self.batch_size,
@@ -829,15 +830,24 @@ class TopDownPredictor(Predictor):
                 ),
             }
 
-            self.pipeline = provider.from_filename(
-                filename=data_path, queue_maxsize=queue_maxsize, frames=frames
-            )
-            self.videos = [self.pipeline.video]
+            if data_path.endswith(".slp") and video_index is not None:
+                labels = sio.load_slp(data_path)
+                self.pipeline = provider.from_video(
+                    video=labels.videos[video_index],
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                )
 
-        else:
-            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            logger.error(message)
-            raise Exception(message)
+            else:  # for mp4 or hdf5 videos
+                self.pipeline = provider.from_filename(
+                    filename=data_path,
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+
+            self.videos = [self.pipeline.video]
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1090,33 +1100,35 @@ class SingleInstancePredictor(Predictor):
 
     def make_pipeline(
         self,
-        provider: str,
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        video_index: Optional[int] = None,
+        video_dataset: Optional[str] = None,
+        video_input_format: str = "channels_last",
     ):
         """Make a data loading pipeline.
 
         Args:
-            provider: (str) Provider class to read the input sleap files.
-                Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            video_index: (int) Integer index of video in .slp file to predict on. To be used
+                with an .slp path as an alternative to specifying the video path.
+            video_dataset: (str) The dataset for HDF5 videos.
+            video_input_format: (str) The input_format for HDF5 videos.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
             Thread is started in Predictor._predict_generator() method.
 
         """
-        self.provider = provider
-
         # LabelsReader provider
-        if self.provider == "LabelsReader":
+        if data_path.endswith(".slp") and video_index is None:
             provider = LabelsReader
 
             max_stride = self.confmap_config.model_config.backbone_config[
@@ -1149,7 +1161,7 @@ class SingleInstancePredictor(Predictor):
             )
             self.videos = self.pipeline.labels.videos
 
-        elif self.provider == "VideoReader":
+        else:
             provider = VideoReader
             self.preprocess = True
             self.preprocess_config = {
@@ -1173,16 +1185,24 @@ class SingleInstancePredictor(Predictor):
                 ),
             }
 
-            self.pipeline = provider.from_filename(
-                filename=data_path, queue_maxsize=queue_maxsize, frames=frames
-            )
+            if data_path.endswith(".slp") and video_index is not None:
+                labels = sio.load_slp(data_path)
+                self.pipeline = provider.from_video(
+                    video=labels.videos[video_index],
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                )
+
+            else:  # for mp4 or hdf5 videos
+                self.pipeline = provider.from_filename(
+                    filename=data_path,
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
 
             self.videos = [self.pipeline.video]
-
-        else:
-            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            logger.error(message)
-            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1466,31 +1486,34 @@ class BottomUpPredictor(Predictor):
 
     def make_pipeline(
         self,
-        provider: str,
         data_path: str,
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        video_index: Optional[int] = None,
+        video_dataset: Optional[str] = None,
+        video_input_format: str = "channels_last",
     ):
         """Make a data loading pipeline.
 
         Args:
-            provider: (str) Provider class to read the input sleap files.
-                Either "LabelsReader" or "VideoReader".
             data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            video_index: (int) Integer index of video in .slp file to predict on. To be used
+                with an .slp path as an alternative to specifying the video path.
+            video_dataset: (str) The dataset for HDF5 videos.
+            video_input_format: (str) The input_format for HDF5 videos.
 
         Returns:
             This method initiates the reader class (doesn't return a pipeline) and the
             Thread is started in Predictor._predict_generator() method.
         """
-        self.provider = provider
         # LabelsReader provider
-        if self.provider == "LabelsReader":
+        if data_path.endswith(".slp") and video_index is None:
             provider = LabelsReader
 
             max_stride = self.bottomup_config.model_config.backbone_config[
@@ -1523,7 +1546,7 @@ class BottomUpPredictor(Predictor):
             )
             self.videos = self.pipeline.labels.videos
 
-        elif self.provider == "VideoReader":
+        else:
             provider = VideoReader
             self.preprocess = True
             self.preprocess_config = {
@@ -1547,16 +1570,24 @@ class BottomUpPredictor(Predictor):
                 ),
             }
 
-            self.pipeline = provider.from_filename(
-                filename=data_path, queue_maxsize=queue_maxsize, frames=frames
-            )
+            if data_path.endswith(".slp") and video_index is not None:
+                labels = sio.load_slp(data_path)
+                self.pipeline = provider.from_video(
+                    video=labels.videos[video_index],
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                )
+
+            else:  # for mp4 or hdf5 videos
+                self.pipeline = provider.from_filename(
+                    filename=data_path,
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
 
             self.videos = [self.pipeline.video]
-
-        else:
-            message = "Provider not recognised. Please use either `LabelsReader` or `VideoReader` as provider"
-            logger.error(message)
-            raise Exception(message)
 
     def _make_labeled_frames_from_generator(
         self,
@@ -1659,11 +1690,13 @@ def run_inference(
     max_height: Optional[int] = None,
     is_rgb: bool = False,
     anchor_part: Optional[str] = None,
-    provider: Optional[str] = None,
     only_labeled_frames: bool = False,
     only_suggested_frames: bool = False,
     batch_size: int = 4,
     queue_maxsize: int = 8,
+    video_index: Optional[int] = None,
+    video_dataset: Optional[str] = None,
+    video_input_format: str = "channels_last",
     frames: Optional[list] = None,
     crop_size: Optional[int] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
@@ -1719,12 +1752,14 @@ def run_inference(
                 image. Default: False.
         anchor_part: (str) The node name to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used.
-        provider: (str) Provider class to read the input sleap files.
-                Either "LabelsReader" or "VideoReader". Default: None.
         only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
         only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+        video_index: (int) Integer index of video in .slp file to predict on. To be used with
+                an .slp path as an alternative to specifying the video path.
+        video_dataset: (str) The dataset for HDF5 videos.
+        video_input_format: (str) The input_format for HDF5 videos.
         frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
         crop_size: (int) Crop size. If not provided, the crop size from training_config.yaml is used.
                 Default: None.
@@ -1817,16 +1852,6 @@ def run_inference(
         "anchor_part": anchor_part,
     }
 
-    if provider is None:
-        if data_path.endswith(".slp"):
-            provider = "LabelsReader"
-        else:
-            provider = "VideoReader"
-
-    if provider == "VideoReader":
-        preprocess_config["video_queue_maxsize"] = queue_maxsize
-        preprocess_config["frames"] = frames
-
     # initializes the inference model
     predictor = Predictor.from_model_paths(
         model_paths,
@@ -1875,12 +1900,14 @@ def run_inference(
     # initialize make_pipeline function
 
     predictor.make_pipeline(
-        provider,
         data_path,
         queue_maxsize,
         frames,
         only_labeled_frames,
         only_suggested_frames,
+        video_index=video_index,
+        video_dataset=video_dataset,
+        video_input_format=video_input_format,
     )
 
     # run predict

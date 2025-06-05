@@ -38,7 +38,6 @@ def test_topdown_predictor(
     pred_labels = run_inference(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         return_confmaps=False,
         make_labels=True,
         peak_threshold=0.0,
@@ -68,11 +67,22 @@ def test_topdown_predictor(
     assert lf.instances[1].numpy().shape == gt_lf.instances[1].numpy().shape
     assert lf.image.shape == gt_lf.image.shape
 
+    # with video_index
+    preds = run_inference(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        video_index=0,
+        frames=[0],
+        make_labels=True,
+        peak_threshold=0.0,
+    )
+    assert isinstance(preds, sio.Labels)
+    assert len(preds) == 1
+
     # check if dictionaries are created when make labels is set to False
     preds = run_inference(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         make_labels=False,
         peak_threshold=0.0,
         integral_refinement="integral",
@@ -95,7 +105,6 @@ def test_topdown_predictor(
         preds = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
-            provider="LabelsReader",
             make_labels=False,
         )
     assert "Could not create predictor" in caplog.text
@@ -106,7 +115,6 @@ def test_topdown_predictor(
     pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=[0.0, 0.0],
@@ -146,26 +154,12 @@ def test_topdown_predictor(
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 100
 
-    # Unrecognized provider
-    with pytest.raises(
-        Exception,
-    ):
-        pred_labels = run_inference(
-            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
-            data_path="./tests/assets/centered_pair_small.mp4",
-            provider="Reader",
-            make_labels=True,
-            max_instances=6,
-        )
-    assert "Provider not recognised." in caplog.text
-
     # Provider = VideoReader
     # error in Videoreader but graceful execution
 
     pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
-        provider="VideoReader",
         make_labels=True,
         max_instances=6,
         frames=[1100, 1101, 1102, 1103],
@@ -181,7 +175,6 @@ def test_topdown_predictor(
         pred_labels = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
-            provider="VideoReader",
             make_labels=True,
             max_instances=6,
             frames=[x for x in range(100)],
@@ -193,7 +186,6 @@ def test_topdown_predictor(
     pred_labels = run_inference(
         model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
-        provider="VideoReader",
         make_labels=True,
         max_instances=2,
         peak_threshold=0.1,
@@ -683,7 +675,6 @@ def test_single_instance_predictor(
         pred_labels = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
-            provider="LabelsReader",
             make_labels=True,
             max_instances=6,
             peak_threshold=0.1,
@@ -710,7 +701,6 @@ def test_single_instance_predictor(
         preds = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/minimal_instance.pkg.slp",
-            provider="LabelsReader",
             make_labels=False,
             peak_threshold=0.3,
         )
@@ -718,6 +708,53 @@ def test_single_instance_predictor(
         assert len(preds) == 1
         assert isinstance(preds[0], dict)
         assert "pred_confmaps" not in preds[0].keys()
+
+    finally:
+        # save the original config back
+        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
+
+    # slp file with video index
+    _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+
+    config = _config.copy()
+
+    try:
+        head_config = config.model_config.head_configs.centered_instance
+        del config.model_config.head_configs.centered_instance
+        OmegaConf.update(
+            config, "model_config.head_configs.single_instance", head_config
+        )
+        del config.model_config.head_configs.single_instance.confmaps.anchor_part
+        OmegaConf.update(config, "data_config.preprocessing.scale", 0.9)
+
+        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
+
+        # check if labels are created from ckpt
+        pred_labels = run_inference(
+            model_paths=[minimal_instance_ckpt],
+            data_path="./tests/assets/minimal_instance.pkg.slp",
+            video_index=0,
+            frames=[0],
+            make_labels=True,
+            peak_threshold=0.1,
+        )
+        assert isinstance(pred_labels, sio.Labels)
+        assert len(pred_labels) == 1
+        assert len(pred_labels[0].instances) == 1
+        lf = pred_labels[0]
+
+        # check if the predicted labels have same video and skeleton as the ground truth labels
+        gt_labels = sio.load_slp(minimal_instance)
+        gt_lf = gt_labels[0]
+        skl = pred_labels.skeletons[0]
+        gt_skl = gt_labels.skeletons[0]
+        assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+        assert len(skl.edges) == len(gt_skl.edges)
+        for a, b in zip(skl.edges, gt_skl.edges):
+            assert a[0].name == b[0].name and a[1].name == b[1].name
+        assert skl.symmetries == gt_skl.symmetries
+        assert lf.frame_idx == gt_lf.frame_idx
+        assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
 
     finally:
         # save the original config back
@@ -743,7 +780,6 @@ def test_single_instance_predictor(
         pred_labels = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
-            provider="VideoReader",
             make_labels=True,
             peak_threshold=0.3,
         )
@@ -767,7 +803,6 @@ def test_single_instance_predictor(
         preds = run_inference(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
-            provider="VideoReader",
             make_labels=False,
             peak_threshold=0.3,
             frames=[x for x in range(100)],
@@ -777,36 +812,6 @@ def test_single_instance_predictor(
         assert preds[0]["pred_instance_peaks"].shape[0] == 4
         assert isinstance(preds[0], dict)
         assert "pred_confmaps" not in preds[0].keys()
-
-    finally:
-        # save the original config back
-        OmegaConf.save(_config, f"{minimal_instance_ckpt}/training_config.yaml")
-
-    # unrecognized provider
-    _config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-
-    config = _config.copy()
-
-    try:
-        head_config = config.model_config.head_configs.centered_instance
-        del config.model_config.head_configs.centered_instance
-        OmegaConf.update(
-            config, "model_config.head_configs.single_instance", head_config
-        )
-        del config.model_config.head_configs.single_instance.confmaps.anchor_part
-        OmegaConf.save(config, f"{minimal_instance_ckpt}/training_config.yaml")
-
-        # check if labels are created from ckpt
-        with pytest.raises(
-            Exception,
-        ):
-            preds = run_inference(
-                model_paths=[minimal_instance_ckpt],
-                data_path="./tests/assets/centered_pair_small.mp4",
-                provider="Reader",
-                make_labels=False,
-                peak_threshold=0.3,
-            )
 
     finally:
         # save the original config back
@@ -922,7 +927,6 @@ def test_bottomup_predictor(
     pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=0.03,
@@ -949,7 +953,6 @@ def test_bottomup_predictor(
     preds = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         make_labels=False,
         max_instances=6,
         peak_threshold=0.03,
@@ -962,11 +965,21 @@ def test_bottomup_predictor(
     assert tuple(preds[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
     assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
 
+    # with video_index
+    preds = run_inference(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        video_index=0,
+        frames=[0],
+        make_labels=True,
+    )
+    assert isinstance(preds, sio.Labels)
+    assert len(preds) == 1
+
     # with higher threshold
     pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=1.0,
@@ -979,7 +992,6 @@ def test_bottomup_predictor(
     pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
-        provider="VideoReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=0.03,
@@ -994,7 +1006,6 @@ def test_bottomup_predictor(
     preds = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/centered_pair_small.mp4",
-        provider="VideoReader",
         make_labels=False,
         max_instances=6,
         peak_threshold=0.03,
@@ -1008,25 +1019,10 @@ def test_bottomup_predictor(
     assert tuple(preds[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
     assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
 
-    # unrecognized provider
-    with pytest.raises(
-        Exception,
-    ):
-        preds = run_inference(
-            model_paths=[minimal_instance_bottomup_ckpt],
-            data_path="./tests/assets/minimal_instance.pkg.slp",
-            provider="Reader",
-            make_labels=True,
-            max_instances=6,
-            peak_threshold=0.03,
-        )
-    assert "Provider not recognised." in caplog.text
-
     # test with tracking
     pred_labels = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        provider="LabelsReader",
         make_labels=True,
         max_instances=6,
         peak_threshold=0.03,
