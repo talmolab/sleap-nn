@@ -592,66 +592,42 @@ def run_training(config: DictConfig):
 
     # run inference on val dataset
     if config.trainer_config.save_ckpt:
-        labels_path = config.data_config.val_labels_path
-        if labels_path is None:
-            labels_path = config.data_config.train_labels_path
-            dataset = "train"
-        else:
-            dataset = "val"
-        labels = sio.load_slp(labels_path)
+        data_paths = {
+            "train": (Path(trainer.dir_path) / "labels_train_gt.slp").as_posix(),
+            "val": (Path(trainer.dir_path) / "labels_val_gt.slp").as_posix(),
+        }
 
-        pred_labels = predict(
-            data_path=labels_path,
-            model_paths=[trainer.dir_path],
-            peak_threshold=0.2,
-            make_labels=True,
-            output_path=Path(trainer.dir_path) / f"pred_{dataset}.slp",
-        )
-
-        evaluator = Evaluator(
-            ground_truth_instances=labels, predicted_instances=pred_labels
-        )
-        metrics = evaluator.evaluate()
-        np.savez(
-            (Path(trainer.dir_path) / f"{dataset}_pred_metrics.npz").as_posix(),
-            **metrics,
-        )
-
-        logger.info(f"Evaluation on `{dataset}` dataset")
-        logger.info(f"OKS: {metrics['voc_metrics']['oks_voc.mAP']}")
-        logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
-        logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
-        logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
-
-        # run inference on test data
         if (
-            "test_file_path" in config.data_config
-            and config.data_config.test_file_path is not None
+            OmegaConf.select(config, "data_config.test_file_path", default=None)
+            is not None
         ):
-            test_labels = sio.load_slp(config.data_config.test_file_path)
+            data_paths["test"] = config.data_config.test_file_path
+
+        for d_name, path in data_paths.items():
+            labels = sio.load_slp(path)
 
             pred_labels = predict(
-                data_path=config.data_config.test_file_path,
+                data_path=path,
                 model_paths=[trainer.dir_path],
                 peak_threshold=0.2,
                 make_labels=True,
-                output_path=Path(trainer.dir_path) / "pred_test.slp",
+                output_path=Path(trainer.dir_path) / f"pred_{d_name}.slp",
             )
 
             evaluator = Evaluator(
-                ground_truth_instances=test_labels, predicted_instances=pred_labels
+                ground_truth_instances=labels, predicted_instances=pred_labels
             )
-            test_metrics = evaluator.evaluate()
+            metrics = evaluator.evaluate()
             np.savez(
-                (Path(trainer.dir_path) / "test_pred_metrics.npz").as_posix(),
-                **test_metrics,
+                (Path(trainer.dir_path) / f"{d_name}_pred_metrics.npz").as_posix(),
+                **metrics,
             )
 
-            logger.info(f"EVALUATION ON TEST DATASET")
-            logger.info(f"OKS: {test_metrics['voc_metrics']['oks_voc.mAP']}")
-            logger.info(f"Average distance: {test_metrics['distance_metrics']['avg']}")
-            logger.info(f"p90 dist: {test_metrics['distance_metrics']['p90']}")
-            logger.info(f"p50 dist: {test_metrics['distance_metrics']['p50']}")
+            logger.info(f"Evaluation on `{d_name}` dataset")
+            logger.info(f"OKS: {metrics['voc_metrics']['oks_voc.mAP']}")
+            logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
+            logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
+            logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
 
 
 def train(

@@ -518,6 +518,11 @@ def test_main(sample_cfg):
     )
     assert Path(sample_cfg.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
     assert (
+        Path(sample_cfg.trainer_config.save_ckpt_path)
+        .joinpath("pred_train.slp")
+        .exists()
+    )
+    assert (
         Path(sample_cfg.trainer_config.save_ckpt_path).joinpath("pred_val.slp").exists()
     )
     assert (
