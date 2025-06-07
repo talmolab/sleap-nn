@@ -1424,6 +1424,8 @@ class BottomUpPredictor(Predictor):
             An instance of `BottomUpPredictor` with the loaded models.
 
         """
+        if device == "mps":
+            device = "cpu"  # nested tensor doesn't have support for `mps`.
         bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
         ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
@@ -1714,7 +1716,7 @@ def run_inference(
     make_labels: bool = True,
     ##
     output_path: str = "",
-    device: str = "cpu",
+    device: str = "auto",
     tracking: bool = False,
     tracking_window_size: int = 5,
     tracking_instance_score_threshold: float = 0.0,
@@ -1804,8 +1806,8 @@ def run_inference(
         output_path: (str) Path to save the labels file if `make_labels` is True.
                 Default is current working directory.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
-                Default: "cpu".
+                ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu').
+                Default: "auto" (based on available backend either cuda, mps or cpu is chosen).
         tracking: (bool) If True, runs tracking on the predicted instances.
         tracking_window_size: Number of frames to look for in the candidate instances to match
                 with the current detections. Default: 5.
@@ -1851,6 +1853,17 @@ def run_inference(
         "max_height": max_height,
         "anchor_part": anchor_part,
     }
+
+    if device == "auto":
+        device = (
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.backends.mps.is_available() else "cpu"
+        )
+
+    if integral_refinement is not None:
+        # kornia/geometry/transform/imgwarp.py:382: in get_perspective_transform. NotImplementedError: The operator 'aten::_linalg_solve_ex.result' is not currently implemented for the MPS device. If you want this op to be added in priority during the prototype phase of this feature, please comment on https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be slower than running natively on MPS.
+        device = "cpu"
 
     # initializes the inference model
     predictor = Predictor.from_model_paths(
