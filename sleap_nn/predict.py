@@ -189,10 +189,11 @@ def _make_cli_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",
+        default="auto",
         help=(
             "Device on which torch.Tensor will be allocated. One of the"
-            "('cpu', 'cuda', 'mkldnn', 'opengl', 'opencl', 'ideep', 'hip', 'msnpu')."
+            "('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu')."
+            "Default: 'auto' (based on available backend either cuda, mps or cpu is chosen)."
         ),
     )
     parser.add_argument(

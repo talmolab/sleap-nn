@@ -83,6 +83,7 @@ def test_topdown_predictor(
     preds = run_inference(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
+        device="auto",
         make_labels=False,
         peak_threshold=0.0,
         integral_refinement="integral",
