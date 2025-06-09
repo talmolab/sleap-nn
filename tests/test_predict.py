@@ -18,6 +18,8 @@ def test_predict_main(
             f"{minimal_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
+            "--device",
+            "cpu",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
@@ -40,6 +42,8 @@ def test_predict_main(
             f"{tmp_path}/minimal_inst_topdown_preds.slp",
             "--peak_threshold",
             f"{0.0}",
+            "--device",
+            "cpu",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_topdown_preds.slp").exists()
@@ -64,6 +68,8 @@ def test_predict_main(
             "0-5",
             "--peak_threshold",
             f"{0.0}",
+            "--device",
+            "cpu",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
@@ -87,6 +93,8 @@ def test_predict_main(
             "0,1,2",
             "--peak_threshold",
             f"{0.0}",
+            "--device",
+            "cpu",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
@@ -110,6 +118,8 @@ def test_predict_main(
             "0-3",
             "--peak_threshold",
             f"{0.0}",
+            "--device",
+            "cpu",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
@@ -135,6 +145,8 @@ def test_predict_main(
             "0",
             "--peak_threshold",
             f"{0.0}",
+            "--device",
+            "cpu",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
