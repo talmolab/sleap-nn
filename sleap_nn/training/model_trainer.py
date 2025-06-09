@@ -224,21 +224,41 @@ class ModelTrainer:
 
         if self.config.data_config.preprocessing.scale is None:
             self.config.data_config.preprocessing.scale = 1.0
+            
+        train_labels = []
+        for path in self.config.data_config.train_labels_path:
+            train_labels.append(sio.load_slp(self.config.data_config.train_labels_path[path]))
 
-        train_labels = sio.load_slp(self.config.data_config.train_labels_path)
+        
         val_labels_path = self.config.data_config.val_labels_path
+
+        self.train_labels = []
+        self.val_labels = []
+        
         if val_labels_path is None:
             val_fraction = OmegaConf.select(
                 self.config, "data_config.validation_fraction", default=0.1
             )
-            self.train_labels, self.val_labels = train_labels.make_training_splits(
-                n_train=1 - val_fraction, n_val=val_fraction
-            )
+            for label in train_labels:
+                temp_train_labels, temp_val_labels = label.make_training_splits(
+                    n_train=1 - val_fraction, n_val=val_fraction
+                )
+                self.train_labels.append(temp_train_labels)
+                self.val_labels.append(temp_val_labels)
         else:
             self.train_labels = train_labels
-            self.val_labels = sio.load_slp(val_labels_path)
+            for path in self.config.data_config.val_labels_path:
+                self.val_labels.append(sio.load_slp(path))
 
-        self.max_height, self.max_width = get_max_height_width(self.train_labels)
+        self.max_height, self.max_width = 0
+        for x in self.train_labels:
+            max_height, max_width = get_max_height_width(self.train_labels[x])
+
+            if max_height > self.max_height:
+                self.max_height = max_height
+            if max_width > self.max_width:
+                self.max_width = max_width
+            
         if (
             self.config.data_config.preprocessing.max_height is None
             and self.config.data_config.preprocessing.max_width is None
@@ -256,13 +276,20 @@ class ModelTrainer:
                     if "min_crop_size" in self.config.data_config.preprocessing
                     else None
                 )
-                crop_size = find_instance_crop_size(
-                    self.train_labels,
-                    maximum_stride=self.max_stride,
-                    min_crop_size=min_crop_size,
-                    input_scaling=self.config.data_config.preprocessing.scale,
-                )
-                self.crop_hw = crop_size
+                for label in self.train_labels:
+                    max_crop_size = 0
+                    crop_size = find_instance_crop_size(
+                        self.train_labels[label],
+                        maximum_stride=self.max_stride,
+                        min_crop_size=min_crop_size,
+                        input_scaling=self.config.data_config.preprocessing.scale,
+                    )
+                    if crop_size > max_crop_size:
+                        max_crop_size = crop_size
+                        
+               
+                        
+                self.crop_hw = max_crop_size
                 self.config.data_config.preprocessing.crop_hw = (
                     self.crop_hw,
                     self.crop_hw,
