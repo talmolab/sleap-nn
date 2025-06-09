@@ -224,17 +224,18 @@ class ModelTrainer:
 
         if self.config.data_config.preprocessing.scale is None:
             self.config.data_config.preprocessing.scale = 1.0
-            
+
         train_labels = []
         for path in self.config.data_config.train_labels_path:
-            train_labels.append(sio.load_slp(self.config.data_config.train_labels_path[path]))
+            train_labels.append(
+                sio.load_slp(self.config.data_config.train_labels_path[path])
+            )
 
-        
         val_labels_path = self.config.data_config.val_labels_path
 
         self.train_labels = []
         self.val_labels = []
-        
+
         if val_labels_path is None:
             val_fraction = OmegaConf.select(
                 self.config, "data_config.validation_fraction", default=0.1
@@ -258,7 +259,7 @@ class ModelTrainer:
                 self.max_height = max_height
             if max_width > self.max_width:
                 self.max_width = max_width
-            
+
         if (
             self.config.data_config.preprocessing.max_height is None
             and self.config.data_config.preprocessing.max_width is None
@@ -286,9 +287,7 @@ class ModelTrainer:
                     )
                     if crop_size > max_crop_size:
                         max_crop_size = crop_size
-                        
-               
-                        
+
                 self.crop_hw = max_crop_size
                 self.config.data_config.preprocessing.crop_hw = (
                     self.crop_hw,
