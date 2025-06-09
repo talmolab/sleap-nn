@@ -41,6 +41,7 @@ def test_topdown_predictor(
         return_confmaps=False,
         make_labels=True,
         peak_threshold=0.0,
+        device="cpu",
         output_path=f"{tmp_path}/test.pkg.slp",
     )
     assert isinstance(pred_labels, sio.Labels)
@@ -74,6 +75,7 @@ def test_topdown_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
+        device="cpu",
         peak_threshold=0.0,
     )
     assert isinstance(preds, sio.Labels)
@@ -83,7 +85,7 @@ def test_topdown_predictor(
     preds = run_inference(
         model_paths=[minimal_instance_ckpt],
         data_path="./tests/assets/minimal_instance.pkg.slp",
-        device="auto",
+        device="cpu",
         make_labels=False,
         peak_threshold=0.0,
         integral_refinement="integral",
@@ -119,6 +121,7 @@ def test_topdown_predictor(
         make_labels=True,
         max_instances=6,
         peak_threshold=[0.0, 0.0],
+        device="cpu",
         integral_refinement="integral",
     )
     assert isinstance(pred_labels, sio.Labels)
@@ -132,6 +135,7 @@ def test_topdown_predictor(
         data_path="./tests/assets/minimal_instance.pkg.slp",
         make_labels=False,
         max_instances=max_instances,
+        device="cpu",
         peak_threshold=0.1,
     )
     assert len(pred_labels) == 1
@@ -147,6 +151,7 @@ def test_topdown_predictor(
         data_path="./tests/assets/centered_pair_small.mp4",
         make_labels=True,
         max_instances=6,
+        device="cpu",
         peak_threshold=[0.0, 0.0],
         integral_refinement="integral",
         frames=[x for x in range(100)],
@@ -163,6 +168,7 @@ def test_topdown_predictor(
         data_path="./tests/assets/centered_pair_small.mp4",
         make_labels=True,
         max_instances=6,
+        device="cpu",
         frames=[1100, 1101, 1102, 1103],
         peak_threshold=0.1,
     )
@@ -178,6 +184,7 @@ def test_topdown_predictor(
             data_path="./tests/assets/centered_pair_small.mp4",
             make_labels=True,
             max_instances=6,
+            device="cpu",
             frames=[x for x in range(100)],
             peak_threshold=0.1,
         )
@@ -189,6 +196,7 @@ def test_topdown_predictor(
         data_path="./tests/assets/centered_pair_small.mp4",
         make_labels=True,
         max_instances=2,
+        device="cpu",
         peak_threshold=0.1,
         frames=[x for x in range(20)],
         tracking=True,
@@ -678,6 +686,7 @@ def test_single_instance_predictor(
             data_path="./tests/assets/minimal_instance.pkg.slp",
             make_labels=True,
             max_instances=6,
+            device="cpu",
             peak_threshold=0.1,
         )
         assert isinstance(pred_labels, sio.Labels)
@@ -704,6 +713,7 @@ def test_single_instance_predictor(
             data_path="./tests/assets/minimal_instance.pkg.slp",
             make_labels=False,
             peak_threshold=0.3,
+            device="cpu",
         )
         assert isinstance(preds, list)
         assert len(preds) == 1
@@ -736,6 +746,7 @@ def test_single_instance_predictor(
             data_path="./tests/assets/minimal_instance.pkg.slp",
             video_index=0,
             frames=[0],
+            device="cpu",
             make_labels=True,
             peak_threshold=0.1,
         )
@@ -782,6 +793,7 @@ def test_single_instance_predictor(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
             make_labels=True,
+            device="cpu",
             peak_threshold=0.3,
         )
         assert isinstance(pred_labels, sio.Labels)
@@ -805,6 +817,7 @@ def test_single_instance_predictor(
             model_paths=[minimal_instance_ckpt],
             data_path="./tests/assets/centered_pair_small.mp4",
             make_labels=False,
+            device="cpu",
             peak_threshold=0.3,
             frames=[x for x in range(100)],
         )

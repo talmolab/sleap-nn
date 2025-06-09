@@ -611,6 +611,7 @@ def run_training(config: DictConfig):
                 model_paths=[trainer.dir_path],
                 peak_threshold=0.2,
                 make_labels=True,
+                device=trainer.trainer.strategy.root_device,
                 output_path=Path(trainer.dir_path) / f"pred_{d_name}.slp",
             )
 
