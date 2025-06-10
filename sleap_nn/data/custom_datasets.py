@@ -65,7 +65,7 @@ class BaseDataset(Dataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: List[sio.Labels],
         max_stride: int,
         user_instances_only: bool = True,
         is_rgb: bool = False,
@@ -90,8 +90,14 @@ class BaseDataset(Dataset):
         self.apply_aug = apply_aug
         self.max_hw = max_hw
         self.rank = rank
-        self.max_instances = get_max_instances(self.labels) if self.labels else None
-        self.lf_idx_list = self._get_lf_idx_list() if self.labels else None
+        self.max_instances = 0
+        for x in self.labels:
+            max_instances = get_max_instances(x) if x else None
+
+            if max_instances > self.max_instances:
+                self.max_instances = max_instances
+
+        self.lf_idx_list = self._get_lf_idx_list()
         self.cache_img = cache_img
         self.cache_img_path = cache_img_path
         self.use_existing_imgs = use_existing_imgs
@@ -122,18 +128,19 @@ class BaseDataset(Dataset):
     def _get_lf_idx_list(self) -> List[Tuple[int]]:
         """Return list of indices of labelled frames."""
         lf_idx_list = []
-        for lf_idx, lf in enumerate(self.labels):
-            # Filter to user instances
-            if self.user_instances_only:
-                if lf.user_instances is not None and len(lf.user_instances) > 0:
-                    lf.instances = lf.user_instances
-            is_empty = True
-            for _, inst in enumerate(lf.instances):
-                if not inst.is_empty:  # filter all NaN instances.
-                    is_empty = False
-            if not is_empty:
-                lf_idx_list.append((lf_idx))
-        return lf_idx_list
+        for labels_idx, label in enumerate(self.labels):
+            for lf_idx, lf in enumerate(label):
+                # Filter to user instances
+                if self.user_instances_only:
+                    if lf.user_instances is not None and len(lf.user_instances) > 0:
+                        lf.instances = lf.user_instances
+                is_empty = True
+                for _, inst in enumerate(lf.instances):
+                    if not inst.is_empty:  # filter all NaN instances.
+                        is_empty = False
+                if not is_empty:
+                    lf_idx_list.append((labels_idx, lf_idx))
+            return lf_idx_list
 
     def __next__(self):
         """Get the next sample from the dataset."""
@@ -150,23 +157,24 @@ class BaseDataset(Dataset):
 
     def _fill_cache(self):
         """Load all samples to cache."""
-        for lf_idx in self.lf_idx_list:
-            img = self.labels[lf_idx].image
+        for labels_idx, lf_idx in self.lf_idx_list:
+            img = self.labels[labels_idx][lf_idx].image
             if img.shape[-1] == 1:
                 img = np.squeeze(img)
             if self.cache_img == "disk":
-                f_name = f"{self.cache_img_path}/sample_{lf_idx}.jpg"
+                f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
                 Image.fromarray(img).save(f_name, format="JPEG")
             if self.cache_img == "memory":
-                self.cache[lf_idx] = img
+                self.cache[(labels_idx, lf_idx)] = img
 
-        for video in self.labels.videos:
-            if video.is_open:
-                video.close()
+        for label in self.labels:
+            for video in label.videos:
+                if video.is_open:
+                    video.close()
 
-    def _get_video_idx(self, lf):
+    def _get_video_idx(self, lf, labels_idx):
         """Return indsample of `lf.video` in `labels.videos`."""
-        return self.labels.videos.index(lf.video)
+        return self.labels[labels_idx].videos.index(lf.video)
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
@@ -217,7 +225,7 @@ class BottomUpDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: List[sio.Labels],
         confmap_head_config: DictConfig,
         pafs_head_config: DictConfig,
         max_stride: int,
@@ -250,20 +258,26 @@ class BottomUpDataset(BaseDataset):
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
 
-        self.edge_inds = self.labels.skeletons[0].edge_inds
+        self.edge_inds = {}
+        for label in self.labels:
+            self.edge_inds[labels_idx] = label.skeletons[0].edge_inds
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
-        lf_idx = self.lf_idx_list[index]
+        (labels_idx, lf_idx) = self.lf_idx_list[index]
 
-        lf = self.labels[lf_idx]
+        lf = self.labels[labels_idx][lf_idx]
 
         # load the img
         if self.cache_img is not None:
             if self.cache_img == "disk":
-                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
             elif self.cache_img == "memory":
-                img = self.cache[lf_idx].copy()
+                img = self.cache[(labels_idx, lf_idx)].copy()
 
         else:  # load from slp file if not cached
             img = lf.image
@@ -271,7 +285,7 @@ class BottomUpDataset(BaseDataset):
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(lf)
+        video_idx = self._get_video_idx(labels_idx, lf)
 
         # get dict
         sample = process_lf(
@@ -343,12 +357,13 @@ class BottomUpDataset(BaseDataset):
             img_hw=img_hw,
             sigma=self.pafs_head_config.sigma,
             output_stride=self.pafs_head_config.output_stride,
-            edge_inds=torch.Tensor(self.edge_inds),
+            edge_inds=torch.Tensor(self.edge_inds[labels_idx]),
             flatten_channels=True,
         )
 
         sample["confidence_maps"] = confidence_maps
         sample["part_affinity_fields"] = pafs
+        sample["labels_idx"] = labels_idx
 
         return sample
 
@@ -392,7 +407,7 @@ class CenteredInstanceDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: List[sio.Labels],
         crop_hw: Tuple[int],
         confmap_head_config: DictConfig,
         max_stride: int,
@@ -426,21 +441,22 @@ class CenteredInstanceDataset(BaseDataset):
         self.crop_hw = crop_hw
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
-        self.instance_idx_list = self._get_instance_idx_list() if self.labels else None
+        self.instance_idx_list = self._get_instance_idx_list()
         self.cache_lf = [None, None]
 
     def _get_instance_idx_list(self) -> List[Tuple[int]]:
         """Return list of tuples with indices of labelled frames and instances."""
         instance_idx_list = []
-        for lf_idx, lf in enumerate(self.labels):
-            # Filter to user instances
-            if self.user_instances_only:
-                if lf.user_instances is not None and len(lf.user_instances) > 0:
-                    lf.instances = lf.user_instances
-            for inst_idx, inst in enumerate(lf.instances):
-                if not inst.is_empty:  # filter all NaN instances.
-                    instance_idx_list.append((lf_idx, inst_idx))
-        return instance_idx_list
+        for labels_idx, label in enumerate(self.labels):
+            for lf_idx, lf in enumerate(label):
+                # Filter to user instances
+                if self.user_instances_only:
+                    if lf.user_instances is not None and len(lf.user_instances) > 0:
+                        lf.instances = lf.user_instances
+                for inst_idx, inst in enumerate(lf.instances):
+                    if not inst.is_empty:  # filter all NaN instances.
+                        instance_idx_list.append((labels_idx, lf_idx, inst_idx))
+            return instance_idx_list
 
     def __len__(self) -> int:
         """Return number of instances in the labels object."""
@@ -448,8 +464,8 @@ class CenteredInstanceDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
-        lf_idx, inst_idx = self.instance_idx_list[index]
-        lf = self.labels[lf_idx]
+        labels_idx, lf_idx, inst_idx = self.instance_idx_list[index]
+        lf = self.labels[labels_idx][lf_idx]
 
         if lf_idx == self.cache_lf[0]:
             img = self.cache_lf[1]
@@ -458,10 +474,12 @@ class CenteredInstanceDataset(BaseDataset):
             if self.cache_img is not None:
                 if self.cache_img == "disk":
                     img = np.array(
-                        Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg")
+                        Image.open(
+                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                        )
                     )
                 elif self.cache_img == "memory":
-                    img = self.cache[lf_idx].copy()
+                    img = self.cache[(labels_idx, lf_idx)].copy()
 
             else:  # load from slp file if not cached
                 img = lf.image  # TODO: doesn't work when num_workers > 0
@@ -471,7 +489,7 @@ class CenteredInstanceDataset(BaseDataset):
 
             self.cache_lf = [lf_idx, img]
 
-        video_idx = self._get_video_idx(lf)
+        video_idx = self._get_video_idx(labels_idx, lf)
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
@@ -590,6 +608,7 @@ class CenteredInstanceDataset(BaseDataset):
         )
 
         sample["confidence_maps"] = confidence_maps
+        sample["labels_idx"] = labels_idx
 
         return sample
 
@@ -631,7 +650,7 @@ class CentroidDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: List[sio.Labels],
         confmap_head_config: DictConfig,
         max_stride: int,
         anchor_ind: Optional[int] = None,
@@ -666,16 +685,20 @@ class CentroidDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
-        lf_idx = self.lf_idx_list[index]
+        (labels_idx, lf_idx) = self.lf_idx_list[index]
 
-        lf = self.labels[lf_idx]
+        lf = self.labels[labels_idx][lf_idx]
 
         # load the img
         if self.cache_img is not None:
             if self.cache_img == "disk":
-                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
             elif self.cache_img == "memory":
-                img = self.cache[lf_idx].copy()
+                img = self.cache[(labels_idx, lf_idx)].copy()
 
         else:  # load from slp file if not cached
             img = lf.image
@@ -683,7 +706,7 @@ class CentroidDataset(BaseDataset):
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(lf)
+        video_idx = self._get_video_idx(labels_idx, lf)
 
         # get dict
         sample = process_lf(
@@ -755,6 +778,7 @@ class CentroidDataset(BaseDataset):
         )
 
         sample["centroids_confidence_maps"] = confidence_maps
+        sample["labels_idx"] = labels_idx
 
         return sample
 
@@ -794,7 +818,7 @@ class SingleInstanceDataset(BaseDataset):
 
     def __init__(
         self,
-        labels: sio.Labels,
+        labels: List[sio.Labels],
         confmap_head_config: DictConfig,
         max_stride: int,
         user_instances_only: bool = True,
@@ -827,16 +851,20 @@ class SingleInstanceDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
-        lf_idx = self.lf_idx_list[index]
+        (labels_idx, lf_idx) = self.lf_idx_list[index]
 
-        lf = self.labels[lf_idx]
+        lf = self.labels[labels_idx][lf_idx]
 
         # load the img
         if self.cache_img is not None:
             if self.cache_img == "disk":
-                img = np.array(Image.open(f"{self.cache_img_path}/sample_{lf_idx}.jpg"))
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
             elif self.cache_img == "memory":
-                img = self.cache[lf_idx].copy()
+                img = self.cache[(labels_idx, lf_idx)].copy()
 
         else:  # load from slp file if not cached
             img = lf.image
@@ -844,7 +872,7 @@ class SingleInstanceDataset(BaseDataset):
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(lf)
+        video_idx = self._get_video_idx(labels_idx, lf)
 
         # get dict
         sample = process_lf(
@@ -909,6 +937,7 @@ class SingleInstanceDataset(BaseDataset):
         )
 
         sample["confidence_maps"] = confidence_maps
+        sample["labels_idx"] = labels_idx
 
         return sample
 
