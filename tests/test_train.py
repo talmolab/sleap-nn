@@ -12,8 +12,8 @@ def sample_cfg(minimal_instance, tmp_path):
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "train_labels_path": f"{minimal_instance}",
-                "val_labels_path": f"{minimal_instance}",
+                "train_labels_path": [f"{minimal_instance}"],
+                "val_labels_path": [f"{minimal_instance}"],
                 "user_instances_only": True,
                 "data_pipeline_fw": "torch_dataset",
                 "cache_img_path": None,
@@ -142,8 +142,8 @@ def sample_cfg(minimal_instance, tmp_path):
 )
 def test_train_method(minimal_instance, tmp_path: str):
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         test_file_path=minimal_instance,
         max_epochs=1,
         trainer_accelerator="cpu",
@@ -157,13 +157,13 @@ def test_train_method(minimal_instance, tmp_path: str):
         (Path(tmp_path) / "test_train_method").joinpath("training_config.yaml").exists()
     )
     assert (Path(tmp_path) / "test_train_method").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_train_method").joinpath("pred_val.slp").exists()
+    assert (Path(tmp_path) / "test_train_method").joinpath("pred_val_0.slp").exists()
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
 
     # with no val labels path
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=None,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[],
         validation_fraction=0.1,
         test_file_path=minimal_instance,
         max_epochs=1,
@@ -178,13 +178,13 @@ def test_train_method(minimal_instance, tmp_path: str):
         (Path(tmp_path) / "test_train_method").joinpath("training_config.yaml").exists()
     )
     assert (Path(tmp_path) / "test_train_method").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_train_method").joinpath("pred_train.slp").exists()
+    assert (Path(tmp_path) / "test_train_method").joinpath("pred_train_0.slp").exists()
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
 
     # convnext
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         test_file_path=minimal_instance,
         max_epochs=1,
         trainer_accelerator="cpu",
@@ -197,13 +197,13 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert folder_created
     assert (Path(tmp_path) / "test_convnext").joinpath("training_config.yaml").exists()
     assert (Path(tmp_path) / "test_convnext").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_convnext").joinpath("pred_val.slp").exists()
+    assert (Path(tmp_path) / "test_convnext").joinpath("pred_val_0.slp").exists()
     assert (Path(tmp_path) / "test_convnext").joinpath("pred_test.slp").exists()
 
     # swint
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         test_file_path=minimal_instance,
         max_epochs=1,
         trainer_accelerator="cpu",
@@ -216,14 +216,38 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert folder_created
     assert (Path(tmp_path) / "test_swint").joinpath("training_config.yaml").exists()
     assert (Path(tmp_path) / "test_swint").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_val.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_0.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_test.slp").exists()
+
+    # test for multiple slp files
+    train(
+        train_labels_path=[minimal_instance, minimal_instance, minimal_instance],
+        val_labels_path=[minimal_instance, minimal_instance, minimal_instance],
+        test_file_path=minimal_instance,
+        max_epochs=1,
+        trainer_accelerator="cpu",
+        backbone_config="swint",
+        head_configs="centered_instance",
+        save_ckpt=True,
+        save_ckpt_path=(Path(tmp_path) / "test_swint").as_posix(),
+    )
+    folder_created = (Path(tmp_path) / "test_swint").exists()
+    assert folder_created
+    assert (Path(tmp_path) / "test_swint").joinpath("training_config.yaml").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("best.ckpt").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_0.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_1.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_2.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_train_0.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_train_1.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("pred_train_2.slp").exists()
     assert (Path(tmp_path) / "test_swint").joinpath("pred_test.slp").exists()
 
     # with augmentations
     with pytest.raises(ValueError):
         train(
-            train_labels_path=minimal_instance,
-            val_labels_path=minimal_instance,
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
             max_epochs=1,
             trainer_accelerator="cpu",
             head_configs="centered_instance",
@@ -236,8 +260,8 @@ def test_train_method(minimal_instance, tmp_path: str):
 
     with pytest.raises(ValueError):
         train(
-            train_labels_path=minimal_instance,
-            val_labels_path=minimal_instance,
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
             max_epochs=1,
             trainer_accelerator="cpu",
             head_configs="centered_instance",
@@ -249,8 +273,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         )
 
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu",
         head_configs="centered_instance",
@@ -269,8 +293,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert config.data_config.augmentation_config.geometric.affine_p == 1.0
 
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu",
         head_configs="centered_instance",
@@ -290,8 +314,8 @@ def test_train_method(minimal_instance, tmp_path: str):
 
     ## test with passing dicts for aug
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu",
         head_configs="centered_instance",
@@ -314,8 +338,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     # backbone configs #TODO
     with pytest.raises(ValueError):
         train(
-            train_labels_path=minimal_instance,
-            val_labels_path=minimal_instance,
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
             max_epochs=1,
             backbone_config="resnet",
             trainer_accelerator="cpu",
@@ -325,8 +349,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         )
 
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         backbone_config={
             "unet": {
@@ -354,8 +378,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     # head configs
     with pytest.raises(ValueError):
         train(
-            train_labels_path=minimal_instance,
-            val_labels_path=minimal_instance,
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
             max_epochs=1,
             backbone_config="unet",
             trainer_accelerator="cpu",
@@ -365,8 +389,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         )
 
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=20,
         trainer_accelerator="cpu",
         backbone_config="unet",
@@ -404,8 +428,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     # assert config.model_config.head_configs.bottomup is None
 
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu",
         head_configs="bottomup",
@@ -419,8 +443,8 @@ def test_train_method(minimal_instance, tmp_path: str):
 
     ## pass dict for head_configs
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu",
         head_configs={
@@ -443,8 +467,8 @@ def test_train_method(minimal_instance, tmp_path: str):
 
     ## pass dict for scheduler
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu",
         head_configs={
@@ -463,8 +487,8 @@ def test_train_method(minimal_instance, tmp_path: str):
 
     ## reduce lr on plateau
     train(
-        train_labels_path=minimal_instance,
-        val_labels_path=minimal_instance,
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu",
         head_configs={
@@ -491,8 +515,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     ## invalid scheduler
     with pytest.raises(ValueError):
         train(
-            train_labels_path=minimal_instance,
-            val_labels_path=minimal_instance,
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
             max_epochs=1,
             trainer_accelerator="cpu",
             head_configs="centered_instance",

@@ -32,7 +32,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_bottom_config.use_augmentations_train,
     )
 
@@ -45,6 +45,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "orig_size",
         "num_instances",
         "part_affinity_fields",
+        "labels_idx",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -75,7 +76,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         is_rgb=True,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         cache_img="memory",
         apply_aug=base_bottom_config.use_augmentations_train,
     )
@@ -90,6 +91,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "orig_size",
         "num_instances",
         "part_affinity_fields",
+        "labels_idx",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -148,7 +150,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_bottom_config.use_augmentations_train,
     )
 
@@ -161,6 +163,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "orig_size",
         "num_instances",
         "part_affinity_fields",
+        "labels_idx",
     ]
 
     sample = next(iter(dataset))
@@ -178,7 +181,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_bottom_config.use_augmentations_train,
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
@@ -194,6 +197,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         "orig_size",
         "num_instances",
         "part_affinity_fields",
+        "labels_idx",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -229,7 +233,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         crop_hw=crop_hw,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_topdown_data_config.use_augmentations_train,
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
@@ -246,6 +250,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         "video_idx",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -262,7 +267,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         crop_hw=crop_hw,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         cache_img="memory",
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
@@ -278,6 +283,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         "video_idx",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -335,7 +341,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         is_rgb=True,
         confmap_head_config=confmap_head,
         crop_hw=(100, 100),
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
 
@@ -349,6 +355,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         "video_idx",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
 
     sample = next(iter(dataset))
@@ -407,7 +414,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         scale=2.0,
         confmap_head_config=confmap_head,
         crop_hw=(100, 100),
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
 
@@ -421,6 +428,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         "video_idx",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
 
     sample = next(iter(dataset))
@@ -456,7 +464,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
@@ -471,6 +479,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -489,7 +498,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         cache_img="memory",
         apply_aug=base_centroid_data_config.use_augmentations_train,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
     )
     dataset._fill_cache()
 
@@ -502,6 +511,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -558,7 +568,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
-        labels=sio.load_slp(minimal_instance),
+        labels=[sio.load_slp(minimal_instance)],
     )
 
     gt_sample_keys = [
@@ -570,6 +580,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         "centroids_confidence_maps",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
 
     sample = next(iter(dataset))
@@ -611,7 +622,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         is_rgb=True,
         scale=2.0,
         confmap_head_config=confmap_head,
-        labels=labels,
+        labels=[labels],
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
@@ -629,6 +640,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         "num_instances",
         "confidence_maps",
         "orig_size",
+        "labels_idx",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -643,7 +655,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         is_rgb=True,
         scale=2.0,
         confmap_head_config=confmap_head,
-        labels=labels,
+        labels=[labels],
         cache_img="memory",
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
     )
@@ -660,6 +672,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         "num_instances",
         "confidence_maps",
         "orig_size",
+        "labels_idx",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -713,7 +726,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         max_stride=8,
         scale=1.0,
         confmap_head_config=confmap_head,
-        labels=labels,
+        labels=[labels],
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
     )
 
@@ -727,6 +740,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         "confidence_maps",
         "orig_size",
         "num_instances",
+        "labels_idx",
     ]
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
@@ -763,7 +777,7 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
         is_rgb=True,
         scale=2.0,
         confmap_head_config=confmap_head,
-        labels=labels,
+        labels=[labels],
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
         cache_img=None,
     )

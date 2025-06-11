@@ -259,8 +259,8 @@ class BottomUpDataset(BaseDataset):
         self.pafs_head_config = pafs_head_config
 
         self.edge_inds = {}
-        for label in self.labels:
-            self.edge_inds[labels_idx] = label.skeletons[0].edge_inds
+        for index, label in enumerate(self.labels):
+            self.edge_inds[index] = label.skeletons[0].edge_inds
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
@@ -285,7 +285,7 @@ class BottomUpDataset(BaseDataset):
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(labels_idx, lf)
+        video_idx = self._get_video_idx(lf, labels_idx)
 
         # get dict
         sample = process_lf(
@@ -489,7 +489,7 @@ class CenteredInstanceDataset(BaseDataset):
 
             self.cache_lf = [lf_idx, img]
 
-        video_idx = self._get_video_idx(labels_idx, lf)
+        video_idx = self._get_video_idx(lf, labels_idx)
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
@@ -706,7 +706,7 @@ class CentroidDataset(BaseDataset):
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(labels_idx, lf)
+        video_idx = self._get_video_idx(lf, labels_idx)
 
         # get dict
         sample = process_lf(
@@ -872,7 +872,7 @@ class SingleInstanceDataset(BaseDataset):
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(labels_idx, lf)
+        video_idx = self._get_video_idx(lf, labels_idx)
 
         # get dict
         sample = process_lf(

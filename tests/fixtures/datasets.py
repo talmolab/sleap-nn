@@ -49,8 +49,8 @@ def config(sleap_data_dir):
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "train_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
-                "val_labels_path": f"{sleap_data_dir}/minimal_instance.pkg.slp",
+                "train_labels_path": [f"{sleap_data_dir}/minimal_instance.pkg.slp"],
+                "val_labels_path": [f"{sleap_data_dir}/minimal_instance.pkg.slp"],
                 "validation_fraction": 0.1,
                 "test_file_path": None,
                 "user_instances_only": True,

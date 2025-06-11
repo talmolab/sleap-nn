@@ -148,8 +148,8 @@ def test_load_bottomup_multiclass_training_config_from_file(
     config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
-    assert config.data_config.train_labels_path == None
-    assert config.data_config.val_labels_path == None
+    assert config.data_config.train_labels_path == []
+    assert config.data_config.val_labels_path == []
     assert config.model_config.backbone_config.unet.filters == 8
     assert config.model_config.backbone_config.unet.max_stride == 16
     assert config.trainer_config.max_epochs == 200
@@ -176,8 +176,8 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
     config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
-    assert config.data_config.train_labels_path == None
-    assert config.data_config.val_labels_path == None
+    assert config.data_config.train_labels_path == []
+    assert config.data_config.val_labels_path == []
     assert config.model_config.backbone_config.unet.filters == 16
     assert config.model_config.backbone_config.unet.max_stride == 8
     assert config.model_config.head_configs.bottomup.confmaps.part_names == ["A", "B"]
@@ -197,8 +197,8 @@ def test_load_centered_instance_training_config_from_file(
     config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
-    assert config.data_config.train_labels_path == None
-    assert config.data_config.val_labels_path == None
+    assert config.data_config.train_labels_path == []
+    assert config.data_config.val_labels_path == []
     assert config.model_config.head_configs.centered_instance.confmaps.part_names == [
         "A",
         "B",
@@ -285,8 +285,8 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
     # assert topdown.class_vectors.num_fc_layers == 3
     # pprint(config.model_config.head_configs)
     cfg = TrainingJobConfig()
-    cfg.data_config.train_labels_path = "test.slp"
-    cfg.data_config.val_labels_path = "test.slp"
+    cfg.data_config.train_labels_path = ["test.slp"]
+    cfg.data_config.val_labels_path = ["test.slp"]
     omegacfg = cfg.to_sleap_nn_cfg()
     assert isinstance(omegacfg, DictConfig)
-    assert omegacfg.data_config.train_labels_path == "test.slp"
+    assert omegacfg.data_config.train_labels_path == ["test.slp"]
