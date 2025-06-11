@@ -592,10 +592,14 @@ def run_training(config: DictConfig):
 
     # run inference on val dataset
     if config.trainer_config.save_ckpt:
-        data_paths = {
-            "train": (Path(trainer.dir_path) / "labels_train_gt.slp").as_posix(),
-            "val": (Path(trainer.dir_path) / "labels_val_gt.slp").as_posix(),
-        }
+        data_paths = {}
+        for index, path in enumerate(trainer.config.data_config.train_labels_path):
+            data_paths[f"train_{index}"] = (
+                Path(trainer.dir_path) / f"labels_train_gt_{index}.slp"
+            ).as_posix()
+            data_paths[f"val_{index}"] = (
+                Path(trainer.dir_path) / f"labels_val_gt_{index}.slp"
+            ).as_posix()
 
         if (
             OmegaConf.select(config, "data_config.test_file_path", default=None)
