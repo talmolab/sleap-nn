@@ -355,7 +355,7 @@ class BottomUpDataset(BaseDataset):
             img_hw=img_hw,
             sigma=self.pafs_head_config.sigma,
             output_stride=self.pafs_head_config.output_stride,
-            edge_inds=torch.Tensor(self.edge_inds[labels_idx]),
+            edge_inds=torch.Tensor(self.edge_inds),
             flatten_channels=True,
         )
 
