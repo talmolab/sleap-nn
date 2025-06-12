@@ -240,7 +240,6 @@ def get_edge_points(
         points respectively. Both will be tensors of shape (n_instances, n_edges, 2),
         where the last axis corresponds to (x, y) pixel coordinates on the image.
     """
-
     source_inds = edge_inds[:, 0].to(torch.int32)
     destination_inds = edge_inds[:, 1].to(torch.int32)
 
