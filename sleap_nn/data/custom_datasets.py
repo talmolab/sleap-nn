@@ -258,9 +258,7 @@ class BottomUpDataset(BaseDataset):
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
 
-        self.edge_inds = {}
-        for index, label in enumerate(self.labels):
-            self.edge_inds[index] = label.skeletons[0].edge_inds
+        self.edge_inds = self.labels[0].skeletons[0].edge_inds
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""

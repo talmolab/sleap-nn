@@ -850,7 +850,7 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
 def test_reuse_bin_files(config, tmp_path: str):
     """Test reusing `.bin` files."""
     # Centroid model
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
     centroid_config = config.copy()
     head_config = config.model_config.head_configs.centered_instance
     OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)

@@ -269,46 +269,46 @@ class ModelTrainer:
         self.max_height = 0
         self.max_width = 0
         max_crop_size = 0
-        for index, x in enumerate(self.train_labels):
+        for index, (x, y) in enumerate(zip(self.train_labels, self.val_labels)):
             x.save(Path(self.dir_path) / f"labels_train_gt_{index}.slp")
-            x.save(Path(self.dir_path) / f"labels_val_gt_{index}.slp")
+            y.save(Path(self.dir_path) / f"labels_val_gt_{index}.slp")
 
-            max_height, max_width = get_max_height_width(self.train_labels[index])
+            if (
+                self.config.data_config.preprocessing.max_height is None
+                or self.config.data_config.preprocessing.max_width is None
+            ):
+                max_height, max_width = get_max_height_width(self.train_labels[index])
 
-            if max_height > self.max_height:
-                self.max_height = max_height
-            if max_width > self.max_width:
-                self.max_width = max_width
+                if max_height > self.max_height:
+                    self.max_height = max_height
+                if max_width > self.max_width:
+                    self.max_width = max_width
 
-        if self.model_type == "centered_instance":
-            # compute crop size
-            self.crop_hw = self.config.data_config.preprocessing.crop_hw
+            if self.model_type == "centered_instance":
+                # compute crop size
+                self.crop_hw = self.config.data_config.preprocessing.crop_hw
 
-            if self.crop_hw is None:
+                if self.crop_hw is None:
 
-                min_crop_size = (
-                    self.config.data_config.preprocessing.min_crop_size
-                    if "min_crop_size" in self.config.data_config.preprocessing
-                    else None
-                )
+                    min_crop_size = (
+                        self.config.data_config.preprocessing.min_crop_size
+                        if "min_crop_size" in self.config.data_config.preprocessing
+                        else None
+                    )
 
-                crop_size = find_instance_crop_size(
-                    self.train_labels[index],
-                    maximum_stride=self.max_stride,
-                    min_crop_size=min_crop_size,
-                    input_scaling=self.config.data_config.preprocessing.scale,
-                )
+                    crop_size = find_instance_crop_size(
+                        self.train_labels[index],
+                        maximum_stride=self.max_stride,
+                        min_crop_size=min_crop_size,
+                        input_scaling=self.config.data_config.preprocessing.scale,
+                    )
 
-                if crop_size > max_crop_size:
-                    max_crop_size = crop_size
+                    if crop_size > max_crop_size:
+                        max_crop_size = crop_size
 
-                self.crop_hw = max_crop_size
-                self.config.data_config.preprocessing.crop_hw = (
-                    self.crop_hw,
-                    self.crop_hw,
-                )
-            else:
-                self.crop_hw = self.crop_hw[0]
+                    self.crop_hw = max_crop_size
+                else:
+                    self.crop_hw = self.crop_hw[0]
 
         if (
             self.config.data_config.preprocessing.max_height is None
@@ -317,7 +317,15 @@ class ModelTrainer:
             self.config.data_config.preprocessing.max_height = self.max_height
             self.config.data_config.preprocessing.max_width = self.max_width
 
-        print(self.train_labels)
+        if (
+            self.model_type == "centered_instance"
+            and self.config.data_config.preprocessing.crop_hw is None
+        ):
+            self.config.data_config.preprocessing.crop_hw = (
+                self.crop_hw,
+                self.crop_hw,
+            )
+
         self.skeletons = self.train_labels[0].skeletons
         # save the skeleton in the config
         self.config["data_config"]["skeletons"] = {}
@@ -363,8 +371,6 @@ class ModelTrainer:
                         "edges"
                     ] = edges
 
-        self.edge_inds = self.train_labels[0].skeletons[0].edge_inds
-
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
     def _create_data_loaders_torch_dataset(self):
@@ -372,16 +378,16 @@ class ModelTrainer:
         if self.data_pipeline_fw == "torch_dataset_cache_img_memory":
             train_cache_memory_final = 0
             val_cache_memory_final = 0
-            for x in self.train_labels:
+            for train, val in zip(self.train_labels, self.val_labels):
                 train_cache_memory = check_memory(
-                    x,
+                    train,
                     max_hw=(self.max_height, self.max_width),
                     model_type=self.model_type,
                     input_scaling=self.config.data_config.preprocessing.scale,
                     crop_size=self.crop_hw if self.crop_hw != -1 else None,
                 )
                 val_cache_memory = check_memory(
-                    x,
+                    val,
                     max_hw=(self.max_height, self.max_width),
                     model_type=self.model_type,
                     input_scaling=self.config.data_config.preprocessing.scale,
@@ -751,7 +757,7 @@ class ModelTrainer:
                 augmentation_config=self.config.data_config.augmentation_config,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
-                edge_inds=self.edge_inds,
+                edge_inds=self.train_labels[0].skeletons[0].edge_inds,
                 max_stride=self.max_stride,
             )
 
@@ -761,7 +767,7 @@ class ModelTrainer:
                 apply_aug=False,
                 confmap_head=self.config.model_config.head_configs.bottomup.confmaps,
                 pafs_head=self.config.model_config.head_configs.bottomup.pafs,
-                edge_inds=self.edge_inds,
+                edge_inds=self.val_labels[0].skeletons[0].edge_inds,
                 max_stride=self.max_stride,
             )
 

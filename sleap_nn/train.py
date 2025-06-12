@@ -212,7 +212,7 @@ def get_head_configs(head_cfg):
 
 def get_data_config(
     train_labels_path: List[str],
-    val_labels_path: List[str],
+    val_labels_path: List[str] = [],
     validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
@@ -637,7 +637,7 @@ def run_training(config: DictConfig):
 
 def train(
     train_labels_path: List[str],
-    val_labels_path: List[str],
+    val_labels_path: List[str] = [],
     validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",

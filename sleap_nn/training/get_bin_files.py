@@ -33,8 +33,8 @@ if __name__ == "__main__":
 
     config = OmegaConf.load(f"{args.dir_path}/initial_config.yaml")
 
-    train_labels = sio.load_slp(config.data_config.train_labels_path)
-    val_labels = sio.load_slp(config.data_config.val_labels_path)
+    train_labels = sio.load_slp(config.data_config.train_labels_path[0])
+    val_labels = sio.load_slp(config.data_config.val_labels_path[0])
     user_instances_only = False if args.user_instances_only == "0" else True
     nodes = train_labels.skeletons[0].node_names
 
