@@ -4,6 +4,8 @@ import hydra
 from loguru import logger
 from pathlib import Path
 import numpy as np
+from datetime import datetime
+from time import time
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional, List, Tuple, Union
 import sleap_io as sio
@@ -587,8 +589,17 @@ def get_trainer_config(
 
 def run_training(config: DictConfig):
     """Create ModelTrainer instance and start training."""
+    start_train_time = time()
+    start_timestamp = str(datetime.now())
+    print("Started training at:", start_timestamp)
+
     trainer = ModelTrainer(config)
     trainer.train()
+
+    finish_timestamp = str(datetime.now())
+    total_elapsed = time() - start_train_time
+    logger.info("Finished training at:", finish_timestamp)
+    logger.info(f"Total training time: {total_elapsed} secs")
 
     # run inference on val dataset
     if config.trainer_config.save_ckpt:
@@ -628,8 +639,8 @@ def run_training(config: DictConfig):
                 **metrics,
             )
 
-            logger.info(f"Evaluation on `{d_name}` dataset")
-            logger.info(f"OKS: {metrics['voc_metrics']['oks_voc.mAP']}")
+            logger.info(f"---------Evaluation on `{d_name}` dataset---------")
+            logger.info(f"OKS mAP: {metrics['voc_metrics']['oks_voc.mAP']}")
             logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
             logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
             logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
@@ -952,6 +963,8 @@ def train(
 @hydra.main(version_base=None, config_path=None, config_name=None)
 def main(cfg: DictConfig):
     """Train SLEAP-NN model using CLI."""
+    logger.info("Input config:")
+    logger.info("\n" + OmegaConf.to_yaml(cfg))
     run_training(cfg)
 
 
