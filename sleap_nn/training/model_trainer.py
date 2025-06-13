@@ -271,7 +271,11 @@ class ModelTrainer:
         self.max_height = 0
         self.max_width = 0
         max_crop_size = 0
+        total_train_lfs = 0
+        total_val_lfs = 0
         for index, (x, y) in enumerate(zip(self.train_labels, self.val_labels)):
+            total_train_lfs += len(x)
+            total_val_lfs += len(y)
             x.save(Path(self.dir_path) / f"labels_train_gt_{index}.slp")
             y.save(Path(self.dir_path) / f"labels_val_gt_{index}.slp")
 
@@ -373,6 +377,8 @@ class ModelTrainer:
                         "edges"
                     ] = edges
 
+        logger.info(f"# Train Labeled frames: {total_train_lfs}")
+        logger.info(f"Val Labeled frames: {total_val_lfs}")
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/training_config.yaml")
 
     def _create_data_loaders_torch_dataset(self):

@@ -255,7 +255,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
     """
     legacy_config_optimization = legacy_config.get("optimization", {})
     legacy_config_outputs = legacy_config.get("outputs", {})
-    resume_ckpt_path = legacy_config.get("model").get("base_checkpoint", None)
+    resume_ckpt_path = legacy_config.get("model", {}).get("base_checkpoint", None)
     resume_ckpt_path = (
         (Path(resume_ckpt_path) / "best.ckpt").as_posix()
         if resume_ckpt_path is not None
