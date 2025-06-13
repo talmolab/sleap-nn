@@ -454,7 +454,7 @@ class CenteredInstanceDataset(BaseDataset):
                 for inst_idx, inst in enumerate(lf.instances):
                     if not inst.is_empty:  # filter all NaN instances.
                         instance_idx_list.append((labels_idx, lf_idx, inst_idx))
-            return instance_idx_list
+        return instance_idx_list
 
     def __len__(self) -> int:
         """Return number of instances in the labels object."""

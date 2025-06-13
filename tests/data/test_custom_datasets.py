@@ -233,7 +233,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         scale=1.0,
         confmap_head_config=confmap_head,
         crop_hw=crop_hw,
-        labels=[sio.load_slp(minimal_instance)],
+        labels=[sio.load_slp(minimal_instance), sio.load_slp(minimal_instance), sio.load_slp(minimal_instance)],
         apply_aug=base_topdown_data_config.use_augmentations_train,
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
@@ -254,6 +254,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     ]
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
+    assert len(dataset) == 6
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
