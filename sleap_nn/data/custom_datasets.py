@@ -140,7 +140,7 @@ class BaseDataset(Dataset):
                         is_empty = False
                 if not is_empty:
                     lf_idx_list.append((labels_idx, lf_idx))
-            return lf_idx_list
+        return lf_idx_list
 
     def __next__(self):
         """Get the next sample from the dataset."""

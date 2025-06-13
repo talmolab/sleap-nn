@@ -622,15 +622,14 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         is_rgb=True,
         scale=2.0,
         confmap_head_config=confmap_head,
-        labels=[labels],
+        labels=[labels, labels, labels],
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
     dataset._fill_cache()
-
     sample = next(iter(dataset))
-    assert len(dataset) == 1
+    assert len(dataset) == 3
 
     gt_sample_keys = [
         "image",
