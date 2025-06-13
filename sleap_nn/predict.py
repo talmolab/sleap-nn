@@ -339,11 +339,13 @@ def main(args: Optional[list] = None):
 
     # Parse inputs.
     args, _ = parser.parse_known_args(args)
-    logger.info("Args:")
+    logger.info("Inference args:")
     logger.info(vars(args))
 
     if args.frames:
         args.frames = frame_list(args.frames)
+    else:
+        args.frames = None
 
     _ = run_inference(**vars(args))
 

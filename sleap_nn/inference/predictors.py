@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Union, Iterator, Text
 from pathlib import Path
 from abc import ABC, abstractmethod
 import numpy as np
+from datetime import datetime
 import sleap_io as sio
 import torchvision.transforms.v2.functional as F
 import torch
@@ -39,6 +40,27 @@ from sleap_nn.inference.topdown import (
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
 from sleap_nn.tracking.tracker import Tracker
+import rich
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+    # RateColumn,
+)
+from time import time
+
+
+class RateColumn(rich.progress.ProgressColumn):
+    """Renders the progress rate."""
+
+    def render(self, task: "Task") -> rich.progress.Text:
+        """Show progress rate."""
+        speed = task.speed
+        if speed is None:
+            return rich.progress.Text("?", style="progress.data.speed")
+        return rich.progress.Text(f"{speed:.1f} FPS", style="progress.data.speed")
 
 
 @attrs.define
@@ -256,88 +278,125 @@ class Predictor(ABC):
 
         # Loop over data batches.
         self.pipeline.start()
+        total_frames = self.pipeline.total_len()
         batch_size = self.preprocess_config["batch_size"]
         done = False
-        while not done:
-            imgs = []
-            fidxs = []
-            vidxs = []
-            org_szs = []
-            instances = []
-            eff_scales = []
-            for _ in range(batch_size):
-                frame = self.pipeline.frame_buffer.get()
-                if frame["image"] is None:
-                    done = True
-                    break
-                frame["image"] = apply_normalization(frame["image"])
-                frame["image"], eff_scale = apply_sizematcher(
-                    frame["image"],
-                    self.preprocess_config["max_height"],
-                    self.preprocess_config["max_width"],
-                )
-                if self.instances_key:
-                    frame["instances"] = frame["instances"] * eff_scale
-                if self.preprocess_config["is_rgb"] and frame["image"].shape[-3] != 3:
-                    frame["image"] = frame["image"].repeat(1, 3, 1, 1)
-                elif not self.preprocess_config["is_rgb"]:
-                    frame["image"] = F.rgb_to_grayscale(
-                        frame["image"], num_output_channels=1
-                    )
 
-                eff_scales.append(torch.tensor(eff_scale))
-                imgs.append(frame["image"].unsqueeze(dim=0))
-                fidxs.append(frame["frame_idx"])
-                vidxs.append(frame["video_idx"])
-                org_szs.append(frame["orig_size"].unsqueeze(dim=0))
-                if self.instances_key:
-                    instances.append(frame["instances"].unsqueeze(dim=0))
-            if imgs:
-                # TODO: all preprocessing should be moved into InferenceModels to be exportable.
-                imgs = torch.concatenate(imgs, dim=0)
-                fidxs = torch.tensor(fidxs, dtype=torch.int32)
-                vidxs = torch.tensor(vidxs, dtype=torch.int32)
-                org_szs = torch.concatenate(org_szs, dim=0)
-                eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
-                if self.instances_key:
-                    instances = torch.concatenate(instances, dim=0)
-                ex = {
-                    "image": imgs,
-                    "frame_idx": fidxs,
-                    "video_idx": vidxs,
-                    "orig_size": org_szs,
-                    "eff_scale": eff_scales,
-                }
-                if self.instances_key:
-                    ex["instances"] = instances
-                if self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 3:
-                    ex["image"] = ex["image"].repeat(1, 1, 3, 1, 1)
-                elif not self.preprocess_config["is_rgb"]:
-                    ex["image"] = F.rgb_to_grayscale(ex["image"], num_output_channels=1)
-                if self.preprocess:
-                    scale = self.preprocess_config["scale"]
-                    if scale != 1.0:
-                        if self.instances_key:
-                            ex["image"], ex["instances"] = apply_resizer(
-                                ex["image"], ex["instances"]
-                            )
-                        else:
-                            ex["image"] = resize_image(ex["image"], scale)
-                    ex["image"] = apply_pad_to_stride(
-                        ex["image"], self.preprocess_config["max_stride"]
+        with Progress(
+            "{task.description}",
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            MofNCompleteColumn(),
+            "ETA:",
+            TimeRemainingColumn(),
+            "Elapsed:",
+            TimeElapsedColumn(),
+            RateColumn(),
+            auto_refresh=False,
+            refresh_per_second=4,  # Change to self.report_rate if needed
+            speed_estimate_period=5,
+        ) as progress:
+
+            task = progress.add_task("Predicting...", total=total_frames)
+            last_report = time()
+
+            done = False
+            batch_size = self.preprocess_config["batch_size"]
+            while not done:
+                imgs = []
+                fidxs = []
+                vidxs = []
+                org_szs = []
+                instances = []
+                eff_scales = []
+                for _ in range(batch_size):
+                    frame = self.pipeline.frame_buffer.get()
+                    if frame["image"] is None:
+                        done = True
+                        break
+                    frame["image"] = apply_normalization(frame["image"])
+                    frame["image"], eff_scale = apply_sizematcher(
+                        frame["image"],
+                        self.preprocess_config["max_height"],
+                        self.preprocess_config["max_width"],
                     )
-                outputs_list = self.inference_model(ex)
-                if outputs_list is not None:
-                    for output in outputs_list:
-                        output = self._convert_tensors_to_numpy(output)
-                        yield output
+                    if self.instances_key:
+                        frame["instances"] = frame["instances"] * eff_scale
+                    if (
+                        self.preprocess_config["is_rgb"]
+                        and frame["image"].shape[-3] != 3
+                    ):
+                        frame["image"] = frame["image"].repeat(1, 3, 1, 1)
+                    elif not self.preprocess_config["is_rgb"]:
+                        frame["image"] = F.rgb_to_grayscale(
+                            frame["image"], num_output_channels=1
+                        )
+
+                    eff_scales.append(torch.tensor(eff_scale))
+                    imgs.append(frame["image"].unsqueeze(dim=0))
+                    fidxs.append(frame["frame_idx"])
+                    vidxs.append(frame["video_idx"])
+                    org_szs.append(frame["orig_size"].unsqueeze(dim=0))
+                    if self.instances_key:
+                        instances.append(frame["instances"].unsqueeze(dim=0))
+                if imgs:
+                    # TODO: all preprocessing should be moved into InferenceModels to be exportable.
+                    imgs = torch.concatenate(imgs, dim=0)
+                    fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                    vidxs = torch.tensor(vidxs, dtype=torch.int32)
+                    org_szs = torch.concatenate(org_szs, dim=0)
+                    eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
+                    if self.instances_key:
+                        instances = torch.concatenate(instances, dim=0)
+                    ex = {
+                        "image": imgs,
+                        "frame_idx": fidxs,
+                        "video_idx": vidxs,
+                        "orig_size": org_szs,
+                        "eff_scale": eff_scales,
+                    }
+                    if self.instances_key:
+                        ex["instances"] = instances
+                    if self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 3:
+                        ex["image"] = ex["image"].repeat(1, 1, 3, 1, 1)
+                    elif not self.preprocess_config["is_rgb"]:
+                        ex["image"] = F.rgb_to_grayscale(
+                            ex["image"], num_output_channels=1
+                        )
+                    if self.preprocess:
+                        scale = self.preprocess_config["scale"]
+                        if scale != 1.0:
+                            if self.instances_key:
+                                ex["image"], ex["instances"] = apply_resizer(
+                                    ex["image"], ex["instances"]
+                                )
+                            else:
+                                ex["image"] = resize_image(ex["image"], scale)
+                        ex["image"] = apply_pad_to_stride(
+                            ex["image"], self.preprocess_config["max_stride"]
+                        )
+                    outputs_list = self.inference_model(ex)
+                    if outputs_list is not None:
+                        for output in outputs_list:
+                            output = self._convert_tensors_to_numpy(output)
+                            yield output
+
+                    # Advance progress
+                    num_frames = (
+                        len(ex["frame_idx"]) if "frame_idx" in ex else batch_size
+                    )
+                    progress.update(task, advance=num_frames)
+
+                # Manually refresh progress bar
+                if time() - last_report > 0.25:
+                    progress.refresh()
+                    last_report = time()
 
         self.pipeline.join()
 
     def predict(
         self,
         make_labels: bool = True,
-        save_path: str = None,
     ) -> Union[List[Dict[str, np.ndarray]], sio.Labels]:
         """Run inference on a data source.
 
@@ -345,7 +404,6 @@ class Predictor(ABC):
             make_labels: If `True` (the default), returns a `sio.Labels` instance with
                 `sio.PredictedInstance`s. If `False`, just return a list of
                 dictionaries containing the raw arrays returned by the inference model.
-            save_path: Path to save the labels file if `make_labels` is True.
 
         Returns:
             A `sio.Labels` with `sio.PredictedInstance`s if `make_labels` is `True`,
@@ -358,8 +416,6 @@ class Predictor(ABC):
         if make_labels:
             # Create SLEAP data structures from the predictions.
             pred_labels = self._make_labeled_frames_from_generator(generator)
-            if save_path:
-                pred_labels.save(Path(save_path).as_posix())
             return pred_labels
 
         else:
@@ -1715,7 +1771,7 @@ def run_inference(
     min_line_scores: float = 0.25,
     make_labels: bool = True,
     ##
-    output_path: str = "",
+    output_path: Optional[str] = None,
     device: str = "auto",
     tracking: bool = False,
     tracking_window_size: int = 5,
@@ -1846,6 +1902,9 @@ def run_inference(
             a list of Dictionaries with the predictions.
 
     """
+    start_inf_time = time()
+    start_timestamp = str(datetime.now())
+    print("Started inference at:", start_timestamp)
     preprocess_config = {  # if not given, then use from training config
         "is_rgb": is_rgb,
         "crop_hw": (crop_size, crop_size) if crop_size is not None else None,
@@ -1864,6 +1923,8 @@ def run_inference(
     if integral_refinement is not None:
         # kornia/geometry/transform/imgwarp.py:382: in get_perspective_transform. NotImplementedError: The operator 'aten::_linalg_solve_ex.result' is not currently implemented for the MPS device. If you want this op to be added in priority during the prototype phase of this feature, please comment on https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be slower than running natively on MPS.
         device = "cpu"
+
+    logger.info(f"Using device: {device}")
 
     # initializes the inference model
     predictor = Predictor.from_model_paths(
@@ -1926,7 +1987,21 @@ def run_inference(
     # run predict
     output = predictor.predict(
         make_labels=make_labels,
-        save_path=output_path,
     )
+
+    finish_timestamp = str(datetime.now())
+    total_elapsed = time() - start_inf_time
+    logger.info("Finished inference at:", finish_timestamp)
+    logger.info(
+        f"Total runtime: {total_elapsed} secs"
+    )  # TODO: add number of predicted frames
+
+    if make_labels:
+        if output_path is None:
+            output_path = Path(data_path).with_suffix(".predictions.slp")
+        output.save(Path(output_path).as_posix())
+    finish_timestamp = str(datetime.now())
+    logger.info(f"Predictions output path: {output_path}")
+    logger.info("Saved file at:", finish_timestamp)
 
     return output

@@ -213,6 +213,8 @@ class ModelTrainer:
                 self.model_type = k
                 break
 
+        logger.info(f"Training `{self.model_type}` model")
+
         OmegaConf.save(config=self.config, f=f"{self.dir_path}/initial_config.yaml")
 
         # set seed
