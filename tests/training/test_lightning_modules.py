@@ -25,10 +25,10 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         "trainer_config.save_ckpt_path",
         f"{tmp_path}/test_topdown_centered_instance_model_1/",
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
     model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
+    model_trainer._create_data_loaders_torch_dataset()
     input_ = next(iter(model_trainer.train_data_loader))
     input_cm = input_["confidence_maps"]
     preds = model(input_["instance_image"])
@@ -74,7 +74,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         f"{tmp_path}/test_topdown_centered_instance_model_2/",
     )
     model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
+    model_trainer._create_data_loaders_torch_dataset()
     input_ = next(iter(model_trainer.train_data_loader))
     input_cm = input_["confidence_maps"]
     preds = model(input_["instance_image"])
@@ -107,9 +107,9 @@ def test_centroid_model(config, tmp_path: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_centroid_model_1/"
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
+    model_trainer._create_data_loaders_torch_dataset()
     input_ = next(iter(model_trainer.train_data_loader))
     input_cm = input_["centroids_confidence_maps"]
     preds = model(input_["image"])
@@ -159,9 +159,9 @@ def test_single_instance_model(config, tmp_path: str):
         "trainer_config.save_ckpt_path",
         f"{tmp_path}/test_single_instance_model_1/",
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
+    model_trainer._create_data_loaders_torch_dataset()
     input_ = next(iter(model_trainer.train_data_loader))
     model = SingleInstanceLightningModule(
         config=config,
@@ -252,9 +252,9 @@ def test_bottomup_model(config, tmp_path: str):
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_bottomup_model_1/"
     )
-    OmegaConf.update(config, "data_config.data_pipeline_fw", "litdata")
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_litdata()
+    model_trainer._create_data_loaders_torch_dataset()
     input_ = next(iter(model_trainer.train_data_loader))
 
     model = BottomUpLightningModule(

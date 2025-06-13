@@ -211,8 +211,8 @@ def get_head_configs(head_cfg):
 
 
 def get_data_config(
-    train_labels_path: str,
-    val_labels_path: str,
+    train_labels_path: List[str],
+    val_labels_path: List[str] = [],
     validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
@@ -239,8 +239,8 @@ def get_data_config(
     and starts training by passing this config to the `ModelTrainer` class.
 
     Args:
-        train_labels_path: Path to training data (`.slp` file).
-        val_labels_path: Path to validation data (`.slp` file).
+        train_labels_path: List of paths to training data (`.slp` file).
+        val_labels_path: List of paths to validation data (`.slp` file).
         validation_fraction: Float between 0 and 1 specifying the fraction of the
             training set to sample for generating the validation set. The remaining
             labeled frames will be left in the training set. If the `validation_labels`
@@ -592,10 +592,14 @@ def run_training(config: DictConfig):
 
     # run inference on val dataset
     if config.trainer_config.save_ckpt:
-        data_paths = {
-            "train": (Path(trainer.dir_path) / "labels_train_gt.slp").as_posix(),
-            "val": (Path(trainer.dir_path) / "labels_val_gt.slp").as_posix(),
-        }
+        data_paths = {}
+        for index, path in enumerate(trainer.config.data_config.train_labels_path):
+            data_paths[f"train_{index}"] = (
+                Path(trainer.dir_path) / f"labels_train_gt_{index}.slp"
+            ).as_posix()
+            data_paths[f"val_{index}"] = (
+                Path(trainer.dir_path) / f"labels_val_gt_{index}.slp"
+            ).as_posix()
 
         if (
             OmegaConf.select(config, "data_config.test_file_path", default=None)
@@ -632,8 +636,8 @@ def run_training(config: DictConfig):
 
 
 def train(
-    train_labels_path: str,
-    val_labels_path: str,
+    train_labels_path: List[str],
+    val_labels_path: List[str] = [],
     validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
@@ -695,8 +699,8 @@ def train(
     and starts training by passing this config to the `ModelTrainer` class.
 
     Args:
-        train_labels_path: Path to training data (`.slp` file).
-        val_labels_path: Path to validation data (`.slp` file).
+        train_labels_path: List of paths to training data (`.slp` file).
+        val_labels_path: List of paths to validation data (`.slp` file).
         validation_fraction: Float between 0 and 1 specifying the fraction of the
             training set to sample for generating the validation set. The remaining
             labeled frames will be left in the training set. If the `validation_labels`

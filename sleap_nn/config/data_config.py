@@ -140,8 +140,8 @@ class AugmentationConfig:
 class DataConfig:
     """Data configuration.
 
-    train_labels_path: (str) Path to training data (.slp file)
-    val_labels_path: (str) Path to validation data (.slp file)
+    train_labels_path: (List[str]) List of paths to training data (.slp file)
+    val_labels_path: (List[str]) List of paths to validation data (.slp file)
     validation_fraction: Float between 0 and 1 specifying the fraction of the
         training set to sample for generating the validation set. The remaining
         labeled frames will be left in the training set. If the `validation_labels`
@@ -174,8 +174,8 @@ class DataConfig:
         train dataset and saved to the `training_config.yaml`
     """
 
-    train_labels_path: Optional[str] = None
-    val_labels_path: Optional[str] = None  # TODO : revisit MISSING!
+    train_labels_path: List[str] = []
+    val_labels_path: List[str] = []  # TODO : revisit MISSING!
     validation_fraction: float = 0.1
     test_file_path: Optional[str] = None
     provider: str = "LabelsReader"
@@ -203,14 +203,16 @@ def data_mapper(legacy_config: dict) -> DataConfig:
     """
     legacy_config_data = legacy_config.get("data", {})
     legacy_config_optimization = legacy_config.get("optimization", {})
+    train_labels_path = legacy_config_data.get("labels", {}).get(
+        "training_labels", None
+    )
+    val_labels_path = legacy_config_data.get("labels", {}).get(
+        "validation_labels", None
+    )
 
     return DataConfig(
-        train_labels_path=legacy_config_data.get("labels", {}).get(
-            "training_labels", None
-        ),
-        val_labels_path=legacy_config_data.get("labels", {}).get(
-            "validation_labels", None
-        ),
+        train_labels_path=[train_labels_path] if train_labels_path is not None else [],
+        val_labels_path=[val_labels_path] if val_labels_path is not None else [],
         validation_fraction=legacy_config_data.get("labels", {}).get(
             "validation_fraction", None
         ),
