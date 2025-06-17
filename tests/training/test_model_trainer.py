@@ -263,7 +263,8 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
 
     checkpoint = torch.load(
-        Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt")
+        Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
+        map_location="cpu",
     )
     assert checkpoint["epoch"] == 1
 
@@ -576,7 +577,8 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     assert Path(config.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
 
     checkpoint = torch.load(
-        Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt")
+        Path(config.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
+        map_location="cpu",
     )
     assert checkpoint["epoch"] == 1
 
@@ -632,7 +634,8 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     trainer.train()
 
     checkpoint = torch.load(
-        Path(config_copy.trainer_config.save_ckpt_path).joinpath("last.ckpt")
+        Path(config_copy.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
+        map_location="cpu",
     )
     assert checkpoint["epoch"] == 3
 
@@ -669,7 +672,8 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     trainer.train()
 
     checkpoint = torch.load(
-        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("last.ckpt")
+        Path(config_early_stopping.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
+        map_location="cpu",
     )
     assert checkpoint["epoch"] == 1
 
@@ -819,7 +823,9 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
 
     # check loading trained weights for backbone
     load_weights_config = config.copy()
-    ckpt = torch.load((Path(minimal_instance_ckpt) / "best.ckpt").as_posix())
+    ckpt = torch.load(
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(), map_location="cpu"
+    )
     first_layer_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :

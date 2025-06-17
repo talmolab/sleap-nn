@@ -226,7 +226,9 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_bottomup_ckpt) / "best.ckpt")
+    ckpt = torch.load(
+        Path(minimal_instance_bottomup_ckpt) / "best.ckpt", map_location="cpu"
+    )
     head_layer_ckpt = ckpt["state_dict"]["model.head_layers.0.0.weight"][
         0, 0, :
     ].numpy()
@@ -251,7 +253,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -288,7 +290,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -317,7 +319,9 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_centroid_ckpt) / "best.ckpt")
+    ckpt = torch.load(
+        Path(minimal_instance_centroid_ckpt) / "best.ckpt", map_location="cpu"
+    )
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -346,7 +350,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -383,7 +387,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -412,7 +416,9 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_centroid_ckpt) / "best.ckpt")
+    ckpt = torch.load(
+        Path(minimal_instance_centroid_ckpt) / "best.ckpt", map_location="cpu"
+    )
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -441,7 +447,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -478,7 +484,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -508,105 +514,9 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_centroid_ckpt) / "best.ckpt")
-    backbone_ckpt = (
-        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
-            0, 0, :
-        ]
-        .cpu()
-        .numpy()
+    ckpt = torch.load(
+        Path(minimal_instance_centroid_ckpt) / "best.ckpt", map_location="cpu"
     )
-
-    model_weights = (
-        next(predictor.inference_model.centroid_crop.torch_model.model.parameters())[
-            0, 0, :
-        ]
-        .detach()
-        .cpu()
-        .numpy()
-    )
-
-    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
-
-    # load only backbone and head ckpt as None - centered instance
-    predictor = Predictor.from_model_paths(
-        [minimal_instance_ckpt],
-        backbone_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
-        head_ckpt_path=None,
-        peak_threshold=0.03,
-        max_instances=6,
-        preprocess_config=OmegaConf.create(preprocess_config),
-    )
-
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
-    backbone_ckpt = (
-        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
-            0, 0, :
-        ]
-        .cpu()
-        .numpy()
-    )
-
-    model_weights = (
-        next(predictor.inference_model.instance_peaks.torch_model.model.parameters())[
-            0, 0, :
-        ]
-        .detach()
-        .cpu()
-        .numpy()
-    )
-
-    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
-
-    # check loading diff head ckpt for centroid
-    preprocess_config = {
-        "is_rgb": False,
-        "crop_hw": None,
-        "max_width": None,
-        "max_height": None,
-        "anchor_part": None,
-    }
-
-    predictor = Predictor.from_model_paths(
-        [minimal_instance_centroid_ckpt],
-        backbone_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
-        head_ckpt_path=Path(minimal_instance_centroid_ckpt) / "best.ckpt",
-        peak_threshold=0.03,
-        max_instances=6,
-        preprocess_config=OmegaConf.create(preprocess_config),
-    )
-
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
-    backbone_ckpt = (
-        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
-            0, 0, :
-        ]
-        .cpu()
-        .numpy()
-    )
-
-    model_weights = (
-        next(predictor.inference_model.centroid_crop.torch_model.model.parameters())[
-            0, 0, :
-        ]
-        .detach()
-        .cpu()
-        .numpy()
-    )
-
-    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
-
-    # load only backbone and head ckpt as None - centroid
-    predictor = Predictor.from_model_paths(
-        [minimal_instance_centroid_ckpt],
-        backbone_ckpt_path=Path(minimal_instance_centroid_ckpt) / "best.ckpt",
-        head_ckpt_path=None,
-        peak_threshold=0.03,
-        max_instances=6,
-        preprocess_config=OmegaConf.create(preprocess_config),
-    )
-
-    ckpt = torch.load(Path(minimal_instance_centroid_ckpt) / "best.ckpt")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -636,7 +546,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -674,7 +584,7 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -704,7 +614,109 @@ def test_topdown_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_centroid_ckpt) / "best.ckpt")
+    ckpt = torch.load(
+        Path(minimal_instance_centroid_ckpt) / "best.ckpt", map_location="cpu"
+    )
+    backbone_ckpt = (
+        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
+            0, 0, :
+        ]
+        .cpu()
+        .numpy()
+    )
+
+    model_weights = (
+        next(predictor.inference_model.centroid_crop.torch_model.model.parameters())[
+            0, 0, :
+        ]
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+    # load only backbone and head ckpt as None - centered instance
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
+        head_ckpt_path=None,
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
+    backbone_ckpt = (
+        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
+            0, 0, :
+        ]
+        .cpu()
+        .numpy()
+    )
+
+    model_weights = (
+        next(predictor.inference_model.instance_peaks.torch_model.model.parameters())[
+            0, 0, :
+        ]
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+    # check loading diff head ckpt for centroid
+    preprocess_config = {
+        "is_rgb": False,
+        "crop_hw": None,
+        "max_width": None,
+        "max_height": None,
+        "anchor_part": None,
+    }
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
+        head_ckpt_path=Path(minimal_instance_centroid_ckpt) / "best.ckpt",
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
+    backbone_ckpt = (
+        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
+            0, 0, :
+        ]
+        .cpu()
+        .numpy()
+    )
+
+    model_weights = (
+        next(predictor.inference_model.centroid_crop.torch_model.model.parameters())[
+            0, 0, :
+        ]
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+    # load only backbone and head ckpt as None - centroid
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_centroid_ckpt) / "best.ckpt",
+        head_ckpt_path=None,
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(
+        Path(minimal_instance_centroid_ckpt) / "best.ckpt", map_location="cpu"
+    )
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :
@@ -929,7 +941,9 @@ def test_single_instance_predictor(
             preprocess_config=OmegaConf.create(preprocess_config),
         )
 
-        ckpt = torch.load(Path(minimal_instance_bottomup_ckpt) / "best.ckpt")
+        ckpt = torch.load(
+            Path(minimal_instance_bottomup_ckpt) / "best.ckpt", map_location="cpu"
+        )
         head_layer_ckpt = (
             ckpt["state_dict"]["model.head_layers.0.0.weight"][0, 0, :].cpu().numpy()
         )
@@ -981,7 +995,7 @@ def test_single_instance_predictor(
             preprocess_config=OmegaConf.create(preprocess_config),
         )
 
-        ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+        ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
         backbone_ckpt = (
             ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
                 0, 0, :
@@ -1140,7 +1154,7 @@ def test_bottomup_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     head_layer_ckpt = (
         ckpt["state_dict"]["model.head_layers.0.0.weight"][0, 0, :].cpu().numpy()
     )
@@ -1166,7 +1180,7 @@ def test_bottomup_predictor(
         preprocess_config=OmegaConf.create(preprocess_config),
     )
 
-    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt")
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
     backbone_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
             0, 0, :

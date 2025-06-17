@@ -49,6 +49,7 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
         config=config,
         model_type="centered_instance",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     find_peaks_layer = FindInstancePeaks(
@@ -84,6 +85,7 @@ def test_centroid_inference_model(
         skeletons=None,
         model_type="centroid",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     # return crops = False
@@ -179,6 +181,7 @@ def test_find_instance_peaks_groundtruth(
         skeletons=None,
         model_type="centroid",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     centroid_layer = CentroidCrop(
@@ -332,6 +335,7 @@ def test_topdown_inference_model(
         skeletons=None,
         model_type="centroid",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     centroid_layer = CentroidCrop(

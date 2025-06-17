@@ -139,7 +139,10 @@ class BaseLightningModule(L.LightningModule):
             logger.info(
                 f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
             )
-            ckpt = torch.load(self.pretrained_backbone_weights)
+            ckpt = torch.load(
+                self.pretrained_backbone_weights,
+                map_location=self.config.trainer_config.trainer_accelerator,
+            )
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
                 for k in ckpt["state_dict"].keys()
@@ -152,7 +155,10 @@ class BaseLightningModule(L.LightningModule):
             logger.info(
                 f"Loading head weights from `{self.pretrained_head_weights}` ..."
             )
-            ckpt = torch.load(self.pretrained_head_weights)
+            ckpt = torch.load(
+                self.pretrained_head_weights,
+                map_location=self.config.trainer_config.trainer_accelerator,
+            )
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
                 for k in ckpt["state_dict"].keys()
