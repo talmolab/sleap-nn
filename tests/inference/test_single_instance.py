@@ -46,7 +46,7 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
     ex["eff_scale"] = torch.Tensor([1.0])
 
     find_peaks_layer = SingleInstanceInferenceModel(
-        torch_model=torch_model,
+        torch_model=torch_model.to("cpu"),
         output_stride=2,
         peak_threshold=0.0,
         return_confmaps=False,
@@ -63,7 +63,7 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
 
     # high peak threshold
     find_peaks_layer = SingleInstanceInferenceModel(
-        torch_model=torch_model,
+        torch_model=torch_model.to("cpu"),
         output_stride=2,
         peak_threshold=1.0,
         return_confmaps=False,
@@ -79,7 +79,10 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
 
     # check return confmaps
     find_peaks_layer = SingleInstanceInferenceModel(
-        torch_model=torch_model, output_stride=2, peak_threshold=0, return_confmaps=True
+        torch_model=torch_model.to("cpu"),
+        output_stride=2,
+        peak_threshold=0,
+        return_confmaps=True,
     )
     outputs = []
     outputs.append(find_peaks_layer(ex))

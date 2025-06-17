@@ -820,23 +820,30 @@ def test_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     # check loading trained weights for backbone
     load_weights_config = config.copy()
     ckpt = torch.load((Path(minimal_instance_ckpt) / "best.ckpt").as_posix())
-    first_layer_ckpt = ckpt["state_dict"][
-        "model.backbone.enc.encoder_stack.0.blocks.0.weight"
-    ][0, 0, :].numpy()
+    first_layer_ckpt = (
+        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
+            0, 0, :
+        ]
+        .cpu()
+        .numpy()
+    )
 
     # load head ckpts
-    head_layer_ckpt = ckpt["state_dict"]["model.head_layers.0.0.weight"][
-        0, 0, :
-    ].numpy()
+    head_layer_ckpt = (
+        ckpt["state_dict"]["model.head_layers.0.0.weight"][0, 0, :].cpu().numpy()
+    )
 
     trainer = ModelTrainer(load_weights_config)
     trainer._initialize_model()
-    model_ckpt = next(trainer.model.parameters())[0, 0, :].detach().numpy()
+    model_ckpt = next(trainer.model.parameters())[0, 0, :].detach().cpu().numpy()
 
     assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-6)
 
     model_ckpt = (
-        next(trainer.model.model.head_layers.parameters())[0, 0, :].detach().numpy()
+        next(trainer.model.model.head_layers.parameters())[0, 0, :]
+        .detach()
+        .cpu()
+        .numpy()
     )
 
     assert np.all(np.abs(head_layer_ckpt - model_ckpt) < 1e-6)

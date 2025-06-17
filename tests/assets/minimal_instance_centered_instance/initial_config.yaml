@@ -18,7 +18,9 @@ data_config:
     max_height: null
     max_width: null
     scale: 1.0
-    crop_hw: null
+    crop_hw:
+    - 160
+    - 160
     min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:
@@ -76,12 +78,13 @@ model_config:
     swint: null
   head_configs:
     single_instance: null
-    centroid:
+    centroid: null
+    centered_instance:
       confmaps:
         sigma: 1.5
         output_stride: 2
         anchor_part: null
-    centered_instance: null
+        part_names: null
     bottomup: null
   total_params: null
 trainer_config:
@@ -103,11 +106,11 @@ trainer_config:
   enable_progress_bar: true
   steps_per_epoch: null
   visualize_preds_during_training: true
-  max_epochs: 150
+  max_epochs: 30
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: minimal_instance_centroid
+  save_ckpt_path: minimal_instance_centered_instance
   resume_ckpt_path: null
   optimizer_name: Adam
   optimizer:

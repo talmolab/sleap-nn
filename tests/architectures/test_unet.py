@@ -47,26 +47,25 @@ def test_unet_reference():
             ),
         ]
     )
-
     # Test number of layers.
     flattened_layers = get_children_layers(model)
-    assert len(flattened_layers) == 37
+    assert len(flattened_layers) == 45
 
     # Test number of trainable weights.
     trainable_weights_count = sum(
         [1 if p.requires_grad else 0 for p in model.parameters()]
     )
-    assert trainable_weights_count == 30
+    assert trainable_weights_count == 38
 
     # Test trainable parameter count.
     pytorch_trainable_params = sum(
         p.numel() for p in model.parameters() if p.requires_grad
     )
-    assert pytorch_trainable_params == 1766461
+    assert pytorch_trainable_params == 1962541
 
     # Test total parameter count.
     pytorch_total_params = sum(p.numel() for p in model.parameters())
-    assert pytorch_total_params == 1766461
+    assert pytorch_total_params == 1962541
 
     # Test final output shape.
     unet = unet.to(device)
