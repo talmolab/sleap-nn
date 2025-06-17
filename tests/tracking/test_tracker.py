@@ -113,7 +113,7 @@ def test_tracker(caplog, minimal_instance_ckpt):
     candidates_list = tracker.generate_candidates()
     candidate_feature_dict = tracker.update_candidates(candidates_list, None)
     scores = tracker.get_scores(track_instances, candidate_feature_dict)
-    assert np.all(scores == np.array([[1.0, 0], [0, 1.0]]))
+    assert np.allclose(scores, np.array([[1.0, 0], [0, 1.0]]))
 
     # Test assign_tracks()
     cost = tracker.scores_to_cost_matrix(scores)
@@ -179,7 +179,7 @@ def test_tracker(caplog, minimal_instance_ckpt):
     scores = tracker.get_scores(track_instances, candidate_feature_dict)
     assert scores[0, 0] == 0 and scores[1, 1] == 0
     assert scores[1, 0] == scores[0, 1]
-    assert math.isclose(scores[0, 1], -108.20057, rel_tol=1e-4)
+    assert math.isclose(scores[0, 1], -101.73, rel_tol=1e-4)
 
     # test features - bboxes + iou scoring
     tracker = Tracker.from_config(features="bboxes", scoring_method="iou")

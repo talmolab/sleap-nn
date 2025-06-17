@@ -44,6 +44,7 @@ def test_bottomup_inference_model(
         config=train_config,
         model_type="bottomup",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     inference_layer = BottomUpInferenceModel(

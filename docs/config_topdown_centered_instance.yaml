@@ -1,118 +1,139 @@
 data_config:
+  train_labels_path: 
+    - minimal_instance.pkg.slp
+  val_labels_path: 
+    - minimal_instance.pkg.slp
+  validation_fraction:
+  test_file_path: null
   provider: LabelsReader
-  train_labels_path: minimal_instance.pkg.slp
-  val_labels_path: minimal_instance.pkg.slp
-  user_instances_only: True
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  cache_img_path: null
+  litdata_chunks_path: null
+  use_existing_imgs: false
   chunk_size: 100
+  delete_cache_imgs_after_training: true
   preprocessing:
-    max_width: 
-    max_height: 
+    is_rgb: false
+    max_height: null
+    max_width: null
     scale: 1.0
-    is_rgb: False
     crop_hw:
       - 160
       - 160
-    min_crop_size:
+    min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:
+    intensity:
+      uniform_noise_min: 0.0
+      uniform_noise_max: 1.0
+      uniform_noise_p: 0.0
+      gaussian_noise_mean: 5.0
+      gaussian_noise_std: 1.0
+      gaussian_noise_p: 0.0
+      contrast_min: 0.5
+      contrast_max: 2.0
+      contrast_p: 0.0
+      brightness:
+      - 0.0
+      - 10.0
+      brightness_p: 0.0
     geometric:
-      rotation: 180.0
-      scale: null
-      translate_width: 0
-      translate_height: 0
-      affine_p: 0.5
-
+      rotation: 15.0
+      scale:
+      - 1.0
+      - 1.0
+      translate_width: 0.0
+      translate_height: 0.0
+      affine_p: 1.0
+      erase_scale_min: 0.0001
+      erase_scale_max: 0.01
+      erase_ratio_min: 1.0
+      erase_ratio_max: 1.0
+      erase_p: 0.0
+      mixup_lambda:
+      - 0.01
+      - 0.05
+      mixup_p: 0.0
+  skeletons: null
 model_config:
   init_weights: xavier
-  pre_trained_weights:
-  backbone_type: unet
+  pre_trained_weights: null
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
   backbone_config:
+    unet:
       in_channels: 1
       kernel_size: 3
       filters: 16
-      filters_rate: 2
-      max_stride: 16
-      convs_per_block: 2
+      filters_rate: 1.5
+      max_stride: 8
+      stem_stride: null
+      middle_block: true
+      up_interpolate: true
       stacks: 1
-      stem_stride: 
-      middle_block: True
-      up_interpolate: True
-  
-  # pre_trained_weights: ConvNeXt_Tiny_Weights
-  # backbone_config:
-  #   backbone_type: convnext
-  #   backbone_config:
-  #     in_channels: 1
-  #     model_type: tiny
-  #     arch: 
-  #     kernel_size: 3
-  #     filters_rate: 2
-  #     convs_per_block: 2
-  #     up_interpolate: True
-  #     stem_patch_kernel: 4
-  #     stem_patch_stride: 2
-
-  # pre_trained_weights: Swin_T_Weights
-  # backbone_config:
-  #   backbone_type: swint
-  #   backbone_config:
-  #     in_channels: 1
-  #     model_type: tiny
-  #     arch: 
-  #     patch_size: [4,4]
-  #     window_size: [7,7]
-  #     kernel_size: 3
-  #     filters_rate: 2
-  #     convs_per_block: 2
-  #     up_interpolate: True
-  #     stem_patch_stride: 2
-
+      convs_per_block: 2
+      output_stride: 2
+    convnext: null
+    swint: null
   head_configs:
     single_instance:
     centroid:
-    bottomup:
-    centered_instance: 
+    centered_instance:
       confmaps:
-        part_names: None
-        anchor_part:
         sigma: 1.5
         output_stride: 2
+        anchor_part:
+        part_names: 
+    bottomup: null
+  total_params: null
 trainer_config:
   train_data_loader:
     batch_size: 4
     shuffle: true
-    num_workers: 2
+    num_workers: 0
   val_data_loader:
     batch_size: 4
-    num_workers: 2
+    shuffle: false
+    num_workers: 0
   model_ckpt:
     save_top_k: 1
-    save_last: true
-  trainer_devices: 1
-  trainer_accelerator: gpu
-  enable_progress_bar: false
-  steps_per_epoch: 
-  max_epochs: 10
-  seed: 1000
+    save_last: false
+  trainer_devices: auto
+  trainer_accelerator: auto
+  profiler: null
+  trainer_strategy: auto
+  enable_progress_bar: true
+  steps_per_epoch: null
+  visualize_preds_during_training: true
+  max_epochs: 30
+  seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: 'min_inst_centered'
-  bin_files_path:
-  resume_ckpt_path:
+  save_ckpt_path: minimal_instance_centered_instance
+  resume_ckpt_path: null
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
     amsgrad: false
   lr_scheduler:
-    scheduler: ReduceLROnPlateau
+    step_lr: null
     reduce_lr_on_plateau:
-      threshold: 1.0e-07
-      threshold_mode: abs
+      threshold: 1.0e-06
+      threshold_mode: rel
       cooldown: 3
       patience: 5
       factor: 0.5
       min_lr: 1.0e-08
   early_stopping:
-    stop_training_on_plateau: True
     min_delta: 1.0e-08
-    patience: 20
+    patience: 10
+    stop_training_on_plateau: true
+  zmq:
+    publish_adddress: null
+    controller_address:
+    publish_address:
+name: ''
+description: ''
+sleap_nn_version: 0.0.1
+filename: ''

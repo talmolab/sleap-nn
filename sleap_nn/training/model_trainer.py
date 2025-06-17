@@ -268,8 +268,8 @@ class ModelTrainer:
             for path in self.config.data_config.val_labels_path:
                 self.val_labels.append(sio.load_slp(path))
 
-        self.max_height = 0
-        self.max_width = 0
+        self.max_height = self.config.data_config.preprocessing.max_height
+        self.max_width = self.config.data_config.preprocessing.max_width
         max_crop_size = 0
         total_train_lfs = 0
         total_val_lfs = 0
@@ -279,15 +279,12 @@ class ModelTrainer:
             x.save(Path(self.dir_path) / f"labels_train_gt_{index}.slp")
             y.save(Path(self.dir_path) / f"labels_val_gt_{index}.slp")
 
-            if (
-                self.config.data_config.preprocessing.max_height is None
-                or self.config.data_config.preprocessing.max_width is None
-            ):
+            if self.max_height is None or self.max_width is None:
                 max_height, max_width = get_max_height_width(self.train_labels[index])
 
-                if max_height > self.max_height:
+                if self.max_height is None or max_height > self.max_height:
                     self.max_height = max_height
-                if max_width > self.max_width:
+                if self.max_width is None or max_width > self.max_width:
                     self.max_width = max_width
 
             if self.model_type == "centered_instance":

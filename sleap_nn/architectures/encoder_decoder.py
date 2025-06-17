@@ -220,7 +220,7 @@ class Encoder(nn.Module):
                     pool=(block + self.stem_blocks > 0),
                     pool_before_convs=True,
                     pooling_stride=2,
-                    num_convs=convs_per_block - 1,
+                    num_convs=convs_per_block,
                     filters=block_filters,
                     kernel_size=kernel_size,
                     use_bias=True,

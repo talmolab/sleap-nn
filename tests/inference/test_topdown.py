@@ -2,6 +2,7 @@ import pytest
 from omegaconf import OmegaConf
 import numpy as np
 import torch
+from pathlib import Path
 from torch.utils.data.dataloader import DataLoader
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
@@ -48,10 +49,11 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
         config=config,
         model_type="centered_instance",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     find_peaks_layer = FindInstancePeaks(
-        torch_model=torch_model,
+        torch_model=torch_model.to("cpu"),
         output_stride=2,
         peak_threshold=0.0,
         return_confmaps=False,
@@ -59,21 +61,15 @@ def initialize_model(config, minimal_instance, minimal_instance_ckpt):
     return torch_model, find_peaks_layer
 
 
-def test_centroid_inference_model(config, minimal_instance, tmp_path):
+def test_centroid_inference_model(
+    config, minimal_instance, tmp_path, minimal_instance_centroid_ckpt
+):
     """Test CentroidCrop class to run inference on centroid models."""
 
-    OmegaConf.update(
-        config,
-        "model_config.head_configs.centroid",
-        config.model_config.head_configs.centered_instance,
+    config = OmegaConf.load(
+        (Path(minimal_instance_centroid_ckpt) / "training_config.yaml").as_posix()
     )
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
-    del config.model_config.head_configs.centered_instance
-    del config.model_config.head_configs.centroid["confmaps"].part_names
 
-    trainer = ModelTrainer(config)
     labels = sio.load_slp(minimal_instance)
     ex = process_lf(labels[0], 0, 2)
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
@@ -83,13 +79,19 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
     ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
     ex["eff_scale"] = torch.Tensor([1.0])
 
-    trainer._initialize_model()
-    model = trainer.model
+    model = CentroidLightningModule.load_from_checkpoint(
+        f"{minimal_instance_centroid_ckpt}/best.ckpt",
+        config=config,
+        skeletons=None,
+        model_type="centroid",
+        backbone_type="unet",
+        map_location="cpu",
+    )
 
     # return crops = False
     layer = CentroidCrop(
-        torch_model=model,
-        peak_threshold=0.0125,
+        torch_model=model.to("cpu"),
+        peak_threshold=0.0,
         refinement="integral",
         integral_patch_size=5,
         output_stride=2,
@@ -107,7 +109,7 @@ def test_centroid_inference_model(config, minimal_instance, tmp_path):
 
     # return crops = True
     layer = CentroidCrop(
-        torch_model=model,
+        torch_model=model.to("cpu"),
         peak_threshold=0.0,
         refinement="integral",
         integral_patch_size=5,
@@ -179,10 +181,11 @@ def test_find_instance_peaks_groundtruth(
         skeletons=None,
         model_type="centroid",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     centroid_layer = CentroidCrop(
-        torch_model=torch_model,
+        torch_model=torch_model.to("cpu"),
         peak_threshold=0.0,
         refinement="integral",
         integral_patch_size=5,
@@ -332,10 +335,11 @@ def test_topdown_inference_model(
         skeletons=None,
         model_type="centroid",
         backbone_type="unet",
+        map_location="cpu",
     )
 
     centroid_layer = CentroidCrop(
-        torch_model=torch_model,
+        torch_model=torch_model.to("cpu"),
         peak_threshold=0.0,
         refinement="integral",
         integral_patch_size=5,
