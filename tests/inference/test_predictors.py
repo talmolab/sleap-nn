@@ -1031,6 +1031,7 @@ def test_bottomup_predictor(
         make_labels=True,
         max_instances=6,
         peak_threshold=0.03,
+        device="cpu",
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1057,6 +1058,7 @@ def test_bottomup_predictor(
         make_labels=False,
         max_instances=6,
         peak_threshold=0.03,
+        device="cpu",
     )
     assert isinstance(preds, list)
     assert len(preds) == 1
@@ -1073,6 +1075,7 @@ def test_bottomup_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
+        device="cpu",
     )
     assert isinstance(preds, sio.Labels)
     assert len(preds) == 1
@@ -1084,6 +1087,7 @@ def test_bottomup_predictor(
         make_labels=True,
         max_instances=6,
         peak_threshold=1.0,
+        device="cpu",
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1097,6 +1101,7 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         frames=[x for x in range(100)],
+        device="cpu",
     )
 
     assert isinstance(pred_labels, sio.Labels)
@@ -1111,6 +1116,7 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         frames=[x for x in range(100)],
+        device="cpu",
     )
     assert isinstance(preds, list)
     assert len(preds) == 25
@@ -1128,6 +1134,7 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         tracking=True,
+        device="cpu",
     )
 
     for lf in pred_labels:

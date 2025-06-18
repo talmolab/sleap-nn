@@ -69,7 +69,7 @@ def test_bottomup_inference_model(
 
     output = inference_layer(ex)[0]
     assert "pred_confmaps" not in output.keys()
-    assert output["pred_instance_peaks"].is_nested
+    assert isinstance(output["pred_instance_peaks"], list)
     assert tuple(output["pred_instance_peaks"][0].shape)[1:] == (2, 2)
     assert tuple(output["pred_peak_values"][0].shape)[1:] == (2,)
 
@@ -99,7 +99,7 @@ def test_bottomup_inference_model(
     output = inference_layer(ex)[0]
     assert tuple(output["pred_confmaps"].shape) == (1, 2, 192, 192)
     assert tuple(output["pred_part_affinity_fields"].shape) == (1, 96, 96, 2)
-    assert output["pred_instance_peaks"].is_nested
+    assert isinstance(output["pred_instance_peaks"], list)
     assert output["peaks"][0].shape[-1] == 2
     assert tuple(output["pred_instance_peaks"][0].shape)[1:] == (2, 2)
     assert tuple(output["pred_peak_values"][0].shape)[1:] == (2,)

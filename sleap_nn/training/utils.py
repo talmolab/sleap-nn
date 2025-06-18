@@ -45,7 +45,7 @@ def plot_pafs(
 
     pafs = pafs.reshape((pafs.shape[0], pafs.shape[1], -1, 2))  # (h, w, edges, 2)
     pafs_mag = np.sqrt(pafs[..., 0] ** 2 + pafs[..., 1] ** 2)
-    pafs_mag = np.squeeze(pafs_mag.max(axis=-1))
+    pafs_mag = pafs_mag.max(axis=-1)
 
     fig, ax = plt.subplots()
     ax.axis("off")

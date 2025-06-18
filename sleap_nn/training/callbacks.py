@@ -68,7 +68,7 @@ class WandBPredImageLogger(Callback):
                         Image.open(
                             (
                                 Path(self.viz_folder)
-                                / f"train_pafs_magnitude.{epoch_num:04d}.png"
+                                / f"train.pafs_magnitude.{epoch_num:04d}.png"
                             ).as_posix()
                         )
                     ),
@@ -76,7 +76,7 @@ class WandBPredImageLogger(Callback):
                         Image.open(
                             (
                                 Path(self.viz_folder)
-                                / f"validation_pafs_magnitude.{epoch_num:04d}.png"
+                                / f"validation.pafs_magnitude.{epoch_num:04d}.png"
                             ).as_posix()
                         )
                     ),

@@ -666,10 +666,10 @@ class BottomUpLightningModule(BaseLightningModule):
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.bottomup_inf_layer(ex)[0]
         img = output["image"][0, 0].cpu().numpy()
-        pafs = output["pred_part_affinity_fields"]  # (h, w, 2*edges)
+        pafs = output["pred_part_affinity_fields"].cpu().numpy()  # (h, w, 2*edges)
         fig = plot_pafs(
             img=img,
-            pafs=pafs,
+            pafs=pafs[0],
             plot_title=f"@ Epoch: {self.trainer.current_epoch}",
         )
         return fig
