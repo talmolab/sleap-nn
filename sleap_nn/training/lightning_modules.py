@@ -31,6 +31,7 @@ from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import BottomUpInferenceModel
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.architectures.model import Model
+from sleap_nn.training.losses import compute_ohkm_loss
 from loguru import logger
 from sleap_nn.training.utils import (
     xavier_init_weights,
@@ -304,6 +305,9 @@ class SingleInstanceLightningModule(BaseLightningModule):
                 return_confmaps=True,
                 output_stride=self.config.model_config.head_configs.single_instance.confmaps.output_stride,
             )
+        self.ohkm_cfg = OmegaConf.select(
+            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -339,7 +343,20 @@ class SingleInstanceLightningModule(BaseLightningModule):
         )
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
-        loss = nn.MSELoss()(y_preds, y)
+
+        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+            loss = compute_ohkm_loss(
+                y_gt=y,
+                y_pr=y_preds,
+                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
+                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
+                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
+                loss_scale=self.ohkm_cfg.loss_scale,
+            )
+
+        else:
+            loss = nn.MSELoss()(y_preds, y)
+
         self.log(
             "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
@@ -410,6 +427,9 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
                 return_confmaps=True,
                 output_stride=self.config.model_config.head_configs.centered_instance.confmaps.output_stride,
             )
+        self.ohkm_cfg = OmegaConf.select(
+            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -445,7 +465,18 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
-        loss = nn.MSELoss()(y_preds, y)
+        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+            loss = compute_ohkm_loss(
+                y_gt=y,
+                y_pr=y_preds,
+                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
+                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
+                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
+                loss_scale=self.ohkm_cfg.loss_scale,
+            )
+
+        else:
+            loss = nn.MSELoss()(y_preds, y)
         self.log(
             "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
@@ -633,6 +664,9 @@ class BottomUpLightningModule(BaseLightningModule):
                 cms_output_stride=self.config.model_config.head_configs.bottomup.confmaps.output_stride,
                 pafs_output_stride=self.config.model_config.head_configs.bottomup.pafs.output_stride,
             )
+        self.ohkm_cfg = OmegaConf.select(
+            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -691,9 +725,31 @@ class BottomUpLightningModule(BaseLightningModule):
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
+        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+            confmap_loss = compute_ohkm_loss(
+                y_gt=y_confmap,
+                y_pr=confmaps,
+                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
+                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
+                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
+                loss_scale=self.ohkm_cfg.loss_scale,
+            )
+            pafs_loss = compute_ohkm_loss(
+                y_gt=y_paf,
+                y_pr=pafs,
+                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
+                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
+                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
+                loss_scale=self.ohkm_cfg.loss_scale,
+            )
+
+        else:
+            confmap_loss = nn.MSELoss()(confmaps, y_confmap)
+            pafs_loss = nn.MSELoss()(pafs, y_paf)
+
         losses = {
-            "MultiInstanceConfmapsHead": nn.MSELoss()(confmaps, y_confmap),
-            "PartAffinityFieldsHead": nn.MSELoss()(pafs, y_paf),
+            "MultiInstanceConfmapsHead": confmap_loss,
+            "PartAffinityFieldsHead": pafs_loss,
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
