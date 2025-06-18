@@ -180,10 +180,10 @@ def make_line_subs(
 
     X = torch.cat(
         (src_peaks[:, 0].unsqueeze(dim=-1), dst_peaks[:, 0].unsqueeze(dim=-1)), dim=-1
-    ).to(torch.float64)
+    ).to(torch.float32)
     Y = torch.cat(
         (src_peaks[:, 1].unsqueeze(dim=-1), dst_peaks[:, 1].unsqueeze(dim=-1)), dim=-1
-    ).to(torch.float64)
+    ).to(torch.float32)
     samples = torch.tensor([0, 1], device=X.device).repeat(n_candidates, 1)
     samples_new = torch.linspace(0, 1, steps=n_line_points, device=X.device).repeat(
         n_candidates, 1
@@ -494,11 +494,7 @@ def score_paf_lines_batch(
         batch_edge_peak_inds.append(edge_peak_inds_sample)
         batch_line_scores.append(line_scores_sample)
 
-    return (
-        torch.nested.nested_tensor(batch_edge_inds),
-        torch.nested.nested_tensor(batch_edge_peak_inds),
-        torch.nested.nested_tensor(batch_line_scores),
-    )
+    return batch_edge_inds, batch_edge_peak_inds, batch_line_scores
 
 
 def match_candidates_sample(
@@ -674,7 +670,7 @@ def match_candidates_batch(
     match_dst_peak_inds = []
     match_line_scores = []
 
-    for sample in range(edge_inds.size(0)):
+    for sample in range(len(edge_inds)):
         edge_inds_sample = edge_inds[sample]
         edge_peak_inds_sample = edge_peak_inds[sample]
         line_scores_sample = line_scores[sample]
@@ -698,12 +694,7 @@ def match_candidates_batch(
         match_dst_peak_inds.append(match_dst_peak_inds_sample)
         match_line_scores.append(match_line_scores_sample)
 
-    return (
-        torch.nested.nested_tensor(match_edge_inds),
-        torch.nested.nested_tensor(match_src_peak_inds),
-        torch.nested.nested_tensor(match_dst_peak_inds),
-        torch.nested.nested_tensor(match_line_scores),
-    )
+    return match_edge_inds, match_src_peak_inds, match_dst_peak_inds, match_line_scores
 
 
 def assign_connections_to_instances(
@@ -1115,7 +1106,7 @@ def group_instances_batch(
 
     See also: match_candidates_batch, group_instances_sample
     """
-    n_samples = peaks.size(0)
+    n_samples = len(peaks)
     predicted_instances_batch = []
     predicted_peak_scores_batch = []
     predicted_instance_scores_batch = []
@@ -1147,9 +1138,9 @@ def group_instances_batch(
         )
 
     return (
-        torch.nested.nested_tensor(predicted_instances_batch),
-        torch.nested.nested_tensor(predicted_peak_scores_batch),
-        torch.nested.nested_tensor(predicted_instance_scores_batch),
+        predicted_instances_batch,
+        predicted_peak_scores_batch,
+        predicted_instance_scores_batch,
     )
 
 

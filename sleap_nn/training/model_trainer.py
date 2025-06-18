@@ -980,7 +980,7 @@ class ModelTrainer:
                         plot_fn=lambda: self.model.visualize_pafs_example(
                             next(train_viz_pipeline1)
                         ),
-                        prefix="train_pafs_magnitude",
+                        prefix="train.pafs_magnitude",
                     )
                 )
                 callbacks.append(
@@ -989,7 +989,7 @@ class ModelTrainer:
                         plot_fn=lambda: self.model.visualize_pafs_example(
                             next(val_viz_pipeline1)
                         ),
-                        prefix="validation_pafs_magnitude",
+                        prefix="validation.pafs_magnitude",
                     )
                 )
 
@@ -1001,11 +1001,6 @@ class ModelTrainer:
                         is_bottomup=(self.model_type == "bottomup"),
                     )
                 )
-
-        if self.model_type == "bottomup":
-            if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-                # Explicitly avoid using MPS
-                self.config.trainer_config.trainer_accelerator = "cpu"
 
         self.trainer = L.Trainer(
             callbacks=callbacks,

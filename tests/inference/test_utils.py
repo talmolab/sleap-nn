@@ -24,13 +24,13 @@ def test_get_skeleton_from_config(minimal_instance, minimal_instance_ckpt):
 def test_interp1d():
     """Test function for `interp()` function."""
     x = torch.linspace(0, 10, steps=10)
-    y = torch.randint(10, 30, (10,), dtype=torch.float64)
+    y = torch.randint(10, 30, (10,), dtype=torch.float32)
     xq = torch.linspace(0, 10, steps=20)
     yq = interp1d(x, y, xq)
     assert yq.shape == (20,)
 
     x = torch.linspace(0, 10, steps=10).repeat(5, 1)
-    y = torch.randint(10, 30, (5, 10), dtype=torch.float64)
+    y = torch.randint(10, 30, (5, 10), dtype=torch.float32)
     xq = torch.linspace(0, 10, steps=20).repeat(5, 1)
     yq = interp1d(x, y, xq)
     assert yq.shape == (5, 20)

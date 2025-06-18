@@ -94,11 +94,8 @@ class BottomUpInferenceModel(L.LightningModule):
             cms_peak_vals.append(peak_vals[sample_inds == b].to(torch.float32))
             cms_peak_channel_inds.append(peak_channel_inds[sample_inds == b])
 
-        return (
-            torch.nested.nested_tensor(cms_peaks),
-            torch.nested.nested_tensor(cms_peak_vals),
-            torch.nested.nested_tensor(cms_peak_channel_inds),
-        )
+        # cms_peaks: [(#nodes, 2), ...]
+        return cms_peaks, cms_peak_vals, cms_peak_channel_inds
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
@@ -137,15 +134,12 @@ class BottomUpInferenceModel(L.LightningModule):
             peak_channel_inds=cms_peak_channel_inds,
         )
 
-        predicted_instances = predicted_instances / self.input_scale
+        predicted_instances = [p / self.input_scale for p in predicted_instances]
         predicted_instances_adjusted = []
         for idx, p in enumerate(predicted_instances):
             predicted_instances_adjusted.append(
                 p / inputs["eff_scale"][idx].to(p.device)
             )
-        predicted_instances_adjusted = torch.nested.nested_tensor(
-            predicted_instances_adjusted
-        )
         out = {
             "pred_instance_peaks": predicted_instances_adjusted,
             "pred_peak_values": predicted_peak_scores,

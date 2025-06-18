@@ -254,10 +254,10 @@ class Predictor(ABC):
         """Convert tensors in output dictionary to numpy arrays."""
         for k, v in output.items():
             if isinstance(v, torch.Tensor):
-                if v.is_nested:
-                    output[k] = [i.cpu().numpy() for i in v]
-                else:
-                    output[k] = output[k].cpu().numpy()
+                output[k] = output[k].cpu().numpy()
+            if isinstance(v, list) and isinstance(v[0], torch.Tensor):
+                for n in range(len(v)):
+                    v[n] = v[n].cpu().numpy()
         return output
 
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
@@ -1483,8 +1483,6 @@ class BottomUpPredictor(Predictor):
             An instance of `BottomUpPredictor` with the loaded models.
 
         """
-        if device == "mps":
-            device = "cpu"  # nested tensor doesn't have support for `mps`.
         bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
         skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
         ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
@@ -1924,9 +1922,9 @@ def run_inference(
             else "mps" if torch.backends.mps.is_available() else "cpu"
         )
 
-    if integral_refinement is not None:
+    if integral_refinement is not None:  # TODO
         # kornia/geometry/transform/imgwarp.py:382: in get_perspective_transform. NotImplementedError: The operator 'aten::_linalg_solve_ex.result' is not currently implemented for the MPS device. If you want this op to be added in priority during the prototype phase of this feature, please comment on https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be slower than running natively on MPS.
-        device = "cpu"
+        device = "cpu"  # not supported with mps
 
     logger.info(f"Using device: {device}")
 
