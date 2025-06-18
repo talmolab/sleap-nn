@@ -78,6 +78,7 @@ class BottomUpInferenceModel(L.LightningModule):
         self.input_scale = input_scale
 
     def _generate_cms_peaks(self, cms):
+        # TODO: append nans to batch them -> tensor (vectorize the initial paf grouping steps)
         peaks, peak_vals, sample_inds, peak_channel_inds = find_local_peaks(
             cms.detach(),
             threshold=self.peak_threshold,
