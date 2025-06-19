@@ -162,6 +162,37 @@ class EarlyStoppingConfig:
 
 
 @define
+class HardKeypointMiningConfig:
+    """Configuration for online hard keypoint mining.
+
+    Attributes:
+        online_mining: If True, online hard keypoint mining (OHKM) will be enabled. When
+            this is enabled, the loss is computed per keypoint (or edge for PAFs) and
+            sorted from lowest (easy) to highest (hard). The hard keypoint loss will be
+            scaled to have a higher weight in the total loss, encouraging the training
+            to focus on tricky body parts that are more difficult to learn.
+            If False, no mining will be performed and all keypoints will be weighted
+            equally in the loss.
+        hard_to_easy_ratio: The minimum ratio of the individual keypoint loss with
+            respect to the lowest keypoint loss in order to be considered as "hard".
+            This helps to switch focus on across groups of keypoints during training.
+        min_hard_keypoints: The minimum number of keypoints that will be considered as
+            "hard", even if they are not below the `hard_to_easy_ratio`.
+        max_hard_keypoints: The maximum number of hard keypoints to apply scaling to.
+            This can help when there are few very easy keypoints which may skew the
+            ratio and result in loss scaling being applied to most keypoints, which can
+            reduce the impact of hard mining altogether.
+        loss_scale: Factor to scale the hard keypoint losses by.
+    """
+
+    online_mining: bool = False
+    hard_to_easy_ratio: float = 2.0
+    min_hard_keypoints: int = 2
+    max_hard_keypoints: Optional[int] = None
+    loss_scale: float = 5.0
+
+
+@define
 class TrainerConfig:
     """Configuration for trainer.
 
@@ -218,6 +249,9 @@ class TrainerConfig:
     lr_scheduler: Optional[LRSchedulerConfig] = None
     early_stopping: Optional[EarlyStoppingConfig] = None
     zmq: Optional[dict] = None  # Required for SLEAP GUI
+    online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
+        factory=HardKeypointMiningConfig
+    )
 
     @staticmethod
     def validate_optimizer_name(value):
@@ -347,4 +381,21 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
                 else None
             ),
         },
+        online_hard_keypoint_mining=HardKeypointMiningConfig(
+            online_mining=legacy_config_optimization.get(
+                "hard_keypoint_mining", {}
+            ).get("online_mining", False),
+            hard_to_easy_ratio=legacy_config_optimization.get(
+                "hard_keypoint_mining", {}
+            ).get("hard_to_easy_ratio", 2.0),
+            min_hard_keypoints=legacy_config_optimization.get(
+                "hard_keypoint_mining", {}
+            ).get("min_hard_keypoints", 2),
+            max_hard_keypoints=legacy_config_optimization.get(
+                "hard_keypoint_mining", {}
+            ).get("max_hard_keypoints", None),
+            loss_scale=legacy_config_optimization.get("hard_keypoint_mining", {}).get(
+                "loss_scale", 5.0
+            ),
+        ),
     )
