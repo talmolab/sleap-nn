@@ -44,7 +44,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     OmegaConf.update(
         config, "model_config.pre_trained_weights", "ConvNeXt_Tiny_Weights"
     )
-    OmegaConf.update(config, "data_config.preprocessing.is_rgb", True)
+    OmegaConf.update(config, "data_config.preprocessing.ensure_rgb", True)
     OmegaConf.update(config, "model_config.backbone_config.unet", None)
     OmegaConf.update(
         config,

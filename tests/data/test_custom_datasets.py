@@ -18,7 +18,8 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": False,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": False,
         }
@@ -64,7 +65,8 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 0.5,
-                "is_rgb": True,
+                "ensure_rgb": True,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": False,
         }
@@ -73,7 +75,8 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     dataset = BottomUpDataset(
         max_stride=32,
         scale=0.5,
-        is_rgb=True,
+        ensure_rgb=True,
+        ensure_grayscale=False,
         confmap_head_config=confmap_head,
         pafs_head_config=pafs_head,
         labels=[sio.load_slp(minimal_instance)],
@@ -110,7 +113,8 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": False,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -219,7 +223,8 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": False,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": False,
         },
@@ -305,7 +310,8 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": True,
+                "ensure_rgb": True,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -343,7 +349,8 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
     dataset = CenteredInstanceDataset(
         max_stride=8,
         scale=1.0,
-        is_rgb=True,
+        ensure_rgb=True,
+        ensure_grayscale=False,
         confmap_head_config=confmap_head,
         crop_hw=(100, 100),
         labels=[sio.load_slp(minimal_instance)],
@@ -379,7 +386,8 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 2.0,
-                "is_rgb": False,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -455,7 +463,8 @@ def test_centroid_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": True,
+                "ensure_rgb": True,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": False,
         }
@@ -465,7 +474,8 @@ def test_centroid_dataset(minimal_instance, tmp_path):
     ## save imgs
     dataset = CentroidDataset(
         max_stride=32,
-        is_rgb=True,
+        ensure_rgb=True,
+        ensure_grayscale=False,
         scale=1.0,
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
@@ -498,7 +508,8 @@ def test_centroid_dataset(minimal_instance, tmp_path):
 
     dataset = CentroidDataset(
         max_stride=32,
-        is_rgb=True,
+        ensure_rgb=False,
+        ensure_grayscale=True,
         scale=1.0,
         confmap_head_config=confmap_head,
         cache_img="memory",
@@ -523,7 +534,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["image"].shape == (1, 3, 384, 384)
+    assert sample["image"].shape == (1, 1, 384, 384)
     assert sample["centroids_confidence_maps"].shape == (1, 1, 192, 192)
 
     base_centroid_data_config = OmegaConf.create(
@@ -533,7 +544,8 @@ def test_centroid_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": False,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -613,7 +625,8 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 2.0,
-                "is_rgb": True,
+                "ensure_rgb": True,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": False,
         }
@@ -624,7 +637,8 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     ## saving imgs
     dataset = SingleInstanceDataset(
         max_stride=8,
-        is_rgb=True,
+        ensure_rgb=True,
+        ensure_grayscale=False,
         scale=2.0,
         confmap_head_config=confmap_head,
         labels=[labels, labels, labels],
@@ -656,7 +670,8 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
 
     dataset = SingleInstanceDataset(
         max_stride=8,
-        is_rgb=True,
+        ensure_rgb=True,
+        ensure_grayscale=False,
         scale=2.0,
         confmap_head_config=confmap_head,
         labels=[labels],
@@ -691,7 +706,8 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 1.0,
-                "is_rgb": False,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": True,
             "augmentation_config": {
@@ -768,7 +784,8 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
                 "max_height": None,
                 "max_width": None,
                 "scale": 2.0,
-                "is_rgb": True,
+                "ensure_rgb": True,
+                "ensure_grayscale": False,
             },
             "use_augmentations_train": False,
         }
@@ -778,7 +795,8 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
 
     dataset = SingleInstanceDataset(
         max_stride=8,
-        is_rgb=True,
+        ensure_rgb=True,
+        ensure_grayscale=False,
         scale=2.0,
         confmap_head_config=confmap_head,
         labels=[labels],

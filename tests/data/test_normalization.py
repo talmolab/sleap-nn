@@ -12,15 +12,15 @@ from sleap_nn.data.providers import LabelsReaderDP
 def test_normalizer(minimal_instance):
     """Test Normalizer module."""
     p = LabelsReaderDP.from_filename(minimal_instance)
-    p = Normalizer(p)
+    p = Normalizer(p, ensure_grayscale=True)
 
     ex = next(iter(p))
     assert ex["image"].dtype == torch.float32
     assert ex["image"].shape[-3] == 1
 
-    # test is_rgb
+    # test ensure_rgb
     p = LabelsReaderDP.from_filename(minimal_instance)
-    p = Normalizer(p, is_rgb=True)
+    p = Normalizer(p, ensure_rgb=True, ensure_grayscale=False)
 
     ex = next(iter(p))
     assert ex["image"].dtype == torch.float32

@@ -42,8 +42,8 @@ def test_bottomup_data_chunks(minimal_instance, config):
     assert transform(samples[0]["image"]).shape == (1, 384, 384)
     assert samples[0]["instances"].shape == (1, 4, 2, 2)
 
-    # test `is_rgb`
-    config.data_config.preprocessing.is_rgb = True
+    # test `ensure_rgb`
+    config.data_config.preprocessing.ensure_rgb = True
     samples = []
     for idx, lf in enumerate(labels):
         samples.append(
@@ -105,9 +105,9 @@ def test_centered_instance_data_chunks(minimal_instance, config):
     assert transform(samples[0]["instance_image"]).shape == (1, 226, 226)
     assert samples[0]["instance"].shape == (1, 2, 2)
 
-    # test `is_rgb`
+    # test `ensure_rgb`
     config.data_config.preprocessing.scale = 1.0
-    config.data_config.preprocessing.is_rgb = True
+    config.data_config.preprocessing.ensure_rgb = True
     samples = []
     for idx, lf in enumerate(labels):
         res = centered_instance_data_chunks(
@@ -172,9 +172,9 @@ def test_centroid_data_chunks(minimal_instance, config):
     assert samples[0]["instances"].shape == (1, 4, 2, 2)
     assert samples[0]["centroids"].shape == (1, 4, 2)
 
-    # test  `is_rgb`
+    # test  `ensure_rgb`
     samples = []
-    config.data_config.preprocessing.is_rgb = True
+    config.data_config.preprocessing.ensure_rgb = True
     for idx, lf in enumerate(labels):
         samples.append(
             centroid_data_chunks(
@@ -236,8 +236,8 @@ def test_single_instance_data_chunks(minimal_instance, config):
     assert transform(samples[0]["image"]).shape == (1, 384, 384)
     assert samples[0]["instances"].shape == (1, 1, 2, 2)
 
-    # test `is_rgb`
-    config.data_config.preprocessing.is_rgb = True
+    # test `ensure_rgb`
+    config.data_config.preprocessing.ensure_rgb = True
     samples = []
     for idx, lf in enumerate(labels):
         samples.append(

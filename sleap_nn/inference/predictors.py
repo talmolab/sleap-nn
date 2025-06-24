@@ -74,8 +74,8 @@ class Predictor(ABC):
             apply_pad_to_stride) should be applied on the frames read in the video reader.
             Default: True.
         preprocess_config: Preprocessing config with keys: [`batch_size`,
-            `scale`, `is_rgb`, `max_stride`]. Default: {"batch_size": 4, "scale": 1.0,
-            "is_rgb": False, "max_stride": 1}
+            `scale`, `ensure_rgb`, `ensure_grayscale`, `max_stride`]. Default: {"batch_size": 4, "scale": 1.0,
+            "ensure_rgb": False, "ensure_grayscale": False, "max_stride": 1}
         pipeline: If provider is LabelsReader, pipeline is a `DataLoader` object. If provider
             is VideoReader, pipeline is an instance of `sleap_nn.data.providers.VideoReader`
             class. Default: None.
@@ -88,7 +88,8 @@ class Predictor(ABC):
     preprocess_config: dict = {
         "batch_size": 4,
         "scale": 1.0,
-        "is_rgb": False,
+        "ensure_rgb": False,
+        "ensure_grayscale": False,
         "max_stride": 1,
         "max_height": None,
         "max_width": None,
@@ -323,11 +324,14 @@ class Predictor(ABC):
                     if self.instances_key:
                         frame["instances"] = frame["instances"] * eff_scale
                     if (
-                        self.preprocess_config["is_rgb"]
+                        self.preprocess_config["ensure_rgb"]
                         and frame["image"].shape[-3] != 3
                     ):
                         frame["image"] = frame["image"].repeat(1, 3, 1, 1)
-                    elif not self.preprocess_config["is_rgb"]:
+                    elif (
+                        self.preprocess_config["ensure_grayscale"]
+                        and frame["image"].shape[-3] != 1
+                    ):
                         frame["image"] = F.rgb_to_grayscale(
                             frame["image"], num_output_channels=1
                         )
@@ -357,12 +361,6 @@ class Predictor(ABC):
                     }
                     if self.instances_key:
                         ex["instances"] = instances
-                    if self.preprocess_config["is_rgb"] and ex["image"].shape[-3] != 3:
-                        ex["image"] = ex["image"].repeat(1, 1, 3, 1, 1)
-                    elif not self.preprocess_config["is_rgb"]:
-                        ex["image"] = F.rgb_to_grayscale(
-                            ex["image"], num_output_channels=1
-                        )
                     if self.preprocess:
                         scale = self.preprocess_config["scale"]
                         if scale != 1.0:
@@ -833,7 +831,8 @@ class TopDownPredictor(Predictor):
             self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": scale,
-                "is_rgb": self.data_config.is_rgb,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
                 "max_stride": max_stride,
                 "max_height": (
                     self.data_config.max_height
@@ -870,7 +869,8 @@ class TopDownPredictor(Predictor):
             self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.centroid_config.data_config.preprocessing.scale,
-                "is_rgb": self.data_config.is_rgb,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
                 "max_stride": (
                     self.centroid_config.model_config.backbone_config[
                         f"{self.centroid_backbone_type}"
@@ -1198,7 +1198,8 @@ class SingleInstancePredictor(Predictor):
             self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.confmap_config.data_config.preprocessing.scale,
-                "is_rgb": self.data_config.is_rgb,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
                 "max_stride": max_stride,
                 "max_height": (
                     self.data_config.max_height
@@ -1226,7 +1227,8 @@ class SingleInstancePredictor(Predictor):
             self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.confmap_config.data_config.preprocessing.scale,
-                "is_rgb": self.data_config.is_rgb,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
                 "max_stride": (
                     self.confmap_config.model_config.backbone_config[
                         f"{self.backbone_type}"
@@ -1584,7 +1586,8 @@ class BottomUpPredictor(Predictor):
             self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.bottomup_config.data_config.preprocessing.scale,
-                "is_rgb": self.data_config.is_rgb,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
                 "max_stride": max_stride,
                 "max_height": (
                     self.data_config.max_height
@@ -1612,7 +1615,8 @@ class BottomUpPredictor(Predictor):
             self.preprocess_config = {
                 "batch_size": self.batch_size,
                 "scale": self.bottomup_config.data_config.preprocessing.scale,
-                "is_rgb": self.data_config.is_rgb,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
                 "max_stride": (
                     self.bottomup_config.model_config.backbone_config[
                         f"{self.backbone_type}"
@@ -1748,7 +1752,8 @@ def run_inference(
     max_instances: Optional[int] = None,
     max_width: Optional[int] = None,
     max_height: Optional[int] = None,
-    is_rgb: bool = False,
+    ensure_rgb: bool = False,
+    ensure_grayscale: bool = False,
     anchor_part: Optional[str] = None,
     only_labeled_frames: bool = False,
     only_suggested_frames: bool = False,
@@ -1805,11 +1810,12 @@ def run_inference(
                 values from the training config are used. Default: None.
         max_height: (int) Maximum height the image should be padded to. If not provided, the
                 values from the training config are used. Default: None.
-        is_rgb: (bool) True if the image has 3 channels (RGB image). If input has only one
-                channel when this is set to `True`, then the images from single-channel
-                is replicated along the channel axis. If input has three channels and this
-                is set to False, then we convert the image to grayscale (single-channel)
-                image. Default: False.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         anchor_part: (str) The node name to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used.
         only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
@@ -1908,7 +1914,8 @@ def run_inference(
     start_timestamp = str(datetime.now())
     print("Started inference at:", start_timestamp)
     preprocess_config = {  # if not given, then use from training config
-        "is_rgb": is_rgb,
+        "ensure_rgb": ensure_rgb,
+        "ensure_grayscale": ensure_grayscale,
         "crop_hw": (crop_size, crop_size) if crop_size is not None else None,
         "max_width": max_width,
         "max_height": max_height,
