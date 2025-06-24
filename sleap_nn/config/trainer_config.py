@@ -161,7 +161,7 @@ class EarlyStoppingConfig:
     stop_training_on_plateau: bool = False
 
 
-@attr.s(auto_attribs=True)
+@define
 class ZMQConfig:
     """Configuration of ZeroMQ-based monitoring of the training.
 
