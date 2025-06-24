@@ -21,6 +21,7 @@ from sleap_nn.config.trainer_config import (
     ModelCkptConfig,
     WandBConfig,
     OptimizerConfig,
+    ZMQConfig,
 )
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
@@ -452,6 +453,9 @@ def get_trainer_config(
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
+    zmq_publish_address: Optional[str] = None,
+    zmq_controller_address: Optional[str] = None,
+    zmq_controller_timeout: int = 10,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -519,6 +523,10 @@ def get_trainer_config(
         early_stopping_patience: Number of checks with no improvement after which training
             will be stopped. Under the default configuration, one check happens after every
             training epoch. Default: 1.
+        zmq_publish_address: (str) Specifies the address and port to which the training logs (loss values) should be sent to.
+        zmq_controller_address: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
+        zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
+            should wait to receive a response and should be set to a small value to minimize the impact on training speed.
     """
     # constrict trainer config
     train_dataloader_cfg = DataLoaderConfig(
@@ -585,6 +593,11 @@ def get_trainer_config(
             min_delta=early_stopping_min_delta,
             patience=early_stopping_patience,
             stop_training_on_plateau=early_stopping,
+        ),
+        zmq=ZMQConfig(
+            controller_address=zmq_controller_address,
+            controller_polling_timeout=zmq_controller_timeout,
+            publish_address=zmq_publish_address,
         ),
     )
     return trainer_config
@@ -707,6 +720,9 @@ def train(
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
+    zmq_publish_address: Optional[str] = None,
+    zmq_controller_address: Optional[str] = None,
+    zmq_controller_timeout: int = 10,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -742,11 +758,11 @@ def train(
         delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
             retained after training. Else, the files are deleted. Default: True.
         ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
-        channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+            channel when this is set to `True`, then the images from single-channel
+            is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
         ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
-        is set to True, then we convert the image to grayscale (single-channel)
-        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
+            is set to True, then we convert the image to grayscale (single-channel)
+            image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         max_height: Maximum height the image should be padded to. If not provided, the
             original image size will be retained. Default: None.
@@ -887,6 +903,10 @@ def train(
         early_stopping_patience: Number of checks with no improvement after which training
             will be stopped. Under the default configuration, one check happens after every
             training epoch. Default: 1.
+        zmq_publish_address: (str) Specifies the address and port to which the training logs (loss values) should be sent to.
+        zmq_controller_address: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
+        zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
+            should wait to receive a response and should be set to a small value to minimize the impact on training speed.
     """
     data_config = get_data_config(
         train_labels_path=train_labels_path,
@@ -952,6 +972,9 @@ def train(
         early_stopping=early_stopping,
         early_stopping_min_delta=early_stopping_min_delta,
         early_stopping_patience=early_stopping_patience,
+        zmq_publish_address=zmq_publish_address,
+        zmq_controller_address=zmq_controller_address,
+        zmq_controller_timeout=zmq_controller_timeout,
     )
 
     # create omegaconf object

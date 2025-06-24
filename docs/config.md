@@ -206,4 +206,7 @@ The config file has three main sections:
         - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. *Default*: `False`.
         - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `0.0`.
         - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `1`.
-    - `zmq`: (dict) Dict with keys ["publish_adddress", "controller_address"]. `publish_address` specifies the address and port to which the training logs (loss values) should be sent to. `controller_address` specifies the address and port to listen to to stop the training (specific to SLEAP GUI). *Default*: `None`.
+    - `zmq`
+        - `publish_address`: (str) Specifies the address and port to which the training logs (loss values) should be sent to. 
+        - `controller_address`: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI). *Default*: `None`.
+        - `controller_polling_timeout`: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed.

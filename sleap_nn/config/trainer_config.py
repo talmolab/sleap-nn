@@ -161,6 +161,28 @@ class EarlyStoppingConfig:
     stop_training_on_plateau: bool = False
 
 
+@attr.s(auto_attribs=True)
+class ZMQConfig:
+    """Configuration of ZeroMQ-based monitoring of the training.
+
+    Attributes:
+        controller_address: IP address/hostname and port number of the endpoint to
+            listen for command messages from. For TCP-based endpoints, this must be in
+            the form of "tcp://{ip_address}:{port_number}". Defaults to
+            None.
+        controller_polling_timeout: Polling timeout in microseconds specified as an
+            integer. This controls how long the poller should wait to receive a response
+            and should be set to a small value to minimize the impact on training speed.
+        publish_address: IP address/hostname and port number of the endpoint to publish
+            updates to. For TCP-based endpoints, this must be in the form of
+            "tcp://{ip_address}:{port_number}". Sample: "tcp://127.0.0.1:9001". Defaults to None.
+    """
+
+    controller_address: Optional[str] = None
+    controller_polling_timeout: int = 10
+    publish_address: Optional[str] = None
+
+
 @define
 class TrainerConfig:
     """Configuration for trainer.
@@ -187,7 +209,7 @@ class TrainerConfig:
         optimizer: create an optimizer configuration
         lr_scheduler: create an lr_scheduler configuration
         early_stopping: create an early_stopping configuration
-        zmq: Dict with keys ["publish_adddress", "controller_address"]. `publish_address` specifies the address and port to which the training logs (loss values) should be sent to. `controller_address` specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
+        zmq: Zmq config with publish and controller port addresses.
     """
 
     train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
@@ -217,7 +239,7 @@ class TrainerConfig:
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: Optional[LRSchedulerConfig] = None
     early_stopping: Optional[EarlyStoppingConfig] = None
-    zmq: Optional[dict] = None  # Required for SLEAP GUI
+    zmq: Optional[ZMQConfig] = field(factory=ZMQConfig)  # Required for SLEAP GUI
 
     @staticmethod
     def validate_optimizer_name(value):
@@ -333,18 +355,21 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             if legacy_config_optimization.get("early_stopping")
             else None
         ),
-        zmq={
-            "publish_adddress": (
-                legacy_config_outputs.get("zmq", {}).get("publish_address", None)
-                if legacy_config_outputs.get("zmq", {}).get("publish_updates", False)
-                else None
-            ),
-            "controller_address": (
+        zmq=ZMQConfig(
+            controller_address=(
                 legacy_config_outputs.get("zmq", {}).get("controller_address", None)
                 if legacy_config_outputs.get("zmq", {}).get(
                     "subscribe_to_controller", False
                 )
                 else None
             ),
-        },
+            publish_address=(
+                legacy_config_outputs.get("zmq", {}).get("publish_address", None)
+                if legacy_config_outputs.get("zmq", {}).get("publish_updates", False)
+                else None
+            ),
+            controller_polling_timeout=legacy_config_outputs.get("zmq", {}).get(
+                "controller_polling_timeout", 10
+            ),
+        ),
     )
