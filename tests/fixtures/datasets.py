@@ -61,7 +61,8 @@ def config(sleap_data_dir):
                 "delete_cache_imgs_after_training": True,
                 "chunk_size": 100,
                 "preprocessing": {
-                    "is_rgb": False,
+                    "ensure_rgb": False,
+                    "ensure_grayscale": False,
                     "max_width": None,
                     "max_height": None,
                     "scale": None,

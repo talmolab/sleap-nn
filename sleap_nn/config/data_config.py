@@ -15,7 +15,12 @@ class PreprocessingConfig:
     """Configuration of Preprocessing.
 
     Attributes:
-        is_rgb: (bool) True if the image has 3 channels (RGB image). If input has only one channel when this is set to True, then the images from single-channel is replicated along the channel axis. If input has three channels and this is set to False, then we convert the image to grayscale (single-channel) image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         max_height: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. Default: None.
         max_width: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. Default: None.
         scale: (float or List[float]) Factor to resize the image dimensions by, specified as either a float scalar or as a 2-tuple of [scale_x, scale_y]. If a scalar is provided, both dimensions are resized by the same factor.
@@ -23,7 +28,8 @@ class PreprocessingConfig:
         min_crop_size: (int) Minimum crop size to be used if crop_hw is None.
     """
 
-    is_rgb: bool = False
+    ensure_rgb: bool = False
+    ensure_grayscale: bool = False
     max_height: Optional[int] = None
     max_width: Optional[int] = None
     scale: float = field(
@@ -218,7 +224,12 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         ),
         test_file_path=legacy_config_data.get("labels", {}).get("test_labels", None),
         preprocessing=PreprocessingConfig(
-            is_rgb=legacy_config_data.get("preprocessing", {}).get("ensure_rgb", False),
+            ensure_rgb=legacy_config_data.get("preprocessing", {}).get(
+                "ensure_rgb", False
+            ),
+            ensure_grayscale=legacy_config_data.get("preprocessing", {}).get(
+                "ensure_grayscale", False
+            ),
             max_height=legacy_config_data.get("preprocessing", {}).get(
                 "target_height", None
             ),

@@ -14,7 +14,8 @@ data_config:
   chunk_size: 100
   delete_cache_imgs_after_training: true
   preprocessing:
-    is_rgb: false
+    ensure_rgb: false
+    ensure_grayscale: false
     max_height: null
     max_width: null
     scale: 1.0

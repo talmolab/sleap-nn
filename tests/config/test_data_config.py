@@ -166,7 +166,8 @@ def test_data_mapper():
     config = data_mapper(legacy_config)
 
     # Test preprocessing config
-    assert config.preprocessing.is_rgb is True
+    assert config.preprocessing.ensure_rgb is True
+    assert config.preprocessing.ensure_grayscale is False
     assert config.preprocessing.max_height == 256
     assert config.preprocessing.max_width == 256
     assert config.preprocessing.scale == 0.5

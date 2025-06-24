@@ -27,11 +27,12 @@ The config file has three main sections:
     - `delete_cache_imgs_after_training`: (bool) If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are retained after training. Else, the files are deleted. *Default*: `True`.
     #TODO: change in inference ckpts
     - `preprocessing`:
-        - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
+        - `ensure_rgb`: (bool) True if the input image should have 3 channels (RGB image). If input has only one
         channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If input has three channels and this
-        is set to False, then we convert the image to grayscale (single-channel)
-        image. *Default*: `False`.
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. *Default*: `False`.
+        - `ensure_grayscale`: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. *Default*: `False`.
         - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
         original image size will be retained. *Default*: `None`.
         - `max_width`: (int) Maximum width the image should be padded to. If not provided, the

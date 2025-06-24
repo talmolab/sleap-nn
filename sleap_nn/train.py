@@ -225,7 +225,8 @@ def get_data_config(
     use_existing_imgs: bool = False,
     chunk_size: int = 100,
     delete_cache_imgs_after_training: bool = True,
-    is_rgb: bool = False,
+    ensure_rgb: bool = False,
+    ensure_grayscale: bool = False,
     scale: float = 1.0,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
@@ -268,11 +269,12 @@ def get_data_config(
         chunk_size: Size of each chunk (in MB). Default: 100.
         delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
             retained after training. Else, the files are deleted. Default: True.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image. Default: False.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         max_height: Maximum height the image should be padded to. If not provided, the
             original image size will be retained. Default: None.
@@ -300,7 +302,8 @@ def get_data_config(
                     }
     """
     preprocessing_config = PreprocessingConfig(
-        is_rgb=is_rgb,
+        ensure_rgb=ensure_rgb,
+        ensure_grayscale=ensure_grayscale,
         max_height=max_height,
         max_width=max_width,
         scale=scale,
@@ -659,7 +662,8 @@ def train(
     use_existing_imgs: bool = False,
     chunk_size: int = 100,
     delete_cache_imgs_after_training: bool = True,
-    is_rgb: bool = False,
+    ensure_rgb: bool = False,
+    ensure_grayscale: bool = False,
     scale: float = 1.0,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
@@ -737,11 +741,12 @@ def train(
         chunk_size: Size of each chunk (in MB). Default: 100.
         delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
             retained after training. Else, the files are deleted. Default: True.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image. Default: False.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         max_height: Maximum height the image should be padded to. If not provided, the
             original image size will be retained. Default: None.
@@ -896,7 +901,8 @@ def train(
         use_existing_imgs=use_existing_imgs,
         chunk_size=chunk_size,
         delete_cache_imgs_after_training=delete_cache_imgs_after_training,
-        is_rgb=is_rgb,
+        ensure_rgb=ensure_rgb,
+        ensure_grayscale=ensure_grayscale,
         scale=scale,
         max_height=max_height,
         max_width=max_width,

@@ -56,9 +56,9 @@ def bottomup_data_chunks(
 
     sample["image"] = apply_normalization(sample["image"])
 
-    if data_config.preprocessing.is_rgb:
+    if data_config.preprocessing.ensure_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
-    else:
+    elif data_config.preprocessing.ensure_grayscale:
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher
@@ -130,9 +130,9 @@ def centered_instance_data_chunks(
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
     sample["image"] = apply_normalization(sample["image"])
 
-    if data_config.preprocessing.is_rgb:
+    if data_config.preprocessing.ensure_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
-    else:
+    elif data_config.preprocessing.ensure_grayscale:
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher
@@ -220,9 +220,9 @@ def centroid_data_chunks(
     sample = process_lf(lf, video_idx, max_instances, user_instances_only)
     sample["image"] = apply_normalization(sample["image"])
 
-    if data_config.preprocessing.is_rgb:
+    if data_config.preprocessing.ensure_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
-    else:
+    elif data_config.preprocessing.ensure_grayscale:
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher
@@ -292,9 +292,9 @@ def single_instance_data_chunks(
     )
     sample["image"] = apply_normalization(sample["image"])
 
-    if data_config.preprocessing.is_rgb:
+    if data_config.preprocessing.ensure_rgb:
         sample["image"] = convert_to_rgb(sample["image"])
-    else:
+    elif data_config.preprocessing.ensure_grayscale:
         sample["image"] = convert_to_grayscale(sample["image"])
 
     # size matcher

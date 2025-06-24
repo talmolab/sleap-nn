@@ -79,15 +79,25 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--is_rgb",
+        "--ensure_rgb",
         action="store_true",
         default=False,
         help=(
-            "True if the image has 3 channels (RGB image). If input has only one"
+            "True if the image should have 3 channels (RGB image). If input has only one"
             "channel when this is set to `True`, then the images from single-channel"
             "is replicated along the channel axis. If input has three channels and this"
-            "is set to False, then we convert the image to grayscale (single-channel)"
-            "image."
+            "is set to False, then we retain the image with three channels."
+        ),
+    )
+    parser.add_argument(
+        "--ensure_grayscale",
+        action="store_true",
+        default=False,
+        help=(
+            "True if the image should only have a single channel. If input has only three"
+            "channel when this is set to `True`, then we convert the image to grayscale."
+            "If input has single channel and this"
+            "is set to False, then we reatin the grayscale image."
         ),
     )
     parser.add_argument(

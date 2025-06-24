@@ -41,11 +41,12 @@ class BaseDataset(Dataset):
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -68,7 +69,8 @@ class BaseDataset(Dataset):
         labels: List[sio.Labels],
         max_stride: int,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -82,7 +84,8 @@ class BaseDataset(Dataset):
         super().__init__()
         self.labels = labels
         self.user_instances_only = user_instances_only
-        self.is_rgb = is_rgb
+        self.ensure_rgb = ensure_rgb
+        self.ensure_grayscale = ensure_grayscale
         self.augmentation_config = augmentation_config
         self.curr_idx = 0
         self.max_stride = max_stride
@@ -196,11 +199,12 @@ class BottomUpDataset(BaseDataset):
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -230,7 +234,8 @@ class BottomUpDataset(BaseDataset):
         pafs_head_config: DictConfig,
         max_stride: int,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -245,7 +250,8 @@ class BottomUpDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -296,9 +302,9 @@ class BottomUpDataset(BaseDataset):
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
-        else:
+        elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
@@ -377,11 +383,12 @@ class CenteredInstanceDataset(BaseDataset):
             ordered list of skeleton nodes.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -411,7 +418,8 @@ class CenteredInstanceDataset(BaseDataset):
         max_stride: int,
         anchor_ind: Optional[int] = None,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -426,7 +434,8 @@ class CenteredInstanceDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -513,9 +522,9 @@ class CenteredInstanceDataset(BaseDataset):
         # apply normalization
         image = apply_normalization(image)
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             image = convert_to_rgb(image)
-        else:
+        elif self.ensure_grayscale:
             image = convert_to_grayscale(image)
 
         # size matcher
@@ -622,11 +631,12 @@ class CentroidDataset(BaseDataset):
             ordered list of skeleton nodes.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -653,7 +663,8 @@ class CentroidDataset(BaseDataset):
         max_stride: int,
         anchor_ind: Optional[int] = None,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -668,7 +679,8 @@ class CentroidDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -717,9 +729,9 @@ class CentroidDataset(BaseDataset):
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
-        else:
+        elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
@@ -790,11 +802,12 @@ class SingleInstanceDataset(BaseDataset):
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -820,7 +833,8 @@ class SingleInstanceDataset(BaseDataset):
         confmap_head_config: DictConfig,
         max_stride: int,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -835,7 +849,8 @@ class SingleInstanceDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -883,9 +898,9 @@ class SingleInstanceDataset(BaseDataset):
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
-        else:
+        elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
