@@ -157,9 +157,9 @@ trainer_config:
     patience: 10
     stop_training_on_plateau: true
   zmq:
-    publish_adddress: null
-    controller_address:
     publish_address:
+    controller_address:
+    controller_polling_timeout: 10
 name: ''
 description: ''
 sleap_nn_version: 0.0.1
