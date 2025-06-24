@@ -654,6 +654,11 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     OmegaConf.update(
         config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-1
     )
+    OmegaConf.update(
+        config_early_stopping,
+        "trainer_config.online_hard_keypoint_mining.online_mining",
+        True,
+    )
     OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.max_epochs", 10)
     OmegaConf.update(
@@ -756,6 +761,9 @@ def test_trainer_torch_dataset_bottomup(config):
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
     OmegaConf.update(config, "trainer_config.enable_progress_bar", True)
+    OmegaConf.update(
+        config, "trainer_config.online_hard_keypoint_mining.online_mining", True
+    )
 
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     head_config = config.model_config.head_configs.centered_instance

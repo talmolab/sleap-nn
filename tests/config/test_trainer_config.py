@@ -257,6 +257,13 @@ def test_trainer_mapper():
                 "plateau_min_delta": 1e-06,
                 "plateau_patience": 10,
             },
+            "hard_keypoint_mining": {
+                "online_mining": False,
+                "hard_to_easy_ratio": 2.0,
+                "min_hard_keypoints": 2,
+                "max_hard_keypoints": None,
+                "loss_scale": 5.0,
+            },
         },
         "outputs": {"save_outputs": True, "save_visualizations": True, "zmq": {}},
     }
@@ -297,3 +304,8 @@ def test_trainer_mapper():
     assert config.early_stopping.patience == 10
     assert config.early_stopping.min_delta == 1e-6
     assert config.early_stopping.stop_training_on_plateau is True
+    assert config.online_hard_keypoint_mining.online_mining is False
+    assert config.online_hard_keypoint_mining.hard_to_easy_ratio == 2.0
+    assert config.online_hard_keypoint_mining.min_hard_keypoints == 2
+    assert config.online_hard_keypoint_mining.max_hard_keypoints is None
+    assert config.online_hard_keypoint_mining.loss_scale == 5.0

@@ -20,6 +20,7 @@ from sleap_nn.config.trainer_config import (
     TrainerConfig,
     ModelCkptConfig,
     WandBConfig,
+    HardKeypointMiningConfig,
     OptimizerConfig,
 )
 from sleap_nn.config.training_job_config import TrainingJobConfig
@@ -449,6 +450,11 @@ def get_trainer_config(
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
+    online_mining: bool = False,
+    hard_to_easy_ratio: float = 2.0,
+    min_hard_keypoints: int = 2,
+    max_hard_keypoints: Optional[int] = None,
+    loss_scale: float = 5.0,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -516,6 +522,23 @@ def get_trainer_config(
         early_stopping_patience: Number of checks with no improvement after which training
             will be stopped. Under the default configuration, one check happens after every
             training epoch. Default: 1.
+        online_mining: If True, online hard keypoint mining (OHKM) will be enabled. When
+            this is enabled, the loss is computed per keypoint (or edge for PAFs) and
+            sorted from lowest (easy) to highest (hard). The hard keypoint loss will be
+            scaled to have a higher weight in the total loss, encouraging the training
+            to focus on tricky body parts that are more difficult to learn.
+            If False, no mining will be performed and all keypoints will be weighted
+            equally in the loss.
+        hard_to_easy_ratio: The minimum ratio of the individual keypoint loss with
+            respect to the lowest keypoint loss in order to be considered as "hard".
+            This helps to switch focus on across groups of keypoints during training.
+        min_hard_keypoints: The minimum number of keypoints that will be considered as
+            "hard", even if they are not below the `hard_to_easy_ratio`.
+        max_hard_keypoints: The maximum number of hard keypoints to apply scaling to.
+            This can help when there are few very easy keypoints which may skew the
+            ratio and result in loss scaling being applied to most keypoints, which can
+            reduce the impact of hard mining altogether.
+        loss_scale: Factor to scale the hard keypoint losses by.
     """
     # constrict trainer config
     train_dataloader_cfg = DataLoaderConfig(
@@ -582,6 +605,13 @@ def get_trainer_config(
             min_delta=early_stopping_min_delta,
             patience=early_stopping_patience,
             stop_training_on_plateau=early_stopping,
+        ),
+        online_hard_keypoint_mining=HardKeypointMiningConfig(
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
         ),
     )
     return trainer_config
@@ -703,6 +733,11 @@ def train(
     early_stopping: bool = False,
     early_stopping_min_delta: float = 0.0,
     early_stopping_patience: int = 1,
+    online_mining: bool = False,
+    hard_to_easy_ratio: float = 2.0,
+    min_hard_keypoints: int = 2,
+    max_hard_keypoints: Optional[int] = None,
+    loss_scale: float = 5.0,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -882,6 +917,23 @@ def train(
         early_stopping_patience: Number of checks with no improvement after which training
             will be stopped. Under the default configuration, one check happens after every
             training epoch. Default: 1.
+        online_mining: If True, online hard keypoint mining (OHKM) will be enabled. When
+            this is enabled, the loss is computed per keypoint (or edge for PAFs) and
+            sorted from lowest (easy) to highest (hard). The hard keypoint loss will be
+            scaled to have a higher weight in the total loss, encouraging the training
+            to focus on tricky body parts that are more difficult to learn.
+            If False, no mining will be performed and all keypoints will be weighted
+            equally in the loss.
+        hard_to_easy_ratio: The minimum ratio of the individual keypoint loss with
+            respect to the lowest keypoint loss in order to be considered as "hard".
+            This helps to switch focus on across groups of keypoints during training.
+        min_hard_keypoints: The minimum number of keypoints that will be considered as
+            "hard", even if they are not below the `hard_to_easy_ratio`.
+        max_hard_keypoints: The maximum number of hard keypoints to apply scaling to.
+            This can help when there are few very easy keypoints which may skew the
+            ratio and result in loss scaling being applied to most keypoints, which can
+            reduce the impact of hard mining altogether.
+        loss_scale: Factor to scale the hard keypoint losses by.
     """
     data_config = get_data_config(
         train_labels_path=train_labels_path,
@@ -946,6 +998,11 @@ def train(
         early_stopping=early_stopping,
         early_stopping_min_delta=early_stopping_min_delta,
         early_stopping_patience=early_stopping_patience,
+        online_mining=online_mining,
+        hard_to_easy_ratio=hard_to_easy_ratio,
+        min_hard_keypoints=min_hard_keypoints,
+        max_hard_keypoints=max_hard_keypoints,
+        loss_scale=loss_scale,
     )
 
     # create omegaconf object

@@ -150,6 +150,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="centered_instance",
         save_ckpt=True,
         save_ckpt_path=(Path(tmp_path) / "test_train_method").as_posix(),
+        online_mining=True,
     )
     folder_created = (Path(tmp_path) / "test_train_method").exists()
     assert folder_created
