@@ -34,8 +34,9 @@ from sleap_nn.architectures.model import Model
 from loguru import logger
 from sleap_nn.training.utils import (
     xavier_init_weights,
-    plot_pred_confmaps_peaks,
-    plot_pafs,
+    plot_confmaps,
+    plot_img,
+    plot_peaks,
 )
 import matplotlib.pyplot as plt
 
@@ -315,16 +316,21 @@ class SingleInstanceLightningModule(BaseLightningModule):
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.single_instance_inf_layer(ex)[0]
         peaks = output["pred_instance_peaks"].cpu().numpy()
-        img = output["image"][0, 0].cpu().numpy()
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
         gt_instances = ex["instances"][0].cpu().numpy()
-        confmaps = output["pred_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_instances,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_instances, peaks, paired=True)
         return fig
 
     def forward(self, img):
@@ -421,16 +427,21 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
         output = self.instance_peaks_inf_layer(ex)
         peaks = output["pred_instance_peaks"].cpu().numpy()
-        img = output["instance_image"][0, 0].cpu().numpy()
+        img = (
+            output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
         gt_instances = ex["instance"].cpu().numpy()
-        confmaps = output["pred_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_instances,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_instances, peaks, paired=True)
         return fig
 
     def forward(self, img):
@@ -529,15 +540,20 @@ class CentroidLightningModule(BaseLightningModule):
         gt_centroids = ex["centroids"].cpu().numpy()
         output = self.centroid_inf_layer(ex)
         peaks = output["centroids"][0].cpu().numpy()
-        img = output["image"][0, 0].cpu().numpy()
-        confmaps = output["pred_centroid_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_centroids,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        confmaps = (
+            output["pred_centroid_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_centroids, peaks, paired=False)
         return fig
 
     def forward(self, img):
@@ -644,16 +660,23 @@ class BottomUpLightningModule(BaseLightningModule):
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.bottomup_inf_layer(ex)[0]
         peaks = output["pred_instance_peaks"][0].cpu().numpy()
-        img = output["image"][0, 0].cpu().numpy()
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
         gt_instances = ex["instances"][0].cpu().numpy()
-        confmaps = output["pred_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_instances,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plt.xlim(plt.xlim())
+        plt.ylim(plt.ylim())
+        plot_peaks(gt_instances, peaks, paired=False)
         return fig
 
     def visualize_pafs_example(self, sample):
@@ -665,13 +688,20 @@ class BottomUpLightningModule(BaseLightningModule):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.bottomup_inf_layer(ex)[0]
-        img = output["image"][0, 0].cpu().numpy()
-        pafs = output["pred_part_affinity_fields"].cpu().numpy()  # (h, w, 2*edges)
-        fig = plot_pafs(
-            img=img,
-            pafs=pafs[0],
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        pafs = output["pred_part_affinity_fields"].cpu().numpy()[0]  # (h, w, 2*edges)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+
+        pafs = pafs.reshape((pafs.shape[0], pafs.shape[1], -1, 2))
+        pafs_mag = np.sqrt(pafs[..., 0] ** 2 + pafs[..., 1] ** 2)
+        plot_confmaps(pafs_mag, output_scale=pafs_mag.shape[0] / img.shape[0])
         return fig
 
     def forward(self, img):
