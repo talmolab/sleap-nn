@@ -280,6 +280,7 @@ class SingleInstanceLightningModule(BaseLightningModule):
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        node_names: Names of the nodes (in the skeleton-order) to log part-wise loss.
 
     """
 
@@ -288,6 +289,7 @@ class SingleInstanceLightningModule(BaseLightningModule):
         config: OmegaConf,
         backbone_type: str,
         model_type: str,
+        node_names: Optional[List[str]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -305,6 +307,7 @@ class SingleInstanceLightningModule(BaseLightningModule):
                 return_confmaps=True,
                 output_stride=self.config.model_config.head_configs.single_instance.confmaps.output_stride,
             )
+        self.node_names = node_names
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -346,6 +349,22 @@ class SingleInstanceLightningModule(BaseLightningModule):
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
+
+        # for part-wise loss
+        if self.node_names is not None:
+            batch_size, _, h, w = y.shape
+            mse = (y - y_preds) ** 2
+            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
+            for node_idx, name in enumerate(self.node_names):
+                self.log(
+                    f"{name}",
+                    channel_wise_loss[node_idx],
+                    prog_bar=True,
+                    on_step=True,
+                    on_epoch=True,
+                    logger=True,
+                )
+
         self.log(
             "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
@@ -392,6 +411,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        node_names: Names of the nodes (in the skeleton-order) to log part-wise loss.
 
     """
 
@@ -400,6 +420,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         config: OmegaConf,
         backbone_type: str,
         model_type: str,
+        node_names: Optional[List[str]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -416,6 +437,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
                 return_confmaps=True,
                 output_stride=self.config.model_config.head_configs.centered_instance.confmaps.output_stride,
             )
+        self.node_names = node_names
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -457,6 +479,22 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
+
+        # for part-wise loss
+        if self.node_names is not None:
+            batch_size, _, h, w = y.shape
+            mse = (y - y_preds) ** 2
+            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
+            for node_idx, name in enumerate(self.node_names):
+                self.log(
+                    f"{name}",
+                    channel_wise_loss[node_idx],
+                    prog_bar=True,
+                    on_step=True,
+                    on_epoch=True,
+                    logger=True,
+                )
+
         self.log(
             "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )

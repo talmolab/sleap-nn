@@ -280,26 +280,22 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     files = [str(x) for x in Path(path).iterdir() if x.is_file()]
     metrics = False
     for i in files:
-        if "metrics.csv" in i:
+        if "training_log.csv" in i:
             metrics = True
             break
     assert metrics
     df = pd.read_csv(
-        Path(config.trainer_config.save_ckpt_path).joinpath(
-            "lightning_logs/version_0/metrics.csv"
-        )
+        Path(config.trainer_config.save_ckpt_path).joinpath("training_log.csv")
     )
     assert (
         abs(
-            df[~np.isnan(df["learning_rate_step"])].reset_index()["learning_rate_step"][
-                0
-            ]
+            df[~np.isnan(df["learning_rate"])].reset_index()["learning_rate"][0]
             - config.trainer_config.optimizer.lr
         )
         <= 1e-4
     )
-    assert not df["val_loss_step"].isnull().all()
-    assert not df["train_loss_step"].isnull().all()
+    assert not df["val_loss"].isnull().all()
+    assert not df["train_loss"].isnull().all()
 
     #######
 
@@ -594,26 +590,22 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     files = [str(x) for x in Path(path).iterdir() if x.is_file()]
     metrics = False
     for i in files:
-        if "metrics.csv" in i:
+        if "training_log.csv" in i:
             metrics = True
             break
     assert metrics
     df = pd.read_csv(
-        Path(config.trainer_config.save_ckpt_path).joinpath(
-            "lightning_logs/version_0/metrics.csv"
-        )
+        Path(config.trainer_config.save_ckpt_path).joinpath("training_log.csv")
     )
     assert (
         abs(
-            df[~np.isnan(df["learning_rate_step"])].reset_index()["learning_rate_step"][
-                0
-            ]
+            df[~np.isnan(df["learning_rate"])].reset_index()["learning_rate"][0]
             - config.trainer_config.optimizer.lr
         )
         <= 1e-4
     )
-    assert not df["val_loss_step"].isnull().all()
-    assert not df["train_loss_step"].isnull().all()
+    assert not df["val_loss"].isnull().all()
+    assert not df["train_loss"].isnull().all()
     #######
 
     # check resume training
