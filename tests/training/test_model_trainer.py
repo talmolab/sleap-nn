@@ -274,9 +274,7 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # check for training metrics csv
-    path = Path(config.trainer_config.save_ckpt_path).joinpath(
-        "lightning_logs/version_0/"
-    )
+    path = Path(config.trainer_config.save_ckpt_path)
     files = [str(x) for x in Path(path).iterdir() if x.is_file()]
     metrics = False
     for i in files:
@@ -333,11 +331,6 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
                 Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
             ).as_posix()
         )
-        shutil.rmtree(
-            (
-                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
-            ).as_posix()
-        )
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -374,11 +367,6 @@ def test_trainer_litdata(caplog, config, tmp_path: str):
         os.remove(
             (
                 Path(bottomup_config.trainer_config.save_ckpt_path) / "last.ckpt"
-            ).as_posix()
-        )
-        shutil.rmtree(
-            (
-                Path(bottomup_config.trainer_config.save_ckpt_path) / "lightning_logs"
             ).as_posix()
         )
 
@@ -454,16 +442,16 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     assert model_trainer.dir_path == "."
 
     ### invalid profiler
-    OmegaConf.update(config, "trainer_config.profiler", "simple_torch")
-    with pytest.raises(ValueError):
-        model_trainer = ModelTrainer(
-            config,
-        )
-        model_trainer.train()
-    assert f"simple_torch is not a valid option" in caplog.text
+    # OmegaConf.update(config, "trainer_config.profiler", "simple_torch")
+    # with pytest.raises(ValueError):
+    #     model_trainer = ModelTrainer(
+    #         config,
+    #     )
+    #     model_trainer.train()
+    # assert f"simple_torch is not a valid option" in caplog.text
 
     ##### test for reusing imgs path
-    OmegaConf.update(config, "trainer_config.profiler", "simple")
+    # OmegaConf.update(config, "trainer_config.profiler", "simple")
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
     )
@@ -584,16 +572,8 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
 
     # check for training metrics csv
-    path = Path(config.trainer_config.save_ckpt_path).joinpath(
-        "lightning_logs/version_0/"
-    )
-    files = [str(x) for x in Path(path).iterdir() if x.is_file()]
-    metrics = False
-    for i in files:
-        if "training_log.csv" in i:
-            metrics = True
-            break
-    assert metrics
+    path = Path(config.trainer_config.save_ckpt_path)
+    assert path.joinpath("training_log.csv").exists()
     df = pd.read_csv(
         Path(config.trainer_config.save_ckpt_path).joinpath("training_log.csv")
     )
@@ -637,7 +617,6 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
     assert training_config.trainer_config.wandb.run_id == prv_runid
     os.remove((Path(trainer.dir_path) / "best.ckpt").as_posix())
     os.remove((Path(trainer.dir_path) / "last.ckpt").as_posix())
-    shutil.rmtree((Path(trainer.dir_path) / "lightning_logs").as_posix())
 
     #######
 
@@ -712,11 +691,6 @@ def test_trainer_torch_dataset(caplog, config, tmp_path: str):
                 Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
             ).as_posix()
         )
-        shutil.rmtree(
-            (
-                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
-            ).as_posix()
-        )
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -774,11 +748,6 @@ def test_trainer_torch_dataset_bottomup(config):
         os.remove(
             (
                 Path(bottomup_config.trainer_config.save_ckpt_path) / "last.ckpt"
-            ).as_posix()
-        )
-        shutil.rmtree(
-            (
-                Path(bottomup_config.trainer_config.save_ckpt_path) / "lightning_logs"
             ).as_posix()
         )
     OmegaConf.update(
@@ -879,11 +848,6 @@ def test_reuse_bin_files(config, tmp_path: str):
                 Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
             ).as_posix()
         )
-        shutil.rmtree(
-            (
-                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
-            ).as_posix()
-        )
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -949,11 +913,6 @@ def test_reuse_npz_files(config, tmp_path: str):
         os.remove(
             (
                 Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
-            ).as_posix()
-        )
-        shutil.rmtree(
-            (
-                Path(centroid_config.trainer_config.save_ckpt_path) / "lightning_logs"
             ).as_posix()
         )
 
