@@ -15,7 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 import lightning as L
 import litdata as ld
 import wandb
-from lightning.pytorch.loggers import WandbLogger, CSVLogger
+from lightning.pytorch.loggers import WandbLogger
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
 from lightning.pytorch.profilers import (
     SimpleProfiler,
@@ -87,6 +87,7 @@ from sleap_nn.training.callbacks import (
     TrainingControllerZMQ,
     MatplotlibSaver,
     WandBPredImageLogger,
+    CSVLoggerCallback,
 )
 
 
@@ -838,11 +839,19 @@ class ModelTrainer:
             "centroid": CentroidLightningModule,
             "bottomup": BottomUpLightningModule,
         }
-        self.model = models[self.model_type](
-            config=self.config,
-            model_type=self.model_type,
-            backbone_type=self.backbone_type,
-        )
+        if self.model_type in ["single_instance", "centered_instance"]:
+            self.model = models[self.model_type](
+                config=self.config,
+                model_type=self.model_type,
+                backbone_type=self.backbone_type,
+                node_names=self.skeletons[0].node_names,
+            )
+        else:
+            self.model = models[self.model_type](
+                config=self.config,
+                model_type=self.model_type,
+                backbone_type=self.backbone_type,
+            )
 
     def _get_param_count(self):
         return sum(p.numel() for p in self.model.parameters())
@@ -867,9 +876,21 @@ class ModelTrainer:
                 mode="min",
             )
             callbacks = [checkpoint_callback]
-            # logger to create csv with metrics values over the epochs
-            csv_logger = CSVLogger(self.dir_path)
-            training_loggers.append(csv_logger)
+            # callback for csv
+            csv_log_keys = [
+                "epoch",
+                "train_loss",
+                "val_loss",
+                "learning_rate",
+                "train_time",
+                "val_time",
+            ]
+            if self.model_type in ["single_instance", "centered_instance"]:
+                csv_log_keys.extend(self.skeletons[0].node_names)
+            csv_logger = CSVLoggerCallback(
+                filepath=Path(self.dir_path) / "training_log.csv", keys=csv_log_keys
+            )
+            callbacks.append(csv_logger)
 
         else:
             callbacks = []
