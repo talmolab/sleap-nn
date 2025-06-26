@@ -104,9 +104,22 @@ class TrainingJobConfig:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
 
-        data_config = data_mapper(old_config)
-        model_config = model_mapper(old_config)
-        trainer_config = trainer_mapper(old_config)
+        return cls.load_sleap_config_from_json(old_config)
+
+    @classmethod
+    def load_sleap_config_from_json(cls, json_str: str) -> OmegaConf:
+        """Load a SLEAP configuration from a JSON string and convert it to OmegaConf.
+
+        Args:
+            cls: The class to instantiate with the loaded configuration.
+            json_str: JSON-formatted string containing the SLEAP configuration.
+
+        Returns:
+            An OmegaConf instance with the loaded configuration.
+        """
+        data_config = data_mapper(json_str)
+        model_config = model_mapper(json_str)
+        trainer_config = trainer_mapper(json_str)
 
         config = cls(
             data_config=data_config,
