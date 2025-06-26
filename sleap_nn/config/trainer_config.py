@@ -283,6 +283,15 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         if resume_ckpt_path is not None
         else None
     )
+    run_name = legacy_config_outputs.get("run_name", None)
+    run_name = run_name if run_name is not None else f"training_{time.time()}"
+    run_name_prefix = legacy_config_outputs.get("run_name_prefix", "")
+    run_name_suffix = legacy_config_outputs.get("run_name_suffix", "")
+    run_name = (
+        run_name_prefix
+        if run_name_prefix is not None
+        else "" + run_name + run_name_suffix if run_name_prefix is not None else ""
+    )
     return TrainerConfig(
         train_data_loader=DataLoaderConfig(
             batch_size=legacy_config_optimization.get("batch_size", 1),
@@ -303,8 +312,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         max_epochs=legacy_config_optimization.get("epochs", 10),
         save_ckpt=True,
         save_ckpt_path=(
-            Path(legacy_config_outputs.get("runs_folder", "."))
-            / legacy_config_outputs.get("run_name", f"training_{time.time()}")
+            Path(legacy_config_outputs.get("runs_folder", ".")) / run_name
         ).as_posix(),
         optimizer_name=re.sub(
             r"^[a-z]",
