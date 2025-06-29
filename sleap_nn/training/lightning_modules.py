@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from pathlib import Path
 import sleap_io as sio
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 import lightning as L
 from PIL import Image
 import wandb
@@ -39,6 +39,7 @@ from sleap_nn.training.utils import (
     plot_peaks,
 )
 import matplotlib.pyplot as plt
+from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -54,7 +55,7 @@ MODEL_WEIGHTS = {
 }
 
 
-class BaseLightningModule(L.LightningModule):
+class LightningModel(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
 
     This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
@@ -167,6 +168,32 @@ class BaseLightningModule(L.LightningModule):
             }
             self.load_state_dict(ckpt["state_dict"], strict=False)
 
+    @classmethod
+    def get_lightning_model_from_config(cls, config: DictConfig):
+        """Get lightning model from config"""
+        model_type = get_model_type_from_cfg(config)
+        backbone_type = get_backbone_type_from_cfg(config)
+
+        lightning_models = {
+            "single_instance": SingleInstanceLightningModule,
+            "centroid": CentroidLightningModule,
+            "centered_instance": TopDownCenteredInstanceLightningModule,
+            "bottomup": BottomUpLightningModule,
+        }
+
+        if model_type not in lightning_models:
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`]"
+            logger.error(message)
+            raise ValueError(message)
+
+        lightning_model = lightning_models[model_type](
+            config=config,
+            model_type=model_type,
+            backbone_type=backbone_type,
+        )
+
+        return lightning_model
+
     def forward(self, img):
         """Forward pass of the model."""
         pass
@@ -266,10 +293,10 @@ class BaseLightningModule(L.LightningModule):
         }
 
 
-class SingleInstanceLightningModule(BaseLightningModule):
+class SingleInstanceLightningModule(LightningModel):
     """Lightning Module for SingleInstance Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps and
+    This is a subclass of the `LightningModel` to configure the training/ validation steps and
     forward pass specific to Single Instance model.
 
     Args:
@@ -280,7 +307,6 @@ class SingleInstanceLightningModule(BaseLightningModule):
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        node_names: Names of the nodes (in the skeleton-order) to log part-wise loss.
 
     """
 
@@ -289,7 +315,6 @@ class SingleInstanceLightningModule(BaseLightningModule):
         config: OmegaConf,
         backbone_type: str,
         model_type: str,
-        node_names: Optional[List[str]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -307,7 +332,9 @@ class SingleInstanceLightningModule(BaseLightningModule):
                 return_confmaps=True,
                 output_stride=self.config.model_config.head_configs.single_instance.confmaps.output_stride,
             )
-        self.node_names = node_names
+        self.node_names = (
+            self.config.model_config.head_configs.single_instance.confmaps.part_names
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -397,10 +424,10 @@ class SingleInstanceLightningModule(BaseLightningModule):
         )
 
 
-class TopDownCenteredInstanceLightningModule(BaseLightningModule):
+class TopDownCenteredInstanceLightningModule(LightningModel):
     """Lightning Module for TopDownCenteredInstance Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
+    This is a subclass of the `LightningModel` to configure the training/ validation steps
     and forward pass specific to TopDown Centered instance model.
 
     Args:
@@ -411,7 +438,6 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
-        node_names: Names of the nodes (in the skeleton-order) to log part-wise loss.
 
     """
 
@@ -420,7 +446,6 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         config: OmegaConf,
         backbone_type: str,
         model_type: str,
-        node_names: Optional[List[str]] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -437,7 +462,9 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
                 return_confmaps=True,
                 output_stride=self.config.model_config.head_configs.centered_instance.confmaps.output_stride,
             )
-        self.node_names = node_names
+        self.node_names = (
+            self.config.model_config.head_configs.centered_instance.confmaps.part_names
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -527,10 +554,10 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         )
 
 
-class CentroidLightningModule(BaseLightningModule):
+class CentroidLightningModule(LightningModel):
     """Lightning Module for Centroid Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
+    This is a subclass of the `LightningModel` to configure the training/ validation steps
     and forward pass specific to centroid model.
 
     Args:
@@ -639,10 +666,10 @@ class CentroidLightningModule(BaseLightningModule):
         )
 
 
-class BottomUpLightningModule(BaseLightningModule):
+class BottomUpLightningModule(LightningModel):
     """Lightning Module for BottomUp Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
+    This is a subclass of the `LightningModel` to configure the training/ validation steps
     and forward pass specific to BottomUp model.
 
     Args:

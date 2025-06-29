@@ -174,9 +174,7 @@ class ConvNextConfig:
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
-    arch: dict = field(
-        factory=lambda: {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]}
-    )
+    arch: Optional[dict] = None
     stem_patch_kernel: int = 4
     stem_patch_stride: int = 2
     in_channels: int = 1
@@ -222,9 +220,7 @@ class ConvNextSmallConfig:
     """
 
     model_type: str = "small"  # Options: tiny, small, base, large
-    arch: dict = field(
-        factory=lambda: {"depths": [3, 3, 27, 3], "channels": [96, 192, 384, 768]}
-    )
+    arch: Optional[dict] = None
     stem_patch_kernel: int = 4
     stem_patch_stride: int = 2
     in_channels: int = 1
@@ -270,9 +266,7 @@ class ConvNextBaseConfig:
     """
 
     model_type: str = "base"  # Options: tiny, small, base, large
-    arch: dict = field(
-        factory=lambda: {"depths": [3, 3, 27, 3], "channels": [128, 256, 512, 1024]}
-    )
+    arch: Optional[dict] = None
     stem_patch_kernel: int = 4
     stem_patch_stride: int = 2
     in_channels: int = 1
@@ -318,9 +312,7 @@ class ConvNextLargeConfig:
     """
 
     model_type: str = "large"  # Options: tiny, small, base, large
-    arch: dict = field(
-        factory=lambda: {"depths": [3, 3, 27, 3], "channels": [192, 384, 768, 1536]}
-    )
+    arch: Optional[dict] = None
     stem_patch_kernel: int = 4
     stem_patch_stride: int = 2
     in_channels: int = 1
@@ -367,16 +359,10 @@ class SwinTConfig:
         default="tiny",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
-    arch: dict = field(
-        factory=lambda: {
-            "embed": 96,
-            "depths": [2, 2, 6, 2],
-            "channels": [3, 6, 12, 24],
-        }
-    )
-    patch_size: list = field(factory=lambda: [4, 4])
+    arch: Optional[dict] = None
+    patch_size: int = 4
     stem_patch_stride: int = 2
-    window_size: list = field(factory=lambda: [7, 7])
+    window_size: int = 7
     in_channels: int = 1
     kernel_size: int = 3
     filters_rate: float = 2
@@ -432,16 +418,10 @@ class SwinTSmallConfig:
         default="small",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
-    arch: dict = field(
-        factory=lambda: {
-            "embed": 96,
-            "depths": [2, 2, 18, 2],
-            "channels": [3, 6, 12, 24],
-        }
-    )
-    patch_size: list = field(factory=lambda: [4, 4])
+    arch: Optional[dict] = None
+    patch_size: int = 4
     stem_patch_stride: int = 2
-    window_size: list = field(factory=lambda: [7, 7])
+    window_size: int = 7
     in_channels: int = 1
     kernel_size: int = 3
     filters_rate: float = 2
@@ -497,16 +477,10 @@ class SwinTBaseConfig:
         default="base",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
-    arch: dict = field(
-        factory=lambda: {
-            "embed": 128,
-            "depths": [2, 2, 18, 2],
-            "channels": [4, 8, 16, 32],
-        }
-    )
-    patch_size: list = field(factory=lambda: [4, 4])
+    arch: Optional[dict] = None
+    patch_size: int = 4
     stem_patch_stride: int = 2
-    window_size: list = field(factory=lambda: [7, 7])
+    window_size: int = 7
     in_channels: int = 1
     kernel_size: int = 3
     filters_rate: float = 2
@@ -686,31 +660,29 @@ class PAFConfig:
 class SingleInstanceConfig:
     """single instance head_config."""
 
-    confmaps: SingleInstanceConfMapsConfig = field(factory=SingleInstanceConfMapsConfig)
+    confmaps: Optional[SingleInstanceConfMapsConfig] = None
 
 
 @define
 class CentroidConfig:
     """centroid head_config."""
 
-    confmaps: CentroidConfMapsConfig = field(factory=CentroidConfMapsConfig)
+    confmaps: Optional[CentroidConfMapsConfig] = None
 
 
 @define
 class CenteredInstanceConfig:
     """centered_instance head_config."""
 
-    confmaps: CenteredInstanceConfMapsConfig = field(
-        factory=CenteredInstanceConfMapsConfig
-    )
+    confmaps: Optional[CenteredInstanceConfMapsConfig] = None
 
 
 @define
 class BottomUpConfig:
     """bottomup head_config."""
 
-    confmaps: BottomUpConfMapsConfig = field(factory=BottomUpConfMapsConfig)
-    pafs: PAFConfig = field(factory=PAFConfig)
+    confmaps: Optional[BottomUpConfMapsConfig] = None
+    pafs: Optional[PAFConfig] = None
 
 
 @oneof

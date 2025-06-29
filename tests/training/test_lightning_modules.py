@@ -1,15 +1,19 @@
 """Test TrainingModule classes."""
 
 import numpy as np
+from pathlib import Path
 from omegaconf import OmegaConf
+from sleap_nn.data.custom_datasets import get_train_val_dataloaders
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceLightningModule,
     SingleInstanceLightningModule,
     CentroidLightningModule,
     BottomUpLightningModule,
+    LightningModel,
 )
 from torch.nn.functional import mse_loss
+import torch
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
@@ -27,9 +31,13 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
     input_cm = input_["confidence_maps"]
     preds = model(input_["instance_image"])
 
@@ -73,9 +81,13 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         "trainer_config.save_ckpt_path",
         f"{tmp_path}/test_topdown_centered_instance_model_2/",
     )
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
     input_cm = input_["confidence_maps"]
     preds = model(input_["instance_image"])
 
@@ -108,9 +120,13 @@ def test_centroid_model(config, tmp_path: str):
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_centroid_model_1/"
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
     input_cm = input_["centroids_confidence_maps"]
     preds = model(input_["image"])
 
@@ -131,9 +147,13 @@ def test_centroid_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
     input_cm = input_["centroids_confidence_maps"]
     preds = model(input_["image"])
 
@@ -160,9 +180,13 @@ def test_single_instance_model(config, tmp_path: str):
         f"{tmp_path}/test_single_instance_model_1/",
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
     model = SingleInstanceLightningModule(
         config=config,
         backbone_type="unet",
@@ -199,9 +223,13 @@ def test_single_instance_model(config, tmp_path: str):
         f"{tmp_path}/test_single_instance_model_2/",
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
     model = SingleInstanceLightningModule(
         config=config,
         backbone_type="unet",
@@ -253,9 +281,13 @@ def test_bottomup_model(config, tmp_path: str):
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_bottomup_model_1/"
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
-    input_ = next(iter(model_trainer.train_data_loader))
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
 
     model = BottomUpLightningModule(
         config=config, backbone_type="unet", model_type="bottomup"
@@ -287,10 +319,14 @@ def test_bottomup_model(config, tmp_path: str):
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_bottomup_model_2/"
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
-    model_trainer = ModelTrainer(config)
-    model_trainer._create_data_loaders_torch_dataset()
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
     skeletons = model_trainer.skeletons
-    input_ = next(iter(model_trainer.train_data_loader))
+    input_ = next(iter(train_data_loader))
 
     model = BottomUpLightningModule(
         config=model_trainer.config,
@@ -304,3 +340,58 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+
+
+def test_model_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
+    """Test loading trained weights for backbone and head layers."""
+
+    OmegaConf.update(
+        config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_model_trainer_load_trained_ckpts/",
+    )
+    OmegaConf.update(config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(
+        config,
+        "model_config.pretrained_backbone_weights",
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+    )
+    OmegaConf.update(
+        config,
+        "model_config.pretrained_head_weights",
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+    )
+
+    # check loading trained weights for backbone
+    ckpt = torch.load(
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(), map_location="cpu"
+    )
+    first_layer_ckpt = (
+        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
+            0, 0, :
+        ]
+        .cpu()
+        .numpy()
+    )
+
+    # load head ckpts
+    head_layer_ckpt = (
+        ckpt["state_dict"]["model.head_layers.0.0.weight"][0, 0, :].cpu().numpy()
+    )
+
+    lightning_module = LightningModel.get_lightning_model_from_config(config=config)
+    model_ckpt = next(lightning_module.parameters())[0, 0, :].detach().cpu().numpy()
+
+    assert np.all(np.abs(first_layer_ckpt - model_ckpt) < 1e-6)
+
+    model_ckpt = (
+        next(lightning_module.model.head_layers.parameters())[0, 0, :]
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    assert np.all(np.abs(head_layer_ckpt - model_ckpt) < 1e-6)
