@@ -103,7 +103,7 @@ def sample_cfg(minimal_instance, tmp_path):
                 "trainer_devices": 1,
                 "trainer_accelerator": "cpu",
                 "enable_progress_bar": False,
-                "steps_per_epoch": None,
+                "min_train_steps_per_epoch": None,
                 "max_epochs": 2,
                 "seed": 1000,
                 "use_wandb": False,

@@ -13,6 +13,7 @@ import torch
 import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader
 import sleap_io as sio
+from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.data.normalization import (
@@ -29,7 +30,7 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
-from sleap_nn.training.utils import is_distributed_initialized, get_dist_rank
+from sleap_nn.training.utils import is_distributed_initialized
 
 
 class BaseDataset(Dataset):
@@ -978,21 +979,23 @@ class CyclerDataLoader(DataLoader):
     """DataLoader that cycles through the dataset infinitely.
 
     Attributes:
-        steps_per_epoch: Number of steps to be run in an epoch. If not provided, the
+        min_train_steps_per_epoch: Number of steps to be run in an epoch. If not provided, the
             length of the sampler is used (total_samples / batch_size)    .
     """
 
-    def __init__(self, steps_per_epoch: Optional[int] = None, *args, **kwargs):
+    def __init__(
+        self, min_train_steps_per_epoch: Optional[int] = None, *args, **kwargs
+    ):
         """Initialize the object."""
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
         self.iterator = super().__iter__()
-        self.steps_per_epoch = steps_per_epoch
+        self.min_train_steps_per_epoch = min_train_steps_per_epoch
 
     def __len__(self):
         """Returns the length of the dataloader."""
-        if self.steps_per_epoch is not None:
-            return int(self.steps_per_epoch)
+        if self.min_train_steps_per_epoch is not None:
+            return int(self.min_train_steps_per_epoch)
         else:
             return len(self.batch_sampler.sampler)
 
@@ -1005,3 +1008,340 @@ class CyclerDataLoader(DataLoader):
     def reset(self):
         """Reset iterator."""
         self.iterator = self._get_iterator()
+
+
+def get_train_val_datasets(
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    config: DictConfig,
+    rank: Optional[int] = None,
+):
+    """Return the train and val datasets.
+
+    Args:
+        train_labels: List of train labels.
+        val_labels: List of val labels.
+        config: Sleap-nn config.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
+
+    Returns:
+        A tuple (train_dataset, val_dataset).
+    """
+    cache_imgs = (
+        config.data_config.data_pipeline_fw.split("_")[-1]
+        if "cache_img" in config.data_config.data_pipeline_fw
+        else None
+    )
+    base_cache_img_path = config.data_config.cache_img_path
+    train_cache_img_path, val_cache_img_path = None, None
+
+    if cache_imgs == "disk":
+        train_cache_img_path = Path(base_cache_img_path) / "train_imgs"
+        val_cache_img_path = Path(base_cache_img_path) / "val_imgs"
+    use_existing_imgs = config.data_config.use_existing_imgs
+
+    model_type = get_model_type_from_cfg(config=config)
+    backbone_type = get_backbone_type_from_cfg(config=config)
+
+    if use_existing_imgs:
+        if not (
+            train_cache_img_path.exists()
+            and train_cache_img_path.is_dir()
+            and any(train_cache_img_path.glob("*.jpg"))
+        ):
+            message = f"There are no images in the path: {train_cache_img_path}"
+            logger.error(message)
+            raise Exception(message)
+
+        if not (
+            val_cache_img_path.exists()
+            and val_cache_img_path.is_dir()
+            and any(val_cache_img_path.glob("*.jpg"))
+        ):
+            message = f"There are no images in the path: {val_cache_img_path}"
+            logger.error(message)
+            raise Exception(message)
+
+    if model_type == "bottomup":
+        train_dataset = BottomUpDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
+            pafs_head_config=config.model_config.head_configs.bottomup.pafs,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = BottomUpDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
+            pafs_head_config=config.model_config.head_configs.bottomup.pafs,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    elif model_type == "centered_instance":
+        nodes = config.model_config.head_configs.centered_instance.confmaps.part_names
+        anchor_part = (
+            config.model_config.head_configs.centered_instance.confmaps.anchor_part
+        )
+        anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
+        train_dataset = CenteredInstanceDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = CenteredInstanceDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    elif model_type == "centroid":
+        skeleton_name = list(config.data_config.skeletons.keys())[0]
+        nodes = [
+            x["name"] for x in config.data_config.skeletons[f"{skeleton_name}"]["nodes"]
+        ]
+        anchor_part = config.model_config.head_configs.centroid.confmaps.anchor_part
+        anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
+        train_dataset = CentroidDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.centroid.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = CentroidDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.centroid.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    else:
+        train_dataset = SingleInstanceDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = SingleInstanceDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
+    if "cache_img" in config.data_config.data_pipeline_fw:
+        for train, val in zip(train_labels, val_labels):
+            for video in train.videos:
+                if video.is_open:
+                    video.close()
+            for video in val.videos:
+                if video.is_open:
+                    video.close()
+
+    return train_dataset, val_dataset
+
+
+def get_train_val_dataloaders(
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    config: DictConfig,
+    rank: Optional[int] = None,
+):
+    """Return the train and val dataloaders.
+
+    Args:
+        train_labels: List of train labels.
+        val_labels: List of val labels.
+        config: Sleap-nn config.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
+
+    Returns:
+        A tuple (train_dataloader, val_dataloader).
+    """
+    train_dataset, val_dataset = get_train_val_datasets(
+        train_labels=train_labels, val_labels=val_labels, config=config, rank=rank
+    )
+
+    pin_memory = (
+        config.trainer_config.train_data_loader.pin_memory
+        if "pin_memory" in config.trainer_config.train_data_loader
+        and config.trainer_config.train_data_loader.pin_memory is not None
+        else True
+    )
+
+    min_train_steps_per_epoch = config.trainer_config.min_train_steps_per_epoch
+    if min_train_steps_per_epoch is None:
+        min_train_steps_per_epoch = (
+            len(train_dataset) // config.trainer_config.train_data_loader.batch_size
+        )
+        if min_train_steps_per_epoch == 0:
+            min_train_steps_per_epoch = 1
+
+    train_data_loader = DataLoader(
+        dataset=train_dataset,
+        shuffle=config.trainer_config.train_data_loader.shuffle,
+        batch_size=config.trainer_config.train_data_loader.batch_size,
+        num_workers=config.trainer_config.train_data_loader.num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=(
+            True if config.trainer_config.train_data_loader.num_workers > 0 else None
+        ),
+        prefetch_factor=(
+            config.trainer_config.train_data_loader.batch_size
+            if config.trainer_config.train_data_loader.num_workers > 0
+            else None
+        ),
+    )
+
+    # val
+    val_min_train_steps_per_epoch = (
+        len(val_dataset) // config.trainer_config.val_data_loader.batch_size
+    )
+    val_data_loader = DataLoader(
+        dataset=val_dataset,
+        shuffle=False,
+        batch_size=config.trainer_config.val_data_loader.batch_size,
+        num_workers=config.trainer_config.val_data_loader.num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=(
+            True if config.trainer_config.val_data_loader.num_workers > 0 else None
+        ),
+        prefetch_factor=(
+            config.trainer_config.val_data_loader.batch_size
+            if config.trainer_config.val_data_loader.num_workers > 0
+            else None
+        ),
+    )
+
+    return train_data_loader, val_data_loader

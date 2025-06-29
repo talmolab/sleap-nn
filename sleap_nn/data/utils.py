@@ -1,7 +1,13 @@
 """Miscellaneous utility functions for data processing."""
 
-from typing import Tuple, List, Any
+from typing import Tuple, List, Any, Optional
 import torch
+from omegaconf import DictConfig
+import sleap_io as sio
+from sleap_nn.config.utils import get_model_type_from_cfg
+import psutil
+import numpy as np
+from sleap_nn.data.providers import get_max_instances
 
 
 def ensure_list(x: Any) -> List[Any]:
@@ -82,3 +88,64 @@ def gaussian_pdf(x: torch.Tensor, sigma: float) -> torch.Tensor:
         Gaussian distribution. Values of 0 have an unnormalized PDF value of 1.0.
     """
     return torch.exp(-(x**2) / (2 * sigma**2))
+
+
+def check_memory(
+    labels: sio.Labels,
+    max_hw: Tuple[int, int],
+    model_type: str,
+    input_scaling: float,
+    crop_size: Optional[int],
+):
+    """Return memory required for caching the image samples from a single labels object."""
+    if model_type == "centered_instance":
+        num_samples = len(labels) * get_max_instances(labels)
+        img = (labels[0].image / 255.0).astype(np.float32)
+        img_mem = (crop_size**2) * img.shape[-1] * img.itemsize * num_samples
+
+        return img_mem
+
+    num_lfs = len(labels)
+    img = (labels[0].image / 255.0).astype(np.float32)
+    h, w = max_hw[0] * input_scaling, max_hw[1] * input_scaling
+    img_mem = h * w * img.shape[-1] * img.itemsize * num_lfs
+
+    return img_mem
+
+
+def check_cache_memory(train_labels, val_labels, config: DictConfig):
+    """Check memory requirements for in-memory caching dataset pipeline."""
+    train_cache_memory_final = 0
+    val_cache_memory_final = 0
+    model_type = get_model_type_from_cfg(config)
+    for train, val in zip(train_labels, val_labels):
+        train_cache_memory = check_memory(
+            train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            model_type=model_type,
+            input_scaling=config.data_config.preprocessing.scale,
+            crop_size=config.data_config.preprocessing.crop_hw[0],
+        )
+        val_cache_memory = check_memory(
+            val,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            model_type=model_type,
+            input_scaling=config.data_config.preprocessing.scale,
+            crop_size=config.data_config.preprocessing.crop_hw[0],
+        )
+        train_cache_memory_final += train_cache_memory
+        val_cache_memory_final += val_cache_memory
+
+    total_cache_memory = train_cache_memory_final + val_cache_memory_final
+    total_cache_memory += 0.1 * total_cache_memory  # memory required in bytes
+    available_memory = psutil.virtual_memory().available  # available memory in bytes
+
+    if total_cache_memory > available_memory:
+        return False
+    return True

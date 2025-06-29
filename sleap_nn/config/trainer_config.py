@@ -58,6 +58,7 @@ class WandBConfig:
         wandb_mode: (str) "offline" if only local logging is required. Default: "None".
         prv_runid: (str) Previous run ID if training should be resumed from a previous ckpt. Default: None.
         group: (str) Group for wandb logging.
+        current_run_id: (str) Run ID for the current model training. (stored once the training starts).
     """
 
     entity: Optional[str] = None
@@ -67,6 +68,7 @@ class WandBConfig:
     wandb_mode: Optional[str] = None
     prv_runid: Optional[str] = None
     group: Optional[str] = None
+    current_run_id: Optional[str] = None
 
 
 @define
@@ -196,7 +198,7 @@ class TrainerConfig:
         profiler: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"].
         trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`.
         enable_progress_bar: (bool) When True, enables printing the logs during training.
-        steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
+        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: (int) Maxinum number of epochs to run.
         seed: (int) Seed value for the current experiment.
@@ -223,7 +225,7 @@ class TrainerConfig:
     profiler: Optional[str] = None
     trainer_strategy: str = "auto"
     enable_progress_bar: bool = True
-    steps_per_epoch: Optional[int] = None
+    min_train_steps_per_epoch: Optional[int] = None
     visualize_preds_during_training: bool = False
     max_epochs: int = 10
     seed: int = 0

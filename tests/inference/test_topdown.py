@@ -3,20 +3,16 @@ from omegaconf import OmegaConf
 import numpy as np
 import torch
 from pathlib import Path
-from torch.utils.data.dataloader import DataLoader
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
 
 import sleap_io as sio
-from sleap_nn.data.providers import process_lf, LabelsReaderDP
-from sleap_nn.data.resizing import resize_image
-from sleap_nn.data.instance_centroids import InstanceCentroidFinder, generate_centroids
-from sleap_nn.data.normalization import apply_normalization, Normalizer
-from sleap_nn.data.resizing import SizeMatcher, Resizer, PadToStride
-from sleap_nn.data.instance_cropping import InstanceCropper, generate_crops
-from sleap_nn.training.model_trainer import (
+from sleap_nn.data.providers import process_lf
+from sleap_nn.data.instance_centroids import generate_centroids
+from sleap_nn.data.normalization import apply_normalization
+from sleap_nn.data.instance_cropping import generate_crops
+from sleap_nn.training.lightning_modules import (
     CentroidLightningModule,
-    ModelTrainer,
     TopDownCenteredInstanceLightningModule,
 )
 from sleap_nn.inference.topdown import (

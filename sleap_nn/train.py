@@ -60,7 +60,9 @@ from sleap_nn.config.model_config import (
 
 def get_aug_config(intensity_aug, geometric_aug):
     """Returns `AugmentationConfig` object based on the user-provided parameters."""
-    aug_config = AugmentationConfig()
+    aug_config = AugmentationConfig(
+        intensity=IntensityConfig(), geometric=GeometricConfig()
+    )
     if isinstance(intensity_aug, str) or isinstance(intensity_aug, list):
         if isinstance(intensity_aug, str):
             intensity_aug = [intensity_aug]
@@ -169,13 +171,19 @@ def get_head_configs(head_cfg):
     head_configs = HeadConfig()
     if isinstance(head_cfg, str):
         if head_cfg == "centered_instance":
-            head_configs.centered_instance = CenteredInstanceConfig()
+            head_configs.centered_instance = CenteredInstanceConfig(
+                confmaps=CenteredInstanceConfMapsConfig
+            )
         elif head_cfg == "single_instance":
-            head_configs.single_instance = SingleInstanceConfig()
+            head_configs.single_instance = SingleInstanceConfig(
+                confmaps=SingleInstanceConfMapsConfig
+            )
         elif head_cfg == "centroid":
-            head_configs.centroid = CentroidConfig()
+            head_configs.centroid = CentroidConfig(confmaps=CentroidConfMapsConfig)
         elif head_cfg == "bottomup":
-            head_configs.bottomup = BottomUpConfig()
+            head_configs.bottomup = BottomUpConfig(
+                confmaps=BottomUpConfMapsConfig, pafs=PAFConfig
+            )
         else:
             raise ValueError(
                 f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance']"
@@ -432,7 +440,8 @@ def get_trainer_config(
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = False,
-    steps_per_epoch: Optional[int] = None,
+    min_train_steps_per_epoch: Optional[int] = None,
+    visualize_preds_during_training: bool = False,
     max_epochs: int = 100,
     seed: int = 1000,
     use_wandb: bool = False,
@@ -483,10 +492,12 @@ def get_trainer_config(
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".
         enable_progress_bar: When True, enables printing the logs during training. Default: False.
-        steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
+        min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
             of Torch `Trainer`. If `None`, the number of iterations depends on the number
             of samples in the train dataset. Default: None.
+        visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
+            are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: Maxinum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
@@ -570,7 +581,8 @@ def get_trainer_config(
         trainer_devices=trainer_num_devices,
         trainer_accelerator=trainer_accelerator,
         enable_progress_bar=enable_progress_bar,
-        steps_per_epoch=steps_per_epoch,
+        min_train_steps_per_epoch=min_train_steps_per_epoch,
+        visualize_preds_during_training=visualize_preds_during_training,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,
@@ -609,7 +621,7 @@ def run_training(config: DictConfig):
     start_timestamp = str(datetime.now())
     print("Started training at:", start_timestamp)
 
-    trainer = ModelTrainer(config)
+    trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
 
     finish_timestamp = str(datetime.now())
@@ -622,10 +634,12 @@ def run_training(config: DictConfig):
         data_paths = {}
         for index, path in enumerate(trainer.config.data_config.train_labels_path):
             data_paths[f"train_{index}"] = (
-                Path(trainer.dir_path) / f"labels_train_gt_{index}.slp"
+                Path(config.trainer_config.save_ckpt_path)
+                / f"labels_train_gt_{index}.slp"
             ).as_posix()
             data_paths[f"val_{index}"] = (
-                Path(trainer.dir_path) / f"labels_val_gt_{index}.slp"
+                Path(config.trainer_config.save_ckpt_path)
+                / f"labels_val_gt_{index}.slp"
             ).as_posix()
 
         if (
@@ -639,11 +653,12 @@ def run_training(config: DictConfig):
 
             pred_labels = predict(
                 data_path=path,
-                model_paths=[trainer.dir_path],
+                model_paths=[config.trainer_config.save_ckpt_path],
                 peak_threshold=0.2,
                 make_labels=True,
                 device=trainer.trainer.strategy.root_device,
-                output_path=Path(trainer.dir_path) / f"pred_{d_name}.slp",
+                output_path=Path(config.trainer_config.save_ckpt_path)
+                / f"pred_{d_name}.slp",
             )
 
             evaluator = Evaluator(
@@ -651,7 +666,10 @@ def run_training(config: DictConfig):
             )
             metrics = evaluator.evaluate()
             np.savez(
-                (Path(trainer.dir_path) / f"{d_name}_pred_metrics.npz").as_posix(),
+                (
+                    Path(config.trainer_config.save_ckpt_path)
+                    / f"{d_name}_pred_metrics.npz"
+                ).as_posix(),
                 **metrics,
             )
 
@@ -699,7 +717,8 @@ def train(
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = False,
-    steps_per_epoch: Optional[int] = None,
+    min_train_steps_per_epoch: Optional[int] = None,
+    visualize_preds_during_training: bool = False,
     max_epochs: int = 100,
     seed: int = 1000,
     use_wandb: bool = False,
@@ -863,10 +882,12 @@ def train(
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".
         enable_progress_bar: When True, enables printing the logs during training. Default: False.
-        steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
+        min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
             of Torch `Trainer`. If `None`, the number of iterations depends on the number
             of samples in the train dataset. Default: None.
+        visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
+            are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: Maxinum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
@@ -951,7 +972,8 @@ def train(
         trainer_num_devices=trainer_num_devices,
         trainer_accelerator=trainer_accelerator,
         enable_progress_bar=enable_progress_bar,
-        steps_per_epoch=steps_per_epoch,
+        min_train_steps_per_epoch=min_train_steps_per_epoch,
+        visualize_preds_during_training=visualize_preds_during_training,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,
