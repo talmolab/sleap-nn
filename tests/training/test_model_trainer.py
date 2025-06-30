@@ -583,7 +583,7 @@ def test_early_stopping(config, tmp_path):
     assert checkpoint["epoch"] == 1
 
 
-def test_reuse_npz_files(config, tmp_path: str):
+def test_reuse_cache_img_files(config, tmp_path: str):
     # Centroid model
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
@@ -597,20 +597,8 @@ def test_reuse_npz_files(config, tmp_path: str):
     OmegaConf.update(
         centroid_config,
         "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer/",
+        f"{tmp_path}/test_model_trainer_reuse_imgs_cache/",
     )
-
-    if (Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt").exists():
-        os.remove(
-            (
-                Path(centroid_config.trainer_config.save_ckpt_path) / "best.ckpt"
-            ).as_posix()
-        )
-        os.remove(
-            (
-                Path(centroid_config.trainer_config.save_ckpt_path) / "last.ckpt"
-            ).as_posix()
-        )
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -627,18 +615,18 @@ def test_reuse_npz_files(config, tmp_path: str):
     )
 
     # test reusing bin files
-    trainer1 = ModelTrainer(centroid_config)
+    trainer1 = ModelTrainer.get_model_trainer_from_config(centroid_config)
     trainer1.train()
 
     OmegaConf.update(
         centroid_config,
         "data_config.cache_img_path",
-        (trainer1.cache_img_path.as_posix()),
+        (trainer1.config.data_config.cache_img_path),
     )
     OmegaConf.update(
         centroid_config,
         "data_config.use_existing_imgs",
         True,
     )
-    trainer2 = ModelTrainer(centroid_config)
+    trainer2 = ModelTrainer.get_model_trainer_from_config(centroid_config)
     trainer2.train()

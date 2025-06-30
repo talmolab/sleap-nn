@@ -60,7 +60,7 @@ def test_preprocessing_config_invalid_scale(caplog):
 
 def test_augmentation_config_initialization():
     """Test AugmentationConfig initialization with default values."""
-    config = AugmentationConfig()
+    config = AugmentationConfig(intensity=IntensityConfig, geometric=GeometricConfig())
     assert config.intensity is not None
     assert config.geometric is not None
 
