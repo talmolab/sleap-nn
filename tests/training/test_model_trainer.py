@@ -277,7 +277,11 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     model_trainer.train()
 
     assert Path(model_trainer.config.trainer_config.save_ckpt_path).exists()
-    # assert Path(model_trainer.config.trainer_config.save_ckpt_path).joinpath("wandb").exists() # check wandb folder
+    assert (
+        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        .joinpath("wandb")
+        .exists()
+    )  # check wandb folder
 
     assert (
         Path(model_trainer.config.trainer_config.save_ckpt_path)

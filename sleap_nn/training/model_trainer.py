@@ -552,7 +552,7 @@ class ModelTrainer:
         ):  # save config if there are no distributed process
 
             if self.config.trainer_config.use_wandb:
-                wandb.init()
+                wandb.init(dir=self.config.trainer_config.save_ckpt_path)
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name
                 wandb.config["run_config"] = OmegaConf.to_container(
