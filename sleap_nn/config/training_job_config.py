@@ -134,26 +134,9 @@ class TrainingJobConfig:
         return config_omegaconf
 
 
-def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
-    """Load a training job configuration for a model run.
-
-    Args:
-        filename: Path to a YAML file or directory containing `training_job.yaml`.
-        load_training_config: If `True` (the default), prefer `training_job.yaml` over
-            `initial_config.yaml` if it is present in the same folder.
-
-    Returns:
-        The parsed `OmegaConf`.
-    """
-    return TrainingJobConfig.load_yaml(filename)
-
-
 def verify_training_cfg(cfg: DictConfig) -> DictConfig:
     """Get sleap-nn training config from a DictConfig object."""
-    sch = TrainingJobConfig(**cfg)
-    # OmegaConf can't merge into None, so optional nested configs (like centered_instance_config for head_configs)
-    # must be pre-initialized if the YAML sets nested fields (e.g., confmaps).
-    schema = OmegaConf.structured(sch)
+    schema = OmegaConf.structured(TrainingJobConfig())
     config = OmegaConf.merge(schema, cfg)
     OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
     return config

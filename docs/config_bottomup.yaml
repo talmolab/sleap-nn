@@ -89,8 +89,8 @@ model_config:
 #     in_channels: 1
 #     model_type: tiny
 #     arch: 
-#     patch_size: [4,4]
-#     window_size: [7,7]
+#     patch_size: 4
+#     window_size: 7
 #     kernel_size: 3
 #     filters_rate: 2
 #     convs_per_block: 2
@@ -131,7 +131,7 @@ trainer_config:
   profiler: null
   trainer_strategy: auto
   enable_progress_bar: true
-  steps_per_epoch: null
+  min_train_steps_per_epoch: null
   visualize_preds_during_training: true
   max_epochs: 40
   seed: 0

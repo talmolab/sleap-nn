@@ -138,8 +138,8 @@ class AugmentationConfig:
         geometric: Configuration options for geometric augmentations like rotation, scaling, translation etc. If None, no geometric augmentations will be applied.
     """
 
-    intensity: Optional[IntensityConfig] = field(factory=IntensityConfig)
-    geometric: Optional[GeometricConfig] = field(factory=GeometricConfig)
+    intensity: Optional[IntensityConfig] = None
+    geometric: Optional[GeometricConfig] = None
 
 
 @define
@@ -181,7 +181,7 @@ class DataConfig:
     """
 
     train_labels_path: List[str] = []
-    val_labels_path: List[str] = []  # TODO : revisit MISSING!
+    val_labels_path: Optional[List[str]] = None  # TODO : revisit MISSING!
     validation_fraction: float = 0.1
     test_file_path: Optional[str] = None
     provider: str = "LabelsReader"

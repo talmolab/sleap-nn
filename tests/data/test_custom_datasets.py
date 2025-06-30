@@ -808,7 +808,7 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
 
     dl = iter(
         CyclerDataLoader(
-            dataset=dataset, batch_size=1, num_workers=0, steps_per_epoch=10
+            dataset=dataset, batch_size=1, num_workers=0, min_train_steps_per_epoch=10
         )
     )
 
