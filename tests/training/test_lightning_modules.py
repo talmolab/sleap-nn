@@ -3,7 +3,10 @@
 import numpy as np
 from pathlib import Path
 from omegaconf import OmegaConf
-from sleap_nn.data.custom_datasets import get_train_val_dataloaders
+from sleap_nn.data.custom_datasets import (
+    get_train_val_dataloaders,
+    get_train_val_datasets,
+)
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceLightningModule,
@@ -48,9 +51,14 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
@@ -98,9 +106,14 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         f"{tmp_path}/test_topdown_centered_instance_model_2/",
     )
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
@@ -137,9 +150,14 @@ def test_centroid_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
@@ -164,9 +182,14 @@ def test_centroid_model(config, tmp_path: str):
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
@@ -197,9 +220,14 @@ def test_single_instance_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
@@ -240,9 +268,14 @@ def test_single_instance_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
@@ -298,9 +331,14 @@ def test_bottomup_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
@@ -336,9 +374,14 @@ def test_bottomup_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-    train_data_loader, val_data_loader = get_train_val_dataloaders(
+    train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     skeletons = model_trainer.skeletons

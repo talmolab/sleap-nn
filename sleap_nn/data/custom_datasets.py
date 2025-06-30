@@ -1323,6 +1323,11 @@ def get_train_val_dataloaders(
     )
 
     trainer_devices = config.trainer_config.trainer_devices
+    trainer_devices = (
+        trainer_devices
+        if isinstance(trainer_devices, int)
+        else torch.cuda.device_count()
+    )
     train_sampler = (
         DistributedSampler(
             dataset=train_dataset,

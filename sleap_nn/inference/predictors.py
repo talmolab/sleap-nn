@@ -1912,7 +1912,7 @@ def run_inference(
     """
     start_inf_time = time()
     start_timestamp = str(datetime.now())
-    print("Started inference at:", start_timestamp)
+    logger.info("Started inference at:", start_timestamp)
     preprocess_config = {  # if not given, then use from training config
         "ensure_rgb": ensure_rgb,
         "ensure_grayscale": ensure_grayscale,

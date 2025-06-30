@@ -83,8 +83,8 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
         config=model_trainer.config,
     )
     train_dataloader, _ = get_train_val_dataloaders(
-        train_labels=model_trainer.train_labels,
-        val_labels=model_trainer.val_labels,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     assert len(list(iter(train_dataset))) == 2
@@ -106,8 +106,8 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
         config=model_trainer.config,
     )
     train_dataloader, _ = get_train_val_dataloaders(
-        train_labels=model_trainer.train_labels,
-        val_labels=model_trainer.val_labels,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     assert len(list(iter(train_dataset))) == 2
@@ -136,8 +136,8 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
         config=model_trainer.config,
     )
     train_dataloader, _ = get_train_val_dataloaders(
-        train_labels=model_trainer.train_labels,
-        val_labels=model_trainer.val_labels,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
         config=model_trainer.config,
     )
     assert (
@@ -165,8 +165,15 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
         model_trainer = ModelTrainer.get_model_trainer_from_config(
             config,
         )
-        _ = get_train_val_dataloaders(
-            model_trainer.train_labels, model_trainer.val_labels, model_trainer.config
+        train_dataset, val_dataset = get_train_val_datasets(
+            train_labels=model_trainer.train_labels,
+            val_labels=model_trainer.val_labels,
+            config=model_trainer.config,
+        )
+        train_data_loader, val_data_loader = get_train_val_dataloaders(
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            config=model_trainer.config,
         )
     assert "There are no images in the path" in caplog.text
 
@@ -185,8 +192,15 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
 
     with pytest.raises(Exception):
         model_trainer = ModelTrainer.get_model_trainer_from_config(config)
-        _ = get_train_val_dataloaders(
-            model_trainer.train_labels, model_trainer.val_labels, model_trainer.config
+        train_dataset, val_dataset = get_train_val_datasets(
+            train_labels=model_trainer.train_labels,
+            val_labels=model_trainer.val_labels,
+            config=model_trainer.config,
+        )
+        train_data_loader, val_data_loader = get_train_val_dataloaders(
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            config=model_trainer.config,
         )
     assert "There are no images in the path" in caplog.text
 

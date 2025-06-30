@@ -623,7 +623,7 @@ def run_training(config: DictConfig):
     """Create ModelTrainer instance and start training."""
     start_train_time = time()
     start_timestamp = str(datetime.now())
-    print("Started training at:", start_timestamp)
+    logger.info("Started training at:", start_timestamp)
 
     trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()

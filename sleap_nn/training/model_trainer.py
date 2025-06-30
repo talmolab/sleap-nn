@@ -105,7 +105,6 @@ class ModelTrainer:
                 sio.load_slp(path)
                 for path in model_trainer.config.data_config.train_labels_path
             ]
-            print(f"train labels: {train_labels}-----------------")
             val_labels = (
                 [
                     sio.load_slp(path)
