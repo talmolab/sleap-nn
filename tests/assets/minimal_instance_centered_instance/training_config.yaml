@@ -117,7 +117,8 @@ trainer_config:
   profiler: null
   trainer_strategy: auto
   enable_progress_bar: true
-  min_train_steps_per_epoch: null
+  min_train_steps_per_epoch: 200
+  train_steps_per_epoch: null
   visualize_preds_during_training: true
   max_epochs: 30
   seed: 0

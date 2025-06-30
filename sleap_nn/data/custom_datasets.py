@@ -4,7 +4,7 @@ from kornia.geometry.transform import crop_and_resize
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
 from PIL import Image
@@ -956,58 +956,84 @@ class SingleInstanceDataset(BaseDataset):
         return sample
 
 
-class _RepeatSampler:
-    """Sampler that cycles through the samples infintely.
+class InfiniteDataLoader(DataLoader):
+    """Dataloader that reuses workers for infinite iteration.
 
-    Source: Ultralytics
-
-    Args:
-        sampler (Dataset.sampler): The sampler to repeat.
-    """
-
-    def __init__(self, sampler):
-        """Initializes the sampler object."""
-        self.sampler = sampler
-
-    def __iter__(self):
-        """Iterates over the 'sampler' and yields its contents."""
-        while True:
-            yield from iter(self.sampler)
-
-
-class CyclerDataLoader(DataLoader):
-    """DataLoader that cycles through the dataset infinitely.
+    This dataloader extends the PyTorch DataLoader to provide infinite recycling of workers, which improves efficiency
+    for training loops that need to iterate through the dataset multiple times without recreating workers.
 
     Attributes:
-        min_train_steps_per_epoch: Number of steps to be run in an epoch. If not provided, the
-            length of the sampler is used (total_samples / batch_size)    .
+        batch_sampler (_RepeatSampler): A sampler that repeats indefinitely.
+        iterator (Iterator): The iterator from the parent DataLoader.
+
+    Methods:
+        __len__: Return the length of the batch sampler's sampler.
+        __iter__: Create a sampler that repeats indefinitely.
+        __del__: Ensure workers are properly terminated.
+        reset: Reset the iterator, useful when modifying dataset settings during training.
+
+    Examples:
+        Create an infinite dataloader for training
+        >>> dataset = CenteredInstanceDataset(...)
+        >>> dataloader = InfiniteDataLoader(dataset, batch_size=16, shuffle=True)
+        >>> for batch in dataloader:  # Infinite iteration
+        >>>     train_step(batch)
+
+    Source: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/data/build.py
     """
 
-    def __init__(
-        self, min_train_steps_per_epoch: Optional[int] = None, *args, **kwargs
-    ):
-        """Initialize the object."""
+    def __init__(self, *args: Any, **kwargs: Any):
+        """Initialize the InfiniteDataLoader with the same arguments as DataLoader."""
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
         self.iterator = super().__iter__()
-        self.min_train_steps_per_epoch = min_train_steps_per_epoch
 
-    def __len__(self):
-        """Returns the length of the dataloader."""
-        if self.min_train_steps_per_epoch is not None:
-            return int(self.min_train_steps_per_epoch)
-        else:
-            return len(self.batch_sampler.sampler)
+    def __len__(self) -> int:
+        """Return the length of the batch sampler's sampler."""
+        return len(self.batch_sampler.sampler)
 
-    def __iter__(self):
-        """Creates a sampler that repeats indefinitely."""
+    def __iter__(self) -> Iterator:
+        """Create an iterator that yields indefinitely from the underlying iterator."""
         while True:
-            for _ in range(len(self)):
-                yield next(self.iterator)
+            yield next(self.iterator)
+
+    def __del__(self):
+        """Ensure that workers are properly terminated when the dataloader is deleted."""
+        try:
+            if not hasattr(self.iterator, "_workers"):
+                return
+            for w in self.iterator._workers:  # force terminate
+                if w.is_alive():
+                    w.terminate()
+            self.iterator._shutdown_workers()  # cleanup
+        except Exception:
+            pass
 
     def reset(self):
-        """Reset iterator."""
+        """Reset the iterator to allow modifications to the dataset during training."""
         self.iterator = self._get_iterator()
+
+
+class _RepeatSampler:
+    """Sampler that repeats forever for infinite iteration.
+
+    This sampler wraps another sampler and yields its contents indefinitely, allowing for infinite iteration
+    over a dataset without recreating the sampler.
+
+    Attributes:
+        sampler (Dataset.sampler): The sampler to repeat.
+
+    Source: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/data/build.py
+    """
+
+    def __init__(self, sampler: Any):
+        """Initialize the _RepeatSampler with a sampler to repeat indefinitely."""
+        self.sampler = sampler
+
+    def __iter__(self) -> Iterator:
+        """Iterate over the sampler indefinitely, yielding its contents."""
+        while True:
+            yield from iter(self.sampler)
 
 
 def get_train_val_datasets(
@@ -1300,15 +1326,7 @@ def get_train_val_dataloaders(
         else True
     )
 
-    min_train_steps_per_epoch = config.trainer_config.min_train_steps_per_epoch
-    if min_train_steps_per_epoch is None:
-        min_train_steps_per_epoch = (
-            len(train_dataset) // config.trainer_config.train_data_loader.batch_size
-        )
-        if min_train_steps_per_epoch == 0:
-            min_train_steps_per_epoch = 1
-
-    train_data_loader = DataLoader(
+    train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         shuffle=config.trainer_config.train_data_loader.shuffle,
         batch_size=config.trainer_config.train_data_loader.batch_size,
@@ -1324,11 +1342,7 @@ def get_train_val_dataloaders(
         ),
     )
 
-    # val
-    val_min_train_steps_per_epoch = (
-        len(val_dataset) // config.trainer_config.val_data_loader.batch_size
-    )
-    val_data_loader = DataLoader(
+    val_data_loader = InfiniteDataLoader(
         dataset=val_dataset,
         shuffle=False,
         batch_size=config.trainer_config.val_data_loader.batch_size,
@@ -1345,3 +1359,8 @@ def get_train_val_dataloaders(
     )
 
     return train_data_loader, val_data_loader
+
+
+def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):
+    """Compute the number of steps (iterations) per epoch for the given dataset."""
+    return (len(dataset) // batch_size) + (1 if (len(dataset) % batch_size) else 0)

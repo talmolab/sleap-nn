@@ -25,7 +25,7 @@ from lightning.pytorch.profilers import (
 import sleap_io as sio
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
-from sleap_nn.data.custom_datasets import get_train_val_dataloaders
+from sleap_nn.data.custom_datasets import get_train_val_dataloaders, get_steps_per_epoch
 from loguru import logger
 from sleap_nn.config.utils import (
     get_backbone_type_from_cfg,
@@ -531,8 +531,18 @@ class ModelTrainer:
                 message = f"{cfg_profiler} is not a valid option. Please choose one of {list(self._profilers.keys())}"
                 logger.error(message)
                 raise ValueError(message)
+        # set-up steps per epoch
+        train_steps_per_epoch = self.config.trainer_config.train_steps_per_epoch
+        if train_steps_per_epoch is None:
+            train_steps_per_epoch = get_steps_per_epoch(
+                dataset=train_dataloader.dataset,
+                batch_size=self.config.trainer_config.train_data_loader.batch_size,
+            )
+        if self.config.trainer_config.min_train_steps_per_epoch > train_steps_per_epoch:
+            train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
+        self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
 
-        # create lightning.Trainer insatnce.
+        # create lightning.Trainer instance.
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=loggers,
@@ -541,7 +551,7 @@ class ModelTrainer:
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-            limit_train_batches=self.config.trainer_config.min_train_steps_per_epoch,  # TODO
+            limit_train_batches=self.config.trainer_config.train_steps_per_epoch,
             strategy=strategy,
             profiler=profiler,
             log_every_n_steps=1,

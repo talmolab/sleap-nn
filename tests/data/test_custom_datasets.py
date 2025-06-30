@@ -5,7 +5,8 @@ from sleap_nn.data.custom_datasets import (
     CenteredInstanceDataset,
     CentroidDataset,
     SingleInstanceDataset,
-    CyclerDataLoader,
+    InfiniteDataLoader,
+    get_steps_per_epoch,
 )
 
 
@@ -770,7 +771,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
     assert sample["instances"].shape == (1, 1, 2, 2)
 
 
-def test_cycler_dataloader(minimal_instance, tmp_path):
+def test_infinite_dataloader(minimal_instance, tmp_path):
     labels = sio.load_slp(minimal_instance)
 
     # Making our minimal 2-instance example into a single instance example.
@@ -806,11 +807,9 @@ def test_cycler_dataloader(minimal_instance, tmp_path):
 
     assert len(list(iter(dataset))) == 1
 
-    dl = iter(
-        CyclerDataLoader(
-            dataset=dataset, batch_size=1, num_workers=0, min_train_steps_per_epoch=10
-        )
-    )
+    dl = iter(InfiniteDataLoader(dataset=dataset, batch_size=1, num_workers=0))
 
     for _ in range(10):
         _ = next(dl)
+
+    assert get_steps_per_epoch(dataset=dataset, batch_size=1) == 1
