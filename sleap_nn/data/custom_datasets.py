@@ -11,7 +11,7 @@ from PIL import Image
 from loguru import logger
 import torch
 import torchvision.transforms as T
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.data.instance_centroids import generate_centroids
@@ -330,14 +330,14 @@ class BottomUpDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
@@ -562,7 +562,7 @@ class CenteredInstanceDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 (
                     sample["instance_image"],
                     sample["instance"],
@@ -572,7 +572,7 @@ class CenteredInstanceDataset(BaseDataset):
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 (
                     sample["instance_image"],
                     sample["instance"],
@@ -762,14 +762,14 @@ class CentroidDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 sample["image"], sample["centroids"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["centroids"],
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 sample["image"], sample["centroids"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["centroids"],
@@ -926,14 +926,14 @@ class SingleInstanceDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
@@ -1070,7 +1070,7 @@ def get_train_val_datasets(
     model_type = get_model_type_from_cfg(config=config)
     backbone_type = get_backbone_type_from_cfg(config=config)
 
-    if use_existing_imgs:
+    if cache_imgs == "disk" and use_existing_imgs:
         if not (
             train_cache_img_path.exists()
             and train_cache_img_path.is_dir()
@@ -1298,16 +1298,16 @@ def get_train_val_datasets(
 
 
 def get_train_val_dataloaders(
-    train_labels: List[sio.Labels],
-    val_labels: List[sio.Labels],
+    train_dataset: BaseDataset,
+    val_dataset: BaseDataset,
     config: DictConfig,
     rank: Optional[int] = None,
 ):
     """Return the train and val dataloaders.
 
     Args:
-        train_labels: List of train labels.
-        val_labels: List of val labels.
+        train_dataset: Train dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
+        val_dataset: Val dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
         config: Sleap-nn config.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
@@ -1315,10 +1315,6 @@ def get_train_val_dataloaders(
     Returns:
         A tuple (train_dataloader, val_dataloader).
     """
-    train_dataset, val_dataset = get_train_val_datasets(
-        train_labels=train_labels, val_labels=val_labels, config=config, rank=rank
-    )
-
     pin_memory = (
         config.trainer_config.train_data_loader.pin_memory
         if "pin_memory" in config.trainer_config.train_data_loader
@@ -1326,9 +1322,26 @@ def get_train_val_dataloaders(
         else True
     )
 
+    trainer_devices = config.trainer_config.trainer_devices
+    train_sampler = (
+        DistributedSampler(
+            dataset=train_dataset,
+            shuffle=config.trainer_config.train_data_loader.shuffle,
+            rank=rank if rank is not None else 0,
+            num_replicas=trainer_devices,
+        )
+        if trainer_devices > 1
+        else None
+    )
+
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
-        shuffle=config.trainer_config.train_data_loader.shuffle,
+        sampler=train_sampler,
+        shuffle=(
+            config.trainer_config.train_data_loader.shuffle
+            if train_sampler is None
+            else None
+        ),
         batch_size=config.trainer_config.train_data_loader.batch_size,
         num_workers=config.trainer_config.train_data_loader.num_workers,
         pin_memory=pin_memory,
@@ -1342,9 +1355,20 @@ def get_train_val_dataloaders(
         ),
     )
 
+    val_sampler = (
+        DistributedSampler(
+            dataset=val_dataset,
+            shuffle=False,
+            rank=rank if rank is not None else 0,
+            num_replicas=trainer_devices,
+        )
+        if trainer_devices > 1
+        else None
+    )
     val_data_loader = InfiniteDataLoader(
         dataset=val_dataset,
-        shuffle=False,
+        shuffle=False if val_sampler is None else None,
+        sampler=val_sampler,
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,
         pin_memory=pin_memory,
