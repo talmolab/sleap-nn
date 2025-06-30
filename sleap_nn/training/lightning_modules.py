@@ -170,7 +170,7 @@ class LightningModel(L.LightningModule):
 
     @classmethod
     def get_lightning_model_from_config(cls, config: DictConfig):
-        """Get lightning model from config"""
+        """Get lightning model from config."""
         model_type = get_model_type_from_cfg(config)
         backbone_type = get_backbone_type_from_cfg(config)
 

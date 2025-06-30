@@ -5,7 +5,7 @@ from omegaconf import DictConfig
 
 
 def get_model_type_from_cfg(config: DictConfig):
-    """Return the model type from the config. One of [single_instance, centroid, centered_instance, bottomup]"""
+    """Return the model type from the config. One of [single_instance, centroid, centered_instance, bottomup]."""
     model_type = None
     for k, v in config.model_config.head_configs.items():
         if v is not None:
@@ -15,7 +15,7 @@ def get_model_type_from_cfg(config: DictConfig):
 
 
 def get_backbone_type_from_cfg(config: DictConfig):
-    """Return the backbone type from the config. One of [unet, swint, convnext]"""
+    """Return the backbone type from the config. One of [unet, swint, convnext]."""
     backbone_type = None
     for k, v in config.model_config.backbone_config.items():
         if v is not None:

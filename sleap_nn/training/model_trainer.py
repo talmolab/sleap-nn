@@ -129,7 +129,7 @@ class ModelTrainer:
         labels: Optional[List[sio.Labels]] = None,
         val_labels: Optional[List[sio.Labels]] = None,
     ):
-        """Create train and val labels objects. (Initialize `self.train_labels` and `self.val_labels`)"""
+        """Create train and val labels objects. (Initialize `self.train_labels` and `self.val_labels`)."""
         logger.info(f"Creating train-val split...")
         total_train_lfs = 0
         total_val_lfs = 0

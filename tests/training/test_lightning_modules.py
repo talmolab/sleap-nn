@@ -14,6 +14,22 @@ from sleap_nn.training.lightning_modules import (
 )
 from torch.nn.functional import mse_loss
 import torch
+import pytest
+from _pytest.logging import LogCaptureFixture
+from loguru import logger
+
+
+@pytest.fixture
+def caplog(caplog: LogCaptureFixture):
+    handler_id = logger.add(
+        caplog.handler,
+        format="{message}",
+        level=0,
+        filter=lambda record: record["level"].no >= caplog.handler.level,
+        enqueue=False,  # Set to 'True' if your test is spawning child processes.
+    )
+    yield caplog
+    logger.remove(handler_id)
 
 
 def test_topdown_centered_instance_model(config, tmp_path: str):
@@ -342,7 +358,28 @@ def test_bottomup_model(config, tmp_path: str):
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
 
 
-def test_model_trainer_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
+def test_incorrect_model_type(config, caplog, tmp_path: str):
+    """Test the SingleInstanceLightningModule training."""
+    head_config = config.model_config.head_configs.centered_instance
+    del config.model_config.head_configs.centered_instance
+    config["model_config"]["head_configs"]["topdown"] = head_config
+    OmegaConf.update(config, "model_config.head_configs.topdown", head_config)
+    del config.model_config.head_configs.topdown.confmaps.anchor_part
+
+    OmegaConf.update(config, "model_config.init_weights", "xavier")
+
+    OmegaConf.update(
+        config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_single_instance_model_1/",
+    )
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+    with pytest.raises(Exception):
+        _ = LightningModel.get_lightning_model_from_config(config)
+    assert "Incorrect model type." in caplog.text
+
+
+def test_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     """Test loading trained weights for backbone and head layers."""
 
     OmegaConf.update(
