@@ -25,7 +25,11 @@ from lightning.pytorch.profilers import (
 import sleap_io as sio
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
-from sleap_nn.data.custom_datasets import get_train_val_dataloaders
+from sleap_nn.data.custom_datasets import (
+    get_train_val_dataloaders,
+    get_steps_per_epoch,
+    get_train_val_datasets,
+)
 from loguru import logger
 from sleap_nn.config.utils import (
     get_backbone_type_from_cfg,
@@ -101,7 +105,6 @@ class ModelTrainer:
                 sio.load_slp(path)
                 for path in model_trainer.config.data_config.train_labels_path
             ]
-            print(f"train labels: {train_labels}-----------------")
             val_labels = (
                 [
                     sio.load_slp(path)
@@ -290,7 +293,7 @@ class ModelTrainer:
             train.save(Path(ckpt_path) / f"labels_train_gt_{idx}.slp")
             val.save(Path(ckpt_path) / f"labels_val_gt_{idx}.slp")
 
-    def _setup_dataloaders(self):
+    def _setup_datasets(self):
         """Setup dataloaders."""
         base_cache_img_path = None
         if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_memory":
@@ -319,7 +322,7 @@ class ModelTrainer:
             if self.config.data_config.cache_img_path is None:
                 self.config.data_config.cache_img_path = base_cache_img_path
 
-        return get_train_val_dataloaders(
+        return get_train_val_datasets(
             train_labels=self.train_labels,
             val_labels=self.val_labels,
             config=self.config,
@@ -508,14 +511,14 @@ class ModelTrainer:
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
         self.config.model_config.total_params = total_params
 
-        # create the train and val dataloaders.
-        logger.info(f"Setting up train and val data loaders...")
-        train_dataloader, val_dataloader = self._setup_dataloaders()
+        # create the train and val datasets.
+        logger.info(f"Setting up train and val datasets...")
+        train_dataset, val_dataset = self._setup_datasets()
 
         # setup loggers and callbacks for Trainer.
         logger.info(f"Setting up Trainer...")
         loggers, callbacks = self._setup_loggers_callbacks(
-            train_dataloader.dataset, val_dataloader.dataset
+            train_dataset=train_dataset, val_dataset=val_dataset
         )
         # set up the strategy (for multi-gpu training)
         strategy = OmegaConf.select(
@@ -531,8 +534,18 @@ class ModelTrainer:
                 message = f"{cfg_profiler} is not a valid option. Please choose one of {list(self._profilers.keys())}"
                 logger.error(message)
                 raise ValueError(message)
+        # set-up steps per epoch
+        train_steps_per_epoch = self.config.trainer_config.train_steps_per_epoch
+        if train_steps_per_epoch is None:
+            train_steps_per_epoch = get_steps_per_epoch(
+                dataset=train_dataset,
+                batch_size=self.config.trainer_config.train_data_loader.batch_size,
+            )
+        if self.config.trainer_config.min_train_steps_per_epoch > train_steps_per_epoch:
+            train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
+        self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
 
-        # create lightning.Trainer insatnce.
+        # create lightning.Trainer instance.
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=loggers,
@@ -541,11 +554,20 @@ class ModelTrainer:
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
-            limit_train_batches=self.config.trainer_config.min_train_steps_per_epoch,  # TODO
+            limit_train_batches=self.config.trainer_config.train_steps_per_epoch,
             strategy=strategy,
             profiler=profiler,
             log_every_n_steps=1,
         )  # TODO check any other methods to use rank in dataset creations!
+
+        # setup dataloaders
+        # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
+        train_dataloader, val_dataloader = get_train_val_dataloaders(
+            train_dataset,
+            val_dataset,
+            self.config,
+            rank=self.trainer.global_rank if self.trainer is not None else None,
+        )
 
         if (
             self.trainer.global_rank == 0

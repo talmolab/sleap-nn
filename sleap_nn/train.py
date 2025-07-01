@@ -440,7 +440,8 @@ def get_trainer_config(
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = False,
-    min_train_steps_per_epoch: Optional[int] = None,
+    min_train_steps_per_epoch: int = 200,
+    train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
     max_epochs: int = 100,
     seed: int = 1000,
@@ -494,8 +495,10 @@ def get_trainer_config(
         enable_progress_bar: When True, enables printing the logs during training. Default: False.
         min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
-            of Torch `Trainer`. If `None`, the number of iterations depends on the number
-            of samples in the train dataset. Default: None.
+            of Torch `Trainer`. Default: 200.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
+            this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
+            whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: Maxinum number of epochs to run. Default: 100.
@@ -582,6 +585,7 @@ def get_trainer_config(
         trainer_accelerator=trainer_accelerator,
         enable_progress_bar=enable_progress_bar,
         min_train_steps_per_epoch=min_train_steps_per_epoch,
+        train_steps_per_epoch=train_steps_per_epoch,
         visualize_preds_during_training=visualize_preds_during_training,
         max_epochs=max_epochs,
         seed=seed,
@@ -619,7 +623,7 @@ def run_training(config: DictConfig):
     """Create ModelTrainer instance and start training."""
     start_train_time = time()
     start_timestamp = str(datetime.now())
-    print("Started training at:", start_timestamp)
+    logger.info("Started training at:", start_timestamp)
 
     trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
@@ -717,7 +721,8 @@ def train(
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = False,
-    min_train_steps_per_epoch: Optional[int] = None,
+    min_train_steps_per_epoch: int = 200,
+    train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
     max_epochs: int = 100,
     seed: int = 1000,
@@ -884,8 +889,10 @@ def train(
         enable_progress_bar: When True, enables printing the logs during training. Default: False.
         min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
-            of Torch `Trainer`. If `None`, the number of iterations depends on the number
-            of samples in the train dataset. Default: None.
+            of Torch `Trainer`. Default: 200.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
+            this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
+            whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: Maxinum number of epochs to run. Default: 100.
@@ -973,6 +980,7 @@ def train(
         trainer_accelerator=trainer_accelerator,
         enable_progress_bar=enable_progress_bar,
         min_train_steps_per_epoch=min_train_steps_per_epoch,
+        train_steps_per_epoch=train_steps_per_epoch,
         visualize_preds_during_training=visualize_preds_during_training,
         max_epochs=max_epochs,
         seed=seed,

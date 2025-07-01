@@ -170,8 +170,9 @@ The config file has three main sections:
     - `trainer_strategy`: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. *Default*: `"auto"`.
     - `enable_progress_bar`: (bool) When True, enables printing the logs during training.
     *Default*: `False`.
-    - `min_train_steps_per_epoch`: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer `limit_train_batches` parameter of Torch `Trainer`. If `None`, the number of iterations depends on the number of samples in the train dataset.
-    *Default*: `None`.
+    - `min_train_steps_per_epoch`: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer `limit_train_batches` parameter of Torch `Trainer`.
+    *Default*: `200`.
+    - `train_steps_per_epoch`: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`.
     - `visualize_preds_during_training`: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
     - `max_epochs`: (int) Maxinum number of epochs to run. *Default*: `100`.
     - `seed`: (int) Seed value for the current experiment. *Default*: `1000`.

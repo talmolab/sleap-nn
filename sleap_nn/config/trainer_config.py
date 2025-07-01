@@ -198,7 +198,9 @@ class TrainerConfig:
         profiler: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"].
         trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`.
         enable_progress_bar: (bool) When True, enables printing the logs during training.
-        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
+        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
+            whichever is largest. Default: `None`.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: (int) Maxinum number of epochs to run.
         seed: (int) Seed value for the current experiment.
@@ -225,7 +227,8 @@ class TrainerConfig:
     profiler: Optional[str] = None
     trainer_strategy: str = "auto"
     enable_progress_bar: bool = True
-    min_train_steps_per_epoch: Optional[int] = None
+    min_train_steps_per_epoch: int = 200
+    train_steps_per_epoch: Optional[int] = None
     visualize_preds_during_training: bool = False
     max_epochs: int = 10
     seed: int = 0
@@ -312,6 +315,10 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             "save_visualizations", False
         ),
         max_epochs=legacy_config_optimization.get("epochs", 10),
+        min_train_steps_per_epoch=legacy_config_optimization.get(
+            "min_batches_per_epoch", 200
+        ),
+        train_steps_per_epoch=legacy_config_optimization.get("batches_per_epoch", None),
         save_ckpt=True,
         save_ckpt_path=(
             Path(legacy_config_outputs.get("runs_folder", ".")) / run_name
