@@ -171,6 +171,13 @@ def config(sleap_data_dir):
                         "min_lr": 1e-08,
                     },
                 },
+                "online_hard_keypoint_mining": {
+                    "online_mining": False,
+                    "hard_to_easy_ratio": 2.0,
+                    "min_hard_keypoints": 2,
+                    "max_hard_keypoints": None,
+                    "loss_scale": 5.0,
+                },
             },
         }
     )

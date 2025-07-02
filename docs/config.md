@@ -207,6 +207,24 @@ The config file has three main sections:
         - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. *Default*: `False`.
         - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `0.0`.
         - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `1`.
+    - `online_hard_keypoint_mining`
+        - `online_mining`: (bool) If True, online hard keypoint mining (OHKM) will be enabled. When
+            this is enabled, the loss is computed per keypoint (or edge for PAFs) and
+            sorted from lowest (easy) to highest (hard). The hard keypoint loss will be
+            scaled to have a higher weight in the total loss, encouraging the training
+            to focus on tricky body parts that are more difficult to learn.
+            If False, no mining will be performed and all keypoints will be weighted
+            equally in the loss. *Default*: `False`.
+        - `hard_to_easy_ratio`: (float) The minimum ratio of the individual keypoint loss with
+            respect to the lowest keypoint loss in order to be considered as "hard".
+            This helps to switch focus on across groups of keypoints during training. *Default*: `2.0`.
+        - `min_hard_keypoints`: (int) The minimum number of keypoints that will be considered as
+            "hard", even if they are not below the `hard_to_easy_ratio`. *Default*: `2`.
+        - `max_hard_keypoints`: (int) The maximum number of hard keypoints to apply scaling to.
+            This can help when there are few very easy keypoints which may skew the
+            ratio and result in loss scaling being applied to most keypoints, which can
+            reduce the impact of hard mining altogether.
+        - `loss_scale`: (float) Factor to scale the hard keypoint losses by. *Default*: `5.0`.
     - `zmq`
         - `publish_address`: (str) Specifies the address and port to which the training logs (loss values) should be sent to. 
         - `controller_address`: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI). *Default*: `None`.

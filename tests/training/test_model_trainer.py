@@ -398,6 +398,11 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
         single_instance_config, "trainer_config.visualize_preds_during_training", True
     )
     OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(
+        single_instance_config,
+        "trainer_config.online_hard_keypoint_mining.online_mining",
+        True,
+    )
 
     labels = sio.load_slp(minimal_instance)
     for lf in labels:
@@ -521,6 +526,9 @@ def test_model_trainer_bottomup(config, tmp_path):
     OmegaConf.update(config, "trainer_config.enable_progress_bar", True)
     OmegaConf.update(config, "trainer_config.max_epochs", 2)
     OmegaConf.update(config, "data_config.delete_cache_imgs_after_training", False)
+    OmegaConf.update(
+        config, "trainer_config.online_hard_keypoint_mining.online_mining", True
+    )
 
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     head_config = config.model_config.head_configs.centered_instance
@@ -611,6 +619,11 @@ def test_early_stopping(config, tmp_path):
     config_early_stopping = config.copy()
     OmegaConf.update(
         config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-1
+    )
+    OmegaConf.update(
+        config_early_stopping,
+        "trainer_config.online_hard_keypoint_mining.online_mining",
+        True,
     )
     OmegaConf.update(config_early_stopping, "trainer_config.early_stopping.patience", 1)
     OmegaConf.update(config_early_stopping, "trainer_config.save_ckpt", True)
