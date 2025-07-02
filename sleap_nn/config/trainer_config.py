@@ -193,6 +193,7 @@ class HardKeypointMiningConfig:
     max_hard_keypoints: Optional[int] = None
     loss_scale: float = 5.0
 
+
 @define
 class ZMQConfig:
     """Configuration of ZeroMQ-based monitoring of the training.
@@ -413,13 +414,14 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
                 )
                 else None
             ),
-          publish_address=(
+            publish_address=(
                 legacy_config_outputs.get("zmq", {}).get("publish_address", None)
                 if legacy_config_outputs.get("zmq", {}).get("publish_updates", False)
                 else None
             ),
             controller_polling_timeout=legacy_config_outputs.get("zmq", {}).get(
-                "controller_polling_timeout", 10)
+                "controller_polling_timeout", 10
+            ),
         ),
         online_hard_keypoint_mining=HardKeypointMiningConfig(
             online_mining=legacy_config_optimization.get(

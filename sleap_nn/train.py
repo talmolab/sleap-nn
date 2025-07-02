@@ -638,7 +638,8 @@ def get_trainer_config(
             hard_to_easy_ratio=hard_to_easy_ratio,
             min_hard_keypoints=min_hard_keypoints,
             max_hard_keypoints=max_hard_keypoints,
-            loss_scale=loss_scale,),
+            loss_scale=loss_scale,
+        ),
         zmq=ZMQConfig(
             controller_address=zmq_controller_address,
             controller_polling_timeout=zmq_controller_timeout,
