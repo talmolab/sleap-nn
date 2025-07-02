@@ -56,21 +56,24 @@ class Normalizer(IterDataPipe):
 
     Attributes:
         source_dp: The input `IterDataPipe` with examples that contain `"images"` key.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-                channel when this is set to `True`, then the images from single-channel
-                is replicated along the channel axis. If input has three channels and this
-                is set to False, then we convert the image to grayscale (single-channel)
-                image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
     """
 
     def __init__(
         self,
         source_dp: IterDataPipe,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
     ) -> None:
         """Initialize the `IterDataPipe`."""
         self.source_dp = source_dp
-        self.is_rgb = is_rgb
+        self.ensure_rgb = ensure_rgb
+        self.ensure_grayscale = ensure_grayscale
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """Return an example dictionary with the normalized image."""
@@ -80,11 +83,11 @@ class Normalizer(IterDataPipe):
                 image = image.to(torch.float32) / 255.0
 
             # convert to rgb
-            if self.is_rgb:
+            if self.ensure_rgb:
                 image = convert_to_rgb(image)
 
             # convert to grayscale
-            if not self.is_rgb:
+            elif self.ensure_grayscale:
                 image = convert_to_grayscale(image)
 
             ex["image"] = image  # (n_samples, channels, height, width)

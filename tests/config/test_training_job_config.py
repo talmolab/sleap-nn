@@ -166,6 +166,31 @@ def test_load_bottomup_multiclass_training_config_from_file(
         config.trainer_config.early_stopping.stop_training_on_plateau is True
     )  # From the JSON file
 
+    # Test by loading with JSON-formatted string
+    with open(json_file_path, "r") as f:
+        slp_cfg_json = json.load(f)
+
+    config = TrainingJobConfig.load_sleap_config_from_json(slp_cfg_json)
+
+    # Assertions to check if the output matches expected values
+    assert config.data_config.train_labels_path == []
+    assert config.data_config.val_labels_path == []
+    assert config.model_config.backbone_config.unet.filters == 8
+    assert config.model_config.backbone_config.unet.max_stride == 16
+    assert config.trainer_config.max_epochs == 200
+    assert config.trainer_config.optimizer_name == "Adam"
+    assert config.trainer_config.optimizer.lr == 0.0001
+    assert config.trainer_config.trainer_devices == "auto"  # Default value
+    assert config.trainer_config.trainer_accelerator == "auto"  # Default value
+    assert config.trainer_config.enable_progress_bar is True  # Default value
+    assert config.trainer_config.train_data_loader.batch_size == 4  # From the JSON file
+    assert (
+        config.trainer_config.lr_scheduler.reduce_lr_on_plateau is not None
+    )  # From the JSON file
+    assert (
+        config.trainer_config.early_stopping.stop_training_on_plateau is True
+    )  # From the JSON file
+
 
 def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
     """Test the load_sleap_config function with a sample bottomup configuration from a JSON file."""

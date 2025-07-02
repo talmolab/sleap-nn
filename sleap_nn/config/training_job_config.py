@@ -104,9 +104,22 @@ class TrainingJobConfig:
         with open(json_file_path, "r") as f:
             old_config = json.load(f)
 
-        data_config = data_mapper(old_config)
-        model_config = model_mapper(old_config)
-        trainer_config = trainer_mapper(old_config)
+        return cls.load_sleap_config_from_json(old_config)
+
+    @classmethod
+    def load_sleap_config_from_json(cls, json_str: str) -> OmegaConf:
+        """Load a SLEAP configuration from a JSON string and convert it to OmegaConf.
+
+        Args:
+            cls: The class to instantiate with the loaded configuration.
+            json_str: JSON-formatted string containing the SLEAP configuration.
+
+        Returns:
+            An OmegaConf instance with the loaded configuration.
+        """
+        data_config = data_mapper(json_str)
+        model_config = model_mapper(json_str)
+        trainer_config = trainer_mapper(json_str)
 
         config = cls(
             data_config=data_config,
@@ -121,26 +134,9 @@ class TrainingJobConfig:
         return config_omegaconf
 
 
-def load_config(filename: Text, load_training_config: bool = True) -> OmegaConf:
-    """Load a training job configuration for a model run.
-
-    Args:
-        filename: Path to a YAML file or directory containing `training_job.yaml`.
-        load_training_config: If `True` (the default), prefer `training_job.yaml` over
-            `initial_config.yaml` if it is present in the same folder.
-
-    Returns:
-        The parsed `OmegaConf`.
-    """
-    return TrainingJobConfig.load_yaml(filename)
-
-
 def verify_training_cfg(cfg: DictConfig) -> DictConfig:
     """Get sleap-nn training config from a DictConfig object."""
-    sch = TrainingJobConfig(**cfg)
-    # OmegaConf can't merge into None, so optional nested configs (like centered_instance_config for head_configs)
-    # must be pre-initialized if the YAML sets nested fields (e.g., confmaps).
-    schema = OmegaConf.structured(sch)
+    schema = OmegaConf.structured(TrainingJobConfig())
     config = OmegaConf.merge(schema, cfg)
     OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
     return config

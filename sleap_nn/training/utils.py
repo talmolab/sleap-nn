@@ -5,10 +5,8 @@ import matplotlib.pyplot as plt
 from loguru import logger
 from torch import nn
 import torch.distributed as dist
-from typing import Optional, Tuple
-
-import sleap_io as sio
-from sleap_nn.data.providers import get_max_instances
+import matplotlib
+import seaborn as sns
 
 
 def is_distributed_initialized():
@@ -28,124 +26,168 @@ def xavier_init_weights(x):
         nn.init.constant_(x.bias, 0)
 
 
-def plot_pafs(
-    img: np.ndarray,
-    pafs: np.ndarray,
-    plot_title: Optional[str] = None,
-):
-    """Plot the predicted peaks on input image overlayed with confmaps.
+def imgfig(
+    size: float | tuple = 6, dpi: int = 72, scale: float = 1.0
+) -> matplotlib.figure.Figure:
+    """Create a tight figure for image plotting.
 
     Args:
-        img: Input image with shape (channel, height, width).
-        pafs: Output pafs with shape (pafs_height, pafs_width, num_edges*2).
-        plot_title: Title for the plot.
+        size: Scalar or 2-tuple specifying the (width, height) of the figure in inches.
+            If scalar, will assume equal width and height.
+        dpi: Dots per inch, controlling the resolution of the image.
+        scale: Factor to scale the size of the figure by. This is a convenience for
+            increasing the size of the plot at the same DPI.
+
+    Returns:
+        A matplotlib.figure.Figure to use for plotting.
     """
-    img_h, img_w = img.shape[-2:]
-    img = img.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
-
-    pafs = pafs.reshape((pafs.shape[0], pafs.shape[1], -1, 2))  # (h, w, edges, 2)
-    pafs_mag = np.sqrt(pafs[..., 0] ** 2 + pafs[..., 1] ** 2)
-    pafs_mag = pafs_mag.max(axis=-1)
-
-    fig, ax = plt.subplots()
-    ax.axis("off")
-
-    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
-
-    ax.imshow(img)
-
-    ax.imshow(pafs_mag, alpha=0.5, extent=[0, img_w, img_h, 0])
-
-    if plot_title is not None:
-        ax.set_title(f"{plot_title}")
-
-    ax.legend()
-
+    if not isinstance(size, (tuple, list)):
+        size = (size, size)
+    fig = plt.figure(figsize=(scale * size[0], scale * size[1]), dpi=dpi)
+    ax = fig.add_axes([0, 0, 1, 1], frameon=False)
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+    plt.autoscale(tight=True)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.grid(False)
     return fig
 
 
-def plot_pred_confmaps_peaks(
-    img: np.ndarray,
-    confmaps: np.ndarray,
-    peaks: Optional[np.ndarray] = None,
-    gt_instances: Optional[np.ndarray] = None,
-    plot_title: Optional[str] = None,
-):
-    """Plot the predicted peaks on input image overlayed with confmaps.
+def plot_img(
+    img: np.ndarray, dpi: int = 72, scale: float = 1.0
+) -> matplotlib.figure.Figure:
+    """Plot an image in a tight figure.
 
     Args:
-        img: Input image with shape (channel, height, width).
-        confmaps: Output confmaps with shape (num_nodes, confmap_height, confmap_width).
-        peaks: Predicted keypoints with shape (num_instances, num_nodes, 2).
-        gt_instances: Ground-truth keypoints with shape (num_instances,  num_nodes, 2).
-        plot_title: Title for the plot.
+        img: Image to plot of shape (height, width, channel).
+        dpi: Dots per inch, controlling the resolution of the image.
+        scale: Factor to scale the size of the figure by. This is a convenience for
+            increasing the size of the plot at the same DPI.
+
+    Returns:
+        A matplotlib.figure.Figure to use for plotting.
     """
-    img_h, img_w = img.shape[-2:]
-    img = img.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
+    if hasattr(img, "numpy"):
+        img = img.numpy()
 
-    confmaps = confmaps.transpose(1, 2, 0)  # (C, H, W) -> (H, W, C)
-    confmaps = np.max(np.abs(confmaps), axis=-1)
+    if img.shape[0] == 1:
+        # Squeeze out batch singleton dimension.
+        img = img.squeeze(axis=0)
 
-    fig, ax = plt.subplots()
-    ax.axis("off")
+    # Check if image is grayscale (single channel).
+    grayscale = img.shape[-1] == 1
+    if grayscale:
+        # Squeeze out singleton channel.
+        img = img.squeeze(axis=-1)
 
-    plt.subplots_adjust(left=0, right=1, top=1, bottom=0)
+    # Normalize the range of pixel values.
+    img_min = img.min()
+    img_max = img.max()
+    if img_min < 0.0 or img_max > 1.0:
+        img = (img - img_min) / (img_max - img_min)
 
-    ax.imshow(img)
+    fig = imgfig(
+        size=(float(img.shape[1]) / dpi, float(img.shape[0]) / dpi),
+        dpi=dpi,
+        scale=scale,
+    )
 
-    ax.imshow(confmaps, alpha=0.5, extent=[0, img_w, img_h, 0])
-
-    if gt_instances is not None:
-        for instance in gt_instances:
-            ax.plot(
-                instance[:, 0],
-                instance[:, 1],
-                "go",
-                markersize=8,
-                markeredgewidth=2,
-                label="GT keypoints",
-            )
-
-    if peaks is not None:
-        for peak in peaks:
-            ax.plot(
-                peak[:, 0],
-                peak[:, 1],
-                "rx",
-                markersize=8,
-                markeredgewidth=2,
-                label="Predicted peaks",
-            )
-
-    if plot_title is not None:
-        ax.set_title(f"{plot_title}")
-
-    # Remove duplicate legend entries
-    handles, labels = ax.get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    ax.legend(unique.values(), unique.keys())
-
+    ax = fig.gca()
+    ax.imshow(
+        img,
+        cmap="gray" if grayscale else None,
+        origin="upper",
+        extent=[-0.5, img.shape[1] - 0.5, img.shape[0] - 0.5, -0.5],
+    )
     return fig
 
 
-def check_memory(
-    labels: sio.Labels,
-    max_hw: Tuple[int, int],
-    model_type: str,
-    input_scaling: float,
-    crop_size: Optional[int],
+def plot_confmaps(confmaps: np.ndarray, output_scale: float = 1.0):
+    """Plot confidence maps reduced over channels.
+
+    Args:
+        confmaps: Confidence maps to plot with shape (height, width, channel).
+        output_scale: Factor to scale the size of the figure by.
+
+    Returns:
+        A matplotlib.figure.Figure to use for plotting.
+    """
+    ax = plt.gca()
+    return ax.imshow(
+        np.squeeze(confmaps.max(axis=-1)),
+        alpha=0.5,
+        origin="upper",
+        vmin=0,
+        vmax=1,
+        extent=[
+            -0.5,
+            confmaps.shape[1] / output_scale - 0.5,
+            confmaps.shape[0] / output_scale - 0.5,
+            -0.5,
+        ],
+    )
+
+
+def plot_peaks(
+    pts_gt: np.ndarray, pts_pr: np.ndarray | None = None, paired: bool = False
 ):
-    """Return memory required for caching the image samples."""
-    if model_type == "centered_instance":
-        num_samples = len(labels) * get_max_instances(labels)
-        img = (labels[0].image / 255.0).astype(np.float32)
-        img_mem = (crop_size**2) * img.shape[-1] * img.itemsize * num_samples
+    """Plot ground truth and detected peaks.
 
-        return img_mem
+    Args:
+        pts_gt: Ground-truth keypoints of shape (num_instances, nodes, 2). To plot centroids, shape: (1, num_instances, 2).
+        pts_pr: Predicted keypoints of shape (num_instances, nodes, 2). To plot centroids, shape: (1, num_instances, 2)
+        paired: True if error lines should be plotted else False.
 
-    num_lfs = len(labels)
-    img = (labels[0].image / 255.0).astype(np.float32)
-    h, w = max_hw[0] * input_scaling, max_hw[1] * input_scaling
-    img_mem = h * w * img.shape[-1] * img.itemsize * num_lfs
-
-    return img_mem
+    Returns:
+        A matplotlib.figure.Figure to use for plotting.
+    """
+    handles = []
+    ax = plt.gca()
+    if paired and pts_pr is not None:
+        for pt_gt, pt_pr in zip(pts_gt, pts_pr):
+            for p_gt, p_pr in zip(pt_gt, pt_pr):
+                handles.append(
+                    ax.plot(
+                        [p_gt[0], p_pr[0]], [p_gt[1], p_pr[1]], "r-", alpha=0.5, lw=2
+                    )
+                )
+    if pts_pr is not None:
+        handles.append(
+            ax.plot(
+                pts_gt[..., 0].ravel(),
+                pts_gt[..., 1].ravel(),
+                "g.",
+                alpha=0.7,
+                ms=10,
+                mew=1,
+                mec="w",
+            )
+        )
+        handles.append(
+            ax.plot(
+                pts_pr[..., 0].ravel(),
+                pts_pr[..., 1].ravel(),
+                "r.",
+                alpha=0.7,
+                ms=10,
+                mew=1,
+                mec="w",
+            )
+        )
+    else:
+        cmap = sns.color_palette("tab20")
+        for i, pts in enumerate(pts_gt):
+            handles.append(
+                ax.plot(
+                    pts[:, 0],
+                    pts[:, 1],
+                    ".",
+                    alpha=0.7,
+                    ms=15,
+                    mew=1,
+                    mfc=cmap[i % len(cmap)],
+                    mec="w",
+                )
+            )
+    return handles

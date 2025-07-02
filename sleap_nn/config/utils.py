@@ -4,6 +4,26 @@ from loguru import logger
 from omegaconf import DictConfig
 
 
+def get_model_type_from_cfg(config: DictConfig):
+    """Return the model type from the config. One of [single_instance, centroid, centered_instance, bottomup]."""
+    model_type = None
+    for k, v in config.model_config.head_configs.items():
+        if v is not None:
+            model_type = k
+            break
+    return model_type
+
+
+def get_backbone_type_from_cfg(config: DictConfig):
+    """Return the backbone type from the config. One of [unet, swint, convnext]."""
+    backbone_type = None
+    for k, v in config.model_config.backbone_config.items():
+        if v is not None:
+            backbone_type = k
+            break
+    return backbone_type
+
+
 def get_output_strides_from_heads(head_configs: DictConfig):
     """Get list of output strides from head configs."""
     output_strides_from_heads = []

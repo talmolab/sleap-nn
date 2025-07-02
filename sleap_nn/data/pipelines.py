@@ -65,7 +65,11 @@ class TopdownConfmapsPipeline:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
+        datapipe = Normalizer(
+            provider,
+            self.data_config.preprocessing.ensure_rgb,
+            self.data_config.preprocessing.ensure_grayscale,
+        )
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.preprocessing.max_height,
@@ -167,7 +171,11 @@ class SingleInstanceConfmapsPipeline:
             An `IterDataPipe` instance configured to produce input examples.
         """
         provider = data_provider
-        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
+        datapipe = Normalizer(
+            provider,
+            self.data_config.preprocessing.ensure_rgb,
+            self.data_config.preprocessing.ensure_grayscale,
+        )
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.preprocessing.max_height,
@@ -258,7 +266,11 @@ class CentroidConfmapsPipeline:
             "orig_size",
             "num_instances",
         ]
-        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
+        datapipe = Normalizer(
+            provider,
+            self.data_config.preprocessing.ensure_rgb,
+            self.data_config.preprocessing.ensure_grayscale,
+        )
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.preprocessing.max_height,
@@ -351,7 +363,11 @@ class BottomUpPipeline:
             "num_instances",
             "part_affinity_fields",
         ]
-        datapipe = Normalizer(provider, self.data_config.preprocessing.is_rgb)
+        datapipe = Normalizer(
+            provider,
+            self.data_config.preprocessing.ensure_rgb,
+            self.data_config.preprocessing.ensure_grayscale,
+        )
         datapipe = SizeMatcher(
             datapipe,
             max_height=self.data_config.preprocessing.max_height,

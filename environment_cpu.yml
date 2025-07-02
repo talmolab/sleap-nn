@@ -28,6 +28,7 @@ dependencies:
   - wandb
   - kornia
   - matplotlib
+  - seaborn
   - rich
   - pynwb
   - pip

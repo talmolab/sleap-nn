@@ -14,7 +14,8 @@ data_config:
   chunk_size: 100
   delete_cache_imgs_after_training: true
   preprocessing:
-    is_rgb: false
+    ensure_rgb: false
+    ensure_grayscale: false
     max_height: null
     max_width: null
     scale: 1.0
@@ -88,8 +89,8 @@ model_config:
 #     in_channels: 1
 #     model_type: tiny
 #     arch: 
-#     patch_size: [4,4]
-#     window_size: [7,7]
+#     patch_size: 4
+#     window_size: 7
 #     kernel_size: 3
 #     filters_rate: 2
 #     convs_per_block: 2
@@ -130,7 +131,8 @@ trainer_config:
   profiler: null
   trainer_strategy: auto
   enable_progress_bar: true
-  steps_per_epoch: null
+  min_train_steps_per_epoch: 200
+  train_steps_per_epoch:
   visualize_preds_during_training: true
   max_epochs: 40
   seed: 0
@@ -156,9 +158,9 @@ trainer_config:
     patience: 10
     stop_training_on_plateau: true
   zmq:
-    publish_adddress: null
-    controller_address:
     publish_address:
+    controller_address:
+    controller_polling_timeout: 10
 name: ''
 description: ''
 sleap_nn_version: 0.0.1

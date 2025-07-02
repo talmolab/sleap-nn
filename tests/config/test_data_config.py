@@ -60,7 +60,7 @@ def test_preprocessing_config_invalid_scale(caplog):
 
 def test_augmentation_config_initialization():
     """Test AugmentationConfig initialization with default values."""
-    config = AugmentationConfig()
+    config = AugmentationConfig(intensity=IntensityConfig, geometric=GeometricConfig())
     assert config.intensity is not None
     assert config.geometric is not None
 
@@ -166,7 +166,8 @@ def test_data_mapper():
     config = data_mapper(legacy_config)
 
     # Test preprocessing config
-    assert config.preprocessing.is_rgb is True
+    assert config.preprocessing.ensure_rgb is True
+    assert config.preprocessing.ensure_grayscale is False
     assert config.preprocessing.max_height == 256
     assert config.preprocessing.max_width == 256
     assert config.preprocessing.scale == 0.5

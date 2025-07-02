@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from pathlib import Path
 import sleap_io as sio
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 import lightning as L
 from PIL import Image
 import wandb
@@ -35,10 +35,12 @@ from sleap_nn.training.losses import compute_ohkm_loss
 from loguru import logger
 from sleap_nn.training.utils import (
     xavier_init_weights,
-    plot_pred_confmaps_peaks,
-    plot_pafs,
+    plot_confmaps,
+    plot_img,
+    plot_peaks,
 )
 import matplotlib.pyplot as plt
+from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -54,7 +56,7 @@ MODEL_WEIGHTS = {
 }
 
 
-class BaseLightningModule(L.LightningModule):
+class LightningModel(L.LightningModule):
     """Base PyTorch Lightning Module for all sleap-nn models.
 
     This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
@@ -167,6 +169,32 @@ class BaseLightningModule(L.LightningModule):
             }
             self.load_state_dict(ckpt["state_dict"], strict=False)
 
+    @classmethod
+    def get_lightning_model_from_config(cls, config: DictConfig):
+        """Get lightning model from config."""
+        model_type = get_model_type_from_cfg(config)
+        backbone_type = get_backbone_type_from_cfg(config)
+
+        lightning_models = {
+            "single_instance": SingleInstanceLightningModule,
+            "centroid": CentroidLightningModule,
+            "centered_instance": TopDownCenteredInstanceLightningModule,
+            "bottomup": BottomUpLightningModule,
+        }
+
+        if model_type not in lightning_models:
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`]"
+            logger.error(message)
+            raise ValueError(message)
+
+        lightning_model = lightning_models[model_type](
+            config=config,
+            model_type=model_type,
+            backbone_type=backbone_type,
+        )
+
+        return lightning_model
+
     def forward(self, img):
         """Forward pass of the model."""
         pass
@@ -266,10 +294,10 @@ class BaseLightningModule(L.LightningModule):
         }
 
 
-class SingleInstanceLightningModule(BaseLightningModule):
+class SingleInstanceLightningModule(LightningModel):
     """Lightning Module for SingleInstance Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps and
+    This is a subclass of the `LightningModel` to configure the training/ validation steps and
     forward pass specific to Single Instance model.
 
     Args:
@@ -306,7 +334,9 @@ class SingleInstanceLightningModule(BaseLightningModule):
                 output_stride=self.config.model_config.head_configs.single_instance.confmaps.output_stride,
             )
         self.ohkm_cfg = OmegaConf.select(
-            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+            self.config, "trainer_config.online_hard_keypoint_mining", default=None)
+        self.node_names = (
+            self.config.model_config.head_configs.single_instance.confmaps.part_names
         )
 
     def visualize_example(self, sample):
@@ -319,16 +349,21 @@ class SingleInstanceLightningModule(BaseLightningModule):
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.single_instance_inf_layer(ex)[0]
         peaks = output["pred_instance_peaks"].cpu().numpy()
-        img = output["image"][0, 0].cpu().numpy()
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
         gt_instances = ex["instances"][0].cpu().numpy()
-        confmaps = output["pred_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_instances,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_instances, peaks, paired=True)
         return fig
 
     def forward(self, img):
@@ -357,6 +392,20 @@ class SingleInstanceLightningModule(BaseLightningModule):
         else:
             loss = nn.MSELoss()(y_preds, y)
 
+        # for part-wise loss
+        if self.node_names is not None:
+            batch_size, _, h, w = y.shape
+            mse = (y - y_preds) ** 2
+            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
+            for node_idx, name in enumerate(self.node_names):
+                self.log(
+                    f"{name}",
+                    channel_wise_loss[node_idx],
+                    prog_bar=True,
+                    on_step=True,
+                    on_epoch=True,
+                    logger=True,
+                )
         self.log(
             "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
@@ -389,10 +438,10 @@ class SingleInstanceLightningModule(BaseLightningModule):
         )
 
 
-class TopDownCenteredInstanceLightningModule(BaseLightningModule):
+class TopDownCenteredInstanceLightningModule(LightningModel):
     """Lightning Module for TopDownCenteredInstance Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
+    This is a subclass of the `LightningModel` to configure the training/ validation steps
     and forward pass specific to TopDown Centered instance model.
 
     Args:
@@ -428,7 +477,10 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
                 output_stride=self.config.model_config.head_configs.centered_instance.confmaps.output_stride,
             )
         self.ohkm_cfg = OmegaConf.select(
-            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+            self.config, "trainer_config.online_hard_keypoint_mining", default=None)
+
+        self.node_names = (
+            self.config.model_config.head_configs.centered_instance.confmaps.part_names
         )
 
     def visualize_example(self, sample):
@@ -441,16 +493,21 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
         output = self.instance_peaks_inf_layer(ex)
         peaks = output["pred_instance_peaks"].cpu().numpy()
-        img = output["instance_image"][0, 0].cpu().numpy()
+        img = (
+            output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
         gt_instances = ex["instance"].cpu().numpy()
-        confmaps = output["pred_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_instances,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_instances, peaks, paired=True)
         return fig
 
     def forward(self, img):
@@ -465,6 +522,7 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
+
         if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
             loss = compute_ohkm_loss(
                 y_gt=y,
@@ -477,6 +535,23 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
 
         else:
             loss = nn.MSELoss()(y_preds, y)
+
+        # for part-wise loss
+        if self.node_names is not None:
+            batch_size, _, h, w = y.shape
+            mse = (y - y_preds) ** 2
+            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
+            for node_idx, name in enumerate(self.node_names):
+                self.log(
+                    f"{name}",
+                    channel_wise_loss[node_idx],
+                    prog_bar=True,
+                    on_step=True,
+                    on_epoch=True,
+                    logger=True,
+                )
+
+
         self.log(
             "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
         )
@@ -509,10 +584,10 @@ class TopDownCenteredInstanceLightningModule(BaseLightningModule):
         )
 
 
-class CentroidLightningModule(BaseLightningModule):
+class CentroidLightningModule(LightningModel):
     """Lightning Module for Centroid Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
+    This is a subclass of the `LightningModel` to configure the training/ validation steps
     and forward pass specific to centroid model.
 
     Args:
@@ -560,15 +635,20 @@ class CentroidLightningModule(BaseLightningModule):
         gt_centroids = ex["centroids"].cpu().numpy()
         output = self.centroid_inf_layer(ex)
         peaks = output["centroids"][0].cpu().numpy()
-        img = output["image"][0, 0].cpu().numpy()
-        confmaps = output["pred_centroid_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_centroids,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        confmaps = (
+            output["pred_centroid_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_centroids, peaks, paired=False)
         return fig
 
     def forward(self, img):
@@ -616,10 +696,10 @@ class CentroidLightningModule(BaseLightningModule):
         )
 
 
-class BottomUpLightningModule(BaseLightningModule):
+class BottomUpLightningModule(LightningModel):
     """Lightning Module for BottomUp Model.
 
-    This is a subclass of the `BaseLightningModule` to configure the training/ validation steps
+    This is a subclass of the `LightningModel` to configure the training/ validation steps
     and forward pass specific to BottomUp model.
 
     Args:
@@ -678,16 +758,23 @@ class BottomUpLightningModule(BaseLightningModule):
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.bottomup_inf_layer(ex)[0]
         peaks = output["pred_instance_peaks"][0].cpu().numpy()
-        img = output["image"][0, 0].cpu().numpy()
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
         gt_instances = ex["instances"][0].cpu().numpy()
-        confmaps = output["pred_confmaps"][0].cpu().numpy()
-        fig = plot_pred_confmaps_peaks(
-            img=img,
-            confmaps=confmaps,
-            peaks=peaks,
-            gt_instances=gt_instances,
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plt.xlim(plt.xlim())
+        plt.ylim(plt.ylim())
+        plot_peaks(gt_instances, peaks, paired=False)
         return fig
 
     def visualize_pafs_example(self, sample):
@@ -699,13 +786,20 @@ class BottomUpLightningModule(BaseLightningModule):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.bottomup_inf_layer(ex)[0]
-        img = output["image"][0, 0].cpu().numpy()
-        pafs = output["pred_part_affinity_fields"].cpu().numpy()  # (h, w, 2*edges)
-        fig = plot_pafs(
-            img=img,
-            pafs=pafs[0],
-            plot_title=f"@ Epoch: {self.trainer.current_epoch}",
-        )
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        pafs = output["pred_part_affinity_fields"].cpu().numpy()[0]  # (h, w, 2*edges)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+
+        pafs = pafs.reshape((pafs.shape[0], pafs.shape[1], -1, 2))
+        pafs_mag = np.sqrt(pafs[..., 0] ** 2 + pafs[..., 1] ** 2)
+        plot_confmaps(pafs_mag, output_scale=pafs_mag.shape[0] / img.shape[0])
         return fig
 
     def forward(self, img):

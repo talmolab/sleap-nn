@@ -4,15 +4,16 @@ from kornia.geometry.transform import crop_and_resize
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
-from typing import Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 from omegaconf import DictConfig
 import numpy as np
 from PIL import Image
 from loguru import logger
 import torch
 import torchvision.transforms as T
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
+from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.data.normalization import (
@@ -29,7 +30,7 @@ from sleap_nn.data.augmentation import (
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
-from sleap_nn.training.utils import is_distributed_initialized, get_dist_rank
+from sleap_nn.training.utils import is_distributed_initialized
 
 
 class BaseDataset(Dataset):
@@ -41,11 +42,12 @@ class BaseDataset(Dataset):
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -68,7 +70,8 @@ class BaseDataset(Dataset):
         labels: List[sio.Labels],
         max_stride: int,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -82,7 +85,8 @@ class BaseDataset(Dataset):
         super().__init__()
         self.labels = labels
         self.user_instances_only = user_instances_only
-        self.is_rgb = is_rgb
+        self.ensure_rgb = ensure_rgb
+        self.ensure_grayscale = ensure_grayscale
         self.augmentation_config = augmentation_config
         self.curr_idx = 0
         self.max_stride = max_stride
@@ -196,11 +200,12 @@ class BottomUpDataset(BaseDataset):
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -230,7 +235,8 @@ class BottomUpDataset(BaseDataset):
         pafs_head_config: DictConfig,
         max_stride: int,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -245,7 +251,8 @@ class BottomUpDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -296,9 +303,9 @@ class BottomUpDataset(BaseDataset):
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
-        else:
+        elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
@@ -323,14 +330,14 @@ class BottomUpDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
@@ -377,11 +384,12 @@ class CenteredInstanceDataset(BaseDataset):
             ordered list of skeleton nodes.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -411,7 +419,8 @@ class CenteredInstanceDataset(BaseDataset):
         max_stride: int,
         anchor_ind: Optional[int] = None,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -426,7 +435,8 @@ class CenteredInstanceDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -513,9 +523,9 @@ class CenteredInstanceDataset(BaseDataset):
         # apply normalization
         image = apply_normalization(image)
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             image = convert_to_rgb(image)
-        else:
+        elif self.ensure_grayscale:
             image = convert_to_grayscale(image)
 
         # size matcher
@@ -552,7 +562,7 @@ class CenteredInstanceDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 (
                     sample["instance_image"],
                     sample["instance"],
@@ -562,7 +572,7 @@ class CenteredInstanceDataset(BaseDataset):
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 (
                     sample["instance_image"],
                     sample["instance"],
@@ -622,11 +632,12 @@ class CentroidDataset(BaseDataset):
             ordered list of skeleton nodes.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -653,7 +664,8 @@ class CentroidDataset(BaseDataset):
         max_stride: int,
         anchor_ind: Optional[int] = None,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -668,7 +680,8 @@ class CentroidDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -717,9 +730,9 @@ class CentroidDataset(BaseDataset):
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
-        else:
+        elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
@@ -749,14 +762,14 @@ class CentroidDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 sample["image"], sample["centroids"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["centroids"],
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 sample["image"], sample["centroids"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["centroids"],
@@ -790,11 +803,12 @@ class SingleInstanceDataset(BaseDataset):
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         augmentation_config: DictConfig object with `intensity` and `geometric` keys
             according to structure `sleap_nn.config.data_config.AugmentationConfig`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
@@ -820,7 +834,8 @@ class SingleInstanceDataset(BaseDataset):
         confmap_head_config: DictConfig,
         max_stride: int,
         user_instances_only: bool = True,
-        is_rgb: bool = False,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
         augmentation_config: Optional[DictConfig] = None,
         scale: float = 1.0,
         apply_aug: bool = False,
@@ -835,7 +850,8 @@ class SingleInstanceDataset(BaseDataset):
             labels=labels,
             max_stride=max_stride,
             user_instances_only=user_instances_only,
-            is_rgb=is_rgb,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
             augmentation_config=augmentation_config,
             scale=scale,
             apply_aug=apply_aug,
@@ -883,9 +899,9 @@ class SingleInstanceDataset(BaseDataset):
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
 
-        if self.is_rgb:
+        if self.ensure_rgb:
             sample["image"] = convert_to_rgb(sample["image"])
-        else:
+        elif self.ensure_grayscale:
             sample["image"] = convert_to_grayscale(sample["image"])
 
         # size matcher
@@ -910,14 +926,14 @@ class SingleInstanceDataset(BaseDataset):
 
         # apply augmentation
         if self.apply_aug and self.augmentation_config is not None:
-            if "intensity" in self.augmentation_config:
+            if self.augmentation_config.intensity is not None:
                 sample["image"], sample["instances"] = apply_intensity_augmentation(
                     sample["image"],
                     sample["instances"],
                     **self.augmentation_config.intensity,
                 )
 
-            if "geometric" in self.augmentation_config:
+            if self.augmentation_config.geometric is not None:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
@@ -940,53 +956,440 @@ class SingleInstanceDataset(BaseDataset):
         return sample
 
 
-class _RepeatSampler:
-    """Sampler that cycles through the samples infintely.
+class InfiniteDataLoader(DataLoader):
+    """Dataloader that reuses workers for infinite iteration.
 
-    Source: Ultralytics
+    This dataloader extends the PyTorch DataLoader to provide infinite recycling of workers, which improves efficiency
+    for training loops that need to iterate through the dataset multiple times without recreating workers.
 
-    Args:
-        sampler (Dataset.sampler): The sampler to repeat.
+    Attributes:
+        batch_sampler (_RepeatSampler): A sampler that repeats indefinitely.
+        iterator (Iterator): The iterator from the parent DataLoader.
+
+    Methods:
+        __len__: Return the length of the batch sampler's sampler.
+        __iter__: Create a sampler that repeats indefinitely.
+        __del__: Ensure workers are properly terminated.
+        reset: Reset the iterator, useful when modifying dataset settings during training.
+
+    Examples:
+        Create an infinite dataloader for training
+        >>> dataset = CenteredInstanceDataset(...)
+        >>> dataloader = InfiniteDataLoader(dataset, batch_size=16, shuffle=True)
+        >>> for batch in dataloader:  # Infinite iteration
+        >>>     train_step(batch)
+
+    Source: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/data/build.py
     """
 
-    def __init__(self, sampler):
-        """Initializes the sampler object."""
+    def __init__(self, *args: Any, **kwargs: Any):
+        """Initialize the InfiniteDataLoader with the same arguments as DataLoader."""
+        super().__init__(*args, **kwargs)
+        object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
+        self.iterator = super().__iter__()
+
+    def __len__(self) -> int:
+        """Return the length of the batch sampler's sampler."""
+        return len(self.batch_sampler.sampler)
+
+    def __iter__(self) -> Iterator:
+        """Create an iterator that yields indefinitely from the underlying iterator."""
+        while True:
+            yield next(self.iterator)
+
+    def __del__(self):
+        """Ensure that workers are properly terminated when the dataloader is deleted."""
+        try:
+            if not hasattr(self.iterator, "_workers"):
+                return
+            for w in self.iterator._workers:  # force terminate
+                if w.is_alive():
+                    w.terminate()
+            self.iterator._shutdown_workers()  # cleanup
+        except Exception:
+            pass
+
+    def reset(self):
+        """Reset the iterator to allow modifications to the dataset during training."""
+        self.iterator = self._get_iterator()
+
+
+class _RepeatSampler:
+    """Sampler that repeats forever for infinite iteration.
+
+    This sampler wraps another sampler and yields its contents indefinitely, allowing for infinite iteration
+    over a dataset without recreating the sampler.
+
+    Attributes:
+        sampler (Dataset.sampler): The sampler to repeat.
+
+    Source: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/data/build.py
+    """
+
+    def __init__(self, sampler: Any):
+        """Initialize the _RepeatSampler with a sampler to repeat indefinitely."""
         self.sampler = sampler
 
-    def __iter__(self):
-        """Iterates over the 'sampler' and yields its contents."""
+    def __iter__(self) -> Iterator:
+        """Iterate over the sampler indefinitely, yielding its contents."""
         while True:
             yield from iter(self.sampler)
 
 
-class CyclerDataLoader(DataLoader):
-    """DataLoader that cycles through the dataset infinitely.
+def get_train_val_datasets(
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    config: DictConfig,
+    rank: Optional[int] = None,
+):
+    """Return the train and val datasets.
 
-    Attributes:
-        steps_per_epoch: Number of steps to be run in an epoch. If not provided, the
-            length of the sampler is used (total_samples / batch_size)    .
+    Args:
+        train_labels: List of train labels.
+        val_labels: List of val labels.
+        config: Sleap-nn config.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
+
+    Returns:
+        A tuple (train_dataset, val_dataset).
     """
+    cache_imgs = (
+        config.data_config.data_pipeline_fw.split("_")[-1]
+        if "cache_img" in config.data_config.data_pipeline_fw
+        else None
+    )
+    base_cache_img_path = config.data_config.cache_img_path
+    train_cache_img_path, val_cache_img_path = None, None
 
-    def __init__(self, steps_per_epoch: Optional[int] = None, *args, **kwargs):
-        """Initialize the object."""
-        super().__init__(*args, **kwargs)
-        object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
-        self.iterator = super().__iter__()
-        self.steps_per_epoch = steps_per_epoch
+    if cache_imgs == "disk":
+        train_cache_img_path = Path(base_cache_img_path) / "train_imgs"
+        val_cache_img_path = Path(base_cache_img_path) / "val_imgs"
+    use_existing_imgs = config.data_config.use_existing_imgs
 
-    def __len__(self):
-        """Returns the length of the dataloader."""
-        if self.steps_per_epoch is not None:
-            return int(self.steps_per_epoch)
-        else:
-            return len(self.batch_sampler.sampler)
+    model_type = get_model_type_from_cfg(config=config)
+    backbone_type = get_backbone_type_from_cfg(config=config)
 
-    def __iter__(self):
-        """Creates a sampler that repeats indefinitely."""
-        while True:
-            for _ in range(len(self)):
-                yield next(self.iterator)
+    if cache_imgs == "disk" and use_existing_imgs:
+        if not (
+            train_cache_img_path.exists()
+            and train_cache_img_path.is_dir()
+            and any(train_cache_img_path.glob("*.jpg"))
+        ):
+            message = f"There are no images in the path: {train_cache_img_path}"
+            logger.error(message)
+            raise Exception(message)
 
-    def reset(self):
-        """Reset iterator."""
-        self.iterator = self._get_iterator()
+        if not (
+            val_cache_img_path.exists()
+            and val_cache_img_path.is_dir()
+            and any(val_cache_img_path.glob("*.jpg"))
+        ):
+            message = f"There are no images in the path: {val_cache_img_path}"
+            logger.error(message)
+            raise Exception(message)
+
+    if model_type == "bottomup":
+        train_dataset = BottomUpDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
+            pafs_head_config=config.model_config.head_configs.bottomup.pafs,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = BottomUpDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
+            pafs_head_config=config.model_config.head_configs.bottomup.pafs,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    elif model_type == "centered_instance":
+        nodes = config.model_config.head_configs.centered_instance.confmaps.part_names
+        anchor_part = (
+            config.model_config.head_configs.centered_instance.confmaps.anchor_part
+        )
+        anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
+        train_dataset = CenteredInstanceDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = CenteredInstanceDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    elif model_type == "centroid":
+        skeleton_name = list(config.data_config.skeletons.keys())[0]
+        nodes = [
+            x["name"] for x in config.data_config.skeletons[f"{skeleton_name}"]["nodes"]
+        ]
+        anchor_part = config.model_config.head_configs.centroid.confmaps.anchor_part
+        anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
+        train_dataset = CentroidDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.centroid.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = CentroidDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.centroid.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            anchor_ind=anchor_ind,
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    else:
+        train_dataset = SingleInstanceDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = SingleInstanceDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.single_instance.confmaps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
+    # If using caching, close the videos to prevent `h5py objects can't be pickled error` when num_workers > 0.
+    if "cache_img" in config.data_config.data_pipeline_fw:
+        for train, val in zip(train_labels, val_labels):
+            for video in train.videos:
+                if video.is_open:
+                    video.close()
+            for video in val.videos:
+                if video.is_open:
+                    video.close()
+
+    return train_dataset, val_dataset
+
+
+def get_train_val_dataloaders(
+    train_dataset: BaseDataset,
+    val_dataset: BaseDataset,
+    config: DictConfig,
+    rank: Optional[int] = None,
+):
+    """Return the train and val dataloaders.
+
+    Args:
+        train_dataset: Train dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
+        val_dataset: Val dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
+        config: Sleap-nn config.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
+
+    Returns:
+        A tuple (train_dataloader, val_dataloader).
+    """
+    pin_memory = (
+        config.trainer_config.train_data_loader.pin_memory
+        if "pin_memory" in config.trainer_config.train_data_loader
+        and config.trainer_config.train_data_loader.pin_memory is not None
+        else True
+    )
+
+    trainer_devices = config.trainer_config.trainer_devices
+    trainer_devices = (
+        trainer_devices
+        if isinstance(trainer_devices, int)
+        else torch.cuda.device_count()
+    )
+    train_sampler = (
+        DistributedSampler(
+            dataset=train_dataset,
+            shuffle=config.trainer_config.train_data_loader.shuffle,
+            rank=rank if rank is not None else 0,
+            num_replicas=trainer_devices,
+        )
+        if trainer_devices > 1
+        else None
+    )
+
+    train_data_loader = InfiniteDataLoader(
+        dataset=train_dataset,
+        sampler=train_sampler,
+        shuffle=(
+            config.trainer_config.train_data_loader.shuffle
+            if train_sampler is None
+            else None
+        ),
+        batch_size=config.trainer_config.train_data_loader.batch_size,
+        num_workers=config.trainer_config.train_data_loader.num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=(
+            True if config.trainer_config.train_data_loader.num_workers > 0 else None
+        ),
+        prefetch_factor=(
+            config.trainer_config.train_data_loader.batch_size
+            if config.trainer_config.train_data_loader.num_workers > 0
+            else None
+        ),
+    )
+
+    val_sampler = (
+        DistributedSampler(
+            dataset=val_dataset,
+            shuffle=False,
+            rank=rank if rank is not None else 0,
+            num_replicas=trainer_devices,
+        )
+        if trainer_devices > 1
+        else None
+    )
+    val_data_loader = InfiniteDataLoader(
+        dataset=val_dataset,
+        shuffle=False if val_sampler is None else None,
+        sampler=val_sampler,
+        batch_size=config.trainer_config.val_data_loader.batch_size,
+        num_workers=config.trainer_config.val_data_loader.num_workers,
+        pin_memory=pin_memory,
+        persistent_workers=(
+            True if config.trainer_config.val_data_loader.num_workers > 0 else None
+        ),
+        prefetch_factor=(
+            config.trainer_config.val_data_loader.batch_size
+            if config.trainer_config.val_data_loader.num_workers > 0
+            else None
+        ),
+    )
+
+    return train_data_loader, val_data_loader
+
+
+def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):
+    """Compute the number of steps (iterations) per epoch for the given dataset."""
+    return (len(dataset) // batch_size) + (1 if (len(dataset) % batch_size) else 0)

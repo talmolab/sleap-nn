@@ -11,6 +11,53 @@ import matplotlib.pyplot as plt
 from PIL import Image
 from pathlib import Path
 import wandb
+import csv
+
+
+class CSVLoggerCallback(Callback):
+    """Callback for logging metrics to csv.
+
+    Attributes:
+        filepath: Path to save the csv file.
+        keys: List of field names to be logged in the csv.
+    """
+
+    def __init__(
+        self,
+        filepath: Path,
+        keys: list = ["epoch", "train_loss", "val_loss", "learning_rate"],
+    ):
+        """Initialize attributes."""
+        super().__init__()
+        self.filepath = filepath
+        self.keys = keys
+        self.initialized = False
+
+    def _init_file(self):
+        """Create the .csv file."""
+        self.filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.filepath, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=self.keys)
+            writer.writeheader()
+        self.initialized = True
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Log metrics to csv at the end of validation epoch."""
+        if not self.initialized:
+            self._init_file()
+
+        metrics = trainer.callback_metrics
+        log_data = {}
+        for key in self.keys:
+            if key == "epoch":
+                log_data["epoch"] = trainer.current_epoch
+            else:
+                value = metrics.get(key, None)
+                log_data[key] = value.item() if value is not None else None
+
+        with open(self.filepath, "a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=self.keys)
+            writer.writerow(log_data)
 
 
 class WandBPredImageLogger(Callback):

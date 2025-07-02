@@ -58,6 +58,7 @@ class WandBConfig:
         wandb_mode: (str) "offline" if only local logging is required. Default: "None".
         prv_runid: (str) Previous run ID if training should be resumed from a previous ckpt. Default: None.
         group: (str) Group for wandb logging.
+        current_run_id: (str) Run ID for the current model training. (stored once the training starts).
     """
 
     entity: Optional[str] = None
@@ -67,6 +68,7 @@ class WandBConfig:
     wandb_mode: Optional[str] = None
     prv_runid: Optional[str] = None
     group: Optional[str] = None
+    current_run_id: Optional[str] = None
 
 
 @define
@@ -191,6 +193,27 @@ class HardKeypointMiningConfig:
     max_hard_keypoints: Optional[int] = None
     loss_scale: float = 5.0
 
+@define
+class ZMQConfig:
+    """Configuration of ZeroMQ-based monitoring of the training.
+
+    Attributes:
+        controller_address: IP address/hostname and port number of the endpoint to
+            listen for command messages from. For TCP-based endpoints, this must be in
+            the form of "tcp://{ip_address}:{port_number}". Defaults to
+            None.
+        controller_polling_timeout: Polling timeout in microseconds specified as an
+            integer. This controls how long the poller should wait to receive a response
+            and should be set to a small value to minimize the impact on training speed.
+        publish_address: IP address/hostname and port number of the endpoint to publish
+            updates to. For TCP-based endpoints, this must be in the form of
+            "tcp://{ip_address}:{port_number}". Sample: "tcp://127.0.0.1:9001". Defaults to None.
+    """
+
+    controller_address: Optional[str] = None
+    controller_polling_timeout: int = 10
+    publish_address: Optional[str] = None
+
 
 @define
 class TrainerConfig:
@@ -205,7 +228,9 @@ class TrainerConfig:
         profiler: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"].
         trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`.
         enable_progress_bar: (bool) When True, enables printing the logs during training.
-        steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. If None, the number of iterations depends on the number of samples in the train dataset.
+        min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
+            whichever is largest. Default: `None`.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: (int) Maxinum number of epochs to run.
         seed: (int) Seed value for the current experiment.
@@ -218,7 +243,7 @@ class TrainerConfig:
         optimizer: create an optimizer configuration
         lr_scheduler: create an lr_scheduler configuration
         early_stopping: create an early_stopping configuration
-        zmq: Dict with keys ["publish_adddress", "controller_address"]. `publish_address` specifies the address and port to which the training logs (loss values) should be sent to. `controller_address` specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
+        zmq: Zmq config with publish and controller port addresses.
     """
 
     train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
@@ -232,7 +257,8 @@ class TrainerConfig:
     profiler: Optional[str] = None
     trainer_strategy: str = "auto"
     enable_progress_bar: bool = True
-    steps_per_epoch: Optional[int] = None
+    min_train_steps_per_epoch: int = 200
+    train_steps_per_epoch: Optional[int] = None
     visualize_preds_during_training: bool = False
     max_epochs: int = 10
     seed: int = 0
@@ -248,10 +274,10 @@ class TrainerConfig:
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: Optional[LRSchedulerConfig] = None
     early_stopping: Optional[EarlyStoppingConfig] = None
-    zmq: Optional[dict] = None  # Required for SLEAP GUI
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
     )
+    zmq: Optional[ZMQConfig] = field(factory=ZMQConfig)  # Required for SLEAP GUI
 
     @staticmethod
     def validate_optimizer_name(value):
@@ -295,6 +321,15 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         if resume_ckpt_path is not None
         else None
     )
+    run_name = legacy_config_outputs.get("run_name", None)
+    run_name = run_name if run_name is not None else f"training_{time.time()}"
+    run_name_prefix = legacy_config_outputs.get("run_name_prefix", "")
+    run_name_suffix = legacy_config_outputs.get("run_name_suffix", "")
+    run_name = (
+        run_name_prefix
+        if run_name_prefix is not None
+        else "" + run_name + run_name_suffix if run_name_prefix is not None else ""
+    )
     return TrainerConfig(
         train_data_loader=DataLoaderConfig(
             batch_size=legacy_config_optimization.get("batch_size", 1),
@@ -313,10 +348,13 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             "save_visualizations", False
         ),
         max_epochs=legacy_config_optimization.get("epochs", 10),
+        min_train_steps_per_epoch=legacy_config_optimization.get(
+            "min_batches_per_epoch", 200
+        ),
+        train_steps_per_epoch=legacy_config_optimization.get("batches_per_epoch", None),
         save_ckpt=True,
         save_ckpt_path=(
-            Path(legacy_config_outputs.get("runs_folder", "."))
-            / legacy_config_outputs.get("run_name", f"training_{time.time()}")
+            Path(legacy_config_outputs.get("runs_folder", ".")) / run_name
         ).as_posix(),
         optimizer_name=re.sub(
             r"^[a-z]",
@@ -367,20 +405,22 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             if legacy_config_optimization.get("early_stopping")
             else None
         ),
-        zmq={
-            "publish_adddress": (
-                legacy_config_outputs.get("zmq", {}).get("publish_address", None)
-                if legacy_config_outputs.get("zmq", {}).get("publish_updates", False)
-                else None
-            ),
-            "controller_address": (
+        zmq=ZMQConfig(
+            controller_address=(
                 legacy_config_outputs.get("zmq", {}).get("controller_address", None)
                 if legacy_config_outputs.get("zmq", {}).get(
                     "subscribe_to_controller", False
                 )
                 else None
             ),
-        },
+          publish_address=(
+                legacy_config_outputs.get("zmq", {}).get("publish_address", None)
+                if legacy_config_outputs.get("zmq", {}).get("publish_updates", False)
+                else None
+            ),
+            controller_polling_timeout=legacy_config_outputs.get("zmq", {}).get(
+                "controller_polling_timeout", 10)
+        ),
         online_hard_keypoint_mining=HardKeypointMiningConfig(
             online_mining=legacy_config_optimization.get(
                 "hard_keypoint_mining", {}

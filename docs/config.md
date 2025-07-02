@@ -27,11 +27,12 @@ The config file has three main sections:
     - `delete_cache_imgs_after_training`: (bool) If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are retained after training. Else, the files are deleted. *Default*: `True`.
     #TODO: change in inference ckpts
     - `preprocessing`:
-        - `is_rgb`: (bool) True if the image has 3 channels (RGB image). If input has only one
+        - `ensure_rgb`: (bool) True if the input image should have 3 channels (RGB image). If input has only one
         channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If input has three channels and this
-        is set to False, then we convert the image to grayscale (single-channel)
-        image. *Default*: `False`.
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. *Default*: `False`.
+        - `ensure_grayscale`: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. *Default*: `False`.
         - `max_height`: (int) Maximum height the image should be padded to. If not provided, the
         original image size will be retained. *Default*: `None`.
         - `max_width`: (int) Maximum width the image should be padded to. If not provided, the
@@ -169,8 +170,9 @@ The config file has three main sections:
     - `trainer_strategy`: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. *Default*: `"auto"`.
     - `enable_progress_bar`: (bool) When True, enables printing the logs during training.
     *Default*: `False`.
-    - `steps_per_epoch`: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer `limit_train_batches` parameter of Torch `Trainer`. If `None`, the number of iterations depends on the number of samples in the train dataset.
-    *Default*: `None`.
+    - `min_train_steps_per_epoch`: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer `limit_train_batches` parameter of Torch `Trainer`.
+    *Default*: `200`.
+    - `train_steps_per_epoch`: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`.
     - `visualize_preds_during_training`: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
     - `max_epochs`: (int) Maxinum number of epochs to run. *Default*: `100`.
     - `seed`: (int) Seed value for the current experiment. *Default*: `1000`.
@@ -205,7 +207,6 @@ The config file has three main sections:
         - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. *Default*: `False`.
         - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `0.0`.
         - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `1`.
-    - `zmq`: (dict) Dict with keys ["publish_adddress", "controller_address"]. `publish_address` specifies the address and port to which the training logs (loss values) should be sent to. `controller_address` specifies the address and port to listen to to stop the training (specific to SLEAP GUI). *Default*: `None`.
     - `online_hard_keypoint_mining`
         - `online_mining`: (bool) If True, online hard keypoint mining (OHKM) will be enabled. When
             this is enabled, the loss is computed per keypoint (or edge for PAFs) and
@@ -224,3 +225,7 @@ The config file has three main sections:
             ratio and result in loss scaling being applied to most keypoints, which can
             reduce the impact of hard mining altogether.
         - `loss_scale`: (float) Factor to scale the hard keypoint losses by. *Default*: `5.0`.
+    - `zmq`
+        - `publish_address`: (str) Specifies the address and port to which the training logs (loss values) should be sent to. 
+        - `controller_address`: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI). *Default*: `None`.
+        - `controller_polling_timeout`: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed.

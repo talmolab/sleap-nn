@@ -22,6 +22,7 @@ from sleap_nn.config.trainer_config import (
     WandBConfig,
     HardKeypointMiningConfig,
     OptimizerConfig,
+    ZMQConfig,
 )
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
@@ -60,7 +61,9 @@ from sleap_nn.config.model_config import (
 
 def get_aug_config(intensity_aug, geometric_aug):
     """Returns `AugmentationConfig` object based on the user-provided parameters."""
-    aug_config = AugmentationConfig()
+    aug_config = AugmentationConfig(
+        intensity=IntensityConfig(), geometric=GeometricConfig()
+    )
     if isinstance(intensity_aug, str) or isinstance(intensity_aug, list):
         if isinstance(intensity_aug, str):
             intensity_aug = [intensity_aug]
@@ -169,13 +172,19 @@ def get_head_configs(head_cfg):
     head_configs = HeadConfig()
     if isinstance(head_cfg, str):
         if head_cfg == "centered_instance":
-            head_configs.centered_instance = CenteredInstanceConfig()
+            head_configs.centered_instance = CenteredInstanceConfig(
+                confmaps=CenteredInstanceConfMapsConfig
+            )
         elif head_cfg == "single_instance":
-            head_configs.single_instance = SingleInstanceConfig()
+            head_configs.single_instance = SingleInstanceConfig(
+                confmaps=SingleInstanceConfMapsConfig
+            )
         elif head_cfg == "centroid":
-            head_configs.centroid = CentroidConfig()
+            head_configs.centroid = CentroidConfig(confmaps=CentroidConfMapsConfig)
         elif head_cfg == "bottomup":
-            head_configs.bottomup = BottomUpConfig()
+            head_configs.bottomup = BottomUpConfig(
+                confmaps=BottomUpConfMapsConfig, pafs=PAFConfig
+            )
         else:
             raise ValueError(
                 f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance']"
@@ -226,7 +235,8 @@ def get_data_config(
     use_existing_imgs: bool = False,
     chunk_size: int = 100,
     delete_cache_imgs_after_training: bool = True,
-    is_rgb: bool = False,
+    ensure_rgb: bool = False,
+    ensure_grayscale: bool = False,
     scale: float = 1.0,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
@@ -269,11 +279,12 @@ def get_data_config(
         chunk_size: Size of each chunk (in MB). Default: 100.
         delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
             retained after training. Else, the files are deleted. Default: True.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
-            channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image. Default: False.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         max_height: Maximum height the image should be padded to. If not provided, the
             original image size will be retained. Default: None.
@@ -301,7 +312,8 @@ def get_data_config(
                     }
     """
     preprocessing_config = PreprocessingConfig(
-        is_rgb=is_rgb,
+        ensure_rgb=ensure_rgb,
+        ensure_grayscale=ensure_grayscale,
         max_height=max_height,
         max_width=max_width,
         scale=scale,
@@ -429,7 +441,9 @@ def get_trainer_config(
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = False,
-    steps_per_epoch: Optional[int] = None,
+    min_train_steps_per_epoch: int = 200,
+    train_steps_per_epoch: Optional[int] = None,
+    visualize_preds_during_training: bool = False,
     max_epochs: int = 100,
     seed: int = 1000,
     use_wandb: bool = False,
@@ -455,6 +469,9 @@ def get_trainer_config(
     min_hard_keypoints: int = 2,
     max_hard_keypoints: Optional[int] = None,
     loss_scale: float = 5.0,
+    zmq_publish_address: Optional[str] = None,
+    zmq_controller_address: Optional[str] = None,
+    zmq_controller_timeout: int = 10,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -482,10 +499,14 @@ def get_trainer_config(
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".
         enable_progress_bar: When True, enables printing the logs during training. Default: False.
-        steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
+        min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
-            of Torch `Trainer`. If `None`, the number of iterations depends on the number
-            of samples in the train dataset. Default: None.
+            of Torch `Trainer`. Default: 200.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
+            this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
+            whichever is largest. Default: `None`.
+        visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
+            are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: Maxinum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
@@ -538,7 +559,11 @@ def get_trainer_config(
             This can help when there are few very easy keypoints which may skew the
             ratio and result in loss scaling being applied to most keypoints, which can
             reduce the impact of hard mining altogether.
-        loss_scale: Factor to scale the hard keypoint losses by.
+        loss_scale: Factor to scale the hard keypoint losses by for oks.
+        zmq_publish_address: (str) Specifies the address and port to which the training logs (loss values) should be sent to.
+        zmq_controller_address: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
+        zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
+            should wait to receive a response and should be set to a small value to minimize the impact on training speed.
     """
     # constrict trainer config
     train_dataloader_cfg = DataLoaderConfig(
@@ -582,7 +607,9 @@ def get_trainer_config(
         trainer_devices=trainer_num_devices,
         trainer_accelerator=trainer_accelerator,
         enable_progress_bar=enable_progress_bar,
-        steps_per_epoch=steps_per_epoch,
+        min_train_steps_per_epoch=min_train_steps_per_epoch,
+        train_steps_per_epoch=train_steps_per_epoch,
+        visualize_preds_during_training=visualize_preds_during_training,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,
@@ -611,7 +638,11 @@ def get_trainer_config(
             hard_to_easy_ratio=hard_to_easy_ratio,
             min_hard_keypoints=min_hard_keypoints,
             max_hard_keypoints=max_hard_keypoints,
-            loss_scale=loss_scale,
+            loss_scale=loss_scale,),
+        zmq=ZMQConfig(
+            controller_address=zmq_controller_address,
+            controller_polling_timeout=zmq_controller_timeout,
+            publish_address=zmq_publish_address,
         ),
     )
     return trainer_config
@@ -621,9 +652,9 @@ def run_training(config: DictConfig):
     """Create ModelTrainer instance and start training."""
     start_train_time = time()
     start_timestamp = str(datetime.now())
-    print("Started training at:", start_timestamp)
+    logger.info("Started training at:", start_timestamp)
 
-    trainer = ModelTrainer(config)
+    trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
 
     finish_timestamp = str(datetime.now())
@@ -636,10 +667,12 @@ def run_training(config: DictConfig):
         data_paths = {}
         for index, path in enumerate(trainer.config.data_config.train_labels_path):
             data_paths[f"train_{index}"] = (
-                Path(trainer.dir_path) / f"labels_train_gt_{index}.slp"
+                Path(config.trainer_config.save_ckpt_path)
+                / f"labels_train_gt_{index}.slp"
             ).as_posix()
             data_paths[f"val_{index}"] = (
-                Path(trainer.dir_path) / f"labels_val_gt_{index}.slp"
+                Path(config.trainer_config.save_ckpt_path)
+                / f"labels_val_gt_{index}.slp"
             ).as_posix()
 
         if (
@@ -653,11 +686,12 @@ def run_training(config: DictConfig):
 
             pred_labels = predict(
                 data_path=path,
-                model_paths=[trainer.dir_path],
+                model_paths=[config.trainer_config.save_ckpt_path],
                 peak_threshold=0.2,
                 make_labels=True,
                 device=trainer.trainer.strategy.root_device,
-                output_path=Path(trainer.dir_path) / f"pred_{d_name}.slp",
+                output_path=Path(config.trainer_config.save_ckpt_path)
+                / f"pred_{d_name}.slp",
             )
 
             evaluator = Evaluator(
@@ -665,7 +699,10 @@ def run_training(config: DictConfig):
             )
             metrics = evaluator.evaluate()
             np.savez(
-                (Path(trainer.dir_path) / f"{d_name}_pred_metrics.npz").as_posix(),
+                (
+                    Path(config.trainer_config.save_ckpt_path)
+                    / f"{d_name}_pred_metrics.npz"
+                ).as_posix(),
                 **metrics,
             )
 
@@ -689,7 +726,8 @@ def train(
     use_existing_imgs: bool = False,
     chunk_size: int = 100,
     delete_cache_imgs_after_training: bool = True,
-    is_rgb: bool = False,
+    ensure_rgb: bool = False,
+    ensure_grayscale: bool = False,
     scale: float = 1.0,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
@@ -712,7 +750,9 @@ def train(
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = False,
-    steps_per_epoch: Optional[int] = None,
+    min_train_steps_per_epoch: int = 200,
+    train_steps_per_epoch: Optional[int] = None,
+    visualize_preds_during_training: bool = False,
     max_epochs: int = 100,
     seed: int = 1000,
     use_wandb: bool = False,
@@ -738,6 +778,9 @@ def train(
     min_hard_keypoints: int = 2,
     max_hard_keypoints: Optional[int] = None,
     loss_scale: float = 5.0,
+    zmq_publish_address: Optional[str] = None,
+    zmq_controller_address: Optional[str] = None,
+    zmq_controller_timeout: int = 10,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
 
@@ -772,11 +815,12 @@ def train(
         chunk_size: Size of each chunk (in MB). Default: 100.
         delete_cache_imgs_after_training: If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are
             retained after training. Else, the files are deleted. Default: True.
-        is_rgb: True if the image has 3 channels (RGB image). If input has only one
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
             channel when this is set to `True`, then the images from single-channel
-            is replicated along the channel axis. If input has three channels and this
-            is set to False, then we convert the image to grayscale (single-channel)
-            image. Default: False.
+            is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+            is set to True, then we convert the image to grayscale (single-channel)
+            image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
         max_height: Maximum height the image should be padded to. If not provided, the
             original image size will be retained. Default: None.
@@ -877,10 +921,14 @@ def train(
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".
         enable_progress_bar: When True, enables printing the logs during training. Default: False.
-        steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
+        min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
-            of Torch `Trainer`. If `None`, the number of iterations depends on the number
-            of samples in the train dataset. Default: None.
+            of Torch `Trainer`. Default: 200.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
+            this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
+            whichever is largest. Default: `None`.
+        visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
+            are saved to `viz` folder in the ckpt dir and in wandb table.
         max_epochs: Maxinum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
@@ -933,7 +981,11 @@ def train(
             This can help when there are few very easy keypoints which may skew the
             ratio and result in loss scaling being applied to most keypoints, which can
             reduce the impact of hard mining altogether.
-        loss_scale: Factor to scale the hard keypoint losses by.
+        loss_scale: Factor to scale the hard keypoint losses by for oks.
+        zmq_publish_address: (str) Specifies the address and port to which the training logs (loss values) should be sent to.
+        zmq_controller_address: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
+        zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
+            should wait to receive a response and should be set to a small value to minimize the impact on training speed.
     """
     data_config = get_data_config(
         train_labels_path=train_labels_path,
@@ -948,7 +1000,8 @@ def train(
         use_existing_imgs=use_existing_imgs,
         chunk_size=chunk_size,
         delete_cache_imgs_after_training=delete_cache_imgs_after_training,
-        is_rgb=is_rgb,
+        ensure_rgb=ensure_rgb,
+        ensure_grayscale=ensure_grayscale,
         scale=scale,
         max_height=max_height,
         max_width=max_width,
@@ -977,7 +1030,9 @@ def train(
         trainer_num_devices=trainer_num_devices,
         trainer_accelerator=trainer_accelerator,
         enable_progress_bar=enable_progress_bar,
-        steps_per_epoch=steps_per_epoch,
+        min_train_steps_per_epoch=min_train_steps_per_epoch,
+        train_steps_per_epoch=train_steps_per_epoch,
+        visualize_preds_during_training=visualize_preds_during_training,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,
@@ -1003,6 +1058,9 @@ def train(
         min_hard_keypoints=min_hard_keypoints,
         max_hard_keypoints=max_hard_keypoints,
         loss_scale=loss_scale,
+        zmq_publish_address=zmq_publish_address,
+        zmq_controller_address=zmq_controller_address,
+        zmq_controller_timeout=zmq_controller_timeout,
     )
 
     # create omegaconf object
