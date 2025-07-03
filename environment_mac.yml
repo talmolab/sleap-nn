@@ -1,7 +1,6 @@
 name: sleap-nn
 
 channels:
-  - pytorch
   - conda-forge
 
 dependencies:
@@ -9,9 +8,6 @@ dependencies:
   - numpy
   - sleap-io>=0.2.0
   - pydantic
-  - lightning
-  - pytorch
-  - torchvision
   - h5py
   - pandas
   - jsonpickle
@@ -33,6 +29,9 @@ dependencies:
   - pip
   - pip:
     - "--editable=.[dev]"
+    - torch
+    - torchvision
+    - lightning
     - litdata
     - hydra-core
     - loguru
