@@ -264,7 +264,17 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         help=(
             "Method to aggregate and reduce multiple scores if there are"
             "several detections associated with the same track. One of [`mean`, `max`,"
-            "`weighted`]."
+            "`robust_quantile`]."
+        ),
+    )
+    parser.add_argument(
+        "--robust_best_instance",
+        type=float,
+        default=1.0,
+        help=(
+            "If the value is between 0 and 1 (excluded), use a robust quantile similarity score for the"
+            "track. If the value is 1, use the max similarity (non-robust)."
+            "For selecting a robust score, 0.95 is a good value."
         ),
     )
     parser.add_argument(
@@ -314,6 +324,16 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         help=(
             "Number of pyramid scale levels to consider. This is different"
             "from the scale parameter, which determines the initial image scaling."
+        ),
+    )
+
+    parser.add_argument(
+        "--post_connect_single_breaks",
+        action="store_true",
+        default=False,
+        help=(
+            "If True and `max_tracks` is not None with local queues candidate method,"
+            "connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame."
         ),
     )
 

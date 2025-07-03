@@ -1,7 +1,8 @@
 import pytest
 import numpy as np
+import sleap_io as sio
 from sleap_nn.inference.predictors import run_inference
-from sleap_nn.tracking.tracker import Tracker, FlowShiftTracker
+from sleap_nn.tracking.tracker import Tracker, FlowShiftTracker, run_tracker
 from sleap_nn.tracking.track_instance import (
     TrackedInstanceFeature,
     TrackInstanceLocalQueue,
@@ -323,3 +324,33 @@ def test_flowshifttracker(minimal_instance_ckpt):
     assert np.issubdtype(new.dtype, np.integer)
     assert imgs[0].shape == (384, 384, 1)
     assert ref.shape == (192, 192) and new.shape == (192, 192)
+
+
+def test_run_tracker(
+    minimal_instance_centroid_ckpt, minimal_instance_ckpt, centered_instance_video
+):
+    """Tests for run_tracker."""
+    labels = run_inference(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        scoring_reduction="robust_quantile",
+    )
+
+    tracked_lfs = run_tracker(
+        untracked_frames=[x for x in labels],
+        max_tracks=2,
+        candidates_method="local_queues",
+        post_connect_single_breaks=True,
+    )
+    output = sio.Labels(
+        labeled_frames=tracked_lfs,
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+    )
+
+    assert len(output.tracks) == 2

@@ -39,7 +39,7 @@ from sleap_nn.inference.topdown import (
     TopDownInferenceModel,
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
-from sleap_nn.tracking.tracker import Tracker
+from sleap_nn.tracking.tracker import Tracker, run_tracker, connect_single_breaks
 import rich
 from rich.progress import (
     Progress,
@@ -950,6 +950,8 @@ class TopDownPredictor(Predictor):
                 ex["centroid_val"],
                 ex["orig_size"],
             ):
+                if np.isnan(pred_instances).all():
+                    continue
                 pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
@@ -1302,6 +1304,8 @@ class SingleInstancePredictor(Predictor):
                 ex["orig_size"],
             ):
 
+                if np.isnan(pred_instances).all():
+                    continue
                 inst = sio.PredictedInstance.from_numpy(
                     points_data=pred_instances,
                     skeleton=self.skeletons[skeleton_idx],
@@ -1746,7 +1750,7 @@ class BottomUpPredictor(Predictor):
 
 def run_inference(
     data_path: str,
-    model_paths: List[str],
+    model_paths: Optional[List[str]] = None,
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
     max_instances: Optional[int] = None,
@@ -1787,12 +1791,14 @@ def run_inference(
     features: str = "keypoints",
     scoring_method: str = "oks",
     scoring_reduction: str = "mean",
+    robust_best_instance: float = 1.0,
     track_matching_method: str = "hungarian",
     max_tracks: Optional[int] = None,
     use_flow: bool = False,
     of_img_scale: float = 1.0,
     of_window_size: int = 21,
     of_max_levels: int = 3,
+    post_connect_single_breaks: bool = False,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
@@ -1888,7 +1894,11 @@ def run_inference(
             `euclidean_dist`]. Default: `oks`.
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
-            `weighted`]. Default: `mean`.
+            `robust_quantile`]. Default: `mean`.
+        robust_best_instance: If the value is between 0 and 1
+            (excluded), use a robust quantile similarity score for the
+            track. If the value is 1, use the max similarity (non-robust).
+            For selecting a robust score, 0.95 is a good value.
         track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
             Default: `hungarian`.
         max_tracks: Meaximum number of new tracks to be created to avoid redundant tracks.
@@ -1903,16 +1913,15 @@ def run_inference(
             level. Default: 21. (only if `use_flow` is True)
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
-            Default: 3. (only if `use_flow` is True)
+            Default: 3. (only if `use_flow` is True).
+        post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
+            connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
 
     Returns:
         Returns `sio.Labels` object if `make_labels` is True. Else this function returns
             a list of Dictionaries with the predictions.
 
     """
-    start_inf_time = time()
-    start_timestamp = str(datetime.now())
-    logger.info("Started inference at:", start_timestamp)
     preprocess_config = {  # if not given, then use from training config
         "ensure_rgb": ensure_rgb,
         "ensure_grayscale": ensure_grayscale,
@@ -1922,88 +1931,163 @@ def run_inference(
         "anchor_part": anchor_part,
     }
 
-    if device == "auto":
-        device = (
-            "cuda"
-            if torch.cuda.is_available()
-            else "mps" if torch.backends.mps.is_available() else "cpu"
+    if model_paths is None or not len(
+        model_paths
+    ):  # if model paths is not provided, run tracking-only pipeline.
+        if not tracking:
+            message = """Neither tracker nor path to trained models specified. Use `model_paths` to specify models to use. To retrack on predictions, set `tracking` to True."""
+            logger.error(message)
+            raise ValueError(message)
+
+        else:
+            start_inf_time = time()
+            start_timestamp = str(datetime.now())
+            logger.info("Started tracking at:", start_timestamp)
+
+            labels = sio.load_slp(data_path)
+            frames = sorted(labels.labeled_frames, key=lambda lf: lf.frame_idx)
+
+            if post_connect_single_breaks:
+                if max_tracks is None:
+                    max_tracks = max_instances
+
+            tracked_frames = run_tracker(
+                untracked_frames=frames,
+                window_size=tracking_window_size,
+                instance_score_threshold=tracking_instance_score_threshold,
+                candidates_method=candidates_method,
+                features=features,
+                scoring_method=scoring_method,
+                scoring_reduction=scoring_reduction,
+                robust_best_instance=robust_best_instance,
+                track_matching_method=track_matching_method,
+                max_tracks=max_tracks,
+                use_flow=use_flow,
+                of_img_scale=of_img_scale,
+                of_window_size=of_window_size,
+                of_max_levels=of_max_levels,
+                post_connect_single_breaks=post_connect_single_breaks,
+            )
+
+            finish_timestamp = str(datetime.now())
+            total_elapsed = time() - start_inf_time
+            logger.info("Finished tracking at:", finish_timestamp)
+            logger.info(f"Total runtime: {total_elapsed} secs")
+
+            output = sio.Labels(
+                labeled_frames=tracked_frames,
+                videos=labels.videos,
+                skeletons=labels.skeletons,
+            )
+
+    else:
+        start_inf_time = time()
+        start_timestamp = str(datetime.now())
+        logger.info("Started inference at:", start_timestamp)
+
+        if device == "auto":
+            device = (
+                "cuda"
+                if torch.cuda.is_available()
+                else "mps" if torch.backends.mps.is_available() else "cpu"
+            )
+
+        if integral_refinement is not None:  # TODO
+            # kornia/geometry/transform/imgwarp.py:382: in get_perspective_transform. NotImplementedError: The operator 'aten::_linalg_solve_ex.result' is not currently implemented for the MPS device. If you want this op to be added in priority during the prototype phase of this feature, please comment on https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be slower than running natively on MPS.
+            device = "cpu"  # not supported with mps
+
+        logger.info(f"Using device: {device}")
+
+        # initializes the inference model
+        predictor = Predictor.from_model_paths(
+            model_paths,
+            backbone_ckpt_path=backbone_ckpt_path,
+            head_ckpt_path=head_ckpt_path,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            return_confmaps=return_confmaps,
+            device=device,
+            preprocess_config=OmegaConf.create(preprocess_config),
         )
 
-    if integral_refinement is not None:  # TODO
-        # kornia/geometry/transform/imgwarp.py:382: in get_perspective_transform. NotImplementedError: The operator 'aten::_linalg_solve_ex.result' is not currently implemented for the MPS device. If you want this op to be added in priority during the prototype phase of this feature, please comment on https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be slower than running natively on MPS.
-        device = "cpu"  # not supported with mps
+        if tracking:
+            predictor.tracker = Tracker.from_config(
+                candidates_method=candidates_method,
+                window_size=tracking_window_size,
+                instance_score_threshold=tracking_instance_score_threshold,
+                features=features,
+                scoring_method=scoring_method,
+                scoring_reduction=scoring_reduction,
+                robust_best_instance=robust_best_instance,
+                track_matching_method=track_matching_method,
+                max_tracks=max_tracks,
+                use_flow=use_flow,
+                of_img_scale=of_img_scale,
+                of_window_size=of_window_size,
+                of_max_levels=of_max_levels,
+            )
 
-    logger.info(f"Using device: {device}")
+        if isinstance(predictor, BottomUpPredictor):
+            predictor.inference_model.paf_scorer.max_edge_length_ratio = (
+                max_edge_length_ratio
+            )
+            predictor.inference_model.paf_scorer.dist_penalty_weight = (
+                dist_penalty_weight
+            )
+            predictor.inference_model.return_pafs = return_pafs
+            predictor.inference_model.return_paf_graph = return_paf_graph
+            predictor.inference_model.paf_scorer.max_edge_length_ratio = (
+                max_edge_length_ratio
+            )
+            predictor.inference_model.paf_scorer.min_line_scores = min_line_scores
+            predictor.inference_model.paf_scorer.min_instance_peaks = min_instance_peaks
+            predictor.inference_model.paf_scorer.n_points = n_points
 
-    # initializes the inference model
-    predictor = Predictor.from_model_paths(
-        model_paths,
-        backbone_ckpt_path=backbone_ckpt_path,
-        head_ckpt_path=head_ckpt_path,
-        peak_threshold=peak_threshold,
-        integral_refinement=integral_refinement,
-        integral_patch_size=integral_patch_size,
-        batch_size=batch_size,
-        max_instances=max_instances,
-        return_confmaps=return_confmaps,
-        device=device,
-        preprocess_config=OmegaConf.create(preprocess_config),
-    )
+        # initialize make_pipeline function
 
-    if tracking:
-        predictor.tracker = Tracker.from_config(
-            candidates_method=candidates_method,
-            window_size=tracking_window_size,
-            instance_score_threshold=tracking_instance_score_threshold,
-            features=features,
-            scoring_method=scoring_method,
-            scoring_reduction=scoring_reduction,
-            track_matching_method=track_matching_method,
-            max_tracks=max_tracks,
-            use_flow=use_flow,
-            of_img_scale=of_img_scale,
-            of_window_size=of_window_size,
-            of_max_levels=of_max_levels,
+        predictor.make_pipeline(
+            data_path,
+            queue_maxsize,
+            frames,
+            only_labeled_frames,
+            only_suggested_frames,
+            video_index=video_index,
+            video_dataset=video_dataset,
+            video_input_format=video_input_format,
         )
 
-    if isinstance(predictor, BottomUpPredictor):
-        predictor.inference_model.paf_scorer.max_edge_length_ratio = (
-            max_edge_length_ratio
+        # run predict
+        output = predictor.predict(
+            make_labels=make_labels,
         )
-        predictor.inference_model.paf_scorer.dist_penalty_weight = dist_penalty_weight
-        predictor.inference_model.return_pafs = return_pafs
-        predictor.inference_model.return_paf_graph = return_paf_graph
-        predictor.inference_model.paf_scorer.max_edge_length_ratio = (
-            max_edge_length_ratio
-        )
-        predictor.inference_model.paf_scorer.min_line_scores = min_line_scores
-        predictor.inference_model.paf_scorer.min_instance_peaks = min_instance_peaks
-        predictor.inference_model.paf_scorer.n_points = n_points
 
-    # initialize make_pipeline function
+        if tracking and post_connect_single_breaks:
+            if max_tracks is None:
+                max_tracks = max_instances
 
-    predictor.make_pipeline(
-        data_path,
-        queue_maxsize,
-        frames,
-        only_labeled_frames,
-        only_suggested_frames,
-        video_index=video_index,
-        video_dataset=video_dataset,
-        video_input_format=video_input_format,
-    )
+            if max_tracks is None:
+                message = "Max_tracks is None. To connect single breaks, max_tracks should be set to an integer."
+                logger.error(message)
+                raise ValueError(message)
 
-    # run predict
-    output = predictor.predict(
-        make_labels=make_labels,
-    )
+            corrected_lfs = connect_single_breaks(
+                lfs=[x for x in output], max_instances=max_tracks
+            )
+            output = sio.Labels(
+                labeled_frames=corrected_lfs,
+                videos=output.videos,
+                skeletons=output.skeletons,
+            )
 
-    finish_timestamp = str(datetime.now())
-    total_elapsed = time() - start_inf_time
-    logger.info("Finished inference at:", finish_timestamp)
-    logger.info(
-        f"Total runtime: {total_elapsed} secs"
-    )  # TODO: add number of predicted frames
+        finish_timestamp = str(datetime.now())
+        total_elapsed = time() - start_inf_time
+        logger.info("Finished inference at:", finish_timestamp)
+        logger.info(
+            f"Total runtime: {total_elapsed} secs"
+        )  # TODO: add number of predicted frames
 
     if make_labels:
         if output_path is None:

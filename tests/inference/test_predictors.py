@@ -1142,6 +1142,9 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         tracking=True,
+        candidates_method="local_queues",
+        max_tracks=6,
+        post_connect_single_breaks=True,
         device="cpu",
     )
 
@@ -1213,3 +1216,24 @@ def test_bottomup_predictor(
     )
 
     assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+
+def test_tracking_only_pipeline(
+    minimal_instance_centroid_ckpt, minimal_instance_ckpt, centered_instance_video
+):
+    """Test tracking-only pipeline."""
+    labels = run_inference(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        post_connect_single_breaks=True,
+    )
+    labels.save("preds.slp")
+
+    tracked_labels = run_inference(data_path="preds.slp", tracking=True)
+
+    assert len(tracked_labels.tracks) == 2

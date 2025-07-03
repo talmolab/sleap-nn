@@ -6,6 +6,7 @@ import attrs
 import cv2
 import numpy as np
 from loguru import logger
+import functools
 
 import sleap_io as sio
 from sleap_nn.evaluation import compute_oks
@@ -46,9 +47,13 @@ class Tracker:
             `euclidean_dist`]. Default: `oks`.
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
-            `weighted`]. Default: `mean`.
+            `robust_quantile`]. Default: `mean`.
         track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
                 Default: `hungarian`.
+        robust_best_instance: If the value is between 0 and 1
+            (excluded), use a robust quantile similarity score for the
+            track. If the value is 1, use the max similarity (non-robust).
+            For selecting a robust score, 0.95 is a good value.
         use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
             optical flow shifts. Default: `False`.
         is_local_queue: `True` if `LocalQueueCandidates` is used else `False`.
@@ -62,6 +67,7 @@ class Tracker:
     scoring_method: str = "oks"
     scoring_reduction: str = "mean"
     track_matching_method: str = "hungarian"
+    robust_best_instance: float = 1.0
     use_flow: bool = False
     is_local_queue: bool = False
     _scoring_functions: Dict[str, Any] = {
@@ -70,7 +76,12 @@ class Tracker:
         "cosine_sim": compute_cosine_sim,
         "euclidean_dist": compute_euclidean_distance,
     }
-    _scoring_reduction_methods: Dict[str, Any] = {"mean": np.nanmean, "max": np.nanmax}
+    _quantile_method = functools.partial(np.quantile, q=robust_best_instance)
+    _scoring_reduction_methods: Dict[str, Any] = {
+        "mean": np.nanmean,
+        "max": np.nanmax,
+        "robust_quantile": _quantile_method,
+    }
     _feature_methods: Dict[str, Any] = {
         "keypoints": get_keypoints,
         "centroids": get_centroid,
@@ -91,6 +102,7 @@ class Tracker:
         features: str = "keypoints",
         scoring_method: str = "oks",
         scoring_reduction: str = "mean",
+        robust_best_instance: float = 1.0,
         track_matching_method: str = "hungarian",
         max_tracks: Optional[int] = None,
         use_flow: bool = False,
@@ -116,7 +128,11 @@ class Tracker:
                 `euclidean_dist`]. Default: `oks`.
             scoring_reduction: Method to aggregate and reduce multiple scores if there are
                 several detections associated with the same track. One of [`mean`, `max`,
-                `weighted`]. Default: `mean`.
+                `robust_quantile`]. Default: `mean`.
+            robust_best_instance: If the value is between 0 and 1
+                (excluded), use a robust quantile similarity score for the
+                track. If the value is 1, use the max similarity (non-robust).
+                For selecting a robust score, 0.95 is a good value.
             track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
                 Default: `hungarian`.
             max_tracks: Meaximum number of new tracks to be created to avoid redundant tracks.
@@ -160,6 +176,7 @@ class Tracker:
                 features=features,
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
+                robust_best_instance=robust_best_instance,
                 track_matching_method=track_matching_method,
                 img_scale=of_img_scale,
                 of_window_size=of_window_size,
@@ -172,6 +189,7 @@ class Tracker:
             features=features,
             scoring_method=scoring_method,
             scoring_reduction=scoring_reduction,
+            robust_best_instance=robust_best_instance,
             track_matching_method=track_matching_method,
             use_flow=use_flow,
             is_local_queue=is_local_queue,
@@ -227,7 +245,7 @@ class Tracker:
                 if instance.track_id is not None:
                     if instance.track_id not in self._track_objects:
                         self._track_objects[instance.track_id] = sio.Track(
-                            instance.track_id
+                            f"track_{instance.track_id}"
                         )
                     instance.src_instance.track = self._track_objects[instance.track_id]
                     instance.src_instance.tracking_score = instance.tracking_score
@@ -239,7 +257,7 @@ class Tracker:
                 track_id = current_tracked_instances.track_ids[idx]
                 if track_id is not None:
                     if track_id not in self._track_objects:
-                        self._track_objects[track_id] = sio.Track(track_id)
+                        self._track_objects[track_id] = sio.Track(f"track_{track_id}")
                     inst.track = self._track_objects[track_id]
                     inst.tracking_score = current_tracked_instances.tracking_scores[idx]
                     new_pred_instances.append(inst)
@@ -331,7 +349,7 @@ class Tracker:
             raise ValueError(message)
 
         if self.scoring_reduction not in self._scoring_reduction_methods:
-            message = "Invalid `scoring_reduction` argument. Please provide one of `mean`, `max`, and `weighted`."
+            message = "Invalid `scoring_reduction` argument. Please provide one of `mean`, `max`, and `robust_quantile`."
             logger.error(message)
             raise ValueError(message)
 
@@ -421,7 +439,11 @@ class FlowShiftTracker(Tracker):
             `euclidean_dist`]. Default: `oks`.
         scoring_reduction: Method to aggregate and reduce multiple scores if there are
             several detections associated with the same track. One of [`mean`, `max`,
-            `weighted`]. Default: `mean`.
+            `robust_quantile`]. Default: `mean`.
+        robust_best_instance: If the value is between 0 and 1
+                (excluded), use a robust quantile similarity score for the
+                track. If the value is 1, use the max similarity (non-robust).
+                For selecting a robust score, 0.95 is a good value.
         track_matching_method: track matching algorithm. One of `hungarian`, `greedy.
                 Default: `hungarian`.
         use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
@@ -603,3 +625,153 @@ class FlowShiftTracker(Tracker):
         )
 
         return shifted_instances_prv_frames
+
+
+def connect_single_breaks(
+    lfs: List[sio.LabeledFrame], max_instances: int
+) -> List[sio.LabeledFrame]:
+    """Merge single-frame breaks in tracks by connecting single lost track with single new track.
+
+    Args:
+        lfs: List of `LabeledFrame` objects with predicted instances.
+        max_instances: The maximum number of instances we want per frame.
+
+    Returns:
+        Updated list of labeled frames with modified track IDs.
+    """
+    if not lfs:
+        return lfs
+
+    # Move instances in new tracks into tracks that disappeared on previous frame
+    fix_track_map = dict()
+    last_good_frame_tracks = {inst.track for inst in lfs[0].instances}
+    for lf in lfs:
+        frame_tracks = {inst.track for inst in lf.instances}
+
+        tracks_fixed_before = frame_tracks.intersection(set(fix_track_map.keys()))
+        if tracks_fixed_before:
+            for inst in lf.instances:
+                if (
+                    inst.track in fix_track_map
+                    and fix_track_map[inst.track] not in frame_tracks
+                ):
+                    inst.track = fix_track_map[inst.track]
+                    frame_tracks = {inst.track for inst in lf.instances}
+
+        extra_tracks = frame_tracks - last_good_frame_tracks
+        missing_tracks = last_good_frame_tracks - frame_tracks
+
+        if len(extra_tracks) == 1 and len(missing_tracks) == 1:
+            for inst in lf.instances:
+                if inst.track in extra_tracks:
+                    old_track = inst.track
+                    new_track = missing_tracks.pop()
+                    fix_track_map[old_track] = new_track
+                    inst.track = new_track
+
+                    break
+        else:
+            if len(frame_tracks) == max_instances:
+                last_good_frame_tracks = frame_tracks
+
+    return lfs
+
+
+def run_tracker(
+    untracked_frames: List[sio.LabeledFrame],
+    window_size: int = 5,
+    instance_score_threshold: float = 0.0,
+    candidates_method: str = "fixed_window",
+    features: str = "keypoints",
+    scoring_method: str = "oks",
+    scoring_reduction: str = "mean",
+    robust_best_instance: float = 1.0,
+    track_matching_method: str = "hungarian",
+    max_tracks: Optional[int] = None,
+    use_flow: bool = False,
+    of_img_scale: float = 1.0,
+    of_window_size: int = 21,
+    of_max_levels: int = 3,
+    post_connect_single_breaks: bool = False,
+) -> List[sio.LabeledFrame]:
+    """Run tracking on a given set of frames.
+
+    Args:
+        untracked_frames: List of labeled frames with predicted instances to be tracked.
+        window_size: Number of frames to look for in the candidate instances to match
+                with the current detections. Default: 5.
+        instance_score_threshold: Instance score threshold for creating new tracks.
+            Default: 0.0.
+        candidates_method: Either of `fixed_window` or `local_queues`. In fixed window
+            method, candidates from the last `window_size` frames. In local queues,
+            last `window_size` instances for each track ID is considered for matching
+            against the current detection. Default: `fixed_window`.
+        features: Feature representation for the candidates to update current detections.
+            One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
+        scoring_method: Method to compute association score between features from the
+            current frame and the previous tracks. One of [`oks`, `cosine_sim`, `iou`,
+            `euclidean_dist`]. Default: `oks`.
+        scoring_reduction: Method to aggregate and reduce multiple scores if there are
+            several detections associated with the same track. One of [`mean`, `max`,
+            `robust_quantile`]. Default: `mean`.
+        robust_best_instance: If the value is between 0 and 1
+            (excluded), use a robust quantile similarity score for the
+            track. If the value is 1, use the max similarity (non-robust).
+            For selecting a robust score, 0.95 is a good value.
+        track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
+            Default: `hungarian`.
+        max_tracks: Meaximum number of new tracks to be created to avoid redundant tracks.
+            (only for local queues candidate) Default: None.
+        use_flow: If True, `FlowShiftTracker` is used, where the poses are matched using
+        optical flow shifts. Default: `False`.
+        of_img_scale: Factor to scale the images by when computing optical flow. Decrease
+            this to increase performance at the cost of finer accuracy. Sometimes
+            decreasing the image scale can improve performance with fast movements.
+            Default: 1.0. (only if `use_flow` is True)
+        of_window_size: Optical flow window size to consider at each pyramid scale
+            level. Default: 21. (only if `use_flow` is True)
+        of_max_levels: Number of pyramid scale levels to consider. This is different
+            from the scale parameter, which determines the initial image scaling.
+                Default: 3. (only if `use_flow` is True).
+        post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
+            connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
+
+    Returns:
+        `sio.Labels` object with tracked instances.
+
+    """
+    tracker = Tracker.from_config(
+        window_size=window_size,
+        instance_score_threshold=instance_score_threshold,
+        candidates_method=candidates_method,
+        features=features,
+        scoring_method=scoring_method,
+        scoring_reduction=scoring_reduction,
+        robust_best_instance=robust_best_instance,
+        track_matching_method=track_matching_method,
+        max_tracks=max_tracks,
+        use_flow=use_flow,
+        of_img_scale=of_img_scale,
+        of_window_size=of_window_size,
+        of_max_levels=of_max_levels,
+    )
+    tracked_lfs = []
+    for lf in untracked_frames:
+        print(lf.instances)
+        tracked_instances = tracker.track(
+            untracked_instances=lf.instances, frame_idx=lf.frame_idx, image=lf.image
+        )
+        tracked_lfs.append(
+            sio.LabeledFrame(
+                video=lf.video, frame_idx=lf.frame_idx, instances=tracked_instances
+            )
+        )
+
+    if post_connect_single_breaks:
+        if max_tracks is None:
+            message = "Max_tracks is None. To connect single breaks, max_tracks should be set to an integer."
+            logger.error(message)
+            raise ValueError(message)
+        tracked_lfs = connect_single_breaks(tracked_lfs, max_instances=max_tracks)
+
+    return tracked_lfs
