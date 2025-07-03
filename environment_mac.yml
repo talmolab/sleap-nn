@@ -26,13 +26,13 @@ dependencies:
   - seaborn
   - rich
   - pynwb
-  - pillow
   - pip
   - pip:
-    - "--editable=.[dev]"
+    - pillow
     - torch
     - torchvision
     - lightning
     - litdata
     - hydra-core
     - loguru
+    - "--editable=.[dev]"
