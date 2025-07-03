@@ -339,6 +339,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     checkpoint = torch.load(
         Path(model_trainer.config.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
         map_location="cpu",
+        weights_only=False,
     )
     assert checkpoint["epoch"] == 1
 
@@ -601,6 +602,7 @@ def test_resume_training(config):
     checkpoint = torch.load(
         Path(trainer.config.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
         map_location="cpu",
+        weights_only=False,
     )
     assert checkpoint["epoch"] == 3
 
@@ -647,6 +649,7 @@ def test_early_stopping(config, tmp_path):
     checkpoint = torch.load(
         Path(trainer.config.trainer_config.save_ckpt_path).joinpath("best.ckpt"),
         map_location="cpu",
+        weights_only=False,
     )
     assert checkpoint["epoch"] == 1
 
