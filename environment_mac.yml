@@ -26,6 +26,7 @@ dependencies:
   - seaborn
   - rich
   - pynwb
+  - pillow
   - pip
   - pip:
     - "--editable=.[dev]"

@@ -26,6 +26,7 @@ dependencies:
   - seaborn
   - rich
   - pynwb
+  - pillow
   - pip
   - pip:
     - --extra-index-url https://download.pytorch.org/whl/cu118
