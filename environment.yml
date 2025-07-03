@@ -28,10 +28,10 @@ dependencies:
   - pynwb
   - pip
   - pip:
+    - --extra-index-url https://download.pytorch.org/whl/cu118
     - "--editable=.[dev]"
     - torch
     - torchvision
-    - --extra-index-url https://download.pytorch.org/whl/cu118
     - lightning
     - litdata
     - hydra-core
