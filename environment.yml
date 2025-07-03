@@ -28,11 +28,11 @@ dependencies:
   - pynwb
   - pip
   - pip:
-    - --extra-index-url https://download.pytorch.org/whl/cu118
     - pillow
     - torch
     - torchvision
     - lightning
+    - --extra-index-url https://download.pytorch.org/whl/cu118
     - litdata
     - hydra-core
     - loguru
