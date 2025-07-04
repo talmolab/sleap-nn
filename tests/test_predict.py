@@ -18,6 +18,8 @@ def test_predict_main(
             f"{minimal_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
+            "--peak_threshold",
+            f"{0.1}",
             "--device",
             "cpu",
         ]

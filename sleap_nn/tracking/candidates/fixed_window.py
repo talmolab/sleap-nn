@@ -16,16 +16,16 @@ class FixedWindowCandidates:
     Attributes:
         window_size: Number of previous frames to compare the current predicted instance with.
             Default: 5.
-        instance_score_threshold: Instance score threshold for creating new tracks.
-            Default: 0.0.
+        min_new_track_points: We won't spawn a new track for an instance with
+            fewer than this many points. Default: 0.
         tracker_queue: Deque object that stores the past `window_size` tracked instances.
         all_tracks: List of track IDs that are created.
     """
 
-    def __init__(self, window_size: int = 5, instance_score_threshold: float = 0.0):
+    def __init__(self, window_size: int = 5, min_new_track_points: int = 0):
         """Initialize class variables."""
         self.window_size = window_size
-        self.instance_score_threshold = instance_score_threshold
+        self.min_new_track_points = min_new_track_points
         self.tracker_queue = deque(maxlen=self.window_size)
         self.all_tracks = []
 
@@ -99,9 +99,11 @@ class FixedWindowCandidates:
     ) -> TrackInstances:
         """Add new track IDs to the `TrackInstances` object and to the tracker queue."""
         is_new_track = False
-        for i, score in enumerate(current_instances.instance_scores):
+        for i, src_instance in enumerate(current_instances.src_instances):
+            # Spawning a new track only if num visbile points is more than the threshold
+            num_visible_keypoints = (~np.isnan(src_instance.numpy()).any(axis=1)).sum()
             if (
-                score > self.instance_score_threshold
+                num_visible_keypoints > self.min_new_track_points
                 and current_instances.track_ids[i] is None
             ):
                 is_new_track = True

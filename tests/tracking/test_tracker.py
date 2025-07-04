@@ -1,7 +1,8 @@
 import pytest
 import numpy as np
+import sleap_io as sio
 from sleap_nn.inference.predictors import run_inference
-from sleap_nn.tracking.tracker import Tracker, FlowShiftTracker
+from sleap_nn.tracking.tracker import Tracker, FlowShiftTracker, run_tracker
 from sleap_nn.tracking.track_instance import (
     TrackedInstanceFeature,
     TrackInstanceLocalQueue,
@@ -45,10 +46,12 @@ def get_pred_instances(minimal_instance_ckpt):
 
 def test_tracker(caplog, minimal_instance_ckpt):
     """Test `Tracker` module."""
-    # Test for the first two instances (high instance threshold)
+    # Test for the first two instances
     # no new tracks should be created
     pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
-    tracker = Tracker.from_config(instance_score_threshold=1.0)
+    tracker = Tracker.from_config(
+        min_new_track_points=3
+    )  # num visible nodes is less than the threshold
     assert isinstance(tracker, Tracker)
     assert not isinstance(tracker, FlowShiftTracker)
     for p in pred_instances:
@@ -62,15 +65,16 @@ def test_tracker(caplog, minimal_instance_ckpt):
     # pose as feature, oks scoring method, avg score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
-    tracker = Tracker.from_config(
-        instance_score_threshold=0.0, candidates_method="fixed_window"
-    )
+    tracker = Tracker.from_config(candidates_method="fixed_window")
     for p in pred_instances:
         assert p.track is None
     tracked_instances = tracker.track(pred_instances, 0)  # 2 tracks are created
     for t in tracked_instances:
         assert t.track is not None
-    assert tracked_instances[0].track.name == 0 and tracked_instances[1].track.name == 1
+    assert (
+        tracked_instances[0].track.name == "track_0"
+        and tracked_instances[1].track.name == "track_1"
+    )
     assert len(tracker.candidate.tracker_queue) == 1
     assert tracker.candidate.current_tracks == [0, 1]
     assert tracker.candidate.tracker_queue[0].track_ids == [0, 1]
@@ -79,9 +83,7 @@ def test_tracker(caplog, minimal_instance_ckpt):
     # pose as feature, oks scoring method, max score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
-    tracker = Tracker.from_config(
-        instance_score_threshold=0.0, candidates_method="local_queues"
-    )
+    tracker = Tracker.from_config(candidates_method="local_queues")
     for p in pred_instances:
         assert p.track is None
     tracked_instances = tracker.track(pred_instances, 0)  # 2 tracks are created
@@ -89,13 +91,15 @@ def test_tracker(caplog, minimal_instance_ckpt):
         assert t.track is not None
     assert len(tracker.candidate.tracker_queue) == 2
     assert tracker.candidate.current_tracks == [0, 1]
-    assert tracked_instances[0].track.name == 0 and tracked_instances[1].track.name == 1
+    assert (
+        tracked_instances[0].track.name == "track_0"
+        and tracked_instances[1].track.name == "track_1"
+    )
 
     # Test indv. functions for fixed window
     # with 2 existing tracks in the queue
     pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
-        instance_score_threshold=0.0,
         candidates_method="fixed_window",
         scoring_reduction="max",
         track_matching_method="greedy",
@@ -142,13 +146,15 @@ def test_tracker(caplog, minimal_instance_ckpt):
     )
     tracked_instances = tracker.track(pred_instances, 0)
     assert len(tracker.candidate.current_tracks) == 2
-    assert tracked_instances[0].track.name == 0 and tracked_instances[1].track.name == 1
+    assert (
+        tracked_instances[0].track.name == "track_0"
+        and tracked_instances[1].track.name == "track_1"
+    )
 
     # Test local queue tracker
     # with existing tracks
     pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
-        instance_score_threshold=0.0,
         candidates_method="local_queues",
     )
     _ = tracker.track(pred_instances, 0)
@@ -243,7 +249,6 @@ def test_flowshifttracker(minimal_instance_ckpt):
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, imgs = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
-        instance_score_threshold=0.0,
         candidates_method="fixed_window",
         use_flow=True,
         track_matching_method="greedy",
@@ -276,7 +281,6 @@ def test_flowshifttracker(minimal_instance_ckpt):
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, imgs = get_pred_instances(minimal_instance_ckpt)
     tracker = Tracker.from_config(
-        instance_score_threshold=0.0,
         candidates_method="local_queues",
         use_flow=True,
         of_img_scale=0.5,
@@ -323,3 +327,53 @@ def test_flowshifttracker(minimal_instance_ckpt):
     assert np.issubdtype(new.dtype, np.integer)
     assert imgs[0].shape == (384, 384, 1)
     assert ref.shape == (192, 192) and new.shape == (192, 192)
+
+
+def test_run_tracker(
+    minimal_instance_centroid_ckpt, minimal_instance_ckpt, centered_instance_video
+):
+    """Tests for run_tracker."""
+    labels = run_inference(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        scoring_reduction="robust_quantile",
+    )
+
+    tracked_lfs = run_tracker(
+        untracked_frames=[x for x in labels],
+        max_tracks=2,
+        candidates_method="local_queues",
+        post_connect_single_breaks=True,
+    )
+    output = sio.Labels(
+        labeled_frames=tracked_lfs,
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+    )
+
+    # test run tracker with post connect single breaks
+    with pytest.raises(ValueError):
+        labels = run_inference(
+            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+            data_path=centered_instance_video.as_posix(),
+            make_labels=True,
+            max_instances=2,
+            peak_threshold=0.1,
+            frames=[x for x in range(0, 10)],
+            integral_refinement="integral",
+            scoring_reduction="robust_quantile",
+        )
+
+        tracked_lfs = run_tracker(
+            untracked_frames=[x for x in labels],
+            max_tracks=None,
+            candidates_method="local_queues",
+            post_connect_single_breaks=True,
+        )
+
+    assert len(output.tracks) == 2

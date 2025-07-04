@@ -196,6 +196,8 @@ def test_topdown_predictor(
         data_path="./tests/assets/centered_pair_small.mp4",
         make_labels=True,
         max_instances=2,
+        post_connect_single_breaks=True,
+        max_tracks=None,
         device="cpu",
         peak_threshold=0.1,
         frames=[x for x in range(20)],
@@ -207,6 +209,22 @@ def test_topdown_predictor(
     for lf in pred_labels:
         for instance in lf.instances:
             assert instance.track is not None
+
+    # test with tracking (no max inst provided and post connect breaks is true)
+    with pytest.raises(ValueError):
+        pred_labels = run_inference(
+            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+            data_path="./tests/assets/centered_pair_small.mp4",
+            make_labels=True,
+            max_instances=None,
+            post_connect_single_breaks=True,
+            max_tracks=None,
+            device="cpu",
+            peak_threshold=0.1,
+            frames=[x for x in range(20)],
+            tracking=True,
+        )
+        assert "Max_tracks (and max instances) is None" in caplog.text
 
     # check loading diff head ckpt for centered instance
     preprocess_config = {
@@ -879,7 +897,7 @@ def test_single_instance_predictor(
             data_path="./tests/assets/centered_pair_small.mp4",
             make_labels=True,
             device="cpu",
-            peak_threshold=0.3,
+            peak_threshold=0.0,
         )
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 1100
@@ -1142,6 +1160,9 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         tracking=True,
+        candidates_method="local_queues",
+        max_tracks=6,
+        post_connect_single_breaks=True,
         device="cpu",
     )
 
@@ -1213,3 +1234,35 @@ def test_bottomup_predictor(
     )
 
     assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+
+def test_tracking_only_pipeline(
+    minimal_instance_centroid_ckpt, minimal_instance_ckpt, centered_instance_video
+):
+    """Test tracking-only pipeline."""
+    labels = run_inference(
+        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        post_connect_single_breaks=True,
+    )
+    labels.save("preds.slp")
+
+    tracked_labels = run_inference(
+        data_path="preds.slp",
+        tracking=True,
+        post_connect_single_breaks=True,
+        max_instances=2,
+    )
+
+    assert len(tracked_labels.tracks) == 2
+
+    # neither model nor tracking is provided
+    with pytest.raises(Exception):
+        labels = run_inference(
+            data_path=centered_instance_video.as_posix(), tracking=False
+        )

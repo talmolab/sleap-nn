@@ -695,6 +695,12 @@ def run_training(config: DictConfig):
                 / f"pred_{d_name}.slp",
             )
 
+            if not len(pred_labels):
+                logger.info(
+                    f"Skipping eval on `{d_name}` dataset as there are no labeled frames..."
+                )
+                continue  # skip if there are no labeled frames
+
             evaluator = Evaluator(
                 ground_truth_instances=labels, predicted_instances=pred_labels
             )
