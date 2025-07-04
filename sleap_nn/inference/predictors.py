@@ -2073,7 +2073,7 @@ def run_inference(
                 max_tracks = max_instances
 
             if max_tracks is None:
-                message = "Max_tracks is None. To connect single breaks, max_tracks should be set to an integer."
+                message = "Max_tracks (and max instances) is None. To connect single breaks, max_tracks should be set to an integer."
                 logger.error(message)
                 raise ValueError(message)
 

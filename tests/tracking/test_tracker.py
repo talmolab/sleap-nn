@@ -356,4 +356,24 @@ def test_run_tracker(
         skeletons=labels.skeletons,
     )
 
+    # test run tracker with post connect single breaks
+    with pytest.raises(ValueError):
+        labels = run_inference(
+            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+            data_path=centered_instance_video.as_posix(),
+            make_labels=True,
+            max_instances=2,
+            peak_threshold=0.1,
+            frames=[x for x in range(0, 10)],
+            integral_refinement="integral",
+            scoring_reduction="robust_quantile",
+        )
+
+        tracked_lfs = run_tracker(
+            untracked_frames=[x for x in labels],
+            max_tracks=None,
+            candidates_method="local_queues",
+            post_connect_single_breaks=True,
+        )
+
     assert len(output.tracks) == 2
