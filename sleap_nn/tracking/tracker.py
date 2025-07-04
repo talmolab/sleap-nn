@@ -40,6 +40,7 @@ class Tracker:
 
     Attributes:
         candidate: Instance of either `FixedWindowCandidates` or `LocalQueueCandidates`.
+        min_match_points: Minimum non-NaN points for match candidates. Default: 0.
         features: Feature representation for the candidates to update current detections.
             One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
         scoring_method: Method to compute association score between features from the
@@ -49,7 +50,7 @@ class Tracker:
             several detections associated with the same track. One of [`mean`, `max`,
             `robust_quantile`]. Default: `mean`.
         track_matching_method: Track matching algorithm. One of `hungarian`, `greedy.
-                Default: `hungarian`.
+            Default: `hungarian`.
         robust_best_instance: If the value is between 0 and 1
             (excluded), use a robust quantile similarity score for the
             track. If the value is 1, use the max similarity (non-robust).
@@ -63,6 +64,7 @@ class Tracker:
     candidate: Union[FixedWindowCandidates, LocalQueueCandidates] = (
         FixedWindowCandidates()
     )
+    min_match_points: int = 0
     features: str = "keypoints"
     scoring_method: str = "oks"
     scoring_reduction: str = "mean"
@@ -97,8 +99,9 @@ class Tracker:
     def from_config(
         cls,
         window_size: int = 5,
-        instance_score_threshold: float = 0.0,
+        min_new_track_points: int = 0,
         candidates_method: str = "fixed_window",
+        min_match_points: int = 0,
         features: str = "keypoints",
         scoring_method: str = "oks",
         scoring_reduction: str = "mean",
@@ -115,12 +118,13 @@ class Tracker:
         Args:
             window_size: Number of frames to look for in the candidate instances to match
                 with the current detections. Default: 5.
-            instance_score_threshold: Instance score threshold for creating new tracks.
-                Default: 0.0.
+            min_new_track_points: We won't spawn a new track for an instance with
+                fewer than this many non-nan points. Default: 0.
             candidates_method: Either of `fixed_window` or `local_queues`. In fixed window
                 method, candidates from the last `window_size` frames. In local queues,
                 last `window_size` instances for each track ID is considered for matching
                 against the current detection. Default: `fixed_window`.
+            min_match_points: Minimum non-NaN points for match candidates. Default: 0.
             features: Feature representation for the candidates to update current detections.
                 One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
             scoring_method: Method to compute association score between features from the
@@ -153,7 +157,7 @@ class Tracker:
         if candidates_method == "fixed_window":
             candidate = FixedWindowCandidates(
                 window_size=window_size,
-                instance_score_threshold=instance_score_threshold,
+                min_new_track_points=min_new_track_points,
             )
             is_local_queue = False
 
@@ -161,7 +165,7 @@ class Tracker:
             candidate = LocalQueueCandidates(
                 window_size=window_size,
                 max_tracks=max_tracks,
-                instance_score_threshold=instance_score_threshold,
+                min_new_track_points=min_new_track_points,
             )
             is_local_queue = True
 
@@ -173,6 +177,7 @@ class Tracker:
         if use_flow:
             return FlowShiftTracker(
                 candidate=candidate,
+                min_match_points=min_match_points,
                 features=features,
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
@@ -186,6 +191,7 @@ class Tracker:
 
         tracker = cls(
             candidate=candidate,
+            min_match_points=min_match_points,
             features=features,
             scoring_method=scoring_method,
             scoring_reduction=scoring_reduction,
@@ -371,6 +377,8 @@ class Tracker:
                 scores_trackid = [
                     scoring_method(f, x.feature)
                     for x in candidates_feature_dict[track_id]
+                    if (~np.isnan(x.src_predicted_instance.numpy()).any(axis=1)).sum()
+                    > self.min_match_points  # only if the candidates have min non-nan points
                 ]
                 score_trackid = scoring_reduction(scores_trackid)  # scoring reduction
                 scores[f_idx][t_idx] = score_trackid
@@ -432,6 +440,7 @@ class FlowShiftTracker(Tracker):
 
     Attributes:
         candidates: Either `FixedWindowCandidates` or `LocalQueueCandidates` object.
+        min_match_points: Minimum non-NaN points for match candidates. Default: 0.
         features: One of [`keypoints`, `centroids`, `bboxes`, `image`].
             Default: `keypoints`.
         scoring_method: Method to compute association score between features from the
@@ -680,8 +689,9 @@ def connect_single_breaks(
 def run_tracker(
     untracked_frames: List[sio.LabeledFrame],
     window_size: int = 5,
-    instance_score_threshold: float = 0.0,
+    min_new_track_points: int = 0,
     candidates_method: str = "fixed_window",
+    min_match_points: int = 0,
     features: str = "keypoints",
     scoring_method: str = "oks",
     scoring_reduction: str = "mean",
@@ -700,12 +710,13 @@ def run_tracker(
         untracked_frames: List of labeled frames with predicted instances to be tracked.
         window_size: Number of frames to look for in the candidate instances to match
                 with the current detections. Default: 5.
-        instance_score_threshold: Instance score threshold for creating new tracks.
-            Default: 0.0.
+        min_new_track_points: We won't spawn a new track for an instance with
+            fewer than this many points. Default: 0.
         candidates_method: Either of `fixed_window` or `local_queues`. In fixed window
             method, candidates from the last `window_size` frames. In local queues,
             last `window_size` instances for each track ID is considered for matching
             against the current detection. Default: `fixed_window`.
+        min_match_points: Minimum non-NaN points for match candidates. Default: 0.
         features: Feature representation for the candidates to update current detections.
             One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
         scoring_method: Method to compute association score between features from the
@@ -742,8 +753,9 @@ def run_tracker(
     """
     tracker = Tracker.from_config(
         window_size=window_size,
-        instance_score_threshold=instance_score_threshold,
+        min_new_track_points=min_new_track_points,
         candidates_method=candidates_method,
+        min_match_points=min_match_points,
         features=features,
         scoring_method=scoring_method,
         scoring_reduction=scoring_reduction,

@@ -21,8 +21,8 @@ class LocalQueueCandidates:
         window_size: Number of previous frames to compare the current predicted instance with.
             Default: 5.
         max_tracks: Maximum number of new tracks that can be created. Default: None.
-        instance_score_threshold: Instance score threshold for creating new tracks.
-            Default: 0.0.
+        min_new_track_points: We won't spawn a new track for an instance with
+            fewer than this many points. Default: 0.
         tracker_queue: Dictionary that stores the past frames of all the tracks identified
             so far as `deque`.
         current_tracks: List of track IDs that are being tracked.
@@ -32,12 +32,12 @@ class LocalQueueCandidates:
         self,
         window_size: int = 5,
         max_tracks: Optional[int] = None,
-        instance_score_threshold: float = 0.0,
+        min_new_track_points: int = 0,
     ):
         """Initialize class variables."""
         self.window_size = window_size
         self.max_tracks = max_tracks
-        self.instance_score_threshold = instance_score_threshold
+        self.min_new_track_points = min_new_track_points
         self.tracker_queue = defaultdict(Deque)
         self.current_tracks = []
 
@@ -105,7 +105,11 @@ class LocalQueueCandidates:
         """Add new track IDs to the `TrackInstanceLocalQueue` objects and to the tracker queue."""
         track_instances = []
         for t in current_instances:
-            if t.instance_score > self.instance_score_threshold:
+            # Spawning a new track only if num visbile points is more than the threshold
+            num_visible_keypoints = (
+                ~np.isnan(t.src_instance.numpy()).any(axis=1)
+            ).sum()
+            if num_visible_keypoints > self.min_new_track_points:
                 new_track_id = self.get_new_track_id()
                 if new_track_id is not None:
                     t.track_id = new_track_id

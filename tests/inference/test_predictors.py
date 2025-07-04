@@ -879,7 +879,7 @@ def test_single_instance_predictor(
             data_path="./tests/assets/centered_pair_small.mp4",
             make_labels=True,
             device="cpu",
-            peak_threshold=0.3,
+            peak_threshold=0.0,
         )
         assert isinstance(pred_labels, sio.Labels)
         assert len(pred_labels) == 1100

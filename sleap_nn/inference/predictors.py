@@ -1786,8 +1786,9 @@ def run_inference(
     device: str = "auto",
     tracking: bool = False,
     tracking_window_size: int = 5,
-    tracking_instance_score_threshold: float = 0.0,
+    min_new_track_points: int = 0,
     candidates_method: str = "fixed_window",
+    min_match_points: int = 0,
     features: str = "keypoints",
     scoring_method: str = "oks",
     scoring_reduction: str = "mean",
@@ -1881,12 +1882,13 @@ def run_inference(
         tracking: (bool) If True, runs tracking on the predicted instances.
         tracking_window_size: Number of frames to look for in the candidate instances to match
                 with the current detections. Default: 5.
-        tracking_instance_score_threshold: Instance score threshold for creating new tracks.
-            Default: 0.0.
+        min_new_track_points: We won't spawn a new track for an instance with
+            fewer than this many points. Default: 0.
         candidates_method: Either of `fixed_window` or `local_queues`. In fixed window
             method, candidates from the last `window_size` frames. In local queues,
             last `window_size` instances for each track ID is considered for matching
             against the current detection. Default: `fixed_window`.
+        min_match_points: Minimum non-NaN points for match candidates. Default: 0.
         features: Feature representation for the candidates to update current detections.
             One of [`keypoints`, `centroids`, `bboxes`, `image`]. Default: `keypoints`.
         scoring_method: Method to compute association score between features from the
@@ -1954,8 +1956,9 @@ def run_inference(
             tracked_frames = run_tracker(
                 untracked_frames=frames,
                 window_size=tracking_window_size,
-                instance_score_threshold=tracking_instance_score_threshold,
+                min_new_track_points=min_new_track_points,
                 candidates_method=candidates_method,
+                min_match_points=min_match_points,
                 features=features,
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,
@@ -2016,8 +2019,9 @@ def run_inference(
         if tracking:
             predictor.tracker = Tracker.from_config(
                 candidates_method=candidates_method,
+                min_match_points=min_match_points,
                 window_size=tracking_window_size,
-                instance_score_threshold=tracking_instance_score_threshold,
+                min_new_track_points=min_new_track_points,
                 features=features,
                 scoring_method=scoring_method,
                 scoring_reduction=scoring_reduction,

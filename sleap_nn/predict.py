@@ -222,10 +222,12 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--tracking_instance_score_threshold",
-        type=float,
-        default=0.0,
-        help=("Instance score threshold for creating new tracks."),
+        "--min_new_track_points",
+        type=int,
+        default=0,
+        help=(
+            "We won't spawn a new track for an instance with fewer than this many points."
+        ),
     )
     parser.add_argument(
         "--candidates_method",
@@ -237,6 +239,12 @@ def _make_cli_parser() -> argparse.ArgumentParser:
             "last `window_size` instances for each track ID is considered for matching"
             "against the current detection."
         ),
+    )
+    parser.add_argument(
+        "--min_match_points",
+        type=int,
+        default=0,
+        help=("Minimum non-NaN points for match candidates."),
     )
     parser.add_argument(
         "--features",
