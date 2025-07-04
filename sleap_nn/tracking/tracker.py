@@ -5,6 +5,8 @@ from collections import defaultdict
 import attrs
 import cv2
 import numpy as np
+from time import time
+from datetime import datetime
 from loguru import logger
 import functools
 
@@ -784,6 +786,17 @@ def run_tracker(
             message = "Max_tracks is None. To connect single breaks, max_tracks should be set to an integer."
             logger.error(message)
             raise ValueError(message)
+        start_final_pass_time = time()
+        start_fp_timestamp = str(datetime.now())
+        logger.info(
+            "Started final-pass (connecting single breaks) at:", start_fp_timestamp
+        )
         tracked_lfs = connect_single_breaks(tracked_lfs, max_instances=max_tracks)
+        finish_fp_timestamp = str(datetime.now())
+        total_fp_elapsed = time() - start_final_pass_time
+        logger.info(
+            "Finished final-pass (connecting single breaks) at:", finish_fp_timestamp
+        )
+        logger.info(f"Total runtime: {total_fp_elapsed} secs")
 
     return tracked_lfs
