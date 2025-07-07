@@ -1,4 +1,3 @@
-# Continuous integration
 name: CI
 
 on:
