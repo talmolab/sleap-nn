@@ -23,15 +23,20 @@ from sleap_nn.data.resizing import (
 from sleap_nn.data.normalization import (
     apply_normalization,
 )
+from sleap_nn.config.utils import get_model_type_from_cfg
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceLightningModule,
     SingleInstanceLightningModule,
     CentroidLightningModule,
     BottomUpLightningModule,
+    BottomUpMultiClassLightningModule,
 )
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
-from sleap_nn.inference.bottomup import BottomUpInferenceModel
+from sleap_nn.inference.bottomup import (
+    BottomUpInferenceModel,
+    BottomUpMultiClassInferenceModel,
+)
 from sleap_nn.inference.topdown import (
     CentroidCrop,
     FindInstancePeaks,
@@ -159,9 +164,7 @@ class Predictor(ABC):
         ]
         model_names = []
         for config in model_configs:
-            for k, v in config.model_config.head_configs.items():
-                if v is not None:
-                    model_names.append(k)
+            model_names.append(get_model_type_from_cfg(config=config))
 
         if "single_instance" in model_names:
             confmap_ckpt_path = model_paths[model_names.index("single_instance")]
@@ -217,6 +220,23 @@ class Predictor(ABC):
                 device=device,
                 preprocess_config=preprocess_config,
             )
+
+        elif "multi_class_bottomup" in model_names:
+            bottomup_ckpt_path = model_paths[model_names.index("multi_class_bottomup")]
+            predictor = BottomUpMultiClassPredictor.from_trained_models(
+                bottomup_ckpt_path=bottomup_ckpt_path,
+                backbone_ckpt_path=backbone_ckpt_path,
+                head_ckpt_path=head_ckpt_path,
+                peak_threshold=peak_threshold,
+                integral_refinement=integral_refinement,
+                integral_patch_size=integral_patch_size,
+                batch_size=batch_size,
+                max_instances=max_instances,
+                return_confmaps=return_confmaps,
+                device=device,
+                preprocess_config=preprocess_config,
+            )
+
         else:
             message = f"Could not create predictor from model paths:\n{model_paths}"
             logger.error(message)
@@ -1748,6 +1768,387 @@ class BottomUpPredictor(Predictor):
         return pred_labels
 
 
+@attrs.define
+class BottomUpMultiClassPredictor(Predictor):
+    """BottomUp ID model predictor.
+
+    This high-level class handles initialization, preprocessing and predicting using a
+    trained BottomUp SLEAP-NN model.
+
+    This should be initialized using the `from_trained_models()` constructor.
+
+    Attributes:
+        bottomup_config: A OmegaConfig dictionary with the configs used for training the
+                        multi_class_bottomup model.
+        bottomup_model: A LightningModule instance created from the trained weights for
+                       multi_class_bottomup model.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        videos: List of `sio.Video` objects for creating the `sio.Labels` object from
+                        the output predictions.
+        skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
+                        the output predictions.
+        peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+            this will be ignored. Default: 0.2
+        integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+            If `"integral"`, peaks will be refined with integral regression.
+            Default: None.
+        integral_patch_size: (int) Size of patches to crop around each rough peak as an
+            integer scalar. Default: 5.
+        batch_size: (int) Number of samples per batch. Default: 4.
+        max_instances: (int) Max number of instances to consider from the predictions.
+        return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+            along with the predicted peak values and points. Default: False.
+        device: (str) Device on which torch.Tensor will be allocated. One of the
+            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            Default: "cpu".
+        preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
+
+    """
+
+    bottomup_config: Optional[OmegaConf] = attrs.field(default=None)
+    bottomup_model: Optional[L.LightningModule] = attrs.field(default=None)
+    backbone_type: str = "unet"
+    videos: Optional[List[sio.Video]] = attrs.field(default=None)
+    skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
+    peak_threshold: float = 0.2
+    integral_refinement: str = None
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    max_instances: Optional[int] = None
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[OmegaConf] = None
+
+    def _initialize_inference_model(self):
+        """Initialize the inference model from the trained models and configuration."""
+        # initialize the BottomUpMultiClassInferenceModel
+        self.inference_model = BottomUpMultiClassInferenceModel(
+            torch_model=self.bottomup_model,
+            peak_threshold=self.peak_threshold,
+            cms_output_stride=self.bottomup_config.model_config.head_configs.multi_class_bottomup.confmaps.output_stride,
+            class_maps_output_stride=self.bottomup_config.model_config.head_configs.multi_class_bottomup.class_maps.output_stride,
+            refinement=self.integral_refinement,
+            integral_patch_size=self.integral_patch_size,
+            return_confmaps=self.return_confmaps,
+            input_scale=self.bottomup_config.data_config.preprocessing.scale,
+        )
+
+    @property
+    def data_config(self) -> OmegaConf:
+        """Returns data config section from the overall config."""
+        data_config = self.bottomup_config.data_config.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        return self.preprocess_config
+
+    @classmethod
+    def from_trained_models(
+        cls,
+        bottomup_ckpt_path: Optional[Text] = None,
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
+        peak_threshold: float = 0.2,
+        integral_refinement: str = None,
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[OmegaConf] = None,
+    ) -> "BottomUpMultiClassPredictor":
+        """Create predictor from saved models.
+
+        Args:
+            bottomup_ckpt_path: Path to a multi-class bottom-up ckpt dir with model.ckpt and config.yaml.
+            backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
+                from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+            head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
+                    are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                    from `backbone_ckpt_path` if provided.)
+            peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2
+            integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+                If `"integral"`, peaks will be refined with integral regression.
+                Default: None.
+            integral_patch_size: (int) Size of patches to crop around each rough peak as an
+                integer scalar. Default: 5.
+            batch_size: (int) Number of samples per batch. Default: 4.
+            max_instances: (int) Max number of instances to consider from the predictions.
+            return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+                along with the predicted peak values and points. Default: False.
+            device: (str) Device on which torch.Tensor will be allocated. One of the
+                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                Default: "cpu"
+            preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section.
+
+        Returns:
+            An instance of `BottomUpPredictor` with the loaded models.
+
+        """
+        bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
+        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
+        ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
+
+        # check which backbone architecture
+        for k, v in bottomup_config.model_config.backbone_config.items():
+            if v is not None:
+                backbone_type = k
+                break
+
+        bottomup_model = BottomUpMultiClassLightningModule.load_from_checkpoint(
+            checkpoint_path=ckpt_path,
+            config=bottomup_config,
+            backbone_type=backbone_type,
+            model_type="multi_class_bottomup",
+            map_location=device,
+        )
+        if backbone_ckpt_path is not None and head_ckpt_path is not None:
+            logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+            ckpt = torch.load(backbone_ckpt_path, map_location=device)
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".backbone" in k
+            }
+            bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+        elif backbone_ckpt_path is not None:
+            logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
+            ckpt = torch.load(backbone_ckpt_path, map_location=device)
+            bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+        if head_ckpt_path is not None:
+            logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
+            ckpt = torch.load(head_ckpt_path, map_location=device)
+            ckpt["state_dict"] = {
+                k: ckpt["state_dict"][k]
+                for k in ckpt["state_dict"].keys()
+                if ".head_layers" in k
+            }
+            bottomup_model.load_state_dict(ckpt["state_dict"], strict=False)
+        bottomup_model.to(device)
+
+        # create an instance of SingleInstancePredictor class
+        obj = cls(
+            bottomup_config=bottomup_config,
+            backbone_type=backbone_type,
+            bottomup_model=bottomup_model,
+            skeletons=skeletons,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            return_confmaps=return_confmaps,
+            preprocess_config=preprocess_config,
+        )
+
+        obj._initialize_inference_model()
+        return obj
+
+    def make_pipeline(
+        self,
+        data_path: str,
+        queue_maxsize: int = 8,
+        frames: Optional[list] = None,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
+        video_index: Optional[int] = None,
+        video_dataset: Optional[str] = None,
+        video_input_format: str = "channels_last",
+    ):
+        """Make a data loading pipeline.
+
+        Args:
+            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+            frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
+            only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
+            only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            video_index: (int) Integer index of video in .slp file to predict on. To be used
+                with an .slp path as an alternative to specifying the video path.
+            video_dataset: (str) The dataset for HDF5 videos.
+            video_input_format: (str) The input_format for HDF5 videos.
+
+        Returns:
+            This method initiates the reader class (doesn't return a pipeline) and the
+            Thread is started in Predictor._predict_generator() method.
+        """
+        # LabelsReader provider
+        if data_path.endswith(".slp") and video_index is None:
+            provider = LabelsReader
+
+            max_stride = self.bottomup_config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ]["max_stride"]
+
+            self.preprocess = False
+            self.preprocess_config = {
+                "batch_size": self.batch_size,
+                "scale": self.bottomup_config.data_config.preprocessing.scale,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
+                "max_stride": max_stride,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.bottomup_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.bottomup_config.data_config.preprocessing.max_width
+                ),
+            }
+
+            self.pipeline = provider.from_filename(
+                filename=data_path,
+                queue_maxsize=queue_maxsize,
+                only_labeled_frames=only_labeled_frames,
+                only_suggested_frames=only_suggested_frames,
+            )
+            self.videos = self.pipeline.labels.videos
+
+        else:
+            provider = VideoReader
+            self.preprocess = True
+            self.preprocess_config = {
+                "batch_size": self.batch_size,
+                "scale": self.bottomup_config.data_config.preprocessing.scale,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
+                "max_stride": (
+                    self.bottomup_config.model_config.backbone_config[
+                        f"{self.backbone_type}"
+                    ]["max_stride"]
+                ),
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else self.bottomup_config.data_config.preprocessing.max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else self.bottomup_config.data_config.preprocessing.max_width
+                ),
+            }
+
+            if data_path.endswith(".slp") and video_index is not None:
+                labels = sio.load_slp(data_path)
+                self.pipeline = provider.from_video(
+                    video=labels.videos[video_index],
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                )
+
+            else:  # for mp4 or hdf5 videos
+                self.pipeline = provider.from_filename(
+                    filename=data_path,
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+
+            self.videos = [self.pipeline.video]
+
+    def _make_labeled_frames_from_generator(
+        self,
+        generator: Iterator[Dict[str, np.ndarray]],
+    ) -> sio.Labels:
+        """Create labeled frames from a generator that yields inference results.
+
+        This method converts pure arrays into SLEAP-specific data structures and assigns
+        tracks to the predicted instances if tracker is specified.
+
+        Args:
+            generator: A generator that returns dictionaries with inference results.
+                This should return dictionaries with keys `"instance_image"`, `"video_idx"`,
+                `"frame_idx"`, `"pred_instance_peaks"`, `"pred_peak_values"`, and
+                `"centroid_val"`. This can be created using the `_predict_generator()`
+                method.
+
+        Returns:
+            A `sio.Labels` object with `sio.PredictedInstance`s created from
+            arrays returned from the inference result generator.
+        """
+        predicted_frames = []
+        tracks = [
+            sio.Track(name=x)
+            for x in self.bottomup_config.model_config.head_configs.multi_class_bottomup.class_maps.classes
+        ]
+
+        skeleton_idx = 0
+        for ex in generator:
+            # loop through each sample in a batch
+            for (
+                video_idx,
+                frame_idx,
+                pred_instances,
+                pred_values,
+                instance_score,
+            ) in zip(
+                ex["video_idx"],
+                ex["frame_idx"],
+                ex["pred_instance_peaks"],
+                ex["pred_peak_values"],
+                ex["instance_scores"],
+            ):
+
+                # Loop over instances.
+                predicted_instances = []
+                for i, (pts, confs, score) in enumerate(
+                    zip(pred_instances, pred_values, instance_score)
+                ):
+                    if np.isnan(pts).all():
+                        continue
+
+                    track = None
+                    if tracks is not None and len(tracks) >= (i - 1):
+                        track = tracks[i]
+
+                    predicted_instances.append(
+                        sio.PredictedInstance.from_numpy(
+                            points_data=pts,
+                            point_scores=confs,
+                            score=np.nanmean(confs),
+                            skeleton=self.skeletons[skeleton_idx],
+                            track=track,
+                            tracking_score=np.nanmean(score),
+                        )
+                    )
+
+                max_instances = (
+                    self.max_instances if self.max_instances is not None else None
+                )
+                if max_instances is not None:
+                    # Filter by score.
+                    predicted_instances = sorted(
+                        predicted_instances, key=lambda x: x.score, reverse=True
+                    )
+                    predicted_instances = predicted_instances[
+                        : min(max_instances, len(predicted_instances))
+                    ]
+
+                lf = sio.LabeledFrame(
+                    video=self.videos[video_idx],
+                    frame_idx=frame_idx,
+                    instances=predicted_instances,
+                )
+
+                predicted_frames.append(lf)
+
+        pred_labels = sio.Labels(
+            videos=self.videos,
+            skeletons=self.skeletons,
+            labeled_frames=predicted_frames,
+        )
+        return pred_labels
+
+
 def run_inference(
     data_path: str,
     model_paths: Optional[List[str]] = None,
@@ -1780,6 +2181,7 @@ def run_inference(
     n_points: int = 10,
     min_instance_peaks: Union[int, float] = 0,
     min_line_scores: float = 0.25,
+    return_class_maps: bool = False,
     make_labels: bool = True,
     ##
     output_path: Optional[str] = None,
@@ -1870,6 +2272,10 @@ def run_inference(
         min_line_scores: (float) Minimum line score (between -1 and 1) required to form a match
                 between candidate point pairs. Useful for rejecting spurious detections when
                 there are no better ones. Default: 0.25.
+        return_class_maps: If `True`, the class maps will be returned together with
+            the predicted instances. This will result in slower inference times since
+            the data must be copied off of the GPU, but is useful for visualizing the
+            raw output of the model.
         make_labels: (bool) If `True` (the default), returns a `sio.Labels` instance with
                 `sio.PredictedInstance`s. If `False`, just return a list of
                 dictionaries containing the raw arrays returned by the inference model.
@@ -2016,7 +2422,7 @@ def run_inference(
             preprocess_config=OmegaConf.create(preprocess_config),
         )
 
-        if tracking:
+        if tracking and not isinstance(predictor, BottomUpMultiClassPredictor):
             predictor.tracker = Tracker.from_config(
                 candidates_method=candidates_method,
                 min_match_points=min_match_points,
@@ -2049,6 +2455,9 @@ def run_inference(
             predictor.inference_model.paf_scorer.min_line_scores = min_line_scores
             predictor.inference_model.paf_scorer.min_instance_peaks = min_instance_peaks
             predictor.inference_model.paf_scorer.n_points = n_points
+
+        if isinstance(predictor, BottomUpMultiClassPredictor):
+            predictor.inference_model.return_class_maps = return_class_maps
 
         # initialize make_pipeline function
 

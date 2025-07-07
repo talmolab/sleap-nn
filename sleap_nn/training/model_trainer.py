@@ -62,7 +62,7 @@ class ModelTrainer:
         val_labels: List of `sio.Labels` objects for validation dataset.
         skeletons: List of `sio.Skeleton` objects in a single slp file.
         lightning_model: One of the child classes of `sleap_nn.training.lightning_modules.LightningModel`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         trainer: Instance of the `lightning.Trainer` initialized with loggers and callbacks.
     """
@@ -266,6 +266,25 @@ class ModelTrainer:
                         "edges"
                     ] = edges
 
+            if "classes" in head_config[key].keys():
+                if head_config[key]["classes"] is None:
+                    tracks = []
+                    for train_label in self.train_labels:
+                        tracks.append(
+                            [x.name for x in train_label.tracks if x is not None]
+                        )
+                    classes = list(set(tracks))
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "classes"
+                    ] = classes
+
+                    if not len(classes):
+                        message = (
+                            f"No tracks found. ID models need tracks to be defined."
+                        )
+                        logger.error(message)
+                        raise Exception(message)
+
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path
         if ckpt_path is None:
@@ -456,6 +475,28 @@ class ModelTrainer:
                             next(val_viz_pipeline1)
                         ),
                         prefix="validation.pafs_magnitude",
+                    )
+                )
+
+            if self.model_type == "multi_class_bottomup":
+                train_viz_pipeline1 = cycle(copy.deepcopy(train_dataset))
+                val_viz_pipeline1 = cycle(copy.deepcopy(val_dataset))
+                callbacks.append(
+                    MatplotlibSaver(
+                        save_folder=viz_dir,
+                        plot_fn=lambda: self.lightning_model.visualize_class_maps_example(
+                            next(train_viz_pipeline1)
+                        ),
+                        prefix="train.class_maps",
+                    )
+                )
+                callbacks.append(
+                    MatplotlibSaver(
+                        save_folder=viz_dir,
+                        plot_fn=lambda: self.lightning_model.visualize_class_maps_example(
+                            next(val_viz_pipeline1)
+                        ),
+                        prefix="validation.class_maps",
                     )
                 )
 

@@ -68,6 +68,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'centroid'
             - 'centered_instance'
             - 'bottomup'
+            - 'multi_class_bottomup'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -87,8 +88,12 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         heads.append(MultiInstanceConfmapsHead(**head_config.confmaps))
         heads.append(PartAffinityFieldsHead(**head_config.pafs))
 
+    elif model_type == "multi_class_bottomup":
+        heads.append(MultiInstanceConfmapsHead(**head_config.confmaps))
+        heads.append(ClassMapsHead(**head_config.class_maps))
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`."
         logger.error(message)
         raise Exception(message)
 
@@ -102,7 +107,7 @@ class Model(nn.Module):
         backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
     """
 
     def __init__(

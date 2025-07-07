@@ -14,6 +14,7 @@ import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import sleap_io as sio
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
+from sleap_nn.data.identity import generate_class_maps
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.data.normalization import (
@@ -368,6 +369,203 @@ class BottomUpDataset(BaseDataset):
 
         sample["confidence_maps"] = confidence_maps
         sample["part_affinity_fields"] = pafs
+        sample["labels_idx"] = labels_idx
+
+        return sample
+
+
+class BottomUpMultiClassDataset(Dataset):
+    """Dataset class for bottom-up ID models.
+
+    Attributes:
+        labels: Source `sio.Labels` object.
+        max_stride: Scalar integer specifying the maximum stride that the image must be
+            divisible by.
+        class_map_threshold: Minimum confidence map value below which map values will be
+            replaced with zeros.
+        user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
+            both user labeled and predicted instances would be used.
+        ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
+        channel when this is set to `True`, then the images from single-channel
+        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+        ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
+        is set to True, then we convert the image to grayscale (single-channel)
+        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
+        augmentation_config: DictConfig object with `intensity` and `geometric` keys
+            according to structure `sleap_nn.config.data_config.AugmentationConfig`.
+        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
+        apply_aug: `True` if augmentations should be applied to the data pipeline,
+            else `False`. Default: `False`.
+        max_hw: Maximum height and width of images across the labels file. If `max_height` and
+           `max_width` in the config is None, then `max_hw` is used (computed with
+            `sleap_nn.data.providers.get_max_height_width`). Else the values in the config
+            are used.
+        confmap_head_config: DictConfig object with all the keys in the `head_config` section.
+            (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        class_maps_head_config: DictConfig object with all the keys in the `head_config` section
+            (required keys: `sigma`, `output_stride` and `classes`)
+            for class maps.
+        cache_img: String to indicate which caching to use: `memory` or `disk`. If `None`,
+            the images aren't cached and loaded from the `.slp` file on each access.
+        cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
+        use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
+        rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
+            disk occurs only once across all workers.
+    """
+
+    def __init__(
+        self,
+        labels: List[sio.Labels],
+        confmap_head_config: DictConfig,
+        class_maps_head_config: DictConfig,
+        max_stride: int,
+        class_map_threshold: float = 0.2,
+        user_instances_only: bool = True,
+        ensure_rgb: bool = False,
+        ensure_grayscale: bool = False,
+        augmentation_config: Optional[DictConfig] = None,
+        scale: float = 1.0,
+        apply_aug: bool = False,
+        max_hw: Tuple[Optional[int]] = (None, None),
+        cache_img: Optional[str] = None,
+        cache_img_path: Optional[str] = None,
+        use_existing_imgs: bool = False,
+        rank: Optional[int] = None,
+    ) -> None:
+        """Initialize class attributes."""
+        super().__init__(
+            labels=labels,
+            max_stride=max_stride,
+            user_instances_only=user_instances_only,
+            ensure_rgb=ensure_rgb,
+            ensure_grayscale=ensure_grayscale,
+            augmentation_config=augmentation_config,
+            scale=scale,
+            apply_aug=apply_aug,
+            max_hw=max_hw,
+            cache_img=cache_img,
+            cache_img_path=cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        self.confmap_head_config = confmap_head_config
+        self.class_maps_head_config = class_maps_head_config
+        self.tracks = self.labels.tracks
+        self.class_map_threshold = class_map_threshold
+
+    def __getitem__(self, index) -> Dict:
+        """Return dict with image, confmaps and pafs for given index."""
+        (labels_idx, lf_idx) = self.lf_idx_list[index]
+
+        lf = self.labels[labels_idx][lf_idx]
+
+        # load the img
+        if self.cache_img is not None:
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    )
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+
+        else:  # load from slp file if not cached
+            img = lf.image
+
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
+
+        video_idx = self._get_video_idx(lf, labels_idx)
+
+        # get dict
+        sample = process_lf(
+            lf,
+            video_idx=video_idx,
+            max_instances=self.max_instances,
+            user_instances_only=self.user_instances_only,
+        )
+
+        sample["track_ids"] = torch.Tensor(
+            [
+                self.tracks.index(inst.track) if inst.track is not None else -1
+                for inst in sample["instances"]
+            ]
+        ).to(torch.int32)
+
+        sample["num_tracks"] = torch.tensor(len(self.tracks), dtype=torch.int32)
+
+        # apply normalization
+        sample["image"] = apply_normalization(sample["image"])
+
+        if self.ensure_rgb:
+            sample["image"] = convert_to_rgb(sample["image"])
+        elif self.ensure_grayscale:
+            sample["image"] = convert_to_grayscale(sample["image"])
+
+        # size matcher
+        sample["image"], eff_scale = apply_sizematcher(
+            sample["image"],
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
+        )
+        sample["instances"] = sample["instances"] * eff_scale
+
+        # resize image
+        sample["image"], sample["instances"] = apply_resizer(
+            sample["image"],
+            sample["instances"],
+            scale=self.scale,
+        )
+
+        # Pad the image (if needed) according max stride
+        sample["image"] = apply_pad_to_stride(
+            sample["image"], max_stride=self.max_stride
+        )
+
+        # apply augmentation
+        if self.apply_aug and self.augmentation_config is not None:
+            if self.augmentation_config.intensity is not None:
+                sample["image"], sample["instances"] = apply_intensity_augmentation(
+                    sample["image"],
+                    sample["instances"],
+                    **self.augmentation_config.intensity,
+                )
+
+            if self.augmentation_config.geometric is not None:
+                sample["image"], sample["instances"] = apply_geometric_augmentation(
+                    sample["image"],
+                    sample["instances"],
+                    **self.augmentation_config.geometric,
+                )
+
+        img_hw = sample["image"].shape[-2:]
+
+        # Generate confidence maps
+        confidence_maps = generate_multiconfmaps(
+            sample["instances"],
+            img_hw=img_hw,
+            num_instances=sample["num_instances"],
+            sigma=self.confmap_head_config.sigma,
+            output_stride=self.confmap_head_config.output_stride,
+            is_centroids=False,
+        )
+
+        # class maps
+        class_maps = generate_class_maps(
+            instances=sample["instances"],
+            img_hw=img_hw,
+            num_instances=sample["num_instances"],
+            class_inds=sample["track_ids"],
+            num_tracks=sample["num_tracks"],
+            class_map_threshold=self.class_map_threshold,
+            sigma=self.class_maps_head_config.sigma,
+            output_stride=self.class_maps_head_config.output_stride,
+            is_centroids=False,
+        )
+
+        sample["confidence_maps"] = confidence_maps
+        sample["class_maps"] = class_maps
         sample["labels_idx"] = labels_idx
 
         return sample
@@ -1135,6 +1333,52 @@ def get_train_val_datasets(
             rank=rank,
         )
 
+    if model_type == "multi_class_bottomup":
+        train_dataset = BottomUpMultiClassDataset(
+            labels=train_labels,
+            confmap_head_config=config.model_config.head_configs.multi_class_bottomup.confmaps,
+            class_maps_head_config=config.model_config.head_configs.multi_class_bottomup.class_maps,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=config.data_config.augmentation_config,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=config.data_config.use_augmentations_train,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=train_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+        val_dataset = BottomUpMultiClassDataset(
+            labels=val_labels,
+            confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
+            pafs_head_config=config.model_config.head_configs.bottomup.pafs,
+            max_stride=config.model_config.backbone_config[f"{backbone_type}"][
+                "max_stride"
+            ],
+            user_instances_only=config.data_config.user_instances_only,
+            ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+            ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+            augmentation_config=None,
+            scale=config.data_config.preprocessing.scale,
+            apply_aug=False,
+            max_hw=(
+                config.data_config.preprocessing.max_height,
+                config.data_config.preprocessing.max_width,
+            ),
+            cache_img=cache_imgs,
+            cache_img_path=val_cache_img_path,
+            use_existing_imgs=use_existing_imgs,
+            rank=rank,
+        )
+
     elif model_type == "centered_instance":
         nodes = config.model_config.head_configs.centered_instance.confmaps.part_names
         anchor_part = (
@@ -1306,8 +1550,8 @@ def get_train_val_dataloaders(
     """Return the train and val dataloaders.
 
     Args:
-        train_dataset: Train dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
-        val_dataset: Val dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
+        train_dataset: Train dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset, BottomUpMultiClassDataset].
+        val_dataset: Val dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset, BottomUpMultiClassDataset].
         config: Sleap-nn config.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
