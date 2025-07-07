@@ -5,9 +5,22 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.
 """
 
 import h5py
+import json
 import numpy as np
 import torch
-from typing import Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any, Optional, List
+from pathlib import Path
+from omegaconf import OmegaConf
+
+from sleap_nn.architectures.unet import UNet
+from sleap_nn.architectures.model import Model
+from sleap_nn.architectures.heads import (
+    CentroidConfmapsHead,
+    CenteredInstanceConfmapsHead,
+    SingleInstanceConfmapsHead,
+    MultiInstanceConfmapsHead,
+    PartAffinityFieldsHead,
+)
 
 
 def convert_keras_to_pytorch_conv2d(keras_weight: np.ndarray) -> torch.Tensor:
@@ -118,10 +131,19 @@ def parse_keras_layer_name(layer_path: str) -> Dict[str, Any]:
         import re
 
         if info["is_encoder"]:
-            match = re.search(r"enc(\d+)_conv(\d+)", layer_name)
-            if match:
-                info["block_idx"] = int(match.group(1))
-                info["conv_idx"] = int(match.group(2))
+            # Check for middle blocks first
+            if "middle" in layer_name:
+                # Middle blocks don't follow the standard pattern
+                # Extract conv index from the layer name
+                match = re.search(r"conv(\d+)", layer_name)
+                if match:
+                    info["conv_idx"] = int(match.group(1))
+                # Block idx will remain None for middle blocks
+            else:
+                match = re.search(r"enc(\d+)_conv(\d+)", layer_name)
+                if match:
+                    info["block_idx"] = int(match.group(1))
+                    info["conv_idx"] = int(match.group(2))
         elif info["is_decoder"]:
             # Decoder naming is more complex
             match = re.search(r"dec(\d+)_.*conv(\d+)", layer_name)
@@ -130,3 +152,496 @@ def parse_keras_layer_name(layer_path: str) -> Dict[str, Any]:
                 info["conv_idx"] = int(match.group(2))
 
     return info
+
+
+def map_legacy_to_pytorch_layers(
+    legacy_weights: Dict[str, np.ndarray], pytorch_model: torch.nn.Module
+) -> Dict[str, str]:
+    """Create mapping between legacy Keras layers and PyTorch model layers.
+    
+    Args:
+        legacy_weights: Dictionary of legacy weights from load_keras_weights()
+        pytorch_model: PyTorch model instance to map to
+        
+    Returns:
+        Dictionary mapping legacy layer paths to PyTorch parameter names
+    """
+    mapping = {}
+    
+    # Get all PyTorch layers with their shapes
+    pytorch_params = {}
+    for name, param in pytorch_model.named_parameters():
+        pytorch_params[name] = param.shape
+    
+    # Parse legacy layers
+    legacy_info = {}
+    for path, weight in legacy_weights.items():
+        info = parse_keras_layer_name(path)
+        info["shape"] = weight.shape
+        info["path"] = path
+        legacy_info[path] = info
+    
+    # Map encoder layers
+    encoder_layers = []
+    for path, info in legacy_info.items():
+        if info["is_encoder"]:
+            # Use a high value for None block_idx so middle blocks sort last
+            block_idx = info["block_idx"] if info["block_idx"] is not None else 999
+            conv_idx = info["conv_idx"] if info["conv_idx"] is not None else 0
+            encoder_layers.append((block_idx, conv_idx, path, info))
+    encoder_layers.sort()
+    
+    # Map decoder layers  
+    decoder_layers = []
+    for path, info in legacy_info.items():
+        if info["is_decoder"]:
+            block_idx = info["block_idx"] if info["block_idx"] is not None else 0
+            conv_idx = info["conv_idx"] if info["conv_idx"] is not None else 0
+            decoder_layers.append((block_idx, conv_idx, path, info))
+    decoder_layers.sort()
+    
+    # Map head layers
+    head_layers = [
+        (path, info) for path, info in legacy_info.items()
+        if info["is_head"]
+    ]
+    
+    # Separate middle/bottleneck blocks from regular encoder blocks
+    middle_blocks = []
+    regular_encoder_blocks = []
+    
+    for block_idx, conv_idx, path, info in encoder_layers:
+        # Check if this is a middle block (usually has "middle" in the name)
+        if "middle" in info["layer_name"]:
+            middle_blocks.append((block_idx, conv_idx, path, info))
+        elif block_idx is not None:
+            regular_encoder_blocks.append((block_idx, conv_idx, path, info))
+    
+    # Mapping logic for regular encoder layers
+    for block_idx, conv_idx, path, info in regular_encoder_blocks:
+        weight_type = info["weight_type"]
+        
+        # In PyTorch UNet:
+        # - Stack 0: blocks.0 and blocks.2
+        # - Stack 1+: blocks.1 and blocks.3 
+        
+        # PyTorch uses "weight" instead of "kernel"
+        pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
+        
+        if block_idx == 0:
+            # First encoder stack
+            if conv_idx == 0:
+                pytorch_name = f"backbone.enc.encoder_stack.0.blocks.0.{pytorch_weight_type}"
+            elif conv_idx == 1:
+                pytorch_name = f"backbone.enc.encoder_stack.0.blocks.2.{pytorch_weight_type}"
+        else:
+            # Subsequent encoder stacks
+            if conv_idx == 0:
+                pytorch_name = f"backbone.enc.encoder_stack.{block_idx}.blocks.1.{pytorch_weight_type}"
+            elif conv_idx == 1:
+                pytorch_name = f"backbone.enc.encoder_stack.{block_idx}.blocks.3.{pytorch_weight_type}"
+        
+        # Check if this parameter exists in the PyTorch model
+        if pytorch_name in pytorch_params:
+            mapping[path] = pytorch_name
+    
+    # Map middle blocks to encoder_stack indices 5, 6, etc.
+    # Group middle blocks by layer name
+    middle_layers = {}
+    for _, _, path, info in middle_blocks:
+        layer_name = info["layer_name"]
+        if layer_name not in middle_layers:
+            middle_layers[layer_name] = []
+        middle_layers[layer_name].append((path, info))
+    
+    # Sort layers - in legacy models, "expand" comes before "contract"
+    sorted_layer_names = sorted(middle_layers.keys())
+    
+    middle_idx = 5  # Middle blocks start at index 5 in PyTorch
+    for layer_name in sorted_layer_names:
+        for path, info in middle_layers[layer_name]:
+            weight_type = info["weight_type"]
+            pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
+            pytorch_name = f"backbone.enc.encoder_stack.{middle_idx}.blocks.0.{pytorch_weight_type}"
+            
+            if pytorch_name in pytorch_params:
+                mapping[path] = pytorch_name
+        
+        # Increment index after processing all weights for a layer
+        middle_idx += 1
+    
+    # Mapping logic for decoder layers
+    # In PyTorch, decoder stacks are numbered in reverse order
+    max_decoder_block = max([block_idx for block_idx, _, _, _ in decoder_layers]) if decoder_layers else 0
+    
+    for block_idx, conv_idx, path, info in decoder_layers:
+        weight_type = info["weight_type"]
+        pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
+        
+        # Reverse the block index for PyTorch
+        pytorch_block_idx = max_decoder_block - block_idx
+        
+        # In PyTorch decoder:
+        # - First conv in block: blocks.1
+        # - Second conv in block: blocks.3
+        if conv_idx == 0:
+            pytorch_name = f"backbone.dec.decoder_stack.{pytorch_block_idx}.blocks.1.{pytorch_weight_type}"
+        elif conv_idx == 1:
+            pytorch_name = f"backbone.dec.decoder_stack.{pytorch_block_idx}.blocks.3.{pytorch_weight_type}"
+        
+        if pytorch_name in pytorch_params:
+            mapping[path] = pytorch_name
+    
+    # Mapping logic for head layers
+    head_idx = 0
+    for path, info in head_layers:
+        weight_type = info["weight_type"]
+        pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
+        layer_name = info["layer_name"]
+        
+        # Most heads have a single conv2d layer
+        pytorch_name = f"head_layers.{head_idx}.0.{pytorch_weight_type}"
+        
+        if pytorch_name in pytorch_params:
+            mapping[path] = pytorch_name
+            
+            # For PAF heads in bottom-up models, increment head index
+            if "PartAffinityFieldsHead" in layer_name:
+                head_idx += 1
+    
+    return mapping
+
+
+def load_legacy_model_weights(
+    pytorch_model: torch.nn.Module,
+    h5_path: str,
+    mapping: Optional[Dict[str, str]] = None
+) -> None:
+    """Load legacy Keras weights into a PyTorch model.
+    
+    Args:
+        pytorch_model: PyTorch model to load weights into
+        h5_path: Path to the legacy .h5 model file
+        mapping: Optional manual mapping of layer names. If None,
+                 will attempt automatic mapping.
+    """
+    # Load legacy weights
+    legacy_weights = load_keras_weights(h5_path)
+    
+    if mapping is None:
+        # Attempt automatic mapping
+        mapping = map_legacy_to_pytorch_layers(legacy_weights, pytorch_model)
+    
+    # Apply weights
+    for legacy_path, pytorch_name in mapping.items():
+        if legacy_path not in legacy_weights:
+            print(f"Warning: Legacy weight not found: {legacy_path}")
+            continue
+            
+        weight = legacy_weights[legacy_path]
+        info = parse_keras_layer_name(legacy_path)
+        
+        # Convert weight format if needed
+        if info["weight_type"] == "kernel":
+            if "trans_conv" in legacy_path:
+                weight = convert_keras_to_pytorch_conv2d_transpose(weight)
+            else:
+                weight = convert_keras_to_pytorch_conv2d(weight)
+        else:
+            # Bias weights don't need conversion
+            weight = torch.from_numpy(weight).float()
+        
+        # Set the parameter using state_dict
+        try:
+            state_dict = pytorch_model.state_dict()
+            if pytorch_name not in state_dict:
+                print(f"Warning: PyTorch parameter not found: {pytorch_name}")
+                continue
+                
+            # Check shape compatibility
+            pytorch_shape = state_dict[pytorch_name].shape
+            if weight.shape != pytorch_shape:
+                print(f"Warning: Shape mismatch for {pytorch_name}: "
+                      f"legacy {weight.shape} vs pytorch {pytorch_shape}")
+                continue
+                
+            # Update the parameter in the model
+            with torch.no_grad():
+                param = pytorch_model
+                for attr in pytorch_name.split('.')[:-1]:
+                    param = getattr(param, attr)
+                param_name = pytorch_name.split('.')[-1]
+                setattr(param, param_name, torch.nn.Parameter(weight))
+                
+        except Exception as e:
+            print(f"Error loading {pytorch_name}: {e}")
+
+
+def create_model_from_legacy_config(config_path: str) -> Model:
+    """Create a PyTorch model from a legacy training config.
+    
+    Args:
+        config_path: Path to the legacy training_config.json file
+        
+    Returns:
+        Model instance configured to match the legacy architecture
+    """
+    # Load config
+    config_path = Path(config_path)
+    if config_path.is_dir():
+        config_path = config_path / "training_config.json"
+    
+    with open(config_path, "r") as f:
+        legacy_config = json.load(f)
+    
+    # Extract model config
+    model_config = legacy_config.get("model", {})
+    backbone_config = model_config.get("backbone", {})
+    heads_config = model_config.get("heads", {})
+    
+    # Create backbone
+    backbone_type = backbone_config.get("backbone_type", "unet")
+    if backbone_type.lower() != "unet":
+        raise NotImplementedError(f"Only UNet backbone supported, got {backbone_type}")
+    
+    # Get architecture parameters
+    down_blocks = backbone_config.get("down_blocks", 3)
+    up_blocks = backbone_config.get("up_blocks", 2)
+    stem_blocks = backbone_config.get("stem_blocks", 0)
+    filters = backbone_config.get("filters", 16)
+    filters_rate = backbone_config.get("filters_rate", 1.5)
+    
+    # Determine output stride from heads
+    output_stride = 1
+    for head_type, head_config in heads_config.items():
+        if head_config and "output_stride" in head_config:
+            output_stride = max(output_stride, head_config["output_stride"])
+    
+    # Create backbone
+    backbone = UNet(
+        in_channels=1,  # Most models use grayscale
+        output_stride=output_stride,
+        filters=filters,
+        filters_rate=filters_rate,
+        down_blocks=down_blocks,
+        up_blocks=up_blocks,
+        stem_blocks=stem_blocks,
+        convs_per_block=2,  # Legacy default
+        middle_block=True,  # Legacy default
+        up_interpolate=False,  # Legacy uses transposed convs
+    )
+    
+    # Create heads configuration
+    model_head_configs = OmegaConf.create({})
+    
+    # Determine model type and create appropriate head config
+    if "centroid" in heads_config and heads_config["centroid"]:
+        model_type = "centroid"
+        head_config = heads_config["centroid"]
+        model_head_configs = OmegaConf.create({
+            "confmaps": {
+                "anchor_part": head_config.get("anchor_part", None),
+                "sigma": head_config.get("sigma", 1.5),
+                "output_stride": head_config.get("output_stride", 4),
+                "loss_weight": head_config.get("loss_weight", 1.0),
+            }
+        })
+    
+    elif "centered_instance" in heads_config and heads_config["centered_instance"]:
+        model_type = "centered_instance"
+        head_config = heads_config["centered_instance"]
+        # Get part names from skeleton if available
+        part_names = None
+        if "data" in legacy_config and "labels" in legacy_config["data"]:
+            skeletons = legacy_config["data"]["labels"].get("skeletons", [])
+            if skeletons and "links" in skeletons[0]:
+                # Extract node names from links
+                links = skeletons[0]["links"]
+                part_names = []
+                seen_names = set()
+                for link in links:
+                    # Extract source and target node names
+                    if "source" in link and "py/state" in link["source"]:
+                        name = link["source"]["py/state"]["py/tuple"][0]
+                        if name not in seen_names:
+                            part_names.append(name)
+                            seen_names.add(name)
+                    if "target" in link and "py/state" in link["target"]:
+                        name = link["target"]["py/state"]["py/tuple"][0]
+                        if name not in seen_names:
+                            part_names.append(name)
+                            seen_names.add(name)
+        
+        if part_names is None:
+            part_names = ["part_0", "part_1"]  # Fallback
+        
+        model_head_configs = OmegaConf.create({
+            "confmaps": {
+                "part_names": part_names,
+                "sigma": head_config.get("sigma", 1.5),
+                "output_stride": head_config.get("output_stride", 2),
+                "anchor_part": head_config.get("anchor_part", part_names[-1] if part_names else None),
+                "loss_weight": head_config.get("loss_weight", 1.0),
+            }
+        })
+    
+    elif "single_instance" in heads_config and heads_config["single_instance"]:
+        model_type = "single_instance"
+        head_config = heads_config["single_instance"]
+        # Similar part name extraction as above
+        part_names = None
+        if "data" in legacy_config and "labels" in legacy_config["data"]:
+            skeletons = legacy_config["data"]["labels"].get("skeletons", [])
+            if skeletons and "links" in skeletons[0]:
+                # Extract node names from links
+                links = skeletons[0]["links"]
+                part_names = []
+                seen_names = set()
+                for link in links:
+                    # Extract source and target node names
+                    if "source" in link and "py/state" in link["source"]:
+                        name = link["source"]["py/state"]["py/tuple"][0]
+                        if name not in seen_names:
+                            part_names.append(name)
+                            seen_names.add(name)
+                    if "target" in link and "py/state" in link["target"]:
+                        name = link["target"]["py/state"]["py/tuple"][0]
+                        if name not in seen_names:
+                            part_names.append(name)
+                            seen_names.add(name)
+        
+        if part_names is None:
+            part_names = ["part_0", "part_1", "part_2"]  # Fallback
+        
+        model_head_configs = OmegaConf.create({
+            "confmaps": {
+                "part_names": part_names,
+                "sigma": head_config.get("sigma", 1.5),
+                "output_stride": head_config.get("output_stride", 2),
+                "loss_weight": head_config.get("loss_weight", 1.0),
+            }
+        })
+    
+    elif "multi_instance" in heads_config and heads_config["multi_instance"]:
+        model_type = "bottomup"
+        # Bottom-up model
+        head_config = heads_config["multi_instance"]
+        paf_config = heads_config.get("multi_class_part_affinity_fields", {})
+        
+        # Extract part names and edges
+        part_names = None
+        edges = None
+        if "data" in legacy_config and "labels" in legacy_config["data"]:
+            skeletons = legacy_config["data"]["labels"].get("skeletons", [])
+            if skeletons and "links" in skeletons[0]:
+                # Extract node names from links
+                links = skeletons[0]["links"]
+                part_names = []
+                name_to_idx = {}
+                seen_names = set()
+                idx = 0
+                for link in links:
+                    # Extract source and target node names
+                    if "source" in link and "py/state" in link["source"]:
+                        name = link["source"]["py/state"]["py/tuple"][0]
+                        if name not in seen_names:
+                            part_names.append(name)
+                            name_to_idx[name] = idx
+                            seen_names.add(name)
+                            idx += 1
+                    if "target" in link and "py/state" in link["target"]:
+                        name = link["target"]["py/state"]["py/tuple"][0]
+                        if name not in seen_names:
+                            part_names.append(name)
+                            name_to_idx[name] = idx
+                            seen_names.add(name)
+                            idx += 1
+                
+                # Extract edges using the name mapping
+                edges = []
+                for link in links:
+                    if "source" in link and "target" in link:
+                        src_name = link["source"]["py/state"]["py/tuple"][0]
+                        dst_name = link["target"]["py/state"]["py/tuple"][0]
+                        edges.append((name_to_idx[src_name], name_to_idx[dst_name]))
+        
+        if part_names is None:
+            part_names = ["part_0", "part_1"]
+        if edges is None:
+            edges = [(0, 1)]
+        
+        model_head_configs = OmegaConf.create({
+            "confmaps": {
+                "part_names": part_names,
+                "sigma": head_config.get("sigma", 1.5),
+                "output_stride": head_config.get("output_stride", 2),
+                "loss_weight": head_config.get("loss_weight", 1.0),
+            },
+            "pafs": {
+                "edges": edges,
+                "sigma": paf_config.get("sigma", 2.0),
+                "output_stride": paf_config.get("output_stride", 2),
+                "loss_weight": paf_config.get("loss_weight", 1.0),
+            }
+        })
+    
+    else:
+        raise ValueError("Could not determine model type from config")
+    
+    # Create backbone config for direct initialization
+    # Note: We use direct initialization instead of from_config since we have
+    # down_blocks/up_blocks directly from legacy config
+    backbone_config = OmegaConf.create({
+        "output_stride": output_stride,
+        "in_channels": 3 if model_type == "single_instance" else 1,  # RGB for single instance
+        "filters": filters,
+        "filters_rate": filters_rate,
+        "down_blocks": down_blocks,
+        "up_blocks": up_blocks,
+        "stem_blocks": stem_blocks,
+        "convs_per_block": 2,
+        "middle_block": True,
+        "up_interpolate": False,
+        "kernel_size": 3,  # Legacy default
+        "stacks": 1,  # Legacy default
+        # Additional parameters for from_config compatibility
+        "max_stride": 2 ** (down_blocks + stem_blocks),
+        "stem_stride": 2 ** stem_blocks if stem_blocks > 0 else None,
+    })
+    
+    # Create model
+    model = Model(
+        backbone_type="unet",
+        backbone_config=backbone_config,
+        head_configs=model_head_configs,
+        model_type=model_type,
+    )
+    return model
+
+
+def load_legacy_model(model_dir: str, load_weights: bool = True) -> Model:
+    """Load a complete legacy SLEAP model including weights.
+    
+    Args:
+        model_dir: Path to the legacy model directory containing
+                   training_config.json and best_model.h5
+        load_weights: Whether to load the weights. If False, only
+                      creates the model architecture.
+    
+    Returns:
+        Model instance with loaded weights
+    """
+    model_dir = Path(model_dir)
+    
+    # Create model from config
+    model = create_model_from_legacy_config(str(model_dir))
+    
+    # Load weights if requested
+    if load_weights:
+        h5_path = model_dir / "best_model.h5"
+        if h5_path.exists():
+            load_legacy_model_weights(model, str(h5_path))
+        else:
+            print(f"Warning: Model weights not found at {h5_path}")
+    
+    return model
