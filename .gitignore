@@ -165,3 +165,9 @@ cython_debug/
 .vscode/
 
 wandb/
+
+# Serena
+.serena/
+
+# macOS
+.DS_Store
