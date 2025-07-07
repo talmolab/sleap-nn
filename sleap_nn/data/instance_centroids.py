@@ -1,9 +1,7 @@
 """Handle calculation of instance centroids."""
 
-from typing import Dict, Iterator, Optional
-
+from typing import Optional
 import torch
-from torch.utils.data.datapipes.datapipe import IterDataPipe
 
 
 def find_points_bbox_midpoint(points: torch.Tensor) -> torch.Tensor:
@@ -61,34 +59,3 @@ def generate_centroids(
         centroids[missing_anchors] = find_points_bbox_midpoint(points[missing_anchors])
 
     return centroids  # (..., n_instances, 2)
-
-
-class InstanceCentroidFinder(IterDataPipe):
-    """Datapipe for finding centroids of instances.
-
-    This DataPipe will produce examples that contain a 'centroids' key.
-
-    Attributes:
-        source_dp: The input `IterDataPipe` with examples that contain an `"instances"`
-            key.
-        anchor_ind: The index of the node to use as the anchor for the centroid. If not
-            provided or if not present in the instance, the midpoint of the bounding box
-            is used instead.
-    """
-
-    def __init__(
-        self,
-        source_dp: IterDataPipe,
-        anchor_ind: Optional[int] = None,
-    ) -> None:
-        """Initialize InstanceCentroidFinder with the source `IterDataPipe`."""
-        self.source_dp = source_dp
-        self.anchor_ind = anchor_ind
-
-    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
-        """Add `"centroids"` key to example."""
-        for ex in self.source_dp:
-            ex["centroids"] = generate_centroids(
-                ex["instances"], anchor_ind=self.anchor_ind
-            )  # (n_samples, n_instances, 2)
-            yield ex

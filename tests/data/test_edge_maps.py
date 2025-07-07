@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import sleap_io as sio
 from sleap_nn.data.utils import make_grid_vectors
-from sleap_nn.data.providers import LabelsReaderDP, process_lf
+from sleap_nn.data.providers import process_lf
 from sleap_nn.data.edge_maps import (
     distance_to_edge,
     make_edge_maps,
@@ -10,7 +10,6 @@ from sleap_nn.data.edge_maps import (
     make_multi_pafs,
     get_edge_points,
     generate_pafs,
-    PartAffinityFieldsGenerator,
 )
 
 
@@ -205,16 +204,3 @@ def test_generate_pafs(minimal_instance):
         edge_inds=torch.Tensor(labels.skeletons[0].edge_inds),
     )
     assert pafs.shape == (1, 2, 192, 192)
-
-
-def test_part_affinity_fields_generator(minimal_instance):
-    provider = LabelsReaderDP.from_filename(minimal_instance)
-    paf_generator = PartAffinityFieldsGenerator(
-        provider,
-        sigma=8,
-        output_stride=2,
-        edge_inds=torch.tensor(provider.labels.skeletons[0].edge_inds),
-    )
-    out = next(iter(paf_generator))
-    assert out["part_affinity_fields"].shape == (1, 2, 192, 192)
-    assert out["part_affinity_fields"].dtype == torch.float32

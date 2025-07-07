@@ -18,13 +18,11 @@ The config file has three main sections:
     - `validation_fraction`: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. Default: 0.1.
     - `test_file_path`: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only with CLI to get evaluation on test set after training is completed. 
     - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
-    - `data_pipeline_fw`: (str) Framework to create the data loaders. One of [`litdata`, `torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`].
+    - `data_pipeline_fw`: (str) Framework to create the data loaders. One of [`torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`].
     *Default*: `"torch_dataset"`.
     - `cache_img_path`: (str) Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_imgs` and `val_imgs` dirs are created inside this path. *Default*: `None`.
-    - `litdata_chunks_path`: (str) Path to save `.bin` files created with `litdata` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used (else working dir is used). The `train_chunks` and `val_chunks` dirs are created inside this path. *Default*: `None`.
-    - `use_existing_imgs`: (bool) Use existing train and val images/ chunks in the `cache_img_path` or `litdata_chunks_path` for `torch_dataset_cache_img_disk` or `litdata` frameworks. If `True`, the `cache_img_path` (or `litdata_chunks_path`) should have `train_imgs` and `val_imgs` dirs. *Default*: `False`.
-    - `chunk_size`: (int) Size of each chunk (in MB). *Default*: `100`.
-    - `delete_cache_imgs_after_training`: (bool) If `False`, the images (torch_dataset_cache_img_disk or litdata chunks) are retained after training. Else, the files are deleted. *Default*: `True`.
+    - `use_existing_imgs`: (bool) Use existing train and val images/ chunks in the `cache_img_path` for `torch_dataset_cache_img_disk` frameworks. If `True`, the `cache_img_path` should have `train_imgs` and `val_imgs` dirs. *Default*: `False`.
+    - `delete_cache_imgs_after_training`: (bool) If `False`, the images (torch_dataset_cache_img_disk) are retained after training. Else, the files are deleted. *Default*: `True`.
     #TODO: change in inference ckpts
     - `preprocessing`:
         - `ensure_rgb`: (bool) True if the input image should have 3 channels (RGB image). If input has only one

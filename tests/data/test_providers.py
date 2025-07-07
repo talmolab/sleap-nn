@@ -1,7 +1,6 @@
 import torch
 
 from sleap_nn.data.providers import (
-    LabelsReaderDP,
     LabelsReader,
     VideoReader,
     process_lf,
@@ -9,23 +8,6 @@ from sleap_nn.data.providers import (
 from queue import Queue
 import sleap_io as sio
 import numpy as np
-import pytest
-
-
-def test_providers(minimal_instance):
-    """Test LabelsReaderDP module."""
-    l = LabelsReaderDP.from_filename(minimal_instance)
-    sample = next(iter(l))
-    instances, image = sample["instances"], sample["image"]
-    assert image.shape == torch.Size([1, 1, 384, 384])
-    assert instances.shape == torch.Size([1, 2, 2, 2])
-    assert torch.isnan(instances[:, 2:, :, :]).all()
-
-    labels = sio.load_slp(minimal_instance)
-    org_image = labels[0].image
-    image = image.squeeze().squeeze().unsqueeze(dim=-1)
-    assert np.all(org_image == image.numpy())
-    assert l.max_height_and_width == (384, 384)
 
 
 def test_videoreader_provider(centered_instance_video, minimal_instance):

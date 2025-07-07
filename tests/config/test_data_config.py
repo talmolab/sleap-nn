@@ -41,7 +41,6 @@ def test_data_config_initialization():
     assert config.train_labels_path == "train.slp"
     assert config.val_labels_path == "val.slp"
     assert config.user_instances_only is True
-    assert config.chunk_size == 100
 
 
 def test_preprocessing_config_initialization(caplog):
