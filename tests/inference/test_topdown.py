@@ -61,7 +61,6 @@ def test_centroid_inference_model(
     config, minimal_instance, tmp_path, minimal_instance_centroid_ckpt
 ):
     """Test CentroidCrop class to run inference on centroid models."""
-
     config = OmegaConf.load(
         (Path(minimal_instance_centroid_ckpt) / "training_config.yaml").as_posix()
     )

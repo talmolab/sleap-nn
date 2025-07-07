@@ -5,7 +5,6 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.
 """
 
 import h5py
-import json
 import numpy as np
 import torch
 from typing import Dict, Tuple, Any, Optional, List
@@ -13,15 +12,8 @@ from pathlib import Path
 from omegaconf import OmegaConf
 import re
 
-from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.model import Model
-from sleap_nn.architectures.heads import (
-    CentroidConfmapsHead,
-    CenteredInstanceConfmapsHead,
-    SingleInstanceConfmapsHead,
-    MultiInstanceConfmapsHead,
-    PartAffinityFieldsHead,
-)
+from sleap_nn.config.training_job_config import TrainingJobConfig
 
 
 def convert_keras_to_pytorch_conv2d(keras_weight: np.ndarray) -> torch.Tensor:
@@ -403,250 +395,48 @@ def create_model_from_legacy_config(config_path: str) -> Model:
     Returns:
         Model instance configured to match the legacy architecture
     """
-    # Load config
+    # Load config using existing functionality
     config_path = Path(config_path)
     if config_path.is_dir():
         config_path = config_path / "training_config.json"
     
-    with open(config_path, "r") as f:
-        legacy_config = json.load(f)
+    # Use the existing config loader
+    config = TrainingJobConfig.load_sleap_config(str(config_path))
     
-    # Extract model config
-    model_config = legacy_config.get("model", {})
-    backbone_config = model_config.get("backbone", {})
-    heads_config = model_config.get("heads", {})
+    # Determine backbone type from config
+    backbone_type = "unet"  # Default for legacy models
     
-    # Create backbone
-    backbone_type = backbone_config.get("backbone_type", "unet")
-    if backbone_type.lower() != "unet":
-        raise NotImplementedError(f"Only UNet backbone supported, got {backbone_type}")
+    # Get backbone config (should be under the unet key for legacy models)
+    backbone_config = config.model_config.backbone_config.unet
     
-    # Determine output stride from heads first
-    output_stride = 1
-    for head_type, head_config in heads_config.items():
-        if head_config and "output_stride" in head_config:
-            output_stride = max(output_stride, head_config["output_stride"])
+    # Determine model type from head configs
+    head_configs = config.model_config.head_configs
+    model_type = None
+    active_head_config = None
     
-    # Get architecture parameters
-    # Legacy configs might not have these, so infer from max_stride/output_stride
-    max_stride = backbone_config.get("max_stride", 16)
-    output_stride_from_backbone = backbone_config.get("output_stride", output_stride)
-    
-    # Infer blocks from strides if not directly specified
-    if "down_blocks" in backbone_config:
-        down_blocks = backbone_config["down_blocks"]
-        up_blocks = backbone_config.get("up_blocks", 2)
-        stem_blocks = backbone_config.get("stem_blocks", 0)
-    else:
-        # Calculate from max_stride
-        total_down_blocks = int(np.log2(max_stride))
-        stem_blocks = backbone_config.get("stem_blocks", 0)
-        down_blocks = total_down_blocks - stem_blocks
-        # Calculate up_blocks to achieve desired output_stride
-        up_blocks = int(np.log2(max_stride / output_stride_from_backbone))
-    
-    filters = backbone_config.get("filters", 16)
-    filters_rate = backbone_config.get("filters_rate", 1.5)
-    
-    # Create backbone
-    backbone = UNet(
-        in_channels=1,  # Most models use grayscale
-        output_stride=output_stride,
-        filters=filters,
-        filters_rate=filters_rate,
-        down_blocks=down_blocks,
-        up_blocks=up_blocks,
-        stem_blocks=stem_blocks,
-        convs_per_block=2,  # Legacy default
-        middle_block=True,  # Legacy default
-        up_interpolate=False,  # Legacy uses transposed convs
-    )
-    
-    # Create heads configuration
-    model_head_configs = OmegaConf.create({})
-    
-    # Determine model type and create appropriate head config
-    if "centroid" in heads_config and heads_config["centroid"]:
+    if head_configs.centroid is not None:
         model_type = "centroid"
-        head_config = heads_config["centroid"]
-        model_head_configs = OmegaConf.create({
-            "confmaps": {
-                "anchor_part": head_config.get("anchor_part", None),
-                "sigma": head_config.get("sigma", 1.5),
-                "output_stride": head_config.get("output_stride", 4),
-                "loss_weight": head_config.get("loss_weight", 1.0),
-            }
-        })
-    
-    elif "centered_instance" in heads_config and heads_config["centered_instance"]:
+        active_head_config = head_configs.centroid
+    elif head_configs.centered_instance is not None:
         model_type = "centered_instance"
-        head_config = heads_config["centered_instance"]
-        # Get part names from skeleton if available
-        part_names = None
-        if "data" in legacy_config and "labels" in legacy_config["data"]:
-            skeletons = legacy_config["data"]["labels"].get("skeletons", [])
-            if skeletons and "links" in skeletons[0]:
-                # Extract node names from links
-                links = skeletons[0]["links"]
-                part_names = []
-                seen_names = set()
-                for link in links:
-                    # Extract source and target node names
-                    if "source" in link and "py/state" in link["source"]:
-                        name = link["source"]["py/state"]["py/tuple"][0]
-                        if name not in seen_names:
-                            part_names.append(name)
-                            seen_names.add(name)
-                    if "target" in link and "py/state" in link["target"]:
-                        name = link["target"]["py/state"]["py/tuple"][0]
-                        if name not in seen_names:
-                            part_names.append(name)
-                            seen_names.add(name)
-        
-        if part_names is None:
-            part_names = ["part_0", "part_1"]  # Fallback
-        
-        model_head_configs = OmegaConf.create({
-            "confmaps": {
-                "part_names": part_names,
-                "sigma": head_config.get("sigma", 1.5),
-                "output_stride": head_config.get("output_stride", 2),
-                "anchor_part": head_config.get("anchor_part", part_names[-1] if part_names else None),
-                "loss_weight": head_config.get("loss_weight", 1.0),
-            }
-        })
-    
-    elif "single_instance" in heads_config and heads_config["single_instance"]:
-        model_type = "single_instance"
-        head_config = heads_config["single_instance"]
-        # Similar part name extraction as above
-        part_names = None
-        if "data" in legacy_config and "labels" in legacy_config["data"]:
-            skeletons = legacy_config["data"]["labels"].get("skeletons", [])
-            if skeletons and "links" in skeletons[0]:
-                # Extract node names from links
-                links = skeletons[0]["links"]
-                part_names = []
-                seen_names = set()
-                for link in links:
-                    # Extract source and target node names
-                    if "source" in link and "py/state" in link["source"]:
-                        name = link["source"]["py/state"]["py/tuple"][0]
-                        if name not in seen_names:
-                            part_names.append(name)
-                            seen_names.add(name)
-                    if "target" in link and "py/state" in link["target"]:
-                        name = link["target"]["py/state"]["py/tuple"][0]
-                        if name not in seen_names:
-                            part_names.append(name)
-                            seen_names.add(name)
-        
-        if part_names is None:
-            part_names = ["part_0", "part_1", "part_2"]  # Fallback
-        
-        model_head_configs = OmegaConf.create({
-            "confmaps": {
-                "part_names": part_names,
-                "sigma": head_config.get("sigma", 1.5),
-                "output_stride": head_config.get("output_stride", 2),
-                "loss_weight": head_config.get("loss_weight", 1.0),
-            }
-        })
-    
-    elif "multi_instance" in heads_config and heads_config["multi_instance"]:
+        active_head_config = head_configs.centered_instance
+    elif head_configs.single_instance is not None:
+        model_type = "single_instance" 
+        active_head_config = head_configs.single_instance
+    elif head_configs.bottomup is not None:
         model_type = "bottomup"
-        # Bottom-up model
-        head_config = heads_config["multi_instance"]
-        paf_config = heads_config.get("multi_class_part_affinity_fields", {})
-        
-        # Extract part names and edges
-        part_names = None
-        edges = None
-        if "data" in legacy_config and "labels" in legacy_config["data"]:
-            skeletons = legacy_config["data"]["labels"].get("skeletons", [])
-            if skeletons and "links" in skeletons[0]:
-                # Extract node names from links
-                links = skeletons[0]["links"]
-                part_names = []
-                name_to_idx = {}
-                seen_names = set()
-                idx = 0
-                for link in links:
-                    # Extract source and target node names
-                    if "source" in link and "py/state" in link["source"]:
-                        name = link["source"]["py/state"]["py/tuple"][0]
-                        if name not in seen_names:
-                            part_names.append(name)
-                            name_to_idx[name] = idx
-                            seen_names.add(name)
-                            idx += 1
-                    if "target" in link and "py/state" in link["target"]:
-                        name = link["target"]["py/state"]["py/tuple"][0]
-                        if name not in seen_names:
-                            part_names.append(name)
-                            name_to_idx[name] = idx
-                            seen_names.add(name)
-                            idx += 1
-                
-                # Extract edges using the name mapping
-                edges = []
-                for link in links:
-                    if "source" in link and "target" in link:
-                        src_name = link["source"]["py/state"]["py/tuple"][0]
-                        dst_name = link["target"]["py/state"]["py/tuple"][0]
-                        edges.append((name_to_idx[src_name], name_to_idx[dst_name]))
-        
-        if part_names is None:
-            part_names = ["part_0", "part_1"]
-        if edges is None:
-            edges = [(0, 1)]
-        
-        model_head_configs = OmegaConf.create({
-            "confmaps": {
-                "part_names": part_names,
-                "sigma": head_config.get("sigma", 1.5),
-                "output_stride": head_config.get("output_stride", 2),
-                "loss_weight": head_config.get("loss_weight", 1.0),
-            },
-            "pafs": {
-                "edges": edges,
-                "sigma": paf_config.get("sigma", 2.0),
-                "output_stride": paf_config.get("output_stride", 2),
-                "loss_weight": paf_config.get("loss_weight", 1.0),
-            }
-        })
-    
+        active_head_config = head_configs.bottomup
     else:
-        raise ValueError("Could not determine model type from config")
+        raise ValueError("Could not determine model type from head configs")
     
-    # Create backbone config for direct initialization
-    # Note: We use direct initialization instead of from_config since we have
-    # down_blocks/up_blocks directly from legacy config
-    backbone_config = OmegaConf.create({
-        "output_stride": output_stride,
-        "in_channels": 3 if model_type == "single_instance" else 1,  # RGB for single instance
-        "filters": filters,
-        "filters_rate": filters_rate,
-        "down_blocks": down_blocks,
-        "up_blocks": up_blocks,
-        "stem_blocks": stem_blocks,
-        "convs_per_block": 2,
-        "middle_block": True,
-        "up_interpolate": False,
-        "kernel_size": 3,  # Legacy default
-        "stacks": 1,  # Legacy default
-        # Additional parameters for from_config compatibility
-        "max_stride": 2 ** (down_blocks + stem_blocks),
-        "stem_stride": 2 ** stem_blocks if stem_blocks > 0 else None,
-    })
-    
-    # Create model
-    model = Model(
-        backbone_type="unet",
+    # Create model using the from_config method
+    model = Model.from_config(
+        backbone_type=backbone_type,
         backbone_config=backbone_config,
-        head_configs=model_head_configs,
+        head_configs=active_head_config,
         model_type=model_type,
     )
+    
     return model
 
 

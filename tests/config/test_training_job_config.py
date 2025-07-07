@@ -141,8 +141,8 @@ def test_load_bottomup_multiclass_training_config_from_file(
     bottomup_multiclass_training_config_path,
 ):
     """Test the load_sleap_config method with a sample bottomup multiclass legacy
-    configuration from a JSON file."""
-
+    configuration from a JSON file.
+    """
     json_file_path = bottomup_multiclass_training_config_path
 
     config = TrainingJobConfig.load_sleap_config(json_file_path)
@@ -194,7 +194,6 @@ def test_load_bottomup_multiclass_training_config_from_file(
 
 def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
     """Test the load_sleap_config function with a sample bottomup configuration from a JSON file."""
-
     json_file_path = bottomup_training_config_path
 
     # Load the configuration using the load_sleap_config method
@@ -214,8 +213,8 @@ def test_load_centered_instance_training_config_from_file(
     centered_instance_training_config_path,
 ):
     """Test the load_sleap_config function with a sample centered instance configuration
-    from a JSON file."""
-
+    from a JSON file.
+    """
     json_file_path = centered_instance_training_config_path
 
     # Load the configuration using the load_sleap_config method
