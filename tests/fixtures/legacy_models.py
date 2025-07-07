@@ -32,7 +32,7 @@ LEGACY_MODELS_DIR = Path(__file__).parent.parent / "assets" / "legacy_models"
 @pytest.fixture
 def centroid_model_path() -> Path:
     """Path to a trained centroid model.
-    
+
     This model detects animal centroids in 384x384 grayscale images.
     Architecture: UNet with 3 down blocks, 2 up blocks
     Heads: CentroidConfmapsHead + OffsetRefinementHead
@@ -43,7 +43,7 @@ def centroid_model_path() -> Path:
 @pytest.fixture
 def centered_instance_model_path() -> Path:
     """Path to a trained centered instance model.
-    
+
     This model predicts poses for cropped single animals in 96x96 grayscale images.
     Architecture: UNet with 3 down blocks, 2 up blocks
     Heads: CenteredInstanceConfmapsHead + OffsetRefinementHead
@@ -55,7 +55,7 @@ def centered_instance_model_path() -> Path:
 @pytest.fixture
 def single_instance_model_path() -> Path:
     """Path to a trained single instance model.
-    
+
     This model predicts poses for single animals in 192x192 RGB images.
     Architecture: UNet with 2 down blocks, 0 up blocks
     Heads: SingleInstanceConfmapsHead
@@ -67,7 +67,7 @@ def single_instance_model_path() -> Path:
 @pytest.fixture
 def bottomup_model_path() -> Path:
     """Path to a trained bottom-up model.
-    
+
     This model predicts multi-animal poses in 384x384 grayscale images.
     Architecture: UNet with 3 down blocks, 2 up blocks
     Heads: MultiInstanceConfmapsHead + PartAffinityFieldsHead
@@ -78,27 +78,27 @@ def bottomup_model_path() -> Path:
 
 def load_legacy_config(model_path: Path) -> Dict[str, Any]:
     """Load the training configuration for a legacy model.
-    
+
     Args:
         model_path: Path to the model directory containing training_config.json
-        
+
     Returns:
         Dictionary containing the full training configuration
     """
     config_path = model_path / "training_config.json"
     if not config_path.exists():
         raise FileNotFoundError(f"Config not found: {config_path}")
-    
+
     with open(config_path, "r") as f:
         return json.load(f)
 
 
 def get_model_architecture(model_path: Path) -> Dict[str, Any]:
     """Extract architecture parameters from a legacy model config.
-    
+
     Args:
         model_path: Path to the model directory
-        
+
     Returns:
         Dictionary containing architecture parameters like:
         - backbone_type: "unet"
@@ -109,7 +109,7 @@ def get_model_architecture(model_path: Path) -> Dict[str, Any]:
     """
     config = load_legacy_config(model_path)
     model_config = config.get("model", {})
-    
+
     # Extract backbone config
     backbone = model_config.get("backbone", {})
     arch_config = {
@@ -119,16 +119,13 @@ def get_model_architecture(model_path: Path) -> Dict[str, Any]:
         "filters": backbone.get("filters", 16),
         "filters_rate": backbone.get("filters_rate", 1.5),
     }
-    
+
     # Extract head configs
     heads_config = model_config.get("heads", {})
     arch_config["heads"] = []
-    
+
     for head_type, head_params in heads_config.items():
         if head_params:  # Skip None values
-            arch_config["heads"].append({
-                "type": head_type,
-                "config": head_params
-            })
-    
+            arch_config["heads"].append({"type": head_type, "config": head_params})
+
     return arch_config

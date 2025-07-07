@@ -151,21 +151,21 @@ def map_legacy_to_pytorch_layers(
     legacy_weights: Dict[str, np.ndarray], pytorch_model: torch.nn.Module
 ) -> Dict[str, str]:
     """Create mapping between legacy Keras layers and PyTorch model layers.
-    
+
     Args:
         legacy_weights: Dictionary of legacy weights from load_keras_weights()
         pytorch_model: PyTorch model instance to map to
-        
+
     Returns:
         Dictionary mapping legacy layer paths to PyTorch parameter names
     """
     mapping = {}
-    
+
     # Get all PyTorch layers with their shapes
     pytorch_params = {}
     for name, param in pytorch_model.named_parameters():
         pytorch_params[name] = param.shape
-    
+
     # Parse legacy layers
     legacy_info = {}
     for path, weight in legacy_weights.items():
@@ -173,7 +173,7 @@ def map_legacy_to_pytorch_layers(
         info["shape"] = weight.shape
         info["path"] = path
         legacy_info[path] = info
-    
+
     # Map encoder layers
     encoder_layers = []
     for path, info in legacy_info.items():
@@ -183,8 +183,8 @@ def map_legacy_to_pytorch_layers(
             conv_idx = info["conv_idx"] if info["conv_idx"] is not None else 0
             encoder_layers.append((block_idx, conv_idx, path, info))
     encoder_layers.sort()
-    
-    # Map decoder layers  
+
+    # Map decoder layers
     decoder_layers = []
     for path, info in legacy_info.items():
         if info["is_decoder"]:
@@ -192,52 +192,55 @@ def map_legacy_to_pytorch_layers(
             conv_idx = info["conv_idx"] if info["conv_idx"] is not None else 0
             decoder_layers.append((block_idx, conv_idx, path, info))
     decoder_layers.sort()
-    
+
     # Map head layers
     head_layers = [
-        (path, info) for path, info in legacy_info.items()
-        if info["is_head"]
+        (path, info) for path, info in legacy_info.items() if info["is_head"]
     ]
-    
+
     # Separate middle/bottleneck blocks from regular encoder blocks
     middle_blocks = []
     regular_encoder_blocks = []
-    
+
     for block_idx, conv_idx, path, info in encoder_layers:
         # Check if this is a middle block (usually has "middle" in the name)
         if "middle" in info["layer_name"]:
             middle_blocks.append((block_idx, conv_idx, path, info))
         elif block_idx is not None:
             regular_encoder_blocks.append((block_idx, conv_idx, path, info))
-    
+
     # Mapping logic for regular encoder layers
     for block_idx, conv_idx, path, info in regular_encoder_blocks:
         weight_type = info["weight_type"]
-        
+
         # In PyTorch UNet:
         # - Stack 0: blocks.0 and blocks.2
-        # - Stack 1+: blocks.1 and blocks.3 
-        
+        # - Stack 1+: blocks.1 and blocks.3
+
         # PyTorch uses "weight" instead of "kernel"
         pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-        
+
         if block_idx == 0:
             # First encoder stack
             if conv_idx == 0:
-                pytorch_name = f"backbone.enc.encoder_stack.0.blocks.0.{pytorch_weight_type}"
+                pytorch_name = (
+                    f"backbone.enc.encoder_stack.0.blocks.0.{pytorch_weight_type}"
+                )
             elif conv_idx == 1:
-                pytorch_name = f"backbone.enc.encoder_stack.0.blocks.2.{pytorch_weight_type}"
+                pytorch_name = (
+                    f"backbone.enc.encoder_stack.0.blocks.2.{pytorch_weight_type}"
+                )
         else:
             # Subsequent encoder stacks
             if conv_idx == 0:
                 pytorch_name = f"backbone.enc.encoder_stack.{block_idx}.blocks.1.{pytorch_weight_type}"
             elif conv_idx == 1:
                 pytorch_name = f"backbone.enc.encoder_stack.{block_idx}.blocks.3.{pytorch_weight_type}"
-        
+
         # Check if this parameter exists in the PyTorch model
         if pytorch_name in pytorch_params:
             mapping[path] = pytorch_name
-    
+
     # Map middle blocks
     # Group middle blocks by layer name to handle them in order
     middle_layers = {}
@@ -246,38 +249,46 @@ def map_legacy_to_pytorch_layers(
         if layer_name not in middle_layers:
             middle_layers[layer_name] = []
         middle_layers[layer_name].append((path, info))
-    
+
     # Sort layers - in legacy models, "expand" comes before "contract"
-    sorted_layer_names = sorted(middle_layers.keys(), key=lambda x: (0 if "expand" in x else 1, x))
-    
+    sorted_layer_names = sorted(
+        middle_layers.keys(), key=lambda x: (0 if "expand" in x else 1, x)
+    )
+
     # Middle blocks in PyTorch start after regular encoder blocks
-    middle_idx = len(regular_encoder_blocks) // 2  # Divide by 2 because each block has kernel and bias
-    
+    middle_idx = (
+        len(regular_encoder_blocks) // 2
+    )  # Divide by 2 because each block has kernel and bias
+
     for layer_name in sorted_layer_names:
         for path, info in middle_layers[layer_name]:
             weight_type = info["weight_type"]
             pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-            
+
             # Middle blocks use blocks.1 in PyTorch
             pytorch_name = f"backbone.enc.encoder_stack.{middle_idx}.blocks.1.{pytorch_weight_type}"
-            
+
             if pytorch_name in pytorch_params:
                 mapping[path] = pytorch_name
                 # Only increment after both weight and bias are mapped
                 if weight_type == "bias":
                     middle_idx += 1
-    
+
     # Mapping logic for decoder layers
     # In PyTorch, decoder stacks are numbered in reverse order
-    max_decoder_block = max([block_idx for block_idx, _, _, _ in decoder_layers]) if decoder_layers else 0
-    
+    max_decoder_block = (
+        max([block_idx for block_idx, _, _, _ in decoder_layers])
+        if decoder_layers
+        else 0
+    )
+
     for block_idx, conv_idx, path, info in decoder_layers:
         weight_type = info["weight_type"]
         pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-        
+
         # Reverse the block index for PyTorch
         pytorch_block_idx = max_decoder_block - block_idx
-        
+
         # In PyTorch decoder:
         # - First conv in block: blocks.1
         # - Second conv in block: blocks.3
@@ -285,10 +296,10 @@ def map_legacy_to_pytorch_layers(
             pytorch_name = f"backbone.dec.decoder_stack.{pytorch_block_idx}.blocks.1.{pytorch_weight_type}"
         elif conv_idx == 1:
             pytorch_name = f"backbone.dec.decoder_stack.{pytorch_block_idx}.blocks.3.{pytorch_weight_type}"
-        
+
         if pytorch_name in pytorch_params:
             mapping[path] = pytorch_name
-    
+
     # Mapping logic for head layers
     # Filter out unsupported heads like OffsetRefinementHead
     supported_heads = []
@@ -297,37 +308,37 @@ def map_legacy_to_pytorch_layers(
         # Skip offset refinement heads as they're not supported in current architecture
         if "OffsetRefinement" not in layer_name:
             supported_heads.append((path, info))
-    
+
     head_idx = 0
     current_head_type = None
     for path, info in supported_heads:
         weight_type = info["weight_type"]
         pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
         layer_name = info["layer_name"]
-        
+
         # Track when we move to a new head type
         head_type = layer_name.split("_")[0]  # e.g., "CentroidConfmapsHead"
         if current_head_type != head_type:
             if current_head_type is not None:
                 head_idx += 1
             current_head_type = head_type
-        
+
         # Most heads have a single conv2d layer at index 0
         pytorch_name = f"head_layers.{head_idx}.0.{pytorch_weight_type}"
-        
+
         if pytorch_name in pytorch_params:
             mapping[path] = pytorch_name
-    
+
     return mapping
 
 
 def load_legacy_model_weights(
     pytorch_model: torch.nn.Module,
     h5_path: str,
-    mapping: Optional[Dict[str, str]] = None
+    mapping: Optional[Dict[str, str]] = None,
 ) -> None:
     """Load legacy Keras weights into a PyTorch model.
-    
+
     Args:
         pytorch_model: PyTorch model to load weights into
         h5_path: Path to the legacy .h5 model file
@@ -336,20 +347,20 @@ def load_legacy_model_weights(
     """
     # Load legacy weights
     legacy_weights = load_keras_weights(h5_path)
-    
+
     if mapping is None:
         # Attempt automatic mapping
         mapping = map_legacy_to_pytorch_layers(legacy_weights, pytorch_model)
-    
+
     # Apply weights
     for legacy_path, pytorch_name in mapping.items():
         if legacy_path not in legacy_weights:
             print(f"Warning: Legacy weight not found: {legacy_path}")
             continue
-            
+
         weight = legacy_weights[legacy_path]
         info = parse_keras_layer_name(legacy_path)
-        
+
         # Convert weight format if needed
         if info["weight_type"] == "kernel":
             if "trans_conv" in legacy_path:
@@ -359,39 +370,41 @@ def load_legacy_model_weights(
         else:
             # Bias weights don't need conversion
             weight = torch.from_numpy(weight).float()
-        
+
         # Set the parameter using state_dict
         try:
             state_dict = pytorch_model.state_dict()
             if pytorch_name not in state_dict:
                 print(f"Warning: PyTorch parameter not found: {pytorch_name}")
                 continue
-                
+
             # Check shape compatibility
             pytorch_shape = state_dict[pytorch_name].shape
             if weight.shape != pytorch_shape:
-                print(f"Warning: Shape mismatch for {pytorch_name}: "
-                      f"legacy {weight.shape} vs pytorch {pytorch_shape}")
+                print(
+                    f"Warning: Shape mismatch for {pytorch_name}: "
+                    f"legacy {weight.shape} vs pytorch {pytorch_shape}"
+                )
                 continue
-                
+
             # Update the parameter in the model
             with torch.no_grad():
                 param = pytorch_model
-                for attr in pytorch_name.split('.')[:-1]:
+                for attr in pytorch_name.split(".")[:-1]:
                     param = getattr(param, attr)
-                param_name = pytorch_name.split('.')[-1]
+                param_name = pytorch_name.split(".")[-1]
                 setattr(param, param_name, torch.nn.Parameter(weight))
-                
+
         except Exception as e:
             print(f"Error loading {pytorch_name}: {e}")
 
 
 def create_model_from_legacy_config(config_path: str) -> Model:
     """Create a PyTorch model from a legacy training config.
-    
+
     Args:
         config_path: Path to the legacy training_config.json file
-        
+
     Returns:
         Model instance configured to match the legacy architecture
     """
@@ -399,21 +412,21 @@ def create_model_from_legacy_config(config_path: str) -> Model:
     config_path = Path(config_path)
     if config_path.is_dir():
         config_path = config_path / "training_config.json"
-    
+
     # Use the existing config loader
     config = TrainingJobConfig.load_sleap_config(str(config_path))
-    
+
     # Determine backbone type from config
     backbone_type = "unet"  # Default for legacy models
-    
+
     # Get backbone config (should be under the unet key for legacy models)
     backbone_config = config.model_config.backbone_config.unet
-    
+
     # Determine model type from head configs
     head_configs = config.model_config.head_configs
     model_type = None
     active_head_config = None
-    
+
     if head_configs.centroid is not None:
         model_type = "centroid"
         active_head_config = head_configs.centroid
@@ -421,14 +434,14 @@ def create_model_from_legacy_config(config_path: str) -> Model:
         model_type = "centered_instance"
         active_head_config = head_configs.centered_instance
     elif head_configs.single_instance is not None:
-        model_type = "single_instance" 
+        model_type = "single_instance"
         active_head_config = head_configs.single_instance
     elif head_configs.bottomup is not None:
         model_type = "bottomup"
         active_head_config = head_configs.bottomup
     else:
         raise ValueError("Could not determine model type from head configs")
-    
+
     # Create model using the from_config method
     model = Model.from_config(
         backbone_type=backbone_type,
@@ -436,27 +449,27 @@ def create_model_from_legacy_config(config_path: str) -> Model:
         head_configs=active_head_config,
         model_type=model_type,
     )
-    
+
     return model
 
 
 def load_legacy_model(model_dir: str, load_weights: bool = True) -> Model:
     """Load a complete legacy SLEAP model including weights.
-    
+
     Args:
         model_dir: Path to the legacy model directory containing
                    training_config.json and best_model.h5
         load_weights: Whether to load the weights. If False, only
                       creates the model architecture.
-    
+
     Returns:
         Model instance with loaded weights
     """
     model_dir = Path(model_dir)
-    
+
     # Create model from config
     model = create_model_from_legacy_config(str(model_dir))
-    
+
     # Load weights if requested
     if load_weights:
         h5_path = model_dir / "best_model.h5"
@@ -464,5 +477,5 @@ def load_legacy_model(model_dir: str, load_weights: bool = True) -> Model:
             load_legacy_model_weights(model, str(h5_path))
         else:
             print(f"Warning: Model weights not found at {h5_path}")
-    
+
     return model

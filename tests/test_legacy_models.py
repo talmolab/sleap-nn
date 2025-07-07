@@ -208,50 +208,50 @@ class TestWeightLoading:
 
 class TestModelCreation:
     """Test creating PyTorch models from legacy configs."""
-    
+
     def test_create_centroid_model(self, centroid_model_path):
         """Test creating a centroid model from legacy config."""
         model = create_model_from_legacy_config(str(centroid_model_path))
-        
+
         # Check model structure
         assert hasattr(model, "backbone")
         assert hasattr(model, "heads")
         assert len(model.heads) > 0
-        
+
         # Check head types
         head_names = [head.name for head in model.heads]
         assert "CentroidConfmapsHead" in head_names
-        
+
         # Test forward pass
         x = torch.randn(1, 1, 384, 384)
         outputs = model(x)
         assert len(outputs) > 0
-    
+
     def test_create_centered_instance_model(self, centered_instance_model_path):
         """Test creating a centered instance model from legacy config."""
         model = create_model_from_legacy_config(str(centered_instance_model_path))
-        
+
         # Check model structure
         assert hasattr(model, "backbone")
         assert hasattr(model, "heads")
-        
+
         # Check head types
         head_names = [head.name for head in model.heads]
         assert "CenteredInstanceConfmapsHead" in head_names
-        
+
         # Test forward pass
         x = torch.randn(1, 1, 96, 96)
         outputs = model(x)
         assert len(outputs) > 0
-    
+
     def test_create_single_instance_model(self, single_instance_model_path):
         """Test creating a single instance model from legacy config."""
         model = create_model_from_legacy_config(str(single_instance_model_path))
-        
+
         # Check head types
         head_names = [head.name for head in model.heads]
         assert "SingleInstanceConfmapsHead" in head_names
-        
+
         # Note: Forward pass may fail due to stride mismatch in legacy configs
         # This is a known limitation where the legacy config conversion
         # doesn't perfectly align head and backbone strides
@@ -266,85 +266,89 @@ class TestModelCreation:
 
 class TestFullModelLoading:
     """Test loading complete models with weights."""
-    
+
     def test_load_centroid_model_weights(self, centroid_model_path):
         """Test loading weights into a centroid model."""
         # Create model
         model = create_model_from_legacy_config(str(centroid_model_path))
-        
+
         # Load weights
         h5_path = centroid_model_path / "best_model.h5"
-        
+
         # Get initial random weights
-        initial_weights = {name: param.clone() for name, param in model.named_parameters()}
-        
+        initial_weights = {
+            name: param.clone() for name, param in model.named_parameters()
+        }
+
         # Load legacy weights
         load_legacy_model_weights(model, str(h5_path))
-        
+
         # Check that at least some weights changed
         weights_changed = 0
         for name, param in model.named_parameters():
             if not torch.allclose(param, initial_weights[name]):
                 weights_changed += 1
-        
+
         assert weights_changed > 0, "No weights were loaded from legacy model"
-        
+
         # Test forward pass with loaded weights
         x = torch.randn(1, 1, 384, 384)
         outputs = model(x)
         assert "CentroidConfmapsHead" in outputs
         assert outputs["CentroidConfmapsHead"].shape[1] == 1  # Single centroid channel
-    
+
     def test_load_centered_instance_weights(self, centered_instance_model_path):
         """Test loading weights into a centered instance model."""
         # Create model
         model = create_model_from_legacy_config(str(centered_instance_model_path))
-        
+
         # Load weights
         h5_path = centered_instance_model_path / "best_model.h5"
-        
+
         # Load legacy weights
         load_legacy_model_weights(model, str(h5_path))
-        
+
         # Test forward pass
         x = torch.randn(1, 1, 96, 96)
         outputs = model(x)
         assert "CenteredInstanceConfmapsHead" in outputs
-    
+
     def test_load_single_instance_weights(self, single_instance_model_path):
         """Test loading weights into a single instance model."""
         # Create model
         model = create_model_from_legacy_config(str(single_instance_model_path))
-        
+
         # Load weights
         h5_path = single_instance_model_path / "best_model.h5"
-        
+
         # Load legacy weights
         load_legacy_model_weights(model, str(h5_path))
-        
+
         # Note: Skip forward pass due to stride/channel mismatches in legacy configs
         # This is a known limitation of the legacy config conversion
-    
+
     def test_layer_mapping(self, centroid_model_path):
         """Test that layer mapping correctly identifies all layers."""
         # Create model
         model = create_model_from_legacy_config(str(centroid_model_path))
-        
+
         # Load legacy weights
         h5_path = centroid_model_path / "best_model.h5"
         legacy_weights = load_keras_weights(str(h5_path))
-        
+
         # Get mapping
         mapping = map_legacy_to_pytorch_layers(legacy_weights, model)
-        
+
         # Check that we mapped a reasonable number of layers
         assert len(mapping) > 0, "No layers were mapped"
-        
+
         # Check that mapped PyTorch parameters exist
         pytorch_params = {name for name, _ in model.named_parameters()}
         for legacy_path, pytorch_name in mapping.items():
-            assert pytorch_name in pytorch_params, f"Mapped parameter {pytorch_name} not found in model"
-            
+            assert (
+                pytorch_name in pytorch_params
+            ), f"Mapped parameter {pytorch_name} not found in model"
+
         # Print mapping summary for debugging
         print(f"\nMapped {len(mapping)} layers from legacy model:")
         encoder_count = sum(1 for p in mapping.values() if "encoder_stack" in p)
@@ -392,24 +396,26 @@ class TestUtilityFunctions:
     def test_load_keras_weights_empty_file(self, tmp_path):
         """Test loading from an empty HDF5 file."""
         import h5py
+
         empty_file = tmp_path / "empty.h5"
-        
+
         # Create empty HDF5 file
         with h5py.File(empty_file, "w") as f:
             pass
-        
+
         weights = load_keras_weights(str(empty_file))
         assert len(weights) == 0
 
     def test_load_keras_weights_no_model_weights(self, tmp_path):
         """Test loading from HDF5 file without model_weights group."""
         import h5py
+
         h5_file = tmp_path / "no_weights.h5"
-        
+
         # Create HDF5 file without model_weights group
         with h5py.File(h5_file, "w") as f:
             f.create_group("other_data")
-        
+
         weights = load_keras_weights(str(h5_file))
         assert len(weights) == 0
 
@@ -417,9 +423,9 @@ class TestUtilityFunctions:
         """Test loading weights with manual mapping."""
         model = create_model_from_legacy_config(str(centroid_model_path))
         h5_path = centroid_model_path / "best_model.h5"
-        
+
         # Create a simple manual mapping (empty for this test)
         manual_mapping = {}
-        
+
         # Should handle empty mapping gracefully
         load_legacy_model_weights(model, str(h5_path), mapping=manual_mapping)
