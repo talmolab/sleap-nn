@@ -30,10 +30,13 @@ jobs:
           use-mamba: true
           auto-activate-base: false
 
-      - name: Install uv and dependencies
-        run: |
-          pip install uv
-          uv pip install -e ".[dev]"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]"
 
       - name: Run Black
         run: black --check sleap_nn tests
@@ -64,10 +67,13 @@ jobs:
           use-mamba: true
           auto-activate-base: false
 
-      - name: Install uv and dependencies
-        run: |
-          pip install uv
-          uv pip install -e ".[dev]"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]"
 
       - name: Print environment info
         run: |
