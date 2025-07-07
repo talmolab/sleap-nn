@@ -60,8 +60,8 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Install dependencies
-        run: uv pip install --editable .[dev]
+      - name: Install dependencies at system level
+        run: uv pip install --system --editable .[dev]
 
       - name: Print environment info
         run: |
