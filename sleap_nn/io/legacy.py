@@ -11,6 +11,7 @@ import torch
 from typing import Dict, Tuple, Any, Optional, List
 from pathlib import Path
 from omegaconf import OmegaConf
+import re
 
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.model import Model
@@ -245,8 +246,8 @@ def map_legacy_to_pytorch_layers(
         if pytorch_name in pytorch_params:
             mapping[path] = pytorch_name
     
-    # Map middle blocks to encoder_stack indices 5, 6, etc.
-    # Group middle blocks by layer name
+    # Map middle blocks
+    # Group middle blocks by layer name to handle them in order
     middle_layers = {}
     for _, _, path, info in middle_blocks:
         layer_name = info["layer_name"]
@@ -255,20 +256,24 @@ def map_legacy_to_pytorch_layers(
         middle_layers[layer_name].append((path, info))
     
     # Sort layers - in legacy models, "expand" comes before "contract"
-    sorted_layer_names = sorted(middle_layers.keys())
+    sorted_layer_names = sorted(middle_layers.keys(), key=lambda x: (0 if "expand" in x else 1, x))
     
-    middle_idx = 5  # Middle blocks start at index 5 in PyTorch
+    # Middle blocks in PyTorch start after regular encoder blocks
+    middle_idx = len(regular_encoder_blocks) // 2  # Divide by 2 because each block has kernel and bias
+    
     for layer_name in sorted_layer_names:
         for path, info in middle_layers[layer_name]:
             weight_type = info["weight_type"]
             pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-            pytorch_name = f"backbone.enc.encoder_stack.{middle_idx}.blocks.0.{pytorch_weight_type}"
+            
+            # Middle blocks use blocks.1 in PyTorch
+            pytorch_name = f"backbone.enc.encoder_stack.{middle_idx}.blocks.1.{pytorch_weight_type}"
             
             if pytorch_name in pytorch_params:
                 mapping[path] = pytorch_name
-        
-        # Increment index after processing all weights for a layer
-        middle_idx += 1
+                # Only increment after both weight and bias are mapped
+                if weight_type == "bias":
+                    middle_idx += 1
     
     # Mapping logic for decoder layers
     # In PyTorch, decoder stacks are numbered in reverse order
@@ -293,21 +298,33 @@ def map_legacy_to_pytorch_layers(
             mapping[path] = pytorch_name
     
     # Mapping logic for head layers
-    head_idx = 0
+    # Filter out unsupported heads like OffsetRefinementHead
+    supported_heads = []
     for path, info in head_layers:
+        layer_name = info["layer_name"]
+        # Skip offset refinement heads as they're not supported in current architecture
+        if "OffsetRefinement" not in layer_name:
+            supported_heads.append((path, info))
+    
+    head_idx = 0
+    current_head_type = None
+    for path, info in supported_heads:
         weight_type = info["weight_type"]
         pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
         layer_name = info["layer_name"]
         
-        # Most heads have a single conv2d layer
+        # Track when we move to a new head type
+        head_type = layer_name.split("_")[0]  # e.g., "CentroidConfmapsHead"
+        if current_head_type != head_type:
+            if current_head_type is not None:
+                head_idx += 1
+            current_head_type = head_type
+        
+        # Most heads have a single conv2d layer at index 0
         pytorch_name = f"head_layers.{head_idx}.0.{pytorch_weight_type}"
         
         if pytorch_name in pytorch_params:
             mapping[path] = pytorch_name
-            
-            # For PAF heads in bottom-up models, increment head index
-            if "PartAffinityFieldsHead" in layer_name:
-                head_idx += 1
     
     return mapping
 
@@ -404,18 +421,32 @@ def create_model_from_legacy_config(config_path: str) -> Model:
     if backbone_type.lower() != "unet":
         raise NotImplementedError(f"Only UNet backbone supported, got {backbone_type}")
     
-    # Get architecture parameters
-    down_blocks = backbone_config.get("down_blocks", 3)
-    up_blocks = backbone_config.get("up_blocks", 2)
-    stem_blocks = backbone_config.get("stem_blocks", 0)
-    filters = backbone_config.get("filters", 16)
-    filters_rate = backbone_config.get("filters_rate", 1.5)
-    
-    # Determine output stride from heads
+    # Determine output stride from heads first
     output_stride = 1
     for head_type, head_config in heads_config.items():
         if head_config and "output_stride" in head_config:
             output_stride = max(output_stride, head_config["output_stride"])
+    
+    # Get architecture parameters
+    # Legacy configs might not have these, so infer from max_stride/output_stride
+    max_stride = backbone_config.get("max_stride", 16)
+    output_stride_from_backbone = backbone_config.get("output_stride", output_stride)
+    
+    # Infer blocks from strides if not directly specified
+    if "down_blocks" in backbone_config:
+        down_blocks = backbone_config["down_blocks"]
+        up_blocks = backbone_config.get("up_blocks", 2)
+        stem_blocks = backbone_config.get("stem_blocks", 0)
+    else:
+        # Calculate from max_stride
+        total_down_blocks = int(np.log2(max_stride))
+        stem_blocks = backbone_config.get("stem_blocks", 0)
+        down_blocks = total_down_blocks - stem_blocks
+        # Calculate up_blocks to achieve desired output_stride
+        up_blocks = int(np.log2(max_stride / output_stride_from_backbone))
+    
+    filters = backbone_config.get("filters", 16)
+    filters_rate = backbone_config.get("filters_rate", 1.5)
     
     # Create backbone
     backbone = UNet(
