@@ -994,26 +994,26 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                 BottomUpMultiClassConfig(
                     confmaps=BottomUpConfMapsConfig(
                         loss_weight=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
+                        .get("multi_class_bottomup", {})
                         .get("confmaps", {})
                         .get("loss_weight", None),
                         sigma=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
+                        .get("multi_class_bottomup", {})
                         .get("confmaps", {})
                         .get("sigma", 5.0),
                         output_stride=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
+                        .get("multi_class_bottomup", {})
                         .get("confmaps", {})
                         .get("output_stride", 1),
                         part_names=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
+                        .get("multi_class_bottomup", {})
                         .get("confmaps", {})
                         .get("part_names", None),
                     ),
                     class_maps=ClassMapConfig(
                         loss_weight=legacy_config_model.get("heads", {})
                         .get("multi_class_bottomup", {})
-                        .get("confmaps", {})
+                        .get("class_maps", {})
                         .get("loss_weight", None),
                         sigma=legacy_config_model.get("heads", {})
                         .get("multi_class_bottomup", {})
@@ -1023,7 +1023,7 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         .get("multi_class_bottomup", {})
                         .get("confmaps", {})
                         .get("output_stride", 1),
-                        part_names=legacy_config_model.get("heads", {})
+                        classes=legacy_config_model.get("heads", {})
                         .get("multi_class_bottomup", {})
                         .get("confmaps", {})
                         .get("classes", None),

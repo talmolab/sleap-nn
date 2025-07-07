@@ -331,6 +331,7 @@ def test_bottomup_model(config, tmp_path: str):
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    print(model_trainer.config)
     train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,

@@ -1333,7 +1333,7 @@ def get_train_val_datasets(
             rank=rank,
         )
 
-    if model_type == "multi_class_bottomup":
+    elif model_type == "multi_class_bottomup":
         train_dataset = BottomUpMultiClassDataset(
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.multi_class_bottomup.confmaps,
