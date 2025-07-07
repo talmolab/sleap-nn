@@ -8,9 +8,7 @@ data_config:
   user_instances_only: true
   data_pipeline_fw: torch_dataset
   cache_img_path: null
-  litdata_chunks_path: null
   use_existing_imgs: false
-  chunk_size: 100
   delete_cache_imgs_after_training: true
   preprocessing:
     ensure_rgb: false

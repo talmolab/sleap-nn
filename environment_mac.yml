@@ -15,7 +15,6 @@ dependencies:
   - h5py
   - pandas
   - jsonpickle
-  - simplejson
   - scipy
   - attrs
   - ffmpeg
@@ -33,6 +32,5 @@ dependencies:
   - pip
   - pip:
     - "--editable=.[dev]"
-    - litdata
     - hydra-core
     - loguru

@@ -56,10 +56,8 @@ def config(sleap_data_dir):
                 "user_instances_only": True,
                 "data_pipeline_fw": "torch_dataset",
                 "cache_img_path": None,
-                "litdata_chunks_path": None,
                 "use_existing_imgs": False,
                 "delete_cache_imgs_after_training": True,
-                "chunk_size": 100,
                 "preprocessing": {
                     "ensure_rgb": False,
                     "ensure_grayscale": False,
