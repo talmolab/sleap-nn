@@ -54,7 +54,8 @@ dev = [
     "twine",
     "build",
     "ipython",
-    "ruff"
+    "ruff",
+    "pyzmq"
 ]
 
 [project.scripts]
