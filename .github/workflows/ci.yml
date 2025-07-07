@@ -65,23 +65,30 @@ jobs:
 
       - name: Create virtual environment and install dependencies
         run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            uv venv .venv
-            echo "VENV_BIN=.venv\\Scripts" >> $GITHUB_ENV
-          else
-            uv venv .venv
-            echo "VENV_BIN=.venv/bin" >> $GITHUB_ENV
-          fi
-          $VENV_BIN/uv pip install --editable .[dev]
+          uv venv .venv
+          case "${{ runner.os }}" in
+            Windows) echo "VENV_BIN=.venv\\Scripts" >> $GITHUB_ENV ;;
+            *) echo "VENV_BIN=.venv/bin" >> $GITHUB_ENV ;;
+          esac
+          uv pip install --editable .[dev]
 
       - name: Print environment info
         run: |
-          $VENV_BIN/python --version
-          $VENV_BIN/pip freeze
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            .venv\\Scripts\\python --version
+            .venv\\Scripts\\pip freeze
+          else
+            .venv/bin/python --version
+            .venv/bin/pip freeze
+          fi
 
       - name: Test with pytest (with coverage)
         run: |
-          $VENV_BIN/pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            .venv\\Scripts\\pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+          else
+            .venv/bin/pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+          fi
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
