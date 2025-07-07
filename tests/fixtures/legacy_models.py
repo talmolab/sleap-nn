@@ -9,6 +9,8 @@ The models are stored in tests/assets/legacy_models/ and include:
 - Centered instance models for single animal pose in cropped frames
 - Single instance models for single animal pose in full frames
 - Bottom-up models for multi-animal pose estimation
+- Multiclass bottom-up models for multi-animal pose with identity tracking
+- Multiclass top-down models for multi-animal pose with identity tracking
 
 Each model directory contains:
 - best_model.h5: Trained Keras model weights
@@ -74,6 +76,32 @@ def bottomup_model_path() -> Path:
     Parts: head, thorax
     """
     return LEGACY_MODELS_DIR / "minimal_instance.UNet.bottomup"
+
+
+@pytest.fixture
+def bottomup_multiclass_model_path() -> Path:
+    """Path to a trained multiclass bottom-up model.
+
+    This model predicts multi-animal poses with identity classes in 384x384 grayscale images.
+    Architecture: UNet with 3 down blocks, 2 up blocks
+    Heads: MultiInstanceConfmapsHead + PartAffinityFieldsHead + ClassMapsHead
+    Parts: node1, node2
+    Classes: 3 identity classes
+    """
+    return LEGACY_MODELS_DIR / "min_tracks_2node.UNet.bottomup_multiclass"
+
+
+@pytest.fixture
+def topdown_multiclass_model_path() -> Path:
+    """Path to a trained multiclass top-down model.
+
+    This model predicts multi-animal poses with identity classes in 384x384 grayscale images.
+    Architecture: UNet with 3 down blocks, 2 up blocks
+    Heads: CentroidConfmapsHead + ClassVectorsHead + CenteredInstanceConfmapsHead
+    Parts: node1, node2
+    Classes: 3 identity classes
+    """
+    return LEGACY_MODELS_DIR / "min_tracks_2node.UNet.topdown_multiclass"
 
 
 def load_legacy_config(model_path: Path) -> Dict[str, Any]:
