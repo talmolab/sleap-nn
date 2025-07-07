@@ -447,7 +447,9 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
 
     # check loading trained weights for backbone
     ckpt = torch.load(
-        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(), map_location="cpu"
+        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+        map_location="cpu",
+        weights_only=False,
     )
     first_layer_ckpt = (
         ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
