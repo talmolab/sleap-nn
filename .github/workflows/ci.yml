@@ -11,7 +11,7 @@ on:
 
 defaults:
   run:
-    shell: bash -l {0}
+    shell: bash
 
 jobs:
   lint:
@@ -19,31 +19,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
       - name: Install uv
         run: pip install uv
 
-      - name: Install package using venv
+      - name: Create virtual environment and install dependencies
         run: |
           uv venv .venv
-          source .venv/bin/activate
+          echo "VENV_BIN=.venv/bin" >> $GITHUB_ENV
           uv pip install --editable .[dev]
 
       - name: Run Black
-        run: |
-          source .venv/bin/activate
-          black --check sleap_nn tests
+        run: $VENV_BIN/black --check sleap_nn tests
 
       - name: Run Ruff
-        run: |
-          source .venv/bin/activate
-          ruff check sleap_nn/
+        run: $VENV_BIN/ruff check sleap_nn/
 
   tests:
     strategy:
@@ -67,22 +63,25 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      - name: Install package using venv
+      - name: Create virtual environment and install dependencies
         run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install --editable .[dev]
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            uv venv .venv
+            echo "VENV_BIN=.venv\\Scripts" >> $GITHUB_ENV
+          else
+            uv venv .venv
+            echo "VENV_BIN=.venv/bin" >> $GITHUB_ENV
+          fi
+          $VENV_BIN/uv pip install --editable .[dev]
 
       - name: Print environment info
         run: |
-          source .venv/bin/activate
-          which python
-          pip freeze
+          $VENV_BIN/python --version
+          $VENV_BIN/pip freeze
 
       - name: Test with pytest (with coverage)
         run: |
-          source .venv/bin/activate
-          pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+          $VENV_BIN/pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
