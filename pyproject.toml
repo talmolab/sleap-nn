@@ -40,6 +40,9 @@ dependencies = [
 ]
 dynamic = ["version", "readme"]
 
+[tool.setuptools]
+packages = ["sleap_nn"]
+
 [tool.setuptools.dynamic]
 version = {attr = "sleap_nn.__version__"}
 readme = {file = ["README.md"]}
