@@ -168,3 +168,6 @@ wandb/
 
 # Serena
 .serena/
+
+# macOS
+.DS_Store
