@@ -21,13 +21,22 @@ classifiers = [
 dependencies = [
     "torch",
     "torchvision",
-    "pydantic",
     "lightning",
-    "imageio",
-    "imageio-ffmpeg",
-    "av",
+    "sleap-io>=0.2.0",
+    "numpy",
+    "jsonpickle",
+    "scipy",
+    "attrs",
+    "omegaconf",
+    "wandb",
     "kornia",
-    "hydra-core",
+    "matplotlib",
+    "seaborn",
+    "rich",
+    "loguru",
+    "psutil",
+    "opencv-python",
+    "hydra-core"
 ]
 dynamic = ["version", "readme"]
 
