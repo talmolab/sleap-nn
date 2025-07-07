@@ -36,10 +36,14 @@ jobs:
           uv pip install --editable .[dev]
 
       - name: Run Black
-        run: black --check sleap_nn tests
+        run: |
+          source .venv/bin/activate
+          black --check sleap_nn tests
 
-      - name: Run ruff
-        run: ruff check sleap_nn/
+      - name: Run Ruff
+        run: |
+          source .venv/bin/activate
+          ruff check sleap_nn/
 
   tests:
     strategy:
@@ -71,11 +75,14 @@ jobs:
 
       - name: Print environment info
         run: |
+          source .venv/bin/activate
           which python
           pip freeze
 
       - name: Test with pytest (with coverage)
-        run: pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+        run: |
+          source .venv/bin/activate
+          pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
