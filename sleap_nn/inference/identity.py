@@ -17,10 +17,7 @@ def group_class_peaks(
     n_samples: int,
     n_channels: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Group local peaks using class probabilities, matching peaks to classes
-    using the Hungarian algorithm, per (sample, channel) pair.
-    """
+    """Group local peaks using class probabilities, matching peaks to classes using the Hungarian algorithm, per (sample, channel) pair."""
     peak_inds_list = []
     class_inds_list = []
 
@@ -152,7 +149,8 @@ def classify_peaks_from_maps(
 
 
 def get_class_inds_from_vectors(peak_class_probs: torch.Tensor):
-    """
+    """Get class indices from the probability scores.
+
     Args:
         peak_class_probs: (n_samples, n_classes) softmax output for each sample
 

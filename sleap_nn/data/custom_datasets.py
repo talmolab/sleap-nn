@@ -1446,7 +1446,7 @@ class InfiniteDataLoader(DataLoader):
 
     def __len__(self) -> int:
         """Return the length of the batch sampler's sampler."""
-        return 200  # len(self.batch_sampler.sampler)
+        return len(self.batch_sampler.sampler)
 
     def __iter__(self) -> Iterator:
         """Create an iterator that yields indefinitely from the underlying iterator."""

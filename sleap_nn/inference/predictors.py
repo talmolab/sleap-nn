@@ -2274,7 +2274,7 @@ class TopDownMultiClassPredictor(Predictor):
         else:
             anch_pt = None
             anch_pt = (
-                self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+                self.confmap_config.model_config.head_configs.multi_class_topdown.confmaps.anchor_part
             )
             anchor_ind = (
                 self.skeletons[0].node_names.index(anch_pt)
@@ -2316,7 +2316,7 @@ class TopDownMultiClassPredictor(Predictor):
         instance_peaks_layer = TopDownMultiClassFindInstancePeaks(
             torch_model=self.confmap_model,
             peak_threshold=centered_instance_peak_threshold,
-            output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
+            output_stride=self.confmap_config.model_config.head_configs.multi_class_topdown.confmaps.output_stride,
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
@@ -2465,12 +2465,14 @@ class TopDownMultiClassPredictor(Predictor):
                 if v is not None:
                     centered_instance_backbone_type = k
                     break
-            confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
-                checkpoint_path=ckpt_path,
-                config=confmap_config,
-                model_type="centered_instance",
-                backbone_type=centered_instance_backbone_type,
-                map_location=device,
+            confmap_model = (
+                TopDownCenteredInstanceMultiClassLightningModule.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    config=confmap_config,
+                    model_type="multi_class_topdown",
+                    backbone_type=centered_instance_backbone_type,
+                    map_location=device,
+                )
             )
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")

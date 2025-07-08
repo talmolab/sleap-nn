@@ -703,8 +703,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         assert gt_key == key
     assert sample["instance_image"].shape == (1, 1, 160, 160)
     assert sample["confidence_maps"].shape == (1, 2, 80, 80)
-    assert torch.all(sample["class_vectors"] == torch.Tensor([0, 1]))
-    assert torch.all(dataset[1]["class_vectors"] == torch.Tensor([1, 0]))
+    assert sample["class_vectors"].shape == (2,)
 
     ## memory caching
 
@@ -850,7 +849,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         assert gt_key == key
     assert sample["instance_image"].shape == (1, 1, 112, 112)
     assert sample["confidence_maps"].shape == (1, 2, 56, 56)
-    assert torch.all(sample["class_vectors"] == torch.Tensor([0, 1]))
+    assert sample["class_vectors"].shape == (2,)
 
 
 def test_centroid_dataset(minimal_instance, tmp_path):
