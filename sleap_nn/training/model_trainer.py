@@ -270,7 +270,7 @@ class ModelTrainer:
                 if head_config[key]["classes"] is None:
                     tracks = []
                     for train_label in self.train_labels:
-                        tracks.append(
+                        tracks.extend(
                             [x.name for x in train_label.tracks if x is not None]
                         )
                     classes = list(set(tracks))

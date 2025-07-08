@@ -1,8 +1,8 @@
 data_config:
-  train_labels_path: 
-    - minimal_instance.pkg.slp
-  val_labels_path: 
-    - minimal_instance.pkg.slp
+  train_labels_path:
+  - minimal_instance.pkg.slp
+  val_labels_path:
+  - minimal_instance.pkg.slp
   validation_fraction: 0.1
   test_file_path: null
   provider: LabelsReader
@@ -14,8 +14,8 @@ data_config:
   preprocessing:
     ensure_rgb: false
     ensure_grayscale: false
-    max_height: null
-    max_width: null
+    max_height: 384
+    max_width: 384
     scale: 1.0
     crop_hw: null
     min_crop_size: 100
@@ -52,10 +52,20 @@ data_config:
       - 0.01
       - 0.05
       mixup_p: 0.0
-  skeletons: null
+  skeletons:
+    Skeleton-0:
+      nodes:
+      - name: A
+      - name: B
+      edges:
+      - source:
+          name: A
+        destination:
+          name: B
+      symmetries: null
 model_config:
   init_weights: xavier
-  pre_trained_weights: null #   pre_trained_weights: ConvNeXt_Tiny_Weights (for convnext)
+  pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
   backbone_config:
@@ -72,47 +82,28 @@ model_config:
       convs_per_block: 2
       output_stride: 2
     convnext: null
-#     in_channels: 1
-#     model_type: tiny
-#     arch: 
-#     kernel_size: 3
-#     filters_rate: 2
-#     convs_per_block: 2
-#     up_interpolate: True
-#     stem_patch_kernel: 4
-#     stem_patch_stride: 2
-#     max_stride: 16
-#     output_stride: 2
     swint: null
-#     in_channels: 1
-#     model_type: tiny
-#     arch: 
-#     patch_size: 4
-#     window_size: 7
-#     kernel_size: 3
-#     filters_rate: 2
-#     convs_per_block: 2
-#     up_interpolate: True
-#     stem_patch_stride: 2
-#     max_stride: 16
-#     output_stride: 2
   head_configs:
-    single_instance:
-    centroid:
+    single_instance: null
+    centroid: null
     centered_instance: null
-    bottomup:
+    bottomup: null
     multi_class_bottomup:
       confmaps:
-          part_names:
-          sigma: 1.5
-          output_stride: 2
-          loss_weight: 1.0
+        part_names:
+        - A
+        - B
+        sigma: 2.0
+        output_stride: 2
+        loss_weight: 1.0
       class_maps:
-          classes:
-          sigma: 50
-          output_stride: 4
-          loss_weight: 1.0
-  total_params: null
+        classes:
+        - '0'
+        - '1'
+        sigma: 10.0
+        output_stride: 4
+        loss_weight: 1.0
+  total_params: 133740
 trainer_config:
   train_data_loader:
     batch_size: 4
@@ -131,7 +122,7 @@ trainer_config:
   trainer_strategy: auto
   enable_progress_bar: true
   min_train_steps_per_epoch: 200
-  train_steps_per_epoch:
+  train_steps_per_epoch: 200
   visualize_preds_during_training: true
   max_epochs: 40
   seed: 0
@@ -139,6 +130,15 @@ trainer_config:
   save_ckpt: true
   save_ckpt_path: minimal_class_bottomup
   resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    api_key: null
+    wandb_mode: null
+    prv_runid: null
+    group: null
+    current_run_id: null
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
@@ -156,10 +156,16 @@ trainer_config:
     min_delta: 1.0e-08
     patience: 10
     stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
   zmq:
-    publish_address:
-    controller_address:
+    controller_address: null
     controller_polling_timeout: 10
+    publish_address: null
 name: ''
 description: ''
 sleap_nn_version: 0.0.1

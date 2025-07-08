@@ -7,12 +7,14 @@ from sleap_nn.data.custom_datasets import (
     get_train_val_dataloaders,
     get_train_val_datasets,
 )
+import sleap_io as sio
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceLightningModule,
     SingleInstanceLightningModule,
     CentroidLightningModule,
     BottomUpLightningModule,
+    BottomUpMultiClassLightningModule,
     LightningModel,
 )
 from torch.nn.functional import mse_loss
@@ -400,6 +402,67 @@ def test_bottomup_model(config, tmp_path: str):
     loss = model.training_step(input_, 0)
     assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
     assert preds["PartAffinityFieldsHead"].shape == (1, 2, 96, 96)
+
+
+def test_multi_class_bottomup_model(config, tmp_path: str, minimal_instance):
+    """Test BottomUp model training."""
+    config_copy = config.copy()
+    tracked_labels = sio.load_slp(minimal_instance)
+    tracks = 0
+    for lf in tracked_labels:
+        for instance in lf.instances:
+            instance.track = sio.Track(f"{tracks}")
+            tracks += 1
+    tracked_labels.update()
+
+    head_config = config.model_config.head_configs.centered_instance
+    OmegaConf.update(
+        config, "model_config.head_configs.multi_class_bottomup", head_config
+    )
+    class_maps = {
+        "classes": None,
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
+    }
+    del config.model_config.head_configs.multi_class_bottomup["confmaps"].anchor_part
+    del config.model_config.head_configs.centered_instance
+    config.model_config.head_configs.multi_class_bottomup["class_maps"] = class_maps
+    config.model_config.head_configs.multi_class_bottomup.confmaps.loss_weight = 1.0
+
+    OmegaConf.update(
+        config,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_multi_class_bottomup_model_1/",
+    )
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+    model_trainer = ModelTrainer.get_model_trainer_from_config(
+        config, train_labels=[tracked_labels], val_labels=[tracked_labels]
+    )
+    train_dataset, val_dataset = get_train_val_datasets(
+        train_labels=model_trainer.train_labels,
+        val_labels=model_trainer.val_labels,
+        config=model_trainer.config,
+    )
+    train_data_loader, val_data_loader = get_train_val_dataloaders(
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+        config=model_trainer.config,
+    )
+    input_ = next(iter(train_data_loader))
+
+    model = BottomUpMultiClassLightningModule(
+        config=model_trainer.config,
+        backbone_type="unet",
+        model_type="multi_class_bottomup",
+    )
+
+    preds = model(input_["image"])
+
+    # check the output shape
+    loss = model.training_step(input_, 0)
+    assert preds["MultiInstanceConfmapsHead"].shape == (1, 2, 192, 192)
+    assert preds["ClassMapsHead"].shape == (1, 2, 96, 96)
 
 
 def test_incorrect_model_type(config, caplog, tmp_path: str):

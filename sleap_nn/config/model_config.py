@@ -1017,15 +1017,15 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         .get("loss_weight", None),
                         sigma=legacy_config_model.get("heads", {})
                         .get("multi_class_bottomup", {})
-                        .get("confmaps", {})
+                        .get("class_maps", {})
                         .get("sigma", 5.0),
                         output_stride=legacy_config_model.get("heads", {})
                         .get("multi_class_bottomup", {})
-                        .get("confmaps", {})
+                        .get("class_maps", {})
                         .get("output_stride", 1),
                         classes=legacy_config_model.get("heads", {})
                         .get("multi_class_bottomup", {})
-                        .get("confmaps", {})
+                        .get("class_maps", {})
                         .get("classes", None),
                     ),
                 )

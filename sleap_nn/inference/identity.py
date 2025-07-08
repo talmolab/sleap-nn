@@ -37,7 +37,7 @@ def group_class_peaks(
                 continue
 
             # Run Hungarian algorithm (note: maximize => minimize negative cost)
-            cost = -probs.cpu().numpy()
+            cost = -probs.detach().cpu().numpy()
             row_ind, col_ind = linear_sum_assignment(cost)
 
             # Get original indices in peak_class_probs
@@ -54,13 +54,13 @@ def group_class_peaks(
             torch.empty(0, dtype=torch.int64),
         )
 
-    peak_inds = torch.cat(peak_inds_list, dim=0)
-    class_inds = torch.cat(class_inds_list, dim=0)
+    peak_inds = torch.cat(peak_inds_list, dim=0).to(peak_sample_inds.device)
+    class_inds = torch.cat(class_inds_list, dim=0).to(peak_sample_inds.device)
 
     # Filter to keep only best class per peak
     matched_probs = peak_class_probs[peak_inds, class_inds]
     best_probs = peak_class_probs[peak_inds].max(dim=1).values
-    is_best = matched_probs == best_probs
+    is_best = (matched_probs == best_probs).cpu()
 
     return peak_inds[is_best], class_inds[is_best]
 
@@ -115,6 +115,8 @@ def classify_peaks_from_maps(
         ],
         dim=1,
     )
+    subs[:, 1] = subs[:, 1].clamp(0, h - 1)
+    subs[:, 2] = subs[:, 2].clamp(0, w - 1)
 
     peak_class_probs = class_maps[subs[:, 0], :, subs[:, 1], subs[:, 2]]
 
@@ -128,9 +130,15 @@ def classify_peaks_from_maps(
         [peak_sample_inds[peak_inds], class_inds, peak_channel_inds[peak_inds]], dim=1
     )
 
-    points = torch.full((n_samples, n_instances, n_channels, 2), float("nan"))
-    point_vals = torch.full((n_samples, n_instances, n_channels), float("nan"))
-    class_probs = torch.full((n_samples, n_instances, n_channels), float("nan"))
+    points = torch.full(
+        (n_samples, n_instances, n_channels, 2), float("nan"), device=class_maps.device
+    )
+    point_vals = torch.full(
+        (n_samples, n_instances, n_channels), float("nan"), device=class_maps.device
+    )
+    class_probs = torch.full(
+        (n_samples, n_instances, n_channels), float("nan"), device=class_maps.device
+    )
 
     points[subs[:, 0], subs[:, 1], subs[:, 2]] = peak_points[peak_inds]
     point_vals[subs[:, 0], subs[:, 1], subs[:, 2]] = peak_vals[peak_inds]

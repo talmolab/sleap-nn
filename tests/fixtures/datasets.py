@@ -37,6 +37,12 @@ def minimal_instance_bottomup_ckpt(sleap_data_dir):
 
 
 @pytest.fixture
+def minimal_instance_multi_instance_bottomup_ckpt(sleap_data_dir):
+    """Checkpoint file for BottomUp ID model."""
+    return Path(sleap_data_dir) / "minimal_instance_multiclass_bottomup"
+
+
+@pytest.fixture
 def centered_instance_video(sleap_data_dir):
     """Sleap-io fly video .mp4 path."""
     return Path(sleap_data_dir) / "centered_pair_small.mp4"

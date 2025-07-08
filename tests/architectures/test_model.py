@@ -272,6 +272,45 @@ def test_unet_model():
     assert z["SingleInstanceConfmapsHead"].shape == (1, 13, 192, 192)
     assert z["SingleInstanceConfmapsHead"].dtype == torch.float32
 
+    # test multiinstance-bottomup
+    base_unet_head_config = OmegaConf.create(
+        {
+            "confmaps": {
+                "part_names": [f"{i}" for i in range(13)],
+                "sigma": 5.0,
+                "output_stride": 1,
+                "loss_weight": 1.0,
+            },
+            "class_maps": {
+                "classes": ["0", "1"],
+                "sigma": 5.0,
+                "output_stride": 2,
+                "loss_weight": 1.0,
+            },
+        }
+    )
+
+    model = Model(
+        backbone_type="unet",
+        backbone_config=base_unet_model_config,
+        head_configs=base_unet_head_config,
+        model_type="multi_class_bottomup",
+    ).to(device)
+
+    assert model.backbone_config == base_unet_model_config
+    assert model.head_configs == base_unet_head_config
+
+    x = torch.rand(1, 1, 192, 192).to(device)
+    model.eval()
+
+    with torch.no_grad():
+        z = model(x)
+
+    assert type(z) is dict
+    assert len(z.keys()) == 2
+    assert z["MultiInstanceConfmapsHead"].shape == (1, 13, 192, 192)
+    assert z["ClassMapsHead"].shape == (1, 2, 96, 96)
+
 
 def test_convnext_model():
     device = "cuda" if torch.cuda.is_available() else "cpu"

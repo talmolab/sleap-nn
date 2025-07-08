@@ -148,6 +148,10 @@ def test_load_bottomup_multiclass_training_config_from_file(
     config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
+    assert config.model_config.head_configs.multi_class_bottomup.class_maps.classes == [
+        "female",
+        "male",
+    ]
     assert config.data_config.train_labels_path == []
     assert config.data_config.val_labels_path == []
     assert config.model_config.backbone_config.unet.filters == 8

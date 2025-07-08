@@ -1022,7 +1022,9 @@ class BottomUpMultiClassLightningModule(LightningModel):
         img = (
             output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
         )  # convert from (C, H, W) to (H, W, C)
-        classmaps = output["pred_class_maps"].cpu().numpy()[0]  # (n_classes, h, w)
+        classmaps = (
+            output["pred_class_maps"].cpu().numpy()[0].transpose(1, 2, 0)
+        )  # (n_classes, h, w)
         scale = 1.0
         if img.shape[0] < 512:
             scale = 2.0
@@ -1046,7 +1048,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         """Training step."""
         X = torch.squeeze(batch["image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
-        y_classmap = batch["class_maps"]
+        y_classmap = torch.squeeze(batch["class_maps"], dim=1)
         preds = self.model(X)
         classmaps = preds["ClassMapsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
@@ -1079,7 +1081,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         """Validation step."""
         X = torch.squeeze(batch["image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
-        y_classmap = batch["class_maps"]
+        y_classmap = torch.squeeze(batch["class_maps"], dim=1)
 
         preds = self.model(X)
         classmaps = preds["ClassMapsHead"]

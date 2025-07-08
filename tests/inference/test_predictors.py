@@ -1236,6 +1236,188 @@ def test_bottomup_predictor(
     assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
 
 
+def test_multi_class_bottomup_predictor(
+    caplog,
+    minimal_instance,
+    minimal_instance_multi_instance_bottomup_ckpt,
+    minimal_instance_ckpt,
+):
+    """Test BottomUpPredictor module."""
+    # provider as LabelsReader
+
+    # check if labels are created from ckpt
+    pred_labels = run_inference(
+        model_paths=[minimal_instance_multi_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=0.03,
+        device="cpu",
+    )
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 1
+    assert len(pred_labels[0].instances) <= 6
+    lf = pred_labels[0]
+
+    # check if the predicted labels have same video and skeleton as the ground truth labels
+    gt_labels = sio.load_slp(minimal_instance)
+    gt_lf = gt_labels[0]
+    skl = pred_labels.skeletons[0]
+    gt_skl = gt_labels.skeletons[0]
+    assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
+    assert len(skl.edges) == len(gt_skl.edges)
+    for a, b in zip(skl.edges, gt_skl.edges):
+        assert a[0].name == b[0].name and a[1].name == b[1].name
+    assert skl.symmetries == gt_skl.symmetries
+    assert lf.frame_idx == gt_lf.frame_idx
+    assert lf.instances[0].numpy().shape == gt_lf.instances[0].numpy().shape
+    assert len(pred_labels.tracks) == 2
+    for lf in pred_labels:
+        for instance in lf.instances:
+            assert instance.track is not None
+
+    # check if dictionaries are created when make labels is set to False
+    preds = run_inference(
+        model_paths=[minimal_instance_multi_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        make_labels=False,
+        max_instances=6,
+        peak_threshold=0.03,
+        device="cpu",
+    )
+    assert isinstance(preds, list)
+    assert len(preds) == 1
+    assert isinstance(preds[0], dict)
+    assert "pred_confmaps" not in preds[0].keys()
+    assert "pred_class_maps" not in preds[0].keys()
+    assert isinstance(preds[0]["pred_instance_peaks"], list)
+    assert tuple(preds[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
+    assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
+
+    # with video_index
+    preds = run_inference(
+        model_paths=[minimal_instance_multi_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        video_index=0,
+        frames=[0],
+        make_labels=True,
+        device="cpu",
+    )
+    assert isinstance(preds, sio.Labels)
+    assert len(preds) == 1
+    assert len(preds.tracks) == 2
+
+    # with higher threshold
+    pred_labels = run_inference(
+        model_paths=[minimal_instance_multi_instance_bottomup_ckpt],
+        data_path="./tests/assets/minimal_instance.pkg.slp",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=1.0,
+        device="cpu",
+    )
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 1
+    assert len(pred_labels[0].instances) == 0
+
+    # change to video reader
+    pred_labels = run_inference(
+        model_paths=[minimal_instance_multi_instance_bottomup_ckpt],
+        data_path="./tests/assets/centered_pair_small.mp4",
+        make_labels=True,
+        max_instances=6,
+        peak_threshold=0.03,
+        frames=[x for x in range(100)],
+        device="cpu",
+    )
+
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 100
+    assert len(pred_labels[0].instances) <= 6
+    assert len(pred_labels.tracks) <= 6
+
+    # check if dictionaries are created when make labels is set to False
+    preds = run_inference(
+        model_paths=[minimal_instance_multi_instance_bottomup_ckpt],
+        data_path="./tests/assets/centered_pair_small.mp4",
+        make_labels=False,
+        max_instances=6,
+        peak_threshold=0.03,
+        frames=[x for x in range(100)],
+        device="cpu",
+    )
+    assert isinstance(preds, list)
+    assert len(preds) == 25
+    assert isinstance(preds[0], dict)
+    assert "pred_confmaps" not in preds[0].keys()
+    assert isinstance(preds[0]["pred_instance_peaks"], list)
+    assert tuple(preds[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
+    assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
+
+    # check loading diff head ckpt
+    preprocess_config = {
+        "ensure_rgb": False,
+        "ensure_grayscale": True,
+        "crop_hw": None,
+        "max_width": None,
+        "max_height": None,
+    }
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_multi_instance_bottomup_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_multi_instance_bottomup_ckpt)
+        / "best.ckpt",
+        head_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
+    head_layer_ckpt = (
+        ckpt["state_dict"]["model.head_layers.0.0.weight"][0, 0, :].cpu().numpy()
+    )
+
+    model_weights = (
+        next(predictor.inference_model.torch_model.model.head_layers.parameters())[
+            0, 0, :
+        ]
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    assert np.all(np.abs(head_layer_ckpt - model_weights) < 1e-6)
+
+    # load only backbone and head ckpt as None
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_multi_instance_bottomup_ckpt],
+        backbone_ckpt_path=Path(minimal_instance_ckpt) / "best.ckpt",
+        head_ckpt_path=None,
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    ckpt = torch.load(Path(minimal_instance_ckpt) / "best.ckpt", map_location="cpu")
+    backbone_ckpt = (
+        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
+            0, 0, :
+        ]
+        .cpu()
+        .numpy()
+    )
+
+    model_weights = (
+        next(predictor.inference_model.torch_model.model.parameters())[0, 0, :]
+        .detach()
+        .cpu()
+        .numpy()
+    )
+
+    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
+
+
 def test_tracking_only_pipeline(
     minimal_instance_centroid_ckpt, minimal_instance_ckpt, centered_instance_video
 ):

@@ -2,6 +2,7 @@ from omegaconf import DictConfig, OmegaConf
 import sleap_io as sio
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
+    BottomUpMultiClassDataset,
     CenteredInstanceDataset,
     CentroidDataset,
     SingleInstanceDataset,
@@ -212,6 +213,184 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
     assert sample["image"].shape == (1, 1, 384, 384)
     assert sample["confidence_maps"].shape == (1, 2, 192, 192)
     assert sample["part_affinity_fields"].shape == (2, 96, 96)
+
+
+def test_bottomup_multiclass_dataset(minimal_instance, tmp_path):
+    """Test BottomUpDataset class."""
+    tracked_labels = sio.load_slp(minimal_instance)
+    tracks = 0
+    for lf in tracked_labels:
+        for instance in lf.instances:
+            instance.track = sio.Track(f"{tracks}")
+            tracks += 1
+    tracked_labels.update()
+    base_bottom_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
+            },
+            "use_augmentations_train": False,
+        }
+    )
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
+    class_maps_head = DictConfig({"sigma": 4, "output_stride": 4, "classes": None})
+
+    dataset = BottomUpMultiClassDataset(
+        max_stride=32,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        class_maps_head_config=class_maps_head,
+        labels=[tracked_labels],
+        apply_aug=base_bottom_config.use_augmentations_train,
+    )
+
+    gt_sample_keys = [
+        "image",
+        "instances",
+        "video_idx",
+        "frame_idx",
+        "confidence_maps",
+        "orig_size",
+        "num_instances",
+        "class_maps",
+        "labels_idx",
+        "track_ids",
+        "num_tracks",
+    ]
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["confidence_maps"].shape == (1, 2, 192, 192)
+    assert sample["class_maps"].shape == (1, 2, 96, 96)
+
+    # with scaling
+    base_bottom_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 0.5,
+                "ensure_rgb": True,
+                "ensure_grayscale": False,
+            },
+            "use_augmentations_train": False,
+        }
+    )
+
+    dataset = BottomUpMultiClassDataset(
+        max_stride=32,
+        scale=0.5,
+        ensure_rgb=True,
+        ensure_grayscale=False,
+        confmap_head_config=confmap_head,
+        class_maps_head_config=class_maps_head,
+        labels=[tracked_labels],
+        cache_img="memory",
+        apply_aug=base_bottom_config.use_augmentations_train,
+    )
+    dataset._fill_cache()
+
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 3, 192, 192)
+    assert sample["confidence_maps"].shape == (1, 2, 96, 96)
+    assert sample["class_maps"].shape == (1, 2, 48, 48)
+
+    # with padding
+    base_bottom_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
+            },
+            "use_augmentations_train": True,
+            "augmentation_config": {
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": (0.05, 0.05),
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
+                },
+            },
+        }
+    )
+    dataset = BottomUpMultiClassDataset(
+        max_stride=256,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        class_maps_head_config=class_maps_head,
+        labels=[tracked_labels],
+        apply_aug=base_bottom_config.use_augmentations_train,
+    )
+
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 1, 512, 512)
+    assert sample["confidence_maps"].shape == (1, 2, 256, 256)
+    assert sample["class_maps"].shape == (1, 2, 128, 128)
+
+    ## test with disk caching
+    dataset = BottomUpMultiClassDataset(
+        max_stride=32,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        class_maps_head_config=class_maps_head,
+        labels=[tracked_labels],
+        apply_aug=base_bottom_config.use_augmentations_train,
+        cache_img="disk",
+        cache_img_path=f"{tmp_path}/cache_imgs",
+    )
+    dataset._fill_cache()
+
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["image"].shape == (1, 1, 384, 384)
+    assert sample["confidence_maps"].shape == (1, 2, 192, 192)
+    assert sample["class_maps"].shape == (1, 2, 96, 96)
 
 
 def test_centered_instance_dataset(minimal_instance, tmp_path):

@@ -74,8 +74,7 @@ def make_class_maps(
         confmaps > threshold,
         mask,
         torch.tensor(0.0, dtype=mask.dtype, device=mask.device),
-    )
-    # mask = mask.unsqueeze(0)  # (1, num_instances, H, W)
+    )  # (1, num_instances, H, W)
 
     # Apply mask to vectors and reduce over instances
     class_maps = torch.max(mask * class_vectors, dim=-3).values
@@ -117,18 +116,17 @@ def generate_class_maps(
     xv, yv = make_grid_vectors(height, width, output_stride)
 
     if is_centroids:
-        points = instances[:, :num_instances, :].unsqueeze(dim=-2)
-        # (n_samples=1, n_instances, 1, 2)
+        points = instances[:, :num_instances, :].unsqueeze(dim=-3)
+        # (n_samples=1, 1, n_instances, 2)
     else:
-        points = instances[
-            :, :num_instances, :, :
-        ]  # (n_samples=1, n_instances, n_nodes, 2)
+        points = instances[:, :num_instances, :, :].permute(
+            0, 2, 1, 3
+        )  # (n_samples=1, n_nodes, n_instances, 2)
 
     # Generate confidene maps for masking.
     cms = make_multi_confmaps(
         points, xv, yv, sigma * output_stride
-    )  # (n_samples=1, n_nodes, height/ output_stride, width/ output_stride).
-    # If `is_centroids`, (n_samples=1, 1, height/ output_stride, width/ output_stride).
+    )  # (n_samples=1, n_instances, height/ output_stride, width/ output_stride).
 
     class_maps = make_class_maps(
         cms,
@@ -136,4 +134,4 @@ def generate_class_maps(
         n_classes=num_tracks,
         threshold=class_map_threshold,
     )  # (n_samples=1, n_classes, height/ output_stride, width/ output_stride)
-    return class_maps
+    return cms, class_maps

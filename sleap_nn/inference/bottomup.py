@@ -237,15 +237,7 @@ class BottomUpMultiClassInferenceModel(L.LightningModule):
         # Adjust for stride and scale.
         peaks = peaks * self.cms_output_stride  # (n_centroids, 2)
 
-        cms_peaks, cms_peak_vals, cms_peak_channel_inds = [], [], []
-
-        for b in range(self.batch_size):
-            cms_peaks.append(peaks[sample_inds == b])
-            cms_peak_vals.append(peak_vals[sample_inds == b].to(torch.float32))
-            cms_peak_channel_inds.append(peak_channel_inds[sample_inds == b])
-
-        # cms_peaks: [(#nodes, 2), ...]
-        return cms_peaks, cms_peak_vals, cms_peak_channel_inds
+        return peaks, peak_vals, sample_inds, peak_channel_inds
 
     def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
@@ -268,7 +260,9 @@ class BottomUpMultiClassInferenceModel(L.LightningModule):
         output = self.torch_model(inputs["image"])
         cms = output["MultiInstanceConfmapsHead"]
         class_maps = output["ClassMapsHead"]  # (batch, n_classes, h, w)
-        cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)
+        cms_peaks, cms_peak_vals, cms_peak_sample_inds, cms_peak_channel_inds = (
+            self._generate_cms_peaks(cms.detach())
+        )
 
         cms_peaks = cms_peaks / self.class_maps_output_stride
         (
@@ -276,9 +270,10 @@ class BottomUpMultiClassInferenceModel(L.LightningModule):
             predicted_peak_scores,
             predicted_instance_scores,
         ) = classify_peaks_from_maps(
-            class_maps,
+            class_maps.detach(),
             cms_peaks,
             cms_peak_vals,
+            cms_peak_sample_inds,
             cms_peak_channel_inds,
             n_channels=cms.shape[-3],
         )

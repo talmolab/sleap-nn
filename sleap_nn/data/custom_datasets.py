@@ -374,7 +374,7 @@ class BottomUpDataset(BaseDataset):
         return sample
 
 
-class BottomUpMultiClassDataset(Dataset):
+class BottomUpMultiClassDataset(BaseDataset):
     """Dataset class for bottom-up ID models.
 
     Attributes:
@@ -450,7 +450,9 @@ class BottomUpMultiClassDataset(Dataset):
         )
         self.confmap_head_config = confmap_head_config
         self.class_maps_head_config = class_maps_head_config
-        self.tracks = self.labels.tracks
+        self.tracks = []
+        for train_label in self.labels:
+            self.tracks.extend([x.name for x in train_label.tracks if x is not None])
         self.class_map_threshold = class_map_threshold
 
     def __getitem__(self, index) -> Dict:
@@ -488,8 +490,12 @@ class BottomUpMultiClassDataset(Dataset):
 
         sample["track_ids"] = torch.Tensor(
             [
-                self.tracks.index(inst.track) if inst.track is not None else -1
-                for inst in sample["instances"]
+                (
+                    self.tracks.index(lf.instances[idx].track.name)
+                    if lf.instances[idx].track is not None
+                    else -1
+                )
+                for idx in range(sample["num_instances"])
             ]
         ).to(torch.int32)
 
@@ -552,7 +558,7 @@ class BottomUpMultiClassDataset(Dataset):
         )
 
         # class maps
-        class_maps = generate_class_maps(
+        class_maps, cms = generate_class_maps(
             instances=sample["instances"],
             img_hw=img_hw,
             num_instances=sample["num_instances"],
@@ -565,6 +571,7 @@ class BottomUpMultiClassDataset(Dataset):
         )
 
         sample["confidence_maps"] = confidence_maps
+        sample["test"] = cms
         sample["class_maps"] = class_maps
         sample["labels_idx"] = labels_idx
 
@@ -1188,7 +1195,7 @@ class InfiniteDataLoader(DataLoader):
 
     def __len__(self) -> int:
         """Return the length of the batch sampler's sampler."""
-        return len(self.batch_sampler.sampler)
+        return 200  # len(self.batch_sampler.sampler)
 
     def __iter__(self) -> Iterator:
         """Create an iterator that yields indefinitely from the underlying iterator."""
@@ -1358,8 +1365,8 @@ def get_train_val_datasets(
         )
         val_dataset = BottomUpMultiClassDataset(
             labels=val_labels,
-            confmap_head_config=config.model_config.head_configs.bottomup.confmaps,
-            pafs_head_config=config.model_config.head_configs.bottomup.pafs,
+            confmap_head_config=config.model_config.head_configs.multi_class_bottomup.confmaps,
+            class_maps_head_config=config.model_config.head_configs.multi_class_bottomup.class_maps,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
