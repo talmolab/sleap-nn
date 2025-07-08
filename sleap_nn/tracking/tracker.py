@@ -771,7 +771,6 @@ def run_tracker(
     )
     tracked_lfs = []
     for lf in untracked_frames:
-        print(lf.instances)
         tracked_instances = tracker.track(
             untracked_instances=lf.instances, frame_idx=lf.frame_idx, image=lf.image
         )

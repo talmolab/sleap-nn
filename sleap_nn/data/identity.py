@@ -134,4 +134,4 @@ def generate_class_maps(
         n_classes=num_tracks,
         threshold=class_map_threshold,
     )  # (n_samples=1, n_classes, height/ output_stride, width/ output_stride)
-    return cms, class_maps
+    return class_maps

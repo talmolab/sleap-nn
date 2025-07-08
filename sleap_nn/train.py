@@ -58,6 +58,8 @@ from sleap_nn.config.model_config import (
     BottomUpConfMapsConfig,
     PAFConfig,
     ClassMapConfig,
+    TopDownCenteredInstanceMultiClassConfig,
+    ClassVectorsConfig,
 )
 
 
@@ -191,9 +193,14 @@ def get_head_configs(head_cfg):
             head_configs.multi_class_bottomup = BottomUpMultiClassConfig(
                 confmaps=BottomUpConfMapsConfig, class_maps=ClassMapConfig
             )
+        elif head_cfg == "multi_class_topdown":
+            head_configs.multi_class_topdown = TopDownCenteredInstanceMultiClassConfig(
+                confmaps=CenteredInstanceConfMapsConfig,
+                class_vectors=ClassVectorsConfig,
+            )
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -234,6 +241,18 @@ def get_head_configs(head_cfg):
                 ),
                 class_maps=ClassMapConfig(
                     **head_cfg["multi_class_bottomup"]["class_maps"]
+                ),
+            )
+        elif (
+            "multi_class_topdown" in head_cfg
+            and head_cfg["multi_class_topdown"] is not None
+        ):
+            head_configs.multi_class_topdown = TopDownCenteredInstanceMultiClassConfig(
+                confmaps=CenteredInstanceConfMapsConfig(
+                    **head_cfg["multi_class_topdown"]["confmaps"]
+                ),
+                class_vectors=ClassVectorsConfig(
+                    **head_cfg["multi_class_topdown"]["class_vectors"]
                 ),
             )
 
@@ -398,11 +417,11 @@ def get_model_config(
                                 "output_stride": 2
                             }
                     }
-        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance", "multi_class_bottomup"].
+        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance", "multi_class_bottomup", "multi_class_topdown"].
             The default `sigma` and `output_strides` are used if a string is passed. To
             set custom parameters, pass in a dictionary with the structure:
             {
-                "bottomup" (or "centroid" or "single_instance" or "centered_instance" or "multi_class_bottomup"):
+                "bottomup" (or "centroid" or "single_instance" or "centered_instance" or "multi_class_bottomup" or "multi_class_topdown"):
                     {
                         "confmaps":
                             {
@@ -881,11 +900,11 @@ def train(
                                 "output_stride": 2
                             }
                     }
-        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance", "multi_class_bottomup"].
+        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance", "multi_class_bottomup", "multi_class_topdown"].
             The default `sigma` and `output_strides` are used if a string is passed. To
             set custom parameters, pass in a dictionary with the structure:
             {
-                "bottomup" (or "centroid" or "single_instance" or "centered_instance" or "multi_class_bottomup"):
+                "bottomup" (or "centroid" or "single_instance" or "centered_instance" or "multi_class_bottomup" or "multi_class_topdown"):
                     {
                         "confmaps":
                             {

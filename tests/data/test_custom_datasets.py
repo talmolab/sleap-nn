@@ -1,9 +1,11 @@
 from omegaconf import DictConfig, OmegaConf
 import sleap_io as sio
+import torch
 from sleap_nn.data.custom_datasets import (
     BottomUpDataset,
     BottomUpMultiClassDataset,
     CenteredInstanceDataset,
+    TopDownCenteredInstanceMultiClassDataset,
     CentroidDataset,
     SingleInstanceDataset,
     InfiniteDataLoader,
@@ -632,6 +634,223 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         assert gt_key == key
     assert sample["instance_image"].shape == (1, 1, 112, 112)
     assert sample["confidence_maps"].shape == (1, 2, 56, 56)
+
+
+def test_centered_multiclass_dataset(minimal_instance, tmp_path):
+    """Test the TopDownCenteredInstanceMultiClassDataset."""
+    tracked_labels = sio.load_slp(minimal_instance)
+    tracks = 0
+    for lf in tracked_labels:
+        for instance in lf.instances:
+            instance.track = sio.Track(f"{tracks}")
+            tracks += 1
+    tracked_labels.update()
+
+    crop_hw = (160, 160)
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
+            },
+            "use_augmentations_train": False,
+        },
+    )
+
+    confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
+    class_vectors_head = DictConfig({"classes": None})
+
+    ## save imgs
+    dataset = TopDownCenteredInstanceMultiClassDataset(
+        max_stride=16,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        crop_hw=crop_hw,
+        labels=[
+            tracked_labels,
+            tracked_labels,
+            tracked_labels,
+        ],
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+        cache_img="disk",
+        cache_img_path=f"{tmp_path}/cache_imgs",
+    )
+    dataset._fill_cache()
+
+    gt_sample_keys = [
+        "centroid",
+        "instance",
+        "instance_bbox",
+        "instance_image",
+        "confidence_maps",
+        "frame_idx",
+        "video_idx",
+        "orig_size",
+        "num_instances",
+        "labels_idx",
+        "track_id",
+        "class_vectors",
+    ]
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+    assert len(dataset) == 6
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 160, 160)
+    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+    assert torch.all(sample["class_vectors"] == torch.Tensor([0, 1]))
+    assert torch.all(dataset[1]["class_vectors"] == torch.Tensor([1, 0]))
+
+    ## memory caching
+
+    dataset = TopDownCenteredInstanceMultiClassDataset(
+        max_stride=16,
+        scale=1.0,
+        confmap_head_config=confmap_head,
+        crop_hw=crop_hw,
+        labels=[tracked_labels],
+        cache_img="memory",
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+    )
+    dataset._fill_cache()
+
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 160, 160)
+    assert sample["confidence_maps"].shape == (1, 2, 80, 80)
+
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 1.0,
+                "ensure_rgb": True,
+                "ensure_grayscale": False,
+            },
+            "use_augmentations_train": True,
+            "augmentation_config": {
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": (0.05, 0.05),
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
+                },
+            },
+        }
+    )
+
+    dataset = TopDownCenteredInstanceMultiClassDataset(
+        max_stride=8,
+        scale=1.0,
+        ensure_rgb=True,
+        ensure_grayscale=False,
+        confmap_head_config=confmap_head,
+        crop_hw=(100, 100),
+        labels=[tracked_labels],
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+    )
+
+    sample = next(iter(dataset))
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 3, 104, 104)
+    assert sample["confidence_maps"].shape == (1, 2, 52, 52)
+
+    # Test with resizing and padding
+    base_topdown_data_config = OmegaConf.create(
+        {
+            "user_instances_only": True,
+            "preprocessing": {
+                "max_height": None,
+                "max_width": None,
+                "scale": 2.0,
+                "ensure_rgb": False,
+                "ensure_grayscale": False,
+            },
+            "use_augmentations_train": True,
+            "augmentation_config": {
+                "intensity": {
+                    "uniform_noise_min": 0.0,
+                    "uniform_noise_max": 0.04,
+                    "uniform_noise_p": 0.5,
+                    "gaussian_noise_mean": 0.02,
+                    "gaussian_noise_std": 0.004,
+                    "gaussian_noise_p": 0.5,
+                    "contrast_min": 0.5,
+                    "contrast_max": 2.0,
+                    "contrast_p": 0.5,
+                    "brightness": 0.0,
+                    "brightness_p": 0.5,
+                },
+                "geometric": {
+                    "rotation": 15.0,
+                    "scale": (0.05, 0.05),
+                    "translate_width": 0.02,
+                    "translate_height": 0.02,
+                    "affine_p": 0.5,
+                    "erase_scale_min": 0.0001,
+                    "erase_scale_max": 0.01,
+                    "erase_ratio_min": 1,
+                    "erase_ratio_max": 1,
+                    "erase_p": 0.5,
+                    "mixup_lambda": None,
+                    "mixup_p": 0.5,
+                },
+            },
+        }
+    )
+
+    dataset = TopDownCenteredInstanceMultiClassDataset(
+        max_stride=16,
+        scale=2.0,
+        confmap_head_config=confmap_head,
+        crop_hw=(100, 100),
+        labels=[tracked_labels],
+        apply_aug=base_topdown_data_config.use_augmentations_train,
+    )
+
+    sample = next(iter(dataset))
+    assert len(dataset) == 2
+    assert len(sample.keys()) == len(gt_sample_keys)
+
+    for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
+        assert gt_key == key
+    assert sample["instance_image"].shape == (1, 1, 112, 112)
+    assert sample["confidence_maps"].shape == (1, 2, 56, 56)
+    assert torch.all(sample["class_vectors"] == torch.Tensor([0, 1]))
 
 
 def test_centroid_dataset(minimal_instance, tmp_path):

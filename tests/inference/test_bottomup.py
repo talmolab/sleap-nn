@@ -110,11 +110,11 @@ def test_bottomup_inference_model(
 
 
 def test_multiclass_bottomup_inference_model(
-    minimal_instance, minimal_instance_multi_instance_bottomup_ckpt, tmp_path: str
+    minimal_instance, minimal_instance_multi_class_bottomup_ckpt, tmp_path: str
 ):
     """Test BottomUpInferenceModel."""
     train_config = OmegaConf.load(
-        f"{minimal_instance_multi_instance_bottomup_ckpt}/training_config.yaml"
+        f"{minimal_instance_multi_class_bottomup_ckpt}/training_config.yaml"
     )
     OmegaConf.update(
         train_config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
@@ -136,7 +136,7 @@ def test_multiclass_bottomup_inference_model(
     ex["eff_scale"] = torch.Tensor([1.0])
 
     torch_model = BottomUpMultiClassLightningModule.load_from_checkpoint(
-        f"{minimal_instance_multi_instance_bottomup_ckpt}/best.ckpt",
+        f"{minimal_instance_multi_class_bottomup_ckpt}/best.ckpt",
         config=train_config,
         model_type="multi_class_bottomup",
         backbone_type="unet",

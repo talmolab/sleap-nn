@@ -26,7 +26,11 @@ from torchvision.models.convnext import (
     ConvNeXt_Large_Weights,
 )
 import sleap_io as sio
-from sleap_nn.inference.topdown import CentroidCrop, FindInstancePeaks
+from sleap_nn.inference.topdown import (
+    CentroidCrop,
+    FindInstancePeaks,
+    TopDownMultiClassFindInstancePeaks,
+)
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import (
     BottomUpInferenceModel,
@@ -70,7 +74,7 @@ class LightningModel(L.LightningModule):
                 a pipeline class.
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, , `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
     """
 
@@ -184,10 +188,11 @@ class LightningModel(L.LightningModule):
             "centered_instance": TopDownCenteredInstanceLightningModule,
             "bottomup": BottomUpLightningModule,
             "multi_class_bottomup": BottomUpMultiClassLightningModule,
+            "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
         }
 
         if model_type not in lightning_models:
-            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`]"
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`]"
             logger.error(message)
             raise ValueError(message)
 
@@ -311,7 +316,7 @@ class SingleInstanceLightningModule(LightningModel):
             (ii) model_config: backbone and head configs to be passed to `Model` class.
             (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
 
     """
 
@@ -466,7 +471,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
 
     """
 
@@ -622,7 +627,7 @@ class CentroidLightningModule(LightningModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
 
     """
 
@@ -734,7 +739,7 @@ class BottomUpLightningModule(LightningModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
 
     """
 
@@ -949,7 +954,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
                 (ii) model_config: backbone and head configs to be passed to `Model` class.
                 (iii) trainer_config: trainer configs like accelerator, optimiser params.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
 
     """
 
@@ -1107,6 +1112,185 @@ class BottomUpMultiClassLightningModule(LightningModel):
         }
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+        )
+        self.log(
+            "val_loss",
+            val_loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+        )
+
+
+class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
+    """Lightning Module for TopDownCenteredInstance ID Model.
+
+    This is a subclass of the `LightningModel` to configure the training/ validation steps
+    and forward pass specific to TopDown Centered instance model.
+
+    Args:
+        config: OmegaConf dictionary which has the following:
+                (i) data_config: data loading pre-processing configs to be passed to
+                `TopDownCenteredInstanceMultiClassDataset` class.
+                (ii) model_config: backbone and head configs to be passed to `Model` class.
+                (iii) trainer_config: trainer configs like accelerator, optimiser params.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
+
+    """
+
+    def __init__(
+        self,
+        config: OmegaConf,
+        backbone_type: str,
+        model_type: str,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            config=config,
+            backbone_type=backbone_type,
+            model_type=model_type,
+        )
+        if OmegaConf.select(
+            self.config, "trainer_config.visualize_preds_during_training", default=False
+        ):
+            self.instance_peaks_inf_layer = TopDownMultiClassFindInstancePeaks(
+                torch_model=self.forward,
+                peak_threshold=0.2,
+                return_confmaps=True,
+                output_stride=self.config.model_config.head_configs.multi_class_topdown.confmaps.output_stride,
+            )
+        self.ohkm_cfg = OmegaConf.select(
+            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+        )
+
+        self.node_names = (
+            self.config.model_config.head_configs.multi_class_topdown.confmaps.part_names
+        )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+        output = self.instance_peaks_inf_layer(ex)
+        peaks = output["pred_instance_peaks"].cpu().numpy()
+        img = (
+            output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        gt_instances = ex["instance"].cpu().numpy()
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_instances, peaks, paired=True)
+        return fig
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        output = self.model(img)
+        return {
+            "CenteredInstanceConfmapsHead": output["CenteredInstanceConfmapsHead"],
+            "ClassVectorsHead": output["ClassVectorsHead"],
+        }
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
+        y_classvector = batch["class_vectors"]
+        preds = self.model(X)
+        classvector = preds["ClassVectorsHead"]
+        confmaps = preds["CenteredInstanceConfmapsHead"]
+
+        confmap_loss = nn.MSELoss()(confmaps, y_confmap)
+        classvector_loss = nn.CrossEntropyLoss()(classvector, y_classvector)
+
+        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+            confmap_ohkm_loss = compute_ohkm_loss(
+                y_gt=y_confmap,
+                y_pr=confmaps,
+                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
+                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
+                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
+                loss_scale=self.ohkm_cfg.loss_scale,
+            )
+            confmap_loss += confmap_ohkm_loss
+
+        losses = {
+            "CenteredInstanceConfmapsHead": confmap_loss,
+            "ClassVectorsHead": classvector_loss,
+        }
+        loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+
+        # for part-wise loss
+        if self.node_names is not None:
+            batch_size, _, h, w = y_confmap.shape
+            mse = (y_confmap - confmaps) ** 2
+            channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
+            for node_idx, name in enumerate(self.node_names):
+                self.log(
+                    f"{name}",
+                    channel_wise_loss[node_idx],
+                    prog_bar=True,
+                    on_step=True,
+                    on_epoch=True,
+                    logger=True,
+                )
+
+        self.log(
+            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Perform validation step."""
+        X = torch.squeeze(batch["instance_image"], dim=1)
+        y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
+        y_classvector = batch["class_vectors"]
+        preds = self.model(X)
+        classvector = preds["ClassVectorsHead"]
+        confmaps = preds["CenteredInstanceConfmapsHead"]
+
+        confmap_loss = nn.MSELoss()(confmaps, y_confmap)
+        classvector_loss = nn.CrossEntropyLoss()(classvector, y_classvector)
+
+        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+            confmap_ohkm_loss = compute_ohkm_loss(
+                y_gt=y_confmap,
+                y_pr=confmaps,
+                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
+                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
+                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
+                loss_scale=self.ohkm_cfg.loss_scale,
+            )
+            confmap_loss += confmap_ohkm_loss
+
+        losses = {
+            "CenteredInstanceConfmapsHead": confmap_loss,
+            "ClassVectorsHead": classvector_loss,
+        }
+        val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
         self.log(
             "learning_rate",

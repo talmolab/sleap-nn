@@ -62,7 +62,7 @@ class ModelTrainer:
         val_labels: List of `sio.Labels` objects for validation dataset.
         skeletons: List of `sio.Skeleton` objects in a single slp file.
         lightning_model: One of the child classes of `sleap_nn.training.lightning_modules.LightningModel`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         trainer: Instance of the `lightning.Trainer` initialized with loggers and callbacks.
     """
@@ -284,6 +284,13 @@ class ModelTrainer:
                         )
                         logger.error(message)
                         raise Exception(message)
+
+        if self.model_type == "multi_class_topdown":
+            self.config.model_config.head_configs.multi_class_topdown.class_vectors.output_stride = self.config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ][
+                "max_stride"
+            ]
 
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path

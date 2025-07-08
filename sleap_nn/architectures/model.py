@@ -69,6 +69,7 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'centered_instance'
             - 'bottomup'
             - 'multi_class_bottomup'
+            - 'multi_class_topdown'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -92,8 +93,12 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         heads.append(MultiInstanceConfmapsHead(**head_config.confmaps))
         heads.append(ClassMapsHead(**head_config.class_maps))
 
+    elif model_type == "multi_class_topdown":
+        heads.append(CenteredInstanceConfmapsHead(**head_config.confmaps))
+        heads.append(ClassVectorsHead(**head_config.class_vectors))
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`."
         logger.error(message)
         raise Exception(message)
 
@@ -107,7 +112,7 @@ class Model(nn.Module):
         backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
     """
 
     def __init__(
@@ -151,10 +156,15 @@ class Model(nn.Module):
                 )
             )
             if head.output_stride != min_output_stride:
-                factor = strides.index(min_output_stride) - strides.index(
-                    head.output_stride
-                )
-                in_channels = in_channels * (self.backbone_config.filters_rate**factor)
+                if isinstance(head, ClassVectorsHead):
+                    in_channels = int(self.backbone.dec.x_in_shape)
+                else:
+                    factor = strides.index(min_output_stride) - strides.index(
+                        head.output_stride
+                    )
+                    in_channels = in_channels * (
+                        self.backbone_config.filters_rate**factor
+                    )
             self.head_layers.append(head.make_head(x_in=int(in_channels)))
 
     @classmethod
@@ -179,7 +189,11 @@ class Model(nn.Module):
 
         outputs = {}
         for head, head_layer in zip(self.heads, self.head_layers):
-            idx = backbone_outputs["strides"].index(head.output_stride)
-            outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
+            if isinstance(head, ClassVectorsHead):
+                backbone_out = backbone_outputs["intermediate_feat"]
+                outputs[head.name] = head_layer(backbone_out)
+            else:
+                idx = backbone_outputs["strides"].index(head.output_stride)
+                outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
 
         return outputs

@@ -31,6 +31,7 @@ from sleap_nn.training.lightning_modules import (
     CentroidLightningModule,
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
+    TopDownCenteredInstanceMultiClassLightningModule,
 )
 from sleap_nn.inference.single_instance import SingleInstanceInferenceModel
 from sleap_nn.inference.bottomup import (
@@ -41,6 +42,7 @@ from sleap_nn.inference.topdown import (
     CentroidCrop,
     FindInstancePeaks,
     FindInstancePeaksGroundTruth,
+    TopDownMultiClassFindInstancePeaks,
     TopDownInferenceModel,
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
@@ -52,7 +54,6 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
     MofNCompleteColumn,
-    # RateColumn,
 )
 from time import time
 
@@ -181,29 +182,65 @@ class Predictor(ABC):
                 preprocess_config=preprocess_config,
             )
 
-        elif "centroid" in model_names or "centered_instance" in model_names:
+        elif (
+            "centroid" in model_names
+            or "centered_instance" in model_names
+            or "multi_class_topdown" in model_names
+        ):
             centroid_ckpt_path = None
             confmap_ckpt_path = None
             if "centroid" in model_names:
                 centroid_ckpt_path = model_paths[model_names.index("centroid")]
+                predictor = TopDownPredictor.from_trained_models(
+                    centroid_ckpt_path=centroid_ckpt_path,
+                    confmap_ckpt_path=confmap_ckpt_path,
+                    backbone_ckpt_path=backbone_ckpt_path,
+                    head_ckpt_path=head_ckpt_path,
+                    peak_threshold=peak_threshold,
+                    integral_refinement=integral_refinement,
+                    integral_patch_size=integral_patch_size,
+                    batch_size=batch_size,
+                    max_instances=max_instances,
+                    return_confmaps=return_confmaps,
+                    device=device,
+                    preprocess_config=preprocess_config,
+                )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
-
-            # create an instance of the TopDown predictor class
-            predictor = TopDownPredictor.from_trained_models(
-                centroid_ckpt_path=centroid_ckpt_path,
-                confmap_ckpt_path=confmap_ckpt_path,
-                backbone_ckpt_path=backbone_ckpt_path,
-                head_ckpt_path=head_ckpt_path,
-                peak_threshold=peak_threshold,
-                integral_refinement=integral_refinement,
-                integral_patch_size=integral_patch_size,
-                batch_size=batch_size,
-                max_instances=max_instances,
-                return_confmaps=return_confmaps,
-                device=device,
-                preprocess_config=preprocess_config,
-            )
+                # create an instance of the TopDown predictor class
+                predictor = TopDownPredictor.from_trained_models(
+                    centroid_ckpt_path=centroid_ckpt_path,
+                    confmap_ckpt_path=confmap_ckpt_path,
+                    backbone_ckpt_path=backbone_ckpt_path,
+                    head_ckpt_path=head_ckpt_path,
+                    peak_threshold=peak_threshold,
+                    integral_refinement=integral_refinement,
+                    integral_patch_size=integral_patch_size,
+                    batch_size=batch_size,
+                    max_instances=max_instances,
+                    return_confmaps=return_confmaps,
+                    device=device,
+                    preprocess_config=preprocess_config,
+                )
+            elif "multi_class_topdown" in model_names:
+                confmap_ckpt_path = model_paths[
+                    model_names.index("multi_class_topdown")
+                ]
+                # create an instance of the TopDown predictor class
+                predictor = TopDownMultiClassPredictor.from_trained_models(
+                    centroid_ckpt_path=centroid_ckpt_path,
+                    confmap_ckpt_path=confmap_ckpt_path,
+                    backbone_ckpt_path=backbone_ckpt_path,
+                    head_ckpt_path=head_ckpt_path,
+                    peak_threshold=peak_threshold,
+                    integral_refinement=integral_refinement,
+                    integral_patch_size=integral_patch_size,
+                    batch_size=batch_size,
+                    max_instances=max_instances,
+                    return_confmaps=return_confmaps,
+                    device=device,
+                    preprocess_config=preprocess_config,
+                )
 
         elif "bottomup" in model_names:
             bottomup_ckpt_path = model_paths[model_names.index("bottomup")]
@@ -2149,6 +2186,571 @@ class BottomUpMultiClassPredictor(Predictor):
         return pred_labels
 
 
+@attrs.define
+class TopDownMultiClassPredictor(Predictor):
+    """Top-down multi-class predictor.
+
+    This high-level class handles initialization, preprocessing and predicting using a
+    trained TopDown SLEAP-NN model. This should be initialized using the
+    `from_trained_models()` constructor.
+
+    Attributes:
+        centroid_config: A Dictionary with the configs used for training the centroid model.
+        confmap_config: A Dictionary with the configs used for training the
+                        centered-instance model
+        centroid_model: A LightningModule instance created from the trained weights
+                        for centroid model.
+        confmap_model: A LightningModule instance created from the trained weights
+                       for centered-instance model.
+        centroid_backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        centered_instance_backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        videos: List of `sio.Video` objects for creating the `sio.Labels` object from
+                        the output predictions.
+        skeletons: List of `sio.Skeleton` objects for creating `sio.Labels` object from
+                        the output predictions.
+        peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
+                centroid and centered-instance model, where the first element corresponds
+                to centroid model peak finding threshold and the second element is for
+                centered-instance model peak finding.
+        integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+            If `"integral"`, peaks will be refined with integral regression.
+            Default: None.
+        integral_patch_size: (int) Size of patches to crop around each rough peak as an
+            integer scalar. Default: 5.
+        batch_size: (int) Number of samples per batch. Default: 4.
+        max_instances: (int) Max number of instances to consider from the predictions.
+        return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+            along with the predicted peak values and points. Default: False.
+        device: (str) Device on which torch.Tensor will be allocated. One of the
+            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            Default: "cpu"
+        preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+            in the `data_config.preprocessing` section.
+        anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
+            provided, the anchor part in the `training_config.yaml` is used instead.
+
+    """
+
+    centroid_config: Optional[OmegaConf] = None
+    confmap_config: Optional[OmegaConf] = None
+    centroid_model: Optional[L.LightningModule] = None
+    confmap_model: Optional[L.LightningModule] = None
+    centroid_backbone_type: Optional[str] = None
+    centered_instance_backbone_type: Optional[str] = None
+    videos: Optional[List[sio.Video]] = None
+    skeletons: Optional[List[sio.Skeleton]] = None
+    peak_threshold: Union[float, List[float]] = 0.2
+    integral_refinement: str = None
+    integral_patch_size: int = 5
+    batch_size: int = 4
+    max_instances: Optional[int] = None
+    return_confmaps: bool = False
+    device: str = "cpu"
+    preprocess_config: Optional[OmegaConf] = None
+    anchor_part: Optional[str] = None
+
+    def _initialize_inference_model(self):
+        """Initialize the inference model from the trained models and configuration."""
+        # Create an instance of CentroidLayer if centroid_config is not None
+        return_crops = False
+        # if both centroid and centered-instance model are provided, set return crops to True
+        if self.confmap_model:
+            return_crops = True
+        if isinstance(self.peak_threshold, list):
+            centroid_peak_threshold = self.peak_threshold[0]
+            centered_instance_peak_threshold = self.peak_threshold[1]
+        else:
+            centroid_peak_threshold = self.peak_threshold
+            centered_instance_peak_threshold = self.peak_threshold
+
+        if self.data_config.crop_hw is None:
+            self.data_config.crop_hw = (
+                self.confmap_config.data_config.preprocessing.crop_hw
+            )
+
+        if self.anchor_part is not None:
+            anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
+        else:
+            anch_pt = None
+            anch_pt = (
+                self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
+            )
+            anchor_ind = (
+                self.skeletons[0].node_names.index(anch_pt)
+                if anch_pt is not None
+                else None
+            )
+
+        if self.centroid_config is None:
+            centroid_crop_layer = CentroidCrop(
+                use_gt_centroids=True,
+                crop_hw=self.data_config.crop_hw,
+                anchor_ind=anchor_ind,
+                return_crops=return_crops,
+            )
+
+        else:
+            max_stride = self.centroid_config.model_config.backbone_config[
+                f"{self.centroid_backbone_type}"
+            ]["max_stride"]
+            # initialize centroid crop layer
+            centroid_crop_layer = CentroidCrop(
+                torch_model=self.centroid_model,
+                peak_threshold=centroid_peak_threshold,
+                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
+                refinement=self.integral_refinement,
+                integral_patch_size=self.integral_patch_size,
+                return_confmaps=self.return_confmaps,
+                return_crops=return_crops,
+                max_instances=self.max_instances,
+                max_stride=max_stride,
+                input_scale=self.centroid_config.data_config.preprocessing.scale,
+                crop_hw=self.data_config.crop_hw,
+                use_gt_centroids=False,
+            )
+
+        max_stride = self.confmap_config.model_config.backbone_config[
+            f"{self.centered_instance_backbone_type}"
+        ]["max_stride"]
+        instance_peaks_layer = TopDownMultiClassFindInstancePeaks(
+            torch_model=self.confmap_model,
+            peak_threshold=centered_instance_peak_threshold,
+            output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
+            refinement=self.integral_refinement,
+            integral_patch_size=self.integral_patch_size,
+            return_confmaps=self.return_confmaps,
+            max_stride=max_stride,
+            input_scale=self.confmap_config.data_config.preprocessing.scale,
+        )
+        centroid_crop_layer.precrop_resize = (
+            self.confmap_config.data_config.preprocessing.scale
+        )
+
+        if self.centroid_config is None:
+            self.instances_key = (
+                True  # we need `instances` to get ground-truth centroids
+            )
+
+        # Initialize the inference model with centroid and instance peak layers
+        self.inference_model = TopDownInferenceModel(
+            centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
+        )
+
+    @property
+    def data_config(self) -> OmegaConf:
+        """Returns data config section from the overall config."""
+        if self.centroid_config:
+            data_config = self.centroid_config.data_config.preprocessing
+        else:
+            data_config = self.confmap_config.data_config.preprocessing
+        if self.preprocess_config is None:
+            return data_config
+        return self.preprocess_config
+
+    @classmethod
+    def from_trained_models(
+        cls,
+        centroid_ckpt_path: Optional[Text] = None,
+        confmap_ckpt_path: Optional[Text] = None,
+        backbone_ckpt_path: Optional[str] = None,
+        head_ckpt_path: Optional[str] = None,
+        peak_threshold: float = 0.2,
+        integral_refinement: str = None,
+        integral_patch_size: int = 5,
+        batch_size: int = 4,
+        max_instances: Optional[int] = None,
+        return_confmaps: bool = False,
+        device: str = "cpu",
+        preprocess_config: Optional[OmegaConf] = None,
+    ) -> "TopDownPredictor":
+        """Create predictor from saved models.
+
+        Args:
+            centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
+                from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
+            head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
+                are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt
+                from `backbone_ckpt_path` if provided.)
+            peak_threshold: (float) Minimum confidence threshold. Peaks with values below
+                this will be ignored. Default: 0.2
+            integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
+                If `"integral"`, peaks will be refined with integral regression.
+                Default: None.
+            integral_patch_size: (int) Size of patches to crop around each rough peak as an
+                integer scalar. Default: 5.
+            batch_size: (int) Number of samples per batch. Default: 4.
+            max_instances: (int) Max number of instances to consider from the predictions.
+            return_confmaps: (bool) If `True`, predicted confidence maps will be returned
+                along with the predicted peak values and points. Default: False.
+            device: (str) Device on which torch.Tensor will be allocated. One of the
+                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                Default: "cpu"
+            preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
+                in the `data_config.preprocessing` section and the `anchor_part`.
+
+        Returns:
+            An instance of `TopDownPredictor` with the loaded models.
+
+            One of the two models can be left as `None` to perform inference with ground
+            truth data. This will only work with `LabelsReader` as the provider.
+
+        """
+        centered_instance_backbone_type = None
+        centroid_backbone_type = None
+        if centroid_ckpt_path is not None:
+            # Load centroid model.
+            centroid_config = OmegaConf.load(
+                f"{centroid_ckpt_path}/training_config.yaml"
+            )
+            skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
+            ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
+
+            # check which backbone architecture
+            for k, v in centroid_config.model_config.backbone_config.items():
+                if v is not None:
+                    centroid_backbone_type = k
+                    break
+
+            centroid_model = CentroidLightningModule.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=centroid_config,
+                skeletons=skeletons,
+                model_type="centroid",
+                backbone_type=centroid_backbone_type,
+                map_location=device,
+            )
+
+            if backbone_ckpt_path is not None and head_ckpt_path is not None:
+                logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path, map_location=device)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".backbone" in k
+                }
+                centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            elif backbone_ckpt_path is not None:
+                logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path, map_location=device)
+                centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            if head_ckpt_path is not None:
+                logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
+                ckpt = torch.load(head_ckpt_path, map_location=device)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".head_layers" in k
+                }
+                centroid_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            centroid_model.to(device)
+
+        else:
+            centroid_config = None
+            centroid_model = None
+
+        if confmap_ckpt_path is not None:
+            # Load confmap model.
+            confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
+            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+            ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+
+            # check which backbone architecture
+            for k, v in confmap_config.model_config.backbone_config.items():
+                if v is not None:
+                    centered_instance_backbone_type = k
+                    break
+            confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=confmap_config,
+                model_type="centered_instance",
+                backbone_type=centered_instance_backbone_type,
+                map_location=device,
+            )
+            if backbone_ckpt_path is not None and head_ckpt_path is not None:
+                logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path, map_location=device)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".backbone" in k
+                }
+                confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            elif backbone_ckpt_path is not None:
+                logger.info(f"Loading weights from `{backbone_ckpt_path}` ...")
+                ckpt = torch.load(backbone_ckpt_path, map_location=device)
+                confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            if head_ckpt_path is not None:
+                logger.info(f"Loading head weights from `{head_ckpt_path}` ...")
+                ckpt = torch.load(head_ckpt_path, map_location=device)
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".head_layers" in k
+                }
+                confmap_model.load_state_dict(ckpt["state_dict"], strict=False)
+
+            confmap_model.to(device)
+
+        else:
+            confmap_config = None
+            confmap_model = None
+
+        if centroid_config is None and confmap_config is None:
+            message = (
+                "Both a centroid and a confidence map model must be provided to "
+                "initialize a TopDownMultiClassPredictor."
+            )
+            logger.error(message)
+            raise ValueError(message)
+
+        # create an instance of TopDownPredictor class
+        obj = cls(
+            centroid_config=centroid_config,
+            centroid_model=centroid_model,
+            confmap_config=confmap_config,
+            confmap_model=confmap_model,
+            centroid_backbone_type=centroid_backbone_type,
+            centered_instance_backbone_type=centered_instance_backbone_type,
+            skeletons=skeletons,
+            peak_threshold=peak_threshold,
+            integral_refinement=integral_refinement,
+            integral_patch_size=integral_patch_size,
+            batch_size=batch_size,
+            max_instances=max_instances,
+            return_confmaps=return_confmaps,
+            device=device,
+            preprocess_config=preprocess_config,
+            anchor_part=preprocess_config["anchor_part"],
+        )
+
+        obj._initialize_inference_model()
+        return obj
+
+    def make_pipeline(
+        self,
+        data_path: str,
+        queue_maxsize: int = 8,
+        frames: Optional[list] = None,
+        only_labeled_frames: bool = False,
+        only_suggested_frames: bool = False,
+        video_index: Optional[int] = None,
+        video_dataset: Optional[str] = None,
+        video_input_format: str = "channels_last",
+    ):
+        """Make a data loading pipeline.
+
+        Args:
+            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
+            frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
+            only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
+            only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            video_index: (int) Integer index of video in .slp file to predict on. To be used
+                with an .slp path as an alternative to specifying the video path.
+            video_dataset: (str) The dataset for HDF5 videos.
+            video_input_format: (str) The input_format for HDF5 videos.
+
+        Returns:
+            This method initiates the reader class (doesn't return a pipeline) and the
+            Thread is started in Predictor._predict_generator() method.
+        """
+        if self.centroid_config is not None:
+            max_stride = self.centroid_config.model_config.backbone_config[
+                f"{self.centroid_backbone_type}"
+            ]["max_stride"]
+            scale = self.centroid_config.data_config.preprocessing.scale
+            max_height = self.centroid_config.data_config.preprocessing.max_height
+            max_width = self.centroid_config.data_config.preprocessing.max_width
+        else:
+            max_stride = self.confmap_config.model_config.backbone_config[
+                f"{self.centered_instance_backbone_type}"
+            ]["max_stride"]
+            scale = self.confmap_config.data_config.preprocessing.scale
+            max_height = self.confmap_config.data_config.preprocessing.max_height
+            max_width = self.confmap_config.data_config.preprocessing.max_width
+
+        # LabelsReader provider
+        if data_path.endswith(".slp") and video_index is None:
+            provider = LabelsReader
+
+            self.preprocess = False
+            self.preprocess_config = {
+                "batch_size": self.batch_size,
+                "scale": scale,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
+                "max_stride": max_stride,
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else max_width
+                ),
+            }
+
+            self.pipeline = provider.from_filename(
+                filename=data_path,
+                queue_maxsize=queue_maxsize,
+                instances_key=self.instances_key,
+                only_labeled_frames=only_labeled_frames,
+                only_suggested_frames=only_suggested_frames,
+            )
+            self.videos = self.pipeline.labels.videos
+
+        else:
+            provider = VideoReader
+            if self.centroid_config is None:
+                message = (
+                    "Ground truth data was not detected... "
+                    "Please load both models when predicting on non-ground-truth data."
+                )
+                logger.error(message)
+                raise ValueError(message)
+
+            self.preprocess = False
+            self.preprocess_config = {
+                "batch_size": self.batch_size,
+                "scale": self.centroid_config.data_config.preprocessing.scale,
+                "ensure_rgb": self.data_config.ensure_rgb,
+                "ensure_grayscale": self.data_config.ensure_grayscale,
+                "max_stride": (
+                    self.centroid_config.model_config.backbone_config[
+                        f"{self.centroid_backbone_type}"
+                    ]["max_stride"]
+                ),
+                "max_height": (
+                    self.data_config.max_height
+                    if self.data_config.max_height is not None
+                    else max_height
+                ),
+                "max_width": (
+                    self.data_config.max_width
+                    if self.data_config.max_width is not None
+                    else max_width
+                ),
+            }
+
+            if data_path.endswith(".slp") and video_index is not None:
+                labels = sio.load_slp(data_path)
+                self.pipeline = provider.from_video(
+                    video=labels.videos[video_index],
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                )
+
+            else:  # for mp4 or hdf5 videos
+                self.pipeline = provider.from_filename(
+                    filename=data_path,
+                    queue_maxsize=queue_maxsize,
+                    frames=frames,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+
+            self.videos = [self.pipeline.video]
+
+    def _make_labeled_frames_from_generator(
+        self,
+        generator: Iterator[Dict[str, np.ndarray]],
+    ) -> sio.Labels:
+        """Create labeled frames from a generator that yields inference results.
+
+        This method converts pure arrays into SLEAP-specific data structures and assigns
+        tracks to the predicted instances if tracker is specified.
+
+        Args:
+            generator: A generator that returns dictionaries with inference results.
+                This should return dictionaries with keys `"instance_image"`, `"video_idx"`,
+                `"frame_idx"`, `"pred_instance_peaks"`, `"pred_peak_values"`, and
+                `"centroid_val"`. This can be created using the `_predict_generator()`
+                method.
+
+        Returns:
+            A `sio.Labels` object with `sio.PredictedInstance`s created from
+            arrays returned from the inference result generator.
+        """
+        preds = defaultdict(list)
+        predicted_frames = []
+        skeleton_idx = 0
+
+        tracks = [
+            sio.Track(name=x)
+            for x in self.confmap_config.model_config.head_configs.multi_class_topdown.class_vectors.classes
+        ]
+
+        # Loop through each predicted instance.
+        for ex in generator:
+            # loop through each sample in a batch
+            for (
+                video_idx,
+                frame_idx,
+                bbox,
+                pred_instances,
+                pred_values,
+                centroid_val,
+                org_size,
+                class_ind,
+                instance_score,
+            ) in zip(
+                ex["video_idx"],
+                ex["frame_idx"],
+                ex["instance_bbox"],
+                ex["pred_instance_peaks"],
+                ex["pred_peak_values"],
+                ex["centroid_val"],
+                ex["orig_size"],
+                ex["pred_class_inds"],
+                ex["instance_scores"],
+            ):
+                if np.isnan(pred_instances).all():
+                    continue
+                pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
+
+                track = None
+                if tracks is not None:
+                    track = tracks[class_ind]
+
+                preds[(int(video_idx), int(frame_idx))].append(
+                    sio.PredictedInstance.from_numpy(
+                        points_data=pred_instances,
+                        skeleton=self.skeletons[skeleton_idx],
+                        point_scores=pred_values,
+                        score=centroid_val,
+                        track=track,
+                        tracking_score=instance_score,
+                    )
+                )
+        for key, inst in preds.items():
+            # Create list of LabeledFrames.
+            video_idx, frame_idx = key
+            lf = sio.LabeledFrame(
+                video=self.videos[video_idx],
+                frame_idx=frame_idx,
+                instances=inst,
+            )
+
+            predicted_frames.append(lf)
+
+        pred_labels = sio.Labels(
+            videos=self.videos,
+            skeletons=self.skeletons,
+            labeled_frames=predicted_frames,
+        )
+        return pred_labels
+
+
 def run_inference(
     data_path: str,
     model_paths: Optional[List[str]] = None,
@@ -2182,6 +2784,7 @@ def run_inference(
     min_instance_peaks: Union[int, float] = 0,
     min_line_scores: float = 0.25,
     return_class_maps: bool = False,
+    return_class_vectors: bool = False,
     make_labels: bool = True,
     ##
     output_path: Optional[str] = None,
@@ -2220,11 +2823,11 @@ def run_inference(
         max_height: (int) Maximum height the image should be padded to. If not provided, the
                 values from the training config are used. Default: None.
         ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
-        channel when this is set to `True`, then the images from single-channel
-        is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
+                channel when this is set to `True`, then the images from single-channel
+                is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. Default: `False`.
         ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this
-        is set to True, then we convert the image to grayscale (single-channel)
-        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
+                is set to True, then we convert the image to grayscale (single-channel)
+                image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         anchor_part: (str) The node name to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used.
         only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
@@ -2254,6 +2857,10 @@ def run_inference(
                 the predicted instances. This will result in slower inference times since
                 the data must be copied off of the GPU, but is useful for visualizing the
                 raw output of the model. Default: False.
+        return_class_vectors: If `True`, the classification probabilities will be
+                returned together with the predicted peaks. This will not line up with the
+                grouped instances, for which the associtated class probabilities will always
+                be returned in `"instance_scores"`.
         return_paf_graph: (bool) If `True`, the part affinity field graph will be returned
                 together with the predicted instances. The graph is obtained by parsing the
                 part affinity fields with the `paf_scorer` instance and is an intermediate
@@ -2422,7 +3029,11 @@ def run_inference(
             preprocess_config=OmegaConf.create(preprocess_config),
         )
 
-        if tracking and not isinstance(predictor, BottomUpMultiClassPredictor):
+        if (
+            tracking
+            and not isinstance(predictor, BottomUpMultiClassPredictor)
+            and not isinstance(predictor, TopDownMultiClassPredictor)
+        ):
             predictor.tracker = Tracker.from_config(
                 candidates_method=candidates_method,
                 min_match_points=min_match_points,
@@ -2458,6 +3069,11 @@ def run_inference(
 
         if isinstance(predictor, BottomUpMultiClassPredictor):
             predictor.inference_model.return_class_maps = return_class_maps
+
+        if isinstance(predictor, TopDownMultiClassPredictor):
+            predictor.inference_model.instance_peaks.return_class_vectors = (
+                return_class_vectors
+            )
 
         # initialize make_pipeline function
 

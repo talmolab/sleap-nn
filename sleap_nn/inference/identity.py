@@ -151,72 +151,27 @@ def classify_peaks_from_maps(
     return points, point_vals, class_probs
 
 
-# def classify_peaks_from_vectors(
-#     peak_points: tf.Tensor,
-#     peak_vals: tf.Tensor,
-#     peak_class_probs: tf.Tensor,
-#     crop_sample_inds: tf.Tensor,
-#     n_samples: int,
-# ) -> Tuple[tf.Tensor, tf.Tensor, tf.Tensor]:
-#     """Group peaks by classification probabilities.
+def get_class_inds_from_vectors(peak_class_probs: torch.Tensor):
+    """
+    Args:
+        peak_class_probs: (n_samples, n_classes) softmax output for each sample
 
-#     This is used in top-down classification models.
+    Returns:
+        class_inds: (n_samples,) class index assigned to each sample
+        class_probs: (n_samples,) the probability of the assigned class
+    """
+    n_samples, n_classes = peak_class_probs.shape
 
-#     Args:
-#         peak_points:
-#         peak_vals:
-#         peak_class_probs:
-#         crop_sample_inds:
-#         n_samples: Number of samples in the batch.
+    # Run Hungarian matching on negative probabilities (maximize total confidence)
+    row_inds, col_inds = linear_sum_assignment(-peak_class_probs.cpu().numpy())
 
-#     Returns:
-#         A tuple of `(points, point_vals, class_probs)`.
+    # Initialize result tensors
+    class_inds = torch.full((n_samples,), -1, dtype=torch.int64)
+    class_probs = torch.full((n_samples,), float("nan"))
 
-#         `points`: Class-grouped peaks as a `tf.Tensor` of dtype `tf.float32` and shape
-#             `(n_samples, n_classes, n_channels, 2)`. Missing points will be denoted by
-#             NaNs.
+    # Assign class IDs and probabilities to samples
+    for sample_idx, class_idx in zip(row_inds, col_inds):
+        class_inds[sample_idx] = class_idx
+        class_probs[sample_idx] = peak_class_probs[sample_idx, class_idx]
 
-#         `point_vals`: The confidence map values for each point as a `tf.Tensor` of dtype
-#             `tf.float32` and shape `(n_samples, n_classes, n_channels)`.
-
-#         `class_probs`: Classification probabilities for matched points as a `tf.Tensor`
-#             of dtype `tf.float32` and shape `(n_samples, n_classes, n_channels)`.
-#     """
-#     crop_sample_inds = tf.cast(crop_sample_inds, tf.int32)
-#     n_samples = tf.cast(n_samples, tf.int32)
-#     n_channels = tf.shape(peak_points)[1]
-#     n_instances = tf.shape(peak_class_probs)[1]
-
-#     peak_inds, class_inds = group_class_peaks(
-#         peak_class_probs,
-#         crop_sample_inds,
-#         tf.zeros_like(crop_sample_inds),
-#         n_samples,
-#         1,
-#     )
-
-#     # Assign the results to fixed size tensors.
-#     subs = tf.stack(
-#         [
-#             tf.gather(crop_sample_inds, peak_inds),
-#             class_inds,
-#         ],
-#         axis=1,
-#     )
-#     points = tf.tensor_scatter_nd_update(
-#         tf.fill([n_samples, n_instances, n_channels, 2], np.nan),
-#         subs,
-#         tf.gather(peak_points, peak_inds),
-#     )
-#     point_vals = tf.tensor_scatter_nd_update(
-#         tf.fill([n_samples, n_instances, n_channels], np.nan),
-#         subs,
-#         tf.gather(peak_vals, peak_inds),
-#     )
-#     class_probs = tf.tensor_scatter_nd_update(
-#         tf.fill([n_samples, n_instances], np.nan),
-#         subs,
-#         tf.gather_nd(peak_class_probs, tf.stack([peak_inds, class_inds], axis=1)),
-#     )
-
-#     return points, point_vals, class_probs
+    return class_inds, class_probs
