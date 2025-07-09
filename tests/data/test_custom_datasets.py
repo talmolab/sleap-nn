@@ -807,9 +807,14 @@ def test_infinite_dataloader(minimal_instance, tmp_path):
 
     assert len(list(iter(dataset))) == 1
 
-    dl = iter(InfiniteDataLoader(dataset=dataset, batch_size=1, num_workers=0))
+    dl = InfiniteDataLoader(dataset=dataset, batch_size=1, num_workers=0)
+    loader = iter(dl)
 
     for _ in range(10):
-        _ = next(dl)
+        _ = next(loader)
 
     assert get_steps_per_epoch(dataset=dataset, batch_size=1) == 1
+    assert len(dl) == 1
+
+    dl = InfiniteDataLoader(dataset=dataset, batch_size=1, len_dataloader=15)
+    assert len(dl) == 15

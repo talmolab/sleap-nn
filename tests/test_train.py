@@ -101,7 +101,7 @@ def sample_cfg(minimal_instance, tmp_path):
                 "trainer_devices": 1,
                 "trainer_accelerator": "cpu",
                 "enable_progress_bar": False,
-                "min_train_steps_per_epoch": 200,
+                "min_train_steps_per_epoch": 20,
                 "train_steps_per_epoch": None,
                 "max_epochs": 2,
                 "seed": 1000,

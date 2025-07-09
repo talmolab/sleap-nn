@@ -545,6 +545,11 @@ class ModelTrainer:
             train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
 
+        val_steps_per_epoch = get_steps_per_epoch(
+            dataset=val_dataset,
+            batch_size=self.config.trainer_config.val_data_loader.batch_size,
+        )
+
         # create lightning.Trainer instance.
         self.trainer = L.Trainer(
             callbacks=callbacks,
@@ -563,10 +568,12 @@ class ModelTrainer:
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
         train_dataloader, val_dataloader = get_train_val_dataloaders(
-            train_dataset,
-            val_dataset,
-            self.config,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            config=self.config,
             rank=self.trainer.global_rank if self.trainer is not None else None,
+            train_steps_per_epoch=self.config.trainer_config.train_steps_per_epoch,
+            val_steps_per_epoch=val_steps_per_epoch,
         )
 
         if (
