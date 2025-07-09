@@ -56,7 +56,6 @@ class LocalQueueCandidates:
                 src_instance_idx=ind,
                 track_id=None,
                 feature=feat,
-                instance_score=instance.score,
                 frame_idx=frame_idx,
                 image=image,
             )
@@ -82,7 +81,6 @@ class LocalQueueCandidates:
                 src_predicted_instance=t.src_instance,
                 frame_idx=t.frame_idx,
                 tracking_score=t.tracking_score,
-                instance_score=t.instance_score,
                 shifted_keypoints=None,
             )
             output.append(tracked_instance_feature)

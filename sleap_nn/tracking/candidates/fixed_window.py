@@ -53,7 +53,6 @@ class FixedWindowCandidates:
             track_ids=[None] * len(untracked_instances),
             tracking_scores=[None] * len(untracked_instances),
             features=feature_list,
-            instance_scores=[instance.score for instance in untracked_instances],
             frame_idx=frame_idx,
             image=image,
         )
@@ -80,7 +79,6 @@ class FixedWindowCandidates:
                     src_predicted_instance=t.src_instances[track_idx],
                     frame_idx=t.frame_idx,
                     tracking_score=t.tracking_scores[track_idx],
-                    instance_score=t.instance_scores[track_idx],
                     shifted_keypoints=None,
                 )
                 output.append(tracked_instance_feature)
