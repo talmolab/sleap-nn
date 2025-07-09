@@ -101,7 +101,7 @@ def sample_cfg(minimal_instance, tmp_path):
                 "trainer_devices": 1,
                 "trainer_accelerator": "cpu",
                 "enable_progress_bar": False,
-                "min_train_steps_per_epoch": 20,
+                "min_train_steps_per_epoch": 5,
                 "train_steps_per_epoch": None,
                 "max_epochs": 2,
                 "seed": 1000,
@@ -151,6 +151,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         save_ckpt=True,
         save_ckpt_path=(Path(tmp_path) / "test_train_method").as_posix(),
         online_mining=True,
+        min_train_steps_per_epoch=5,
     )
     folder_created = (Path(tmp_path) / "test_train_method").exists()
     assert folder_created
@@ -172,6 +173,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="centered_instance",
         save_ckpt=True,
         save_ckpt_path=(Path(tmp_path) / "test_train_method").as_posix(),
+        min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_train_method").exists()
     assert folder_created
@@ -193,6 +195,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="centered_instance",
         save_ckpt=True,
         save_ckpt_path=(Path(tmp_path) / "test_convnext").as_posix(),
+        min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_convnext").exists()
     assert folder_created
@@ -212,6 +215,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="centered_instance",
         save_ckpt=True,
         save_ckpt_path=(Path(tmp_path) / "test_swint").as_posix(),
+        min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_swint").exists()
     assert folder_created
@@ -231,6 +235,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="centered_instance",
         save_ckpt=True,
         save_ckpt_path=(Path(tmp_path) / "test_swint").as_posix(),
+        min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_swint").exists()
     assert folder_created
@@ -257,6 +262,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             geometry_aug=["rotation", "scale"],
             save_ckpt=True,
             save_ckpt_path=f"{tmp_path}/test_aug",
+            min_train_steps_per_epoch=1,
         )
 
     with pytest.raises(ValueError):
@@ -271,6 +277,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             geometry_aug="rotate",
             save_ckpt=True,
             save_ckpt_path=f"{tmp_path}/test_aug",
+            min_train_steps_per_epoch=1,
         )
 
     train(
@@ -284,6 +291,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         geometry_aug=["rotation", "scale"],
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_aug",
+        min_train_steps_per_epoch=1,
     )
 
     config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
@@ -304,6 +312,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         geometry_aug=["translate", "erase_scale", "mixup"],
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_aug",
+        min_train_steps_per_epoch=1,
     )
 
     config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
@@ -329,6 +338,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         geometry_aug={"rotation": 180.0, "affine_p": 1.0},
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_aug",
+        min_train_steps_per_epoch=1,
     )
 
     config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
@@ -347,6 +357,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             head_configs="centroid",
             save_ckpt=True,
             save_ckpt_path=f"{tmp_path}/test_aug",
+            min_train_steps_per_epoch=1,
         )
 
     train(
@@ -372,6 +383,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         head_configs="centroid",
         save_ckpt=False,
         save_ckpt_path=f"{tmp_path}/test_custom_backbone",
+        min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_custom_backbone/training_config.yaml")
     assert config.model_config.backbone_config.unet.max_stride == 8
@@ -387,6 +399,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             head_configs="center",
             save_ckpt=True,
             save_ckpt_path=f"{tmp_path}/test_aug",
+            min_train_steps_per_epoch=1,
         )
 
     train(
@@ -409,6 +422,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         },
         save_ckpt=False,
         save_ckpt_path=f"{tmp_path}/test_centroid",
+        min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_centroid/training_config.yaml")
     assert config.model_config.head_configs.centroid is not None
@@ -437,6 +451,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_bottomup",
         lr_scheduler="reduce_lr_on_plateau",
+        min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_bottomup/training_config.yaml")
     assert config.model_config.head_configs.bottomup is not None
@@ -461,6 +476,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_custom_head",
         lr_scheduler="step_lr",
+        min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_custom_head/training_config.yaml")
     assert config.model_config.head_configs.centered_instance is not None
@@ -482,6 +498,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         lr_scheduler={
             "step_lr": {"step_size": 10, "gamma": 0.1},
         },
+        min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_scheduler/training_config.yaml")
     assert config.trainer_config.lr_scheduler.step_lr.step_size == 10
@@ -509,6 +526,7 @@ def test_train_method(minimal_instance, tmp_path: str):
                 "min_lr": 0.0,
             }
         },
+        min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_reducelr_scheduler/training_config.yaml")
     assert config.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold == 1e-5
@@ -524,6 +542,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             save_ckpt=False,
             save_ckpt_path=f"{tmp_path}/test_invalid_sch",
             lr_scheduler="red_lr",
+            min_train_steps_per_epoch=1,
         )
 
 
