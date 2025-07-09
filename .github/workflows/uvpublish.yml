@@ -1,0 +1,44 @@
+name: Publish to PyPI/TestPyPI with uv
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install build dependencies
+        run: |
+          uv pip install --system -r pyproject.toml --extra dev
+
+      - name: Build package
+        run: uv build
+
+      - name: Determine index and publish
+        run: |
+          # Check if this is a pre-release (e.g., v1.0.0rc1, v2.0.0b2)
+          if [[ "${{ github.ref_name }}" =~ [a-zA-Z] ]]; then
+            echo "Publishing to TestPyPI..."
+            uv publish --index testpypi --trusted-publishing always
+          else
+            echo "Publishing to PyPI..."
+            uv publish --trusted-publishing always
+          fi
