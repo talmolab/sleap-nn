@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "sleap-nn"
 authors = [
     {name = "Divya Seshadri Murali", email = "dimurali@salk.edu"},
+    {name = Elizabeth Berrigan", email = "eberrigan@salk.edu"},
     {name = "Vincent Tu", email = "vitu@ucsd.edu"},
     {name = "Liezl Maree", email = "lmaree@salk.edu"},
     {name = "David Samy", email = "davidasamy@gmail.com"},
