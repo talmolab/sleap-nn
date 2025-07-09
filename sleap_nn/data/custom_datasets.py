@@ -965,6 +965,7 @@ class InfiniteDataLoader(DataLoader):
     Attributes:
         batch_sampler (_RepeatSampler): A sampler that repeats indefinitely.
         iterator (Iterator): The iterator from the parent DataLoader.
+        len_dataloader (Optional[int]): Number of minibatches to be generated. If `None`, this is set to len(dataset)/batch_size.
 
     Methods:
         __len__: Return the length of the batch sampler's sampler.
@@ -982,15 +983,25 @@ class InfiniteDataLoader(DataLoader):
     Source: https://github.com/ultralytics/ultralytics/blob/main/ultralytics/data/build.py
     """
 
-    def __init__(self, *args: Any, **kwargs: Any):
+    def __init__(self, len_dataloader: Optional[int] = None, *args: Any, **kwargs: Any):
         """Initialize the InfiniteDataLoader with the same arguments as DataLoader."""
         super().__init__(*args, **kwargs)
         object.__setattr__(self, "batch_sampler", _RepeatSampler(self.batch_sampler))
         self.iterator = super().__iter__()
+        self.len_dataloader = len_dataloader
 
     def __len__(self) -> int:
         """Return the length of the batch sampler's sampler."""
-        return len(self.batch_sampler.sampler)
+        # set the len to required number of steps per epoch as Lightning Trainer
+        # doesn't use the `__iter__` directly but instead uses the length to set
+        # the number of steps per epoch. If this is just set to len(sampler), then
+        # it only iterates through the samples in the dataset (and doesn't cycle through)
+        # if the required steps per epoch is more than batches in dataset.
+        return (
+            self.len_dataloader
+            if self.len_dataloader is not None
+            else len(self.batch_sampler.sampler)
+        )
 
     def __iter__(self) -> Iterator:
         """Create an iterator that yields indefinitely from the underlying iterator."""
@@ -1301,6 +1312,8 @@ def get_train_val_dataloaders(
     train_dataset: BaseDataset,
     val_dataset: BaseDataset,
     config: DictConfig,
+    train_steps_per_epoch: Optional[int] = None,
+    val_steps_per_epoch: Optional[int] = None,
     rank: Optional[int] = None,
 ):
     """Return the train and val dataloaders.
@@ -1309,6 +1322,8 @@ def get_train_val_dataloaders(
         train_dataset: Train dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
         val_dataset: Val dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset].
         config: Sleap-nn config.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data.
+        val_steps_per_epoch: Number of minibatches (steps) to run validation for in an epoch. If set to `None`, this is set to the number of batches in the val data.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
 
@@ -1342,6 +1357,7 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
+        len_dataloader=train_steps_per_epoch,
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
             if train_sampler is None
@@ -1374,6 +1390,7 @@ def get_train_val_dataloaders(
         dataset=val_dataset,
         shuffle=False if val_sampler is None else None,
         sampler=val_sampler,
+        len_dataloader=val_steps_per_epoch,
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,
         pin_memory=pin_memory,
