@@ -8,6 +8,8 @@ from attrs import define, field, validators
 from omegaconf import MISSING
 from typing import Optional, Tuple, Any, List
 from loguru import logger
+import sleap_io as sio
+from sleap_io.io.skeleton import SkeletonDecoder
 
 
 @define
@@ -208,6 +210,24 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         "validation_labels", None
     )
 
+    # get skeleton(s)
+    json_skeletons = legacy_config_data.get("labels", {}).get("skeletons", None)
+    skeletons_dict = None
+    if json_skeletons is not None:
+        skeletons = SkeletonDecoder().decode(json_skeletons)
+        skeletons_dict = {}
+        for skl in skeletons:
+            if skl.symmetries:
+                symm = [list(s.nodes) for s in skl.symmetries]
+            else:
+                symm = None
+            skl_name = skl.name if skl.name is not None else "skeleton-0"
+            skeletons_dict[skl_name] = {
+                "nodes": skl.nodes,
+                "edges": skl.edges,
+                "symmetries": symm,
+            }
+
     return DataConfig(
         train_labels_path=[train_labels_path] if train_labels_path is not None else [],
         val_labels_path=[val_labels_path] if val_labels_path is not None else [],
@@ -340,5 +360,5 @@ def data_mapper(legacy_config: dict) -> DataConfig:
             )
         ),
         use_augmentations_train=True,
-        # skeletons=None,  # TODO
+        skeletons=skeletons_dict,
     )

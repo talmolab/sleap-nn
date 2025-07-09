@@ -269,7 +269,10 @@ class ModelTrainer:
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path
         if ckpt_path is None:
-            ckpt_path = datetime.now().strftime("%y%m%d_%H%M%S") + f".{self.model_type}"
+            ckpt_path = (
+                datetime.now().strftime("%y%m%d_%H%M%S")
+                + f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
+            )
 
         self.config.trainer_config.save_ckpt_path = ckpt_path
 
