@@ -130,7 +130,6 @@ def test_data_mapper():
             "labels": {
                 "training_labels": "notMISSING",
                 "validation_labels": "notMISSING",
-                "skeletons": [{"edges": [[0, 1], [1, 2]]}],
             },
             "preprocessing": {
                 "ensure_rgb": True,

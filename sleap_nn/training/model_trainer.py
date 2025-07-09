@@ -10,6 +10,7 @@ from itertools import cycle
 from omegaconf import DictConfig, OmegaConf
 import lightning as L
 import wandb
+import yaml
 from typing import List, Optional
 import time
 from datetime import datetime
@@ -23,6 +24,7 @@ from lightning.pytorch.profilers import (
     PassThroughProfiler,
 )
 import sleap_io as sio
+from sleap_io.io.skeleton import SkeletonYAMLEncoder
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.custom_datasets import (
@@ -232,20 +234,9 @@ class ModelTrainer:
             ]
 
         # save skeleton to config
-        self.config["data_config"]["skeletons"] = {}
-        for skl in self.skeletons:
-            if skl.symmetries:
-                symm = [list(s.nodes) for s in skl.symmetries]
-            else:
-                symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"] = {
-                skl_name: {
-                    "nodes": skl.nodes,
-                    "edges": skl.edges,
-                    "symmetries": symm,
-                }
-            }
+        self.config["data_config"]["skeletons"] = yaml.safe_load(
+            SkeletonYAMLEncoder().encode(self.skeletons)
+        )
 
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]

@@ -9,7 +9,8 @@ from omegaconf import MISSING
 from typing import Optional, Tuple, Any, List
 from loguru import logger
 import sleap_io as sio
-from sleap_io.io.skeleton import SkeletonDecoder
+import yaml
+from sleap_io.io.skeleton import SkeletonDecoder, SkeletonYAMLEncoder
 
 
 @define
@@ -215,18 +216,7 @@ def data_mapper(legacy_config: dict) -> DataConfig:
     skeletons_dict = None
     if json_skeletons is not None:
         skeletons = SkeletonDecoder().decode(json_skeletons)
-        skeletons_dict = {}
-        for skl in skeletons:
-            if skl.symmetries:
-                symm = [list(s.nodes) for s in skl.symmetries]
-            else:
-                symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            skeletons_dict[skl_name] = {
-                "nodes": skl.nodes,
-                "edges": skl.edges,
-                "symmetries": symm,
-            }
+        skeletons_dict = yaml.safe_load(SkeletonYAMLEncoder().encode(skeletons))
 
     return DataConfig(
         train_labels_path=[train_labels_path] if train_labels_path is not None else [],
