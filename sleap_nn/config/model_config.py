@@ -1101,6 +1101,10 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                         .get("multi_class_topdown", {})
                         .get("confmaps", {})
                         .get("part_names", None),
+                        loss_weight=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("confmaps", {})
+                        .get("loss_weight", None),
                     ),
                     class_vectors=ClassVectorsConfig(
                         classes=legacy_config_model.get("heads", {})

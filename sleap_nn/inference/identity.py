@@ -73,30 +73,22 @@ def classify_peaks_from_maps(
     """Classify and group local peaks by their class map probability.
 
     Args:
-        class_maps: Class maps for a batch as a `tf.Tensor` of dtype `tf.float32` and
-            shape `(n_samples, height, width, n_classes)`.
-        peak_points: Local peak coordinates as a `tf.Tensor` of dtype `tf.float32` and
-            shape `(n_peaks,)`. These should be in the same scale as the class maps.
-        peak_vals: Confidence map value each peak as a `tf.Tensor` of dtype `tf.float32`
-            and shape `(n_peaks,)`.
-        peak_sample_inds: Sample index for each peak as a `tf.Tensor` of dtype `tf.int32`
-            and shape `(n_peaks,)`.
-        peak_channel_inds: Channel index for each peak as a `tf.Tensor` of dtype
-            `tf.int32` and shape `(n_peaks,)`.
+        class_maps: Class maps with shape `(n_samples, n_classes, height, width, )`.
+        peak_points: Local peak coordinates of shape `(n_peaks,)`. These should be in the same scale as the class maps.
+        peak_vals: Confidence map value with shape `(n_peaks,)`.
+        peak_sample_inds: Sample index for each peak with shape `(n_peaks,)`.
+        peak_channel_inds: Channel index for each peak with shape `(n_peaks,)`.
         n_channels: Integer number of channels (nodes) the instances should have.
 
     Returns:
         A tuple of `(points, point_vals, class_probs)` containing the grouped peaks.
 
-        `points`: Class-grouped peaks as a `tf.Tensor` of dtype `tf.float32` and shape
-            `(n_samples, n_classes, n_channels, 2)`. Missing points will be denoted by
+        `points`: Predicted instances `(n_samples, n_classes, n_peaks, 2)`. Missing points will be denoted by
             NaNs.
 
-        `point_vals`: The confidence map values for each point as a `tf.Tensor` of dtype
-            `tf.float32` and shape `(n_samples, n_classes, n_channels)`.
+        `point_vals`: The confidence map values for each point with shape `(n_samples, n_classes, n_peaks)`.
 
-        `class_probs`: Classification probabilities for matched points as a `tf.Tensor`
-            of dtype `tf.float32` and shape `(n_samples, n_classes, n_channels)`.
+        `class_probs`: Classification probabilities for matched points with shape `(n_samples, n_classes, n_peaks)`.
 
     See also: group_class_peaks
     """

@@ -382,7 +382,11 @@ class ModelTrainer:
                 "train_time",
                 "val_time",
             ]
-            if self.model_type in ["single_instance", "centered_instance"]:
+            if self.model_type in [
+                "single_instance",
+                "centered_instance",
+                "multi_class_topdown",
+            ]:
                 csv_log_keys.extend(self.skeletons[0].node_names)
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.save_ckpt_path)
