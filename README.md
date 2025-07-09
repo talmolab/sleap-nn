@@ -28,7 +28,7 @@ Neural network backend for training and inference for animal pose estimation.
      pip install --upgrade --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
      ```
 
-   - **macOS with Apple Silicon (M1/M2):**
+   - **macOS with Apple Silicon (M1, M2, M3, M4):**
      You don’t need to do anything. The default wheels now include Metal backend support for Apple GPUs.
 
    - **CPU-only (no GPU or unsupported GPU):**  
