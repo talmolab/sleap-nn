@@ -560,7 +560,6 @@ class FlowShiftTracker(Tracker):
                             src_predicted_instance=ref_candidate.src_instance,
                             frame_idx=fidx,
                             tracking_score=ref_candidate.tracking_score,
-                            instance_score=ref_candidate.instance_score,
                             shifted_keypoints=pts,
                         )
                     )
@@ -596,7 +595,6 @@ class FlowShiftTracker(Tracker):
                             src_predicted_instance=ref_candidate.src_instances[idx],
                             frame_idx=ref_candidate.frame_idx,
                             tracking_score=ref_candidate.tracking_scores[idx],
-                            instance_score=ref_candidate.instance_scores[idx],
                             shifted_keypoints=pts,
                         )
                     )
@@ -771,12 +769,26 @@ def run_tracker(
     )
     tracked_lfs = []
     for lf in untracked_frames:
-        tracked_instances = tracker.track(
-            untracked_instances=lf.instances, frame_idx=lf.frame_idx, image=lf.image
+        # prefer user instances over predicted instance
+        instances = []
+        if lf.has_user_instances:
+            instances_to_track = lf.user_instances
+            if lf.has_predicted_instances:
+                instances = lf.predicted_instances
+        else:
+            instances_to_track = lf.predicted_instances
+
+        instances.extend(
+            tracker.track(
+                untracked_instances=instances_to_track,
+                frame_idx=lf.frame_idx,
+                image=lf.image,
+            )
+
         )
         tracked_lfs.append(
             sio.LabeledFrame(
-                video=lf.video, frame_idx=lf.frame_idx, instances=tracked_instances
+                video=lf.video, frame_idx=lf.frame_idx, instances=instances
             )
         )
 

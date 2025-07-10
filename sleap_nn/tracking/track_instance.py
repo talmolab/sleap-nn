@@ -12,7 +12,6 @@ class TrackInstances:
 
     src_instances: List[sio.PredictedInstance]
     features: List[np.array]
-    instance_scores: List[float] = None
     track_ids: Optional[List[int]] = None
     tracking_scores: Optional[List[float]] = None
     frame_idx: Optional[float] = None
@@ -26,7 +25,6 @@ class TrackInstanceLocalQueue:
     src_instance: sio.PredictedInstance
     src_instance_idx: int
     feature: np.array
-    instance_score: float = None
     track_id: Optional[int] = None
     tracking_score: Optional[float] = None
     frame_idx: Optional[float] = None
@@ -46,5 +44,4 @@ class TrackedInstanceFeature:
     src_predicted_instance: sio.PredictedInstance
     frame_idx: int
     tracking_score: float
-    instance_score: float
     shifted_keypoints: np.ndarray = None

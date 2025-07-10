@@ -323,7 +323,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         else None
     )
     run_name = legacy_config_outputs.get("run_name", None)
-    run_name = run_name if run_name is not None else f"training_{time.time()}"
+    run_name = run_name if run_name is not None else ""
     run_name_prefix = legacy_config_outputs.get("run_name_prefix", "")
     run_name_suffix = legacy_config_outputs.get("run_name_suffix", "")
     run_name = (

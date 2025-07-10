@@ -152,6 +152,7 @@ class LightningModel(L.LightningModule):
             ckpt = torch.load(
                 self.pretrained_backbone_weights,
                 map_location=self.config.trainer_config.trainer_accelerator,
+                weights_only=False,
             )
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]
@@ -168,6 +169,7 @@ class LightningModel(L.LightningModule):
             ckpt = torch.load(
                 self.pretrained_head_weights,
                 map_location=self.config.trainer_config.trainer_accelerator,
+                weights_only=False,
             )
             ckpt["state_dict"] = {
                 k: ckpt["state_dict"][k]

@@ -330,7 +330,10 @@ def test_flowshifttracker(minimal_instance_ckpt):
 
 
 def test_run_tracker(
-    minimal_instance_centroid_ckpt, minimal_instance_ckpt, centered_instance_video
+    minimal_instance_centroid_ckpt,
+    minimal_instance_ckpt,
+    centered_instance_video,
+    minimal_instance,
 ):
     """Tests for run_tracker."""
     labels = run_inference(
@@ -355,6 +358,7 @@ def test_run_tracker(
         videos=labels.videos,
         skeletons=labels.skeletons,
     )
+    assert len(output.tracks) == 2
 
     # test run tracker with post connect single breaks
     with pytest.raises(ValueError):
@@ -376,4 +380,18 @@ def test_run_tracker(
             post_connect_single_breaks=True,
         )
 
+    # test tracking with only user-labeled instances
+    user_labeled_labels = sio.load_slp(minimal_instance)
+    assert user_labeled_labels[0].has_user_instances
+    tracked_lfs = run_tracker(
+        untracked_frames=[x for x in user_labeled_labels],
+        max_tracks=2,
+        candidates_method="local_queues",
+        post_connect_single_breaks=True,
+    )
+    output = sio.Labels(
+        labeled_frames=tracked_lfs,
+        videos=labels.videos,
+        skeletons=labels.skeletons,
+    )
     assert len(output.tracks) == 2
