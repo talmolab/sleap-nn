@@ -784,7 +784,6 @@ def run_tracker(
                 frame_idx=lf.frame_idx,
                 image=lf.image,
             )
-
         )
         tracked_lfs.append(
             sio.LabeledFrame(
