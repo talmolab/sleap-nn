@@ -1,7 +1,8 @@
 data_config:
-  train_labels_path: 
-    - minimal_instance.pkg.slp
+  train_labels_path:
+  - minimal_instance.pkg.slp
   val_labels_path:
+  - minimal_instance.pkg.slp
   validation_fraction: 0.1
   test_file_path: null
   provider: LabelsReader
@@ -16,7 +17,9 @@ data_config:
     max_height: null
     max_width: null
     scale: 1.0
-    crop_hw: null
+    crop_hw:
+    - 160
+    - 160
     min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:
@@ -53,7 +56,7 @@ data_config:
       mixup_p: 0.0
   skeletons: null
 model_config:
-  init_weights: default
+  init_weights: xavier
   pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
@@ -62,8 +65,8 @@ model_config:
       in_channels: 1
       kernel_size: 3
       filters: 16
-      filters_rate: 2.0
-      max_stride: 16
+      filters_rate: 1.5
+      max_stride: 8
       stem_stride: null
       middle_block: true
       up_interpolate: true
@@ -73,13 +76,22 @@ model_config:
     convnext: null
     swint: null
   head_configs:
-    single_instance:
-      confmaps:
-        part_names: null
-        sigma: 2.5
-        output_stride: 2
+    single_instance: null
     centroid: null
     centered_instance: null
+    multi_class_topdown:
+      confmaps:
+        sigma: 1.5
+        output_stride: 2
+        anchor_part: null
+        part_names: null
+      class_vectors:
+        classes: null
+        num_fc_layers: 3
+        num_fc_units: 64
+        global_pool: true
+        output_stride: 16
+        loss_weight: 0.01
     bottomup: null
   total_params: null
 trainer_config:
@@ -100,13 +112,13 @@ trainer_config:
   trainer_strategy: auto
   enable_progress_bar: true
   min_train_steps_per_epoch: 200
-  train_steps_per_epoch:
+  train_steps_per_epoch: null
   visualize_preds_during_training: true
-  max_epochs: 200
+  max_epochs: 30
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: minimal_instance_single_instance
+  save_ckpt_path: multi_class__centered_instance
   resume_ckpt_path: null
   optimizer_name: Adam
   optimizer:
@@ -126,8 +138,8 @@ trainer_config:
     patience: 10
     stop_training_on_plateau: true
   zmq:
-    publish_address:
-    controller_address:
+    publish_address: null
+    controller_address: null
     controller_polling_timeout: 10
 name: ''
 description: ''

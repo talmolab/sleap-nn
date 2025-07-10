@@ -643,6 +643,7 @@ class Decoder(nn.Module):
         outputs = {
             "outputs": [],
         }
+        outputs["intermediate_feat"] = x
         for i in range(len(self.decoder_stack)):
             if i < self.residuals:
                 x = self.decoder_stack[i](x, features[i])

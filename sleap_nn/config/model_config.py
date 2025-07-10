@@ -585,12 +585,16 @@ class CenteredInstanceConfMapsConfig:
             stride of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head
+            during training. Increase this to encourage the optimization to focus on
+            improving this specific output in multi-head models.
     """
 
     part_names: Optional[List[str]] = None
     anchor_part: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
+    loss_weight: float = 1.0
 
 
 @define
@@ -657,6 +661,68 @@ class PAFConfig:
 
 
 @define
+class ClassMapConfig:
+    """Class map head config.
+
+    Atrributes:
+        classes: (List[str]) List of class (track) names. Default is `None`. When `None`, these are inferred from the track names in the labels file.
+        sigma: (float) Spread of the Gaussian distribution of the confidence maps as
+            a scalar float. Smaller values are more precise but may be difficult to
+            learn as they have a lower density within the image space. Larger values
+            are easier to learn but are less precise with respect to the peak
+            coordinate. This spread is in units of pixels of the model input image,
+            i.e., the image resolution after any input scaling is applied.
+        output_stride: (int) The stride of the output confidence maps relative to
+            the input image. This is the reciprocal of the resolution, e.g., an output
+            stride of 2 results in confidence maps that are 0.5x the size of the
+            input. Increasing this value can considerably speed up model performance
+            and decrease memory requirements, at the cost of decreased spatial
+            resolution.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head
+            during training. Increase this to encourage the optimization to focus on
+            improving this specific output in multi-head models.
+    """
+
+    classes: Optional[List[str]] = None
+    sigma: float = 15.0
+    output_stride: int = 1
+    loss_weight: Optional[float] = None
+
+
+@define
+class ClassVectorsConfig:
+    """Configurations for class vectors heads.
+
+    These heads are used in top-down multi-instance models that classify detected
+    points using a fixed set of learned classes (e.g., animal identities).
+
+    Attributes:
+        classes: List of string names of the classes that this head will predict.
+        num_fc_layers: Number of fully-connected layers before the classification output
+            layer. These can help in transforming general image features into
+            classification-specific features.
+        num_fc_units: Number of units (dimensions) in the fully-connected layers before
+            classification. Increasing this can improve the representational capacity in
+            the pre-classification layers.
+        output_stride: (Ideally this should be same as the backbone's maxstride).
+            The stride of the output class maps relative to the input image.
+            This is the reciprocal of the resolution, e.g., an output stride of 2
+            results in maps that are 0.5x the size of the input. This should be the same
+            size as the confidence maps they are associated with.
+        loss_weight: Scalar float used to weigh the loss term for this head during
+            training. Increase this to encourage the optimization to focus on improving
+            this specific output in multi-head models.
+    """
+
+    classes: Optional[List[str]] = None
+    num_fc_layers: int = 1
+    num_fc_units: int = 64
+    global_pool: bool = True
+    output_stride: int = 1
+    loss_weight: float = 1.0
+
+
+@define
 class SingleInstanceConfig:
     """single instance head_config."""
 
@@ -685,6 +751,22 @@ class BottomUpConfig:
     pafs: Optional[PAFConfig] = None
 
 
+@define
+class BottomUpMultiClassConfig:
+    """Head config for BottomUp Id models."""
+
+    confmaps: Optional[BottomUpConfMapsConfig] = None
+    class_maps: Optional[ClassMapConfig] = None
+
+
+@define
+class TopDownCenteredInstanceMultiClassConfig:
+    """Head config for TopDown centered instance ID models."""
+
+    confmaps: Optional[CenteredInstanceConfMapsConfig] = None
+    class_vectors: Optional[ClassVectorsConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -697,12 +779,16 @@ class HeadConfig:
         centroid: An instance of `CentroidsHeadConfig`.
         centered_instance: An instance of `CenteredInstanceConfmapsHeadConfig`.
         bottomup: An instance of `BottomUpConfig`.
+        multi_class_bottomup: An instance of `BottomUpMultiClassConfig`.
+        multi_class_topdown: An instance of `TopDownCenteredInstanceMultiClassConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
     centroid: Optional[CentroidConfig] = None
     centered_instance: Optional[CenteredInstanceConfig] = None
     bottomup: Optional[BottomUpConfig] = None
+    multi_class_bottomup: Optional[BottomUpMultiClassConfig] = None
+    multi_class_topdown: Optional[TopDownCenteredInstanceMultiClassConfig] = None
 
 
 @oneof
@@ -948,6 +1034,106 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
                     ),
                 )
                 if legacy_config_model.get("heads", {}).get("multi_instance", None)
+                is not None
+                else None
+            ),
+            multi_class_bottomup=(
+                BottomUpMultiClassConfig(
+                    confmaps=BottomUpConfMapsConfig(
+                        loss_weight=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("confmaps", {})
+                        .get("loss_weight", None),
+                        sigma=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("confmaps", {})
+                        .get("sigma", 5.0),
+                        output_stride=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("confmaps", {})
+                        .get("output_stride", 1),
+                        part_names=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("confmaps", {})
+                        .get("part_names", None),
+                    ),
+                    class_maps=ClassMapConfig(
+                        loss_weight=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("class_maps", {})
+                        .get("loss_weight", None),
+                        sigma=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("class_maps", {})
+                        .get("sigma", 5.0),
+                        output_stride=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("class_maps", {})
+                        .get("output_stride", 1),
+                        classes=legacy_config_model.get("heads", {})
+                        .get("multi_class_bottomup", {})
+                        .get("class_maps", {})
+                        .get("classes", None),
+                    ),
+                )
+                if legacy_config_model.get("heads", {}).get(
+                    "multi_class_bottomup", None
+                )
+                is not None
+                else None
+            ),
+            multi_class_topdown=(
+                TopDownCenteredInstanceMultiClassConfig(
+                    confmaps=CenteredInstanceConfMapsConfig(
+                        anchor_part=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("confmaps", {})
+                        .get("anchor_part", None),
+                        sigma=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("confmaps", {})
+                        .get("sigma", 5.0),
+                        output_stride=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("confmaps", {})
+                        .get("output_stride", 1),
+                        part_names=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("confmaps", {})
+                        .get("part_names", None),
+                        loss_weight=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("confmaps", {})
+                        .get("loss_weight", None),
+                    ),
+                    class_vectors=ClassVectorsConfig(
+                        classes=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("class_vectors", {})
+                        .get("classes", None),
+                        num_fc_layers=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("class_vectors", {})
+                        .get("num_fc_layers", None),
+                        num_fc_units=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("class_vectors", {})
+                        .get("num_fc_units", None),
+                        global_pool=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("class_vectors", {})
+                        .get("global_pool", None),
+                        output_stride=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("class_vectors", {})
+                        .get("output_stride", None),
+                        loss_weight=legacy_config_model.get("heads", {})
+                        .get("multi_class_topdown", {})
+                        .get("class_vectors", {})
+                        .get("loss_weight", None),
+                    ),
+                )
+                if legacy_config_model.get("heads", {}).get("multi_class_topdown", None)
                 is not None
                 else None
             ),

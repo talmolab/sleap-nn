@@ -14,10 +14,12 @@ from sleap_nn.data.instance_cropping import generate_crops
 from sleap_nn.training.lightning_modules import (
     CentroidLightningModule,
     TopDownCenteredInstanceLightningModule,
+    TopDownCenteredInstanceMultiClassLightningModule,
 )
 from sleap_nn.inference.topdown import (
     FindInstancePeaks,
     FindInstancePeaksGroundTruth,
+    TopDownMultiClassFindInstancePeaks,
     TopDownInferenceModel,
     CentroidCrop,
 )
@@ -270,6 +272,87 @@ def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
     outputs.append(find_peaks_layer(res))
     assert "pred_confmaps" in outputs[0].keys()
     assert outputs[0]["pred_confmaps"].shape[-2:] == (80, 80)
+
+
+def test_find_instance_peaks_multiclass(
+    config, minimal_instance, minimal_instance_multi_class_topdown_ckpt
+):
+    """Test FindInstancePeaks class to run inference on the Centered instance model."""
+    config = OmegaConf.load(
+        f"{minimal_instance_multi_class_topdown_ckpt}/training_config.yaml"
+    )
+    torch_model = TopDownCenteredInstanceMultiClassLightningModule.load_from_checkpoint(
+        f"{minimal_instance_multi_class_topdown_ckpt}/best.ckpt",
+        config=config,
+        model_type="multi_class_topdown",
+        backbone_type="unet",
+        map_location="cpu",
+    )
+
+    find_peaks_layer = TopDownMultiClassFindInstancePeaks(
+        torch_model=torch_model.to("cpu"),
+        output_stride=2,
+        peak_threshold=0.0,
+        return_confmaps=False,
+    )
+
+    labels = sio.load_slp(minimal_instance)
+    ex = process_lf(labels[0], 0, 2)
+    ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
+    ex["instances"] = ex["instances"].unsqueeze(dim=0)
+    ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
+    ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
+    ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
+    ex["centroids"] = generate_centroids(ex["instances"], 0)
+    ex["instances"], centroids = (
+        ex["instances"][0, 0],
+        ex["centroids"][0, 0],
+    )  # n_samples=1
+    ex["eff_scale"] = torch.Tensor([1.0])
+
+    for cnt, (instance, centroid) in enumerate(zip(ex["instances"], centroids)):
+        if cnt == ex["num_instances"]:
+            break
+
+        res = generate_crops(ex["image"][0], instance, centroid, (160, 160))
+
+        res["frame_idx"] = ex["frame_idx"]
+        res["video_idx"] = ex["video_idx"]
+        res["num_instances"] = ex["num_instances"]
+        res["orig_size"] = ex["orig_size"]
+        res["instance_image"] = res["instance_image"].unsqueeze(dim=0)
+        res["eff_scale"] = torch.Tensor([1.0])
+
+        break
+
+    outputs = []
+    outputs.append(find_peaks_layer(res))
+    keys = outputs[0].keys()
+    assert (
+        "pred_instance_peaks" in keys
+        and "pred_peak_values" in keys
+        and "instance_scores" in keys
+    )
+    assert "pred_confmaps" not in keys and "pred_class_vectors" not in keys
+    for i in outputs:
+        instance = i["pred_instance_peaks"].numpy()
+        assert not np.all(np.isnan(instance))
+
+        assert i["instance_scores"].shape == (1,)
+
+    # check return confmaps
+    find_peaks_layer = TopDownMultiClassFindInstancePeaks(
+        torch_model=torch_model,
+        output_stride=2,
+        peak_threshold=0,
+        return_confmaps=True,
+        return_class_vectors=True,
+    )
+    outputs = []
+    outputs.append(find_peaks_layer(res))
+    assert "pred_confmaps" in outputs[0].keys()
+    assert outputs[0]["pred_confmaps"].shape[-2:] == (80, 80)
+    assert outputs[0]["pred_class_vectors"].shape == (1, 2)
 
 
 def test_topdown_inference_model(

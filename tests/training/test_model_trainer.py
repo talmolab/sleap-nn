@@ -16,9 +16,11 @@ import sys
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceLightningModule,
+    TopDownCenteredInstanceMultiClassLightningModule,
     SingleInstanceLightningModule,
     CentroidLightningModule,
     BottomUpLightningModule,
+    BottomUpMultiClassLightningModule,
 )
 import sleap_io as sio
 from torch.nn.functional import mse_loss
@@ -566,6 +568,156 @@ def test_model_trainer_bottomup(config, tmp_path):
         Path(trainer.config.trainer_config.save_ckpt_path)
         / "viz"
         / "validation.pafs_magnitude.0000.png"
+    )
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("li"),
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
+# TODO: Revisit this test later (Failing on ubuntu)
+def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
+    # bottom up model
+    OmegaConf.update(config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(config, "trainer_config.profiler", "simple")
+    OmegaConf.update(
+        config,
+        "trainer_config.save_ckpt_path",
+        f"{Path(tmp_path) / 'multiclass_bottomup_trainer_test'}",
+    )
+    OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "trainer_config.visualize_preds_during_training", True)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
+    OmegaConf.update(config, "trainer_config.enable_progress_bar", True)
+    OmegaConf.update(config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(config, "data_config.delete_cache_imgs_after_training", False)
+    OmegaConf.update(
+        config, "trainer_config.online_hard_keypoint_mining.online_mining", True
+    )
+
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+
+    head_config = config.model_config.head_configs.centered_instance
+    bottomup_config = config.copy()
+    OmegaConf.update(
+        bottomup_config, "model_config.head_configs.multi_class_bottomup", head_config
+    )
+    class_maps = {
+        "classes": None,
+        "sigma": 4,
+        "output_stride": 4,
+        "loss_weight": 1.0,
+    }
+    del bottomup_config.model_config.head_configs.multi_class_bottomup[
+        "confmaps"
+    ].anchor_part
+    del bottomup_config.model_config.head_configs.centered_instance
+    bottomup_config.model_config.head_configs.multi_class_bottomup.confmaps.part_names = [
+        "A",
+        "B",
+    ]
+    bottomup_config.model_config.head_configs.multi_class_bottomup["class_maps"] = (
+        class_maps
+    )
+    bottomup_config.model_config.head_configs.multi_class_bottomup.confmaps.loss_weight = (
+        1.0
+    )
+
+    tracked_labels = sio.load_slp(minimal_instance)
+    tracks = 0
+    for lf in tracked_labels:
+        for instance in lf.instances:
+            instance.track = sio.Track(f"{tracks}")
+            tracks += 1
+    tracked_labels.update()
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        bottomup_config, train_labels=[tracked_labels], val_labels=[tracked_labels]
+    )
+    trainer.train()
+    assert isinstance(trainer.lightning_model, BottomUpMultiClassLightningModule)
+    assert (Path(trainer.config.trainer_config.save_ckpt_path) / "viz").exists()
+    assert Path(trainer.config.trainer_config.save_ckpt_path) / "viz" / "train.0000.png"
+    assert (
+        Path(trainer.config.trainer_config.save_ckpt_path)
+        / "viz"
+        / "train.class_maps.0000.png"
+    )
+    assert (
+        Path(trainer.config.trainer_config.save_ckpt_path)
+        / "viz"
+        / "validation.0000.png"
+    )
+    assert (
+        Path(trainer.config.trainer_config.save_ckpt_path)
+        / "viz"
+        / "validation.class_maps.0000.png"
+    )
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("li"),
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
+# TODO: Revisit this test later (Failing on ubuntu)
+def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance):
+    OmegaConf.update(config, "trainer_config.save_ckpt", True)
+    OmegaConf.update(config, "trainer_config.profiler", "simple")
+    OmegaConf.update(
+        config,
+        "trainer_config.save_ckpt_path",
+        f"{Path(tmp_path) / 'multiclass_topdown_trainer_test'}",
+    )
+    OmegaConf.update(config, "trainer_config.use_wandb", True)
+    OmegaConf.update(config, "trainer_config.visualize_preds_during_training", True)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
+    OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
+    OmegaConf.update(config, "trainer_config.enable_progress_bar", True)
+    OmegaConf.update(config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(config, "data_config.delete_cache_imgs_after_training", False)
+    OmegaConf.update(
+        config, "trainer_config.online_hard_keypoint_mining.online_mining", True
+    )
+
+    OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
+
+    confmaps = config.model_config.head_configs.centered_instance
+    class_vectors = {
+        "classes": None,
+        "num_fc_layers": 1,
+        "num_fc_units": 64,
+        "output_stride": 16,
+        "loss_weight": 1.0,
+    }
+    del config.model_config.head_configs.centered_instance
+    OmegaConf.update(config, "model_config.head_configs.multi_class_topdown", confmaps)
+    config.model_config.head_configs["multi_class_topdown"][
+        "class_vectors"
+    ] = class_vectors
+    config.model_config.head_configs.multi_class_topdown.confmaps.loss_weight = 1.0
+
+    tracked_labels = sio.load_slp(minimal_instance)
+    tracks = 0
+    for lf in tracked_labels:
+        for instance in lf.instances:
+            instance.track = sio.Track(f"{tracks}")
+            tracks += 1
+    tracked_labels.update()
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config, train_labels=[tracked_labels], val_labels=[tracked_labels]
+    )
+    trainer.train()
+    assert isinstance(
+        trainer.lightning_model, TopDownCenteredInstanceMultiClassLightningModule
+    )
+    assert (Path(trainer.config.trainer_config.save_ckpt_path) / "viz").exists()
+    assert Path(trainer.config.trainer_config.save_ckpt_path) / "viz" / "train.0000.png"
+    assert (
+        Path(trainer.config.trainer_config.save_ckpt_path)
+        / "viz"
+        / "validation.0000.png"
     )
 
 

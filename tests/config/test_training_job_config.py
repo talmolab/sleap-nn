@@ -148,6 +148,10 @@ def test_load_bottomup_multiclass_training_config_from_file(
     config = TrainingJobConfig.load_sleap_config(json_file_path)
 
     # Assertions to check if the output matches expected values
+    assert config.model_config.head_configs.multi_class_bottomup.class_maps.classes == [
+        "female",
+        "male",
+    ]
     assert config.data_config.train_labels_path == []
     assert config.data_config.val_labels_path == []
     assert config.model_config.backbone_config.unet.filters == 8
@@ -306,14 +310,14 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
     assert config.model_config.backbone_config.unet.output_stride == 2
 
     # Test topdown head config
-    # topdown = config.model_config.head_configs.multi_class_topdown
-    # assert topdown.confmaps.part_names == ["head", "thorax"]
-    # assert topdown.confmaps.sigma == 1.5
-    # assert topdown.confmaps.output_stride == 2
-    # assert topdown.confmaps.anchor_part == "thorax"
-    # assert topdown.class_vectors.classes == ["female", "male"]
-    # assert topdown.class_vectors.num_fc_layers == 3
-    # pprint(config.model_config.head_configs)
+    topdown = config.model_config.head_configs.multi_class_topdown
+    assert topdown.confmaps.part_names == ["head", "thorax"]
+    assert topdown.confmaps.sigma == 1.5
+    assert topdown.confmaps.output_stride == 2
+    assert topdown.confmaps.anchor_part == "thorax"
+    assert topdown.class_vectors.classes == ["female", "male"]
+    assert topdown.class_vectors.num_fc_layers == 3
+
     cfg = TrainingJobConfig()
     cfg.data_config.train_labels_path = ["test.slp"]
     cfg.data_config.val_labels_path = ["test.slp"]

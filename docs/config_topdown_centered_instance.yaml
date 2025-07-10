@@ -3,7 +3,7 @@ data_config:
     - minimal_instance.pkg.slp
   val_labels_path: 
     - minimal_instance.pkg.slp
-  validation_fraction:
+  validation_fraction: 0.1
   test_file_path: null
   provider: LabelsReader
   user_instances_only: true
