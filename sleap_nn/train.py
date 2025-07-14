@@ -534,7 +534,7 @@ def get_trainer_config(
             whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
-        max_epochs: Maxinum number of epochs to run. Default: 100.
+        max_epochs: Maximum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
         save_ckpt_path: Directory path to save the training config and checkpoint files.
@@ -550,10 +550,10 @@ def get_trainer_config(
         wandb_mode: "offline" if only local logging is required. Default: None.
         wandb_resume_prv_runid: Previous run ID if training should be resumed from a previous
             ckpt. Default: None
-        wandb_group_name: Group name fo the wandb run. Default: None.
+        wandb_group_name: Group name for the wandb run. Default: None.
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
-        amsgrad: Enable AMSGrad with the optimizer. Defaul: False.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
         lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
             `sleap_nn.config.trainer_config` are used). To use custom values, pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
@@ -955,7 +955,7 @@ def train(
             whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
-        max_epochs: Maxinum number of epochs to run. Default: 100.
+        max_epochs: Maximum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
         save_ckpt_path: Directory path to save the training config and checkpoint files.
@@ -971,10 +971,10 @@ def train(
         wandb_mode: "offline" if only local logging is required. Default: None.
         wandb_resume_prv_runid: Previous run ID if training should be resumed from a previous
             ckpt. Default: None
-        wandb_group_name: Group name fo the wandb run. Default: None.
+        wandb_group_name: Group name for the wandb run. Default: None.
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
-        amsgrad: Enable AMSGrad with the optimizer. Defaul: False.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
         lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
             `sleap_nn.config.trainer_config` are used). To use custom values, pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.

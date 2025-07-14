@@ -484,7 +484,7 @@ def test_evaluator_metrics(minimal_instance):
     ):
         eval.voc_metrics(match_score_by="moks")
 
-    # test mOKS which should be the average of the oks values for each postive pairs
+    # test mOKS which should be the average of the oks values for each positive pairs
     meanOKS_calc = (0.33308048 + 0.067590989) // 2
     assert int(eval.mOKS()["mOKS"]) == meanOKS_calc
 

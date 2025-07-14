@@ -196,7 +196,7 @@ The config file has three main sections:
     *Default*: `200`.
     - `train_steps_per_epoch`: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`.
     - `visualize_preds_during_training`: (bool) If set to `True`, sample predictions (keypoints  + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table.
-    - `max_epochs`: (int) Maxinum number of epochs to run. *Default*: `100`.
+    - `max_epochs`: (int) Maximum number of epochs to run. *Default*: `100`.
     - `seed`: (int) Seed value for the current experiment. *Default*: `1000`.
     - `use_wandb`: (bool) True to enable wandb logging. *Default*: `False`.
     - `save_ckpt`: (bool) True to enable checkpointing. *Default*: `False`.

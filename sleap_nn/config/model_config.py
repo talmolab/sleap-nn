@@ -664,7 +664,7 @@ class PAFConfig:
 class ClassMapConfig:
     """Class map head config.
 
-    Atrributes:
+    Attributes:
         classes: (List[str]) List of class (track) names. Default is `None`. When `None`, these are inferred from the track names in the labels file.
         sigma: (float) Spread of the Gaussian distribution of the confidence maps as
             a scalar float. Smaller values are more precise but may be difficult to

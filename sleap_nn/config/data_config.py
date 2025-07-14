@@ -39,7 +39,7 @@ class PreprocessingConfig:
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
     )
     crop_hw: Optional[Tuple[int, int]] = None
-    min_crop_size: Optional[int] = 100  # to help app work incase of error
+    min_crop_size: Optional[int] = 100  # to help app work in case of error
 
     def validate_scale(self):
         """Scale Validation.

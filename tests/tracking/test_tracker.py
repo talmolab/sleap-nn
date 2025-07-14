@@ -208,7 +208,7 @@ def test_tracker(caplog, minimal_instance_ckpt):
     assert scores[0, 0] == 1 and scores[1, 1] == 1
     assert scores[1, 0] == scores[0, 1] == 0
 
-    # Test for invalid argumnets
+    # Test for invalid arguments
     # candidate method
     with pytest.raises(ValueError):
         tracker = Tracker.from_config(
