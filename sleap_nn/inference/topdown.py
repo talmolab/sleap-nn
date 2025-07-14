@@ -568,15 +568,15 @@ class FindInstancePeaks(L.LightningModule):
             inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
         )
 
-        inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
+        # inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
 
-        inputs["instance_bbox"] = inputs["instance_bbox"] / (
-            inputs["eff_scale"]
-            .unsqueeze(dim=1)
-            .unsqueeze(dim=2)
-            .unsqueeze(dim=3)
-            .to(inputs["instance_bbox"].device)
-        )
+        # inputs["instance_bbox"] = inputs["instance_bbox"] / (
+        #     inputs["eff_scale"]
+        #     .unsqueeze(dim=1)
+        #     .unsqueeze(dim=2)
+        #     .unsqueeze(dim=3)
+        #     .to(inputs["instance_bbox"].device)
+        # )
 
         # Build outputs.
         outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}

@@ -29,7 +29,7 @@ from sleap_nn.data.augmentation import (
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.instance_cropping import make_centered_bboxes, get_cropped_img
 from sleap_nn.training.utils import is_distributed_initialized
 
 
@@ -414,7 +414,7 @@ class CenteredInstanceDataset(BaseDataset):
     def __init__(
         self,
         labels: List[sio.Labels],
-        crop_hw: Tuple[int],
+        #crop_hw: Tuple[int],
         confmap_head_config: DictConfig,
         max_stride: int,
         anchor_ind: Optional[int] = None,
@@ -446,7 +446,7 @@ class CenteredInstanceDataset(BaseDataset):
             use_existing_imgs=use_existing_imgs,
             rank=rank,
         )
-        self.crop_hw = crop_hw
+        #self.crop_hw = crop_hw
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list()
@@ -544,16 +544,37 @@ class CenteredInstanceDataset(BaseDataset):
         )
 
         # get the centroids based on the anchor idx
-        centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
+        # centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
 
-        instance, centroid = instances[0], centroids[0]  # (n_samples=1)
+        # instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
-        crop_size = np.array(self.crop_hw) * np.sqrt(
-            2
-        )  # crop extra for rotation augmentation
-        crop_size = crop_size.astype(np.int32).tolist()
+        instance = instances[0] #(n_samples=1)
 
-        sample = generate_crops(image, instance, centroid, crop_size)
+        # crop_size = np.array(self.crop_hw) * np.sqrt(
+        #     2
+        # )  # crop extra for rotation augmentation
+        # crop_size = crop_size.astype(np.int32).tolist()
+
+        # sample = generate_crops(image, instance, centroid, crop_size)
+        sample = {}
+
+        #Grab skeleton node names from 1st label's skeleton
+        node_names = self.labels[labels_idx].skeletons[0].node_names
+
+        #getting either the head or nose index
+        if "head" in node_names:
+            head_idx = node_names.index("head") #getting index of "head" node
+        elif "nose" in node_names:
+            head_idx = node_names.index("nose") #some don't have a "head" node but have a "nose"
+        else:
+            head_idx = node_names.index("snout") #alternative if neither head/nose is in the node name list 
+
+        
+        sample_image, sample_instance, src_pts, dst_pts, rotated = get_cropped_img(image[0], instance, head_idx)
+        sample_image, sample_instance = sample_image.unsqueeze(0), sample_instance.unsqueeze(0)
+
+        sample["instance_image"] = sample_image
+        sample["instance"] = sample_instance
 
         sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
@@ -582,23 +603,13 @@ class CenteredInstanceDataset(BaseDataset):
                     **self.augmentation_config.geometric,
                 )
 
-        # re-crop to original crop size
-        sample["instance_bbox"] = torch.unsqueeze(
-            make_centered_bboxes(
-                sample["centroid"][0], self.crop_hw[0], self.crop_hw[1]
-            ),
-            0,
-        )  # (n_samples=1, 4, 2)
-
-        sample["instance_image"] = crop_and_resize(
-            sample["instance_image"], boxes=sample["instance_bbox"], size=self.crop_hw
+        # size matcher
+        sample_image, eff_scale = apply_sizematcher(
+            sample_image,
+            max_height=self.max_hw[0],
+            max_width=self.max_hw[1],
         )
-        point = sample["instance_bbox"][0][0]
-        center_instance = sample["instance"] - point
-        centered_centroid = sample["centroid"] - point
-
-        sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
-        sample["centroid"] = centered_centroid  # (n_samples=1, 2)
+        sample_instance = sample_instance * eff_scale
 
         # Pad the image (if needed) according max stride
         sample["instance_image"] = apply_pad_to_stride(
@@ -1154,7 +1165,7 @@ def get_train_val_datasets(
             augmentation_config=config.data_config.augmentation_config,
             scale=config.data_config.preprocessing.scale,
             apply_aug=config.data_config.use_augmentations_train,
-            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            # crop_hw=list(config.data_config.preprocessing.crop_hw),
             max_hw=(
                 config.data_config.preprocessing.max_height,
                 config.data_config.preprocessing.max_width,
@@ -1177,7 +1188,7 @@ def get_train_val_datasets(
             augmentation_config=None,
             scale=config.data_config.preprocessing.scale,
             apply_aug=False,
-            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            # crop_hw=list(config.data_config.preprocessing.crop_hw),
             max_hw=(
                 config.data_config.preprocessing.max_height,
                 config.data_config.preprocessing.max_width,

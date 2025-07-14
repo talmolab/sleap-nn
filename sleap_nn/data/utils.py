@@ -8,6 +8,8 @@ from sleap_nn.config.utils import get_model_type_from_cfg
 import psutil
 import numpy as np
 from sleap_nn.data.providers import get_max_instances
+#new import for rotating calipers
+from scipy.spatial import ConvexHull
 
 
 def ensure_list(x: Any) -> List[Any]:
@@ -149,3 +151,59 @@ def check_cache_memory(train_labels, val_labels, config: DictConfig):
     if total_cache_memory > available_memory:
         return False
     return True
+
+def rotating_calipers(points):
+    """
+    Computes the convex hull of a set of points using the rotating calipers method.
+    
+    Args:
+        points (np.ndarray): An array of shape (N, 2) representing the points.
+        
+    Returns:
+        np.ndarray: Indices of the points that form the convex hull.
+    """
+    
+    # Remove NaN values and check if there are enough valid points
+    valid_points = points[~np.isnan(points).any(axis=1)]
+        
+    
+    # Determine the convex hull using scipy's ConvexHull
+    hull = ConvexHull(valid_points)
+    hull_points = valid_points[hull.vertices]
+
+    min_area = np.inf #intialize minimum area to infinity
+    best_box = None #to store the best bounding box found
+
+    # Iterate through each edge of the convex hull
+    for i in range(len(hull_points)):
+        p1 = hull_points[i]
+        p2 = hull_points[(i + 1) % len(hull_points)]
+
+        # Compute the angle of the edge
+        edge = p2 - p1
+        angle = -np.arctan2(edge[1], edge[0])
+
+        # Rotate points to align with the edge
+        rotation_matrix = np.array([[np.cos(angle), -np.sin(angle)],
+                                     [np.sin(angle),  np.cos(angle)]])
+        rotated_points = (hull_points - p1) @ rotation_matrix.T
+
+        # Compute the bounding box of the rotated points
+        xmin = np.min(rotated_points[:, 0])
+        xmax = np.max(rotated_points[:, 0])
+        ymin = np.min(rotated_points[:, 1])
+        ymax = np.max(rotated_points[:, 1])
+        area = (xmax - xmin) * (ymax - ymin)
+
+        # Update the best bounding box if the area is smaller
+        if area < min_area:
+            min_area = area
+            #rectangle corners in rotated coordinates
+            box = np.array([[xmin, ymin],
+                            [xmax, ymin],
+                            [xmax, ymax],
+                            [xmin, ymax]])
+            #rotate back to original coordinates
+            best_box = (box @ rotation_matrix) + p1
+
+    return best_box
