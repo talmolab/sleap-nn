@@ -47,6 +47,10 @@ version = {attr = "sleap_nn.__version__"}
 readme = {file = ["README.md"]}
 
 [project.optional-dependencies]
+torch = [
+    "torch",
+    "torchvision"
+]
 dev = [
     "pytest",
     "pytest-cov",
