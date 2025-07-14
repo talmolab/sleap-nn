@@ -143,7 +143,7 @@ class Model(nn.Module):
             backbone_config,
         )
 
-        strides = self.backbone.dec.current_strides
+        strides = self.backbone.decoders[-1].current_strides
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
             in_channels = int(
@@ -151,13 +151,13 @@ class Model(nn.Module):
                     self.backbone.max_channels
                     / (
                         self.backbone_config.filters_rate
-                        ** len(self.backbone.dec.decoder_stack)
+                        ** len(self.backbone.decoders[0].decoder_stack)
                     )
                 )
             )
             if head.output_stride != min_output_stride:
                 if isinstance(head, ClassVectorsHead):
-                    in_channels = int(self.backbone.dec.x_in_shape)
+                    in_channels = int(self.backbone.decoders[0].x_in_shape)
                 else:
                     factor = strides.index(min_output_stride) - strides.index(
                         head.output_stride
