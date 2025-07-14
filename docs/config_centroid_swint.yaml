@@ -17,9 +17,7 @@ data_config:
     max_height: null
     max_width: null
     scale: 1.0
-    crop_hw:
-      - 160
-      - 160
+    crop_hw: null
     min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:
@@ -62,28 +60,28 @@ model_config:
   pretrained_head_weights: null
   backbone_config:
     unet:
-      in_channels: 1
-      kernel_size: 3
-      filters: 16
-      filters_rate: 1.5
-      max_stride: 8
-      stem_stride: null
-      middle_block: true
-      up_interpolate: true
-      stacks: 1
-      convs_per_block: 2
-      output_stride: 2
     convnext: null
-    swint: null
+    swint:
+      in_channels: 1
+      model_type: tiny
+      arch: 
+      patch_size: 4
+      window_size: 7
+      kernel_size: 3
+      filters_rate: 2
+      convs_per_block: 2
+      up_interpolate: True
+      stem_patch_stride: 2
+      max_stride: 16
+      output_stride: 2
   head_configs:
     single_instance:
     centroid:
-    centered_instance:
       confmaps:
         sigma: 1.5
         output_stride: 2
         anchor_part:
-        part_names: 
+    centered_instance: null
     bottomup: null
   total_params: null
 trainer_config:
@@ -108,10 +106,18 @@ trainer_config:
   visualize_preds_during_training: true
   max_epochs: 30
   seed: 0
-  use_wandb: false
+  use_wandb: true
   save_ckpt: true
-  save_ckpt_path: minimal_instance_centered_instance
+  save_ckpt_path: minimal_instance_centroid
   resume_ckpt_path: null
+  wandb: # sample wandb config
+    entity:
+    project: 'test_centroid_centered'
+    name: 'fly_unet_centered'
+    wandb_mode: ''
+    api_key: ''
+    prv_runid:
+    group:
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
@@ -129,6 +135,12 @@ trainer_config:
     min_delta: 1.0e-08
     patience: 10
     stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
   zmq:
     publish_address:
     controller_address:

@@ -17,7 +17,9 @@ data_config:
     max_height: null
     max_width: null
     scale: 1.0
-    crop_hw: null
+    crop_hw:
+      - 160
+      - 160
     min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:
@@ -55,7 +57,7 @@ data_config:
   skeletons: null
 model_config:
   init_weights: xavier
-  pre_trained_weights: null #   pre_trained_weights: ConvNeXt_Tiny_Weights (for convnext)
+  pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
   backbone_config:
@@ -72,46 +74,25 @@ model_config:
       convs_per_block: 2
       output_stride: 2
     convnext: null
-#     in_channels: 1
-#     model_type: tiny
-#     arch: 
-#     kernel_size: 3
-#     filters_rate: 2
-#     convs_per_block: 2
-#     up_interpolate: True
-#     stem_patch_kernel: 4
-#     stem_patch_stride: 2
-#     max_stride: 16
-#     output_stride: 2
     swint: null
-#     in_channels: 1
-#     model_type: tiny
-#     arch: 
-#     patch_size: 4
-#     window_size: 7
-#     kernel_size: 3
-#     filters_rate: 2
-#     convs_per_block: 2
-#     up_interpolate: True
-#     stem_patch_stride: 2
-#     max_stride: 16
-#     output_stride: 2
   head_configs:
     single_instance:
     centroid:
-    centered_instance: null
-    bottomup:
-    multi_class_bottomup:
+    centered_instance:
+    multi_class_topdown:
       confmaps:
-          part_names:
-          sigma: 1.5
-          output_stride: 2
-          loss_weight: 1.0
-      class_maps:
-          classes:
-          sigma: 50
-          output_stride: 4
-          loss_weight: 1.0
+        sigma: 1.5
+        output_stride: 2
+        anchor_part:
+        part_names: 
+      class_vectors:
+        classes:
+        num_fc_layers: 3
+        num_fc_units: 64
+        global_pool: true
+        output_stride: 16
+        loss_weight: 0.01
+    bottomup: null
   total_params: null
 trainer_config:
   train_data_loader:
@@ -133,11 +114,11 @@ trainer_config:
   min_train_steps_per_epoch: 200
   train_steps_per_epoch:
   visualize_preds_during_training: true
-  max_epochs: 40
+  max_epochs: 30
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: minimal_class_bottomup
+  save_ckpt_path: minimal_instance_centered_instance
   resume_ckpt_path: null
   optimizer_name: Adam
   optimizer:
@@ -156,6 +137,12 @@ trainer_config:
     min_delta: 1.0e-08
     patience: 10
     stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
   zmq:
     publish_address:
     controller_address:

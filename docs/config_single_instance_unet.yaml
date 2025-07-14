@@ -1,8 +1,7 @@
 data_config:
   train_labels_path: 
     - minimal_instance.pkg.slp
-  val_labels_path: 
-    - minimal_instance.pkg.slp
+  val_labels_path:
   validation_fraction: 0.1
   test_file_path: null
   provider: LabelsReader
@@ -54,7 +53,7 @@ data_config:
       mixup_p: 0.0
   skeletons: null
 model_config:
-  init_weights: xavier
+  init_weights: default
   pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
@@ -63,8 +62,8 @@ model_config:
       in_channels: 1
       kernel_size: 3
       filters: 16
-      filters_rate: 1.5
-      max_stride: 8
+      filters_rate: 2.0
+      max_stride: 16
       stem_stride: null
       middle_block: true
       up_interpolate: true
@@ -75,11 +74,11 @@ model_config:
     swint: null
   head_configs:
     single_instance:
-    centroid:
       confmaps:
-        sigma: 1.5
+        part_names: null
+        sigma: 2.5
         output_stride: 2
-        anchor_part:
+    centroid: null
     centered_instance: null
     bottomup: null
   total_params: null
@@ -103,20 +102,12 @@ trainer_config:
   min_train_steps_per_epoch: 200
   train_steps_per_epoch:
   visualize_preds_during_training: true
-  max_epochs: 30
+  max_epochs: 200
   seed: 0
-  use_wandb: true
+  use_wandb: false
   save_ckpt: true
-  save_ckpt_path: minimal_instance_centroid
+  save_ckpt_path: minimal_instance_single_instance
   resume_ckpt_path: null
-  wandb: # sample wandb config
-    entity:
-    project: 'test_centroid_centered'
-    name: 'fly_unet_centered'
-    wandb_mode: ''
-    api_key: ''
-    prv_runid:
-    group:
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
@@ -134,6 +125,12 @@ trainer_config:
     min_delta: 1.0e-08
     patience: 10
     stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
   zmq:
     publish_address:
     controller_address:

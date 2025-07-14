@@ -460,19 +460,19 @@ def get_model_config(
 
 
 def get_trainer_config(
-    batch_size: int = 4,
-    shuffle_train: bool = True,
+    batch_size: int = 1,
+    shuffle_train: bool = False,
     num_workers: int = 0,
     ckpt_save_top_k: int = 1,
-    ckpt_save_last: bool = True,
+    ckpt_save_last: Optional[bool] = None,
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
-    enable_progress_bar: bool = False,
+    enable_progress_bar: bool = True,
     min_train_steps_per_epoch: int = 200,
     train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
-    max_epochs: int = 100,
-    seed: int = 1000,
+    max_epochs: int = 10,
+    seed: int = 0,
     use_wandb: bool = False,
     save_ckpt: bool = False,
     save_ckpt_path: Optional[str] = None,
@@ -774,19 +774,19 @@ def train(
     pretrained_head_weights: Optional[str] = None,
     backbone_config: Union[str, Dict[str, Any]] = "unet",
     head_configs: Union[str, Dict[str, Any]] = None,
-    batch_size: int = 4,
-    shuffle_train: bool = True,
+    batch_size: int = 1,
+    shuffle_train: bool = False,
     num_workers: int = 0,
     ckpt_save_top_k: int = 1,
-    ckpt_save_last: bool = True,
+    ckpt_save_last: Optional[bool] = None,
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
-    enable_progress_bar: bool = False,
+    enable_progress_bar: bool = True,
     min_train_steps_per_epoch: int = 200,
     train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
-    max_epochs: int = 100,
-    seed: int = 1000,
+    max_epochs: int = 10,
+    seed: int = 0,
     use_wandb: bool = False,
     save_ckpt: bool = False,
     save_ckpt_path: Optional[str] = None,
@@ -927,7 +927,7 @@ def train(
                                     }
                             }
                     }
-        batch_size: Number of samples per batch or batch size for training data. Default: 4.
+        batch_size: Number of samples per batch or batch size for training data. Default: 1.
         shuffle_train: True to have the train data reshuffled at every epoch. Default: False.
         num_workers: Number of subprocesses to use for data loading. 0 means that the data
             will be loaded in the main process. Default: 0.
@@ -940,13 +940,13 @@ def train(
         ckpt_save_last: When True, saves a last.ckpt whenever a checkpoint file gets saved.
             On a local filesystem, this will be a symbolic link, and otherwise a copy of
             the checkpoint file. This allows accessing the latest checkpoint in a deterministic
-            manner. Default: False.
+            manner. Default: None.
         trainer_num_devices: Number of devices to train on (int), which devices to train
             on (list or str), or "auto" to select automatically. Default: "auto".
         trainer_accelerator: One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".
-        enable_progress_bar: When True, enables printing the logs during training. Default: False.
+        enable_progress_bar: When True, enables printing the logs during training. Default: True.
         min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
             of Torch `Trainer`. Default: 200.
@@ -955,8 +955,8 @@ def train(
             whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
-        max_epochs: Maximum number of epochs to run. Default: 100.
-        seed: Seed value for the current experiment. default: 1000.
+        max_epochs: Maximum number of epochs to run. Default: 10.
+        seed: Seed value for the current experiment. default: 0.
         save_ckpt: True to enable checkpointing. Default: False.
         save_ckpt_path: Directory path to save the training config and checkpoint files.
             If `None` and `save_ckpt` is `True`, then the current working dir is used as

@@ -7,62 +7,32 @@ import pytest
 
 
 @pytest.fixture
-def sleap_data_dir(pytestconfig):
+def sleap_nn_data_dir(pytestconfig):
     """Dir path to sleap data."""
-    return Path(pytestconfig.rootdir) / "tests/assets"
+    return Path(pytestconfig.rootdir) / "tests/assets/datasets"
 
 
 @pytest.fixture
-def minimal_instance(sleap_data_dir):
+def minimal_instance(sleap_nn_data_dir):
     """Sleap fly .slp and video file paths."""
-    return Path(sleap_data_dir) / "minimal_instance.pkg.slp"
+    return Path(sleap_nn_data_dir) / "minimal_instance.pkg.slp"
 
 
 @pytest.fixture
-def minimal_instance_ckpt(sleap_data_dir):
-    """Checkpoint file for trained model."""
-    return Path(sleap_data_dir) / "minimal_instance_centered_instance"
-
-
-@pytest.fixture
-def minimal_instance_centroid_ckpt(sleap_data_dir):
-    """Checkpoint file for trained model."""
-    return Path(sleap_data_dir) / "minimal_instance_centroid"
-
-
-@pytest.fixture
-def minimal_instance_bottomup_ckpt(sleap_data_dir):
-    """Checkpoint file for BottomUP model."""
-    return Path(sleap_data_dir) / "minimal_instance_bottomup"
-
-
-@pytest.fixture
-def minimal_instance_multi_class_bottomup_ckpt(sleap_data_dir):
-    """Checkpoint file for BottomUp ID model."""
-    return Path(sleap_data_dir) / "minimal_instance_multiclass_bottomup"
-
-
-@pytest.fixture
-def minimal_instance_multi_class_topdown_ckpt(sleap_data_dir):
-    """Checkpoint file for topdown ID model."""
-    return Path(sleap_data_dir) / "minimal_instance_multiclass_centered_instance"
-
-
-@pytest.fixture
-def centered_instance_video(sleap_data_dir):
+def centered_instance_video(sleap_nn_data_dir):
     """Sleap-io fly video .mp4 path."""
-    return Path(sleap_data_dir) / "centered_pair_small.mp4"
+    return Path(sleap_nn_data_dir) / "centered_pair_small.mp4"
 
 
 @pytest.fixture
-def config(sleap_data_dir):
+def config(sleap_nn_data_dir):
     """Configuration for Sleap-NN data processing and model training."""
     init_config = OmegaConf.create(
         {
             "data_config": {
                 "provider": "LabelsReader",
-                "train_labels_path": [f"{sleap_data_dir}/minimal_instance.pkg.slp"],
-                "val_labels_path": [f"{sleap_data_dir}/minimal_instance.pkg.slp"],
+                "train_labels_path": [f"{sleap_nn_data_dir}/minimal_instance.pkg.slp"],
+                "val_labels_path": [f"{sleap_nn_data_dir}/minimal_instance.pkg.slp"],
                 "validation_fraction": 0.1,
                 "test_file_path": None,
                 "user_instances_only": True,
