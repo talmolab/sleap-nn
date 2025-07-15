@@ -3,7 +3,7 @@ data_config:
   - minimal_instance.pkg.slp
   val_labels_path:
   - minimal_instance.pkg.slp
-  validation_fraction: null
+  validation_fraction: 0.1
   test_file_path: null
   provider: LabelsReader
   user_instances_only: true
@@ -63,8 +63,8 @@ model_config:
       in_channels: 1
       kernel_size: 3
       filters: 16
-      filters_rate: 1.5
-      max_stride: 8
+      filters_rate: 2.0
+      max_stride: 16
       stem_stride: null
       middle_block: true
       up_interpolate: true
@@ -100,15 +100,23 @@ trainer_config:
   profiler: null
   trainer_strategy: auto
   enable_progress_bar: true
-  min_train_steps_per_epoch: 200
-  train_steps_per_epoch:
+  min_train_steps_per_epoch: 100
+  train_steps_per_epoch: null
   visualize_preds_during_training: true
-  max_epochs: 150
+  max_epochs: 20
   seed: 0
-  use_wandb: false
+  use_wandb: true
   save_ckpt: true
   save_ckpt_path: minimal_instance_centroid
   resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: test_centroid_centered
+    name: fly_unet_centered
+    wandb_mode: ''
+    api_key: ''
+    prv_runid: null
+    group: null
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
@@ -126,6 +134,12 @@ trainer_config:
     min_delta: 1.0e-08
     patience: 10
     stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
   zmq:
     publish_address: null
     controller_address: null

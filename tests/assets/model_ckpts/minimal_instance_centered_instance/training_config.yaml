@@ -3,7 +3,7 @@ data_config:
   - minimal_instance.pkg.slp
   val_labels_path:
   - minimal_instance.pkg.slp
-  validation_fraction: null
+  validation_fraction: 0.1
   test_file_path: null
   provider: LabelsReader
   user_instances_only: true
@@ -16,7 +16,7 @@ data_config:
     ensure_grayscale: false
     max_height: 384
     max_width: 384
-    scale: 1.0
+    scale: 0.9
     crop_hw:
     - 160
     - 160
@@ -64,7 +64,7 @@ data_config:
           name: A
         destination:
           name: B
-      symmetries: null
+      symmetries: []
 model_config:
   init_weights: xavier
   pre_trained_weights: null
@@ -97,6 +97,8 @@ model_config:
         - A
         - B
     bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
   total_params: 133666
 trainer_config:
   train_data_loader:
@@ -115,15 +117,24 @@ trainer_config:
   profiler: null
   trainer_strategy: auto
   enable_progress_bar: true
-  min_train_steps_per_epoch: 200
-  train_steps_per_epoch: null
+  min_train_steps_per_epoch: 100
+  train_steps_per_epoch: 100
   visualize_preds_during_training: true
-  max_epochs: 30
+  max_epochs: 20
   seed: 0
   use_wandb: false
   save_ckpt: true
   save_ckpt_path: minimal_instance_centered_instance
   resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    api_key: null
+    wandb_mode: null
+    prv_runid: null
+    group: null
+    current_run_id: null
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
@@ -141,10 +152,16 @@ trainer_config:
     min_delta: 1.0e-08
     patience: 10
     stop_training_on_plateau: true
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
   zmq:
-    publish_address: null
     controller_address: null
     controller_polling_timeout: 10
+    publish_address: null
 name: ''
 description: ''
 sleap_nn_version: 0.0.1

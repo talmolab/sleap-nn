@@ -62,7 +62,7 @@ data_config:
           name: A
         destination:
           name: B
-      symmetries: null
+      symmetries: []
 model_config:
   init_weights: xavier
   pre_trained_weights: null
@@ -93,16 +93,17 @@ model_config:
         part_names:
         - A
         - B
-        sigma: 2.0
+        sigma: 1.5
         output_stride: 2
         loss_weight: 1.0
       class_maps:
         classes:
-        - '0'
         - '1'
-        sigma: 10.0
+        - '0'
+        sigma: 2.5
         output_stride: 4
         loss_weight: 1.0
+    multi_class_topdown: null
   total_params: 133740
 trainer_config:
   train_data_loader:
@@ -128,7 +129,7 @@ trainer_config:
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: minimal_class_bottomup
+  save_ckpt_path: minimal_instance_multiclass_bottomup
   resume_ckpt_path: null
   wandb:
     entity: null

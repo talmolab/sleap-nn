@@ -38,12 +38,14 @@ def caplog(caplog: LogCaptureFixture):
     logger.remove(handler_id)
 
 
-def initialize_model(config, minimal_instance, minimal_instance_ckpt):
+def initialize_model(config, minimal_instance, minimal_instance_centered_instance_ckpt):
     """Returns trained torch model and FindInstancePeaks layer to test InferenceModels."""
     # for centered instance model
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    config = OmegaConf.load(
+        f"{minimal_instance_centered_instance_ckpt}/training_config.yaml"
+    )
     torch_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/best.ckpt",
+        f"{minimal_instance_centered_instance_ckpt}/best.ckpt",
         config=config,
         model_type="centered_instance",
         backbone_type="unet",
@@ -127,7 +129,10 @@ def test_centroid_inference_model(
 
 
 def test_find_instance_peaks_groundtruth(
-    config, minimal_instance, minimal_instance_ckpt, minimal_instance_centroid_ckpt
+    config,
+    minimal_instance,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
 ):
     """Test FindInstancePeaksGroundTruth class for running inference on centroid model without centered instance model."""
     labels = sio.load_slp(minimal_instance)
@@ -164,7 +169,9 @@ def test_find_instance_peaks_groundtruth(
     ex["video_idx"] = ex["video_idx"].unsqueeze(dim=0)
     ex["orig_size"] = ex["orig_size"].unsqueeze(dim=0)
     ex["eff_scale"] = torch.Tensor([1.0])
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
+    config = OmegaConf.load(
+        f"{minimal_instance_centered_instance_ckpt}/training_config.yaml"
+    )
     OmegaConf.update(
         config,
         "model_config.head_configs.centroid",
@@ -205,10 +212,12 @@ def test_find_instance_peaks_groundtruth(
     assert output["pred_peak_values"].shape == (2, 2)
 
 
-def test_find_instance_peaks(config, minimal_instance, minimal_instance_ckpt):
+def test_find_instance_peaks(
+    config, minimal_instance, minimal_instance_centered_instance_ckpt
+):
     """Test FindInstancePeaks class to run inference on the Centered instance model."""
     torch_model, find_peaks_layer = initialize_model(
-        config, minimal_instance, minimal_instance_ckpt
+        config, minimal_instance, minimal_instance_centered_instance_ckpt
     )
     labels = sio.load_slp(minimal_instance)
     ex = process_lf(labels[0], 0, 2)
@@ -359,13 +368,13 @@ def test_topdown_inference_model(
     caplog,
     config,
     minimal_instance,
-    minimal_instance_ckpt,
+    minimal_instance_centered_instance_ckpt,
     minimal_instance_centroid_ckpt,
 ):
     """Test TopDownInferenceModel class for centroid and cenetered model inferences."""
     # for centered instance model
     _, find_peaks_layer = initialize_model(
-        config, minimal_instance, minimal_instance_ckpt
+        config, minimal_instance, minimal_instance_centered_instance_ckpt
     )
 
     labels = sio.load_slp(minimal_instance)

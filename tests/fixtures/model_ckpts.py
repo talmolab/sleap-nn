@@ -19,6 +19,12 @@ def minimal_instance_centered_instance_ckpt(sleap_nn_model_ckpts_dir):
 
 
 @pytest.fixture
+def minimal_instance_single_instance_ckpt(sleap_nn_model_ckpts_dir):
+    """Checkpoint file for trained model."""
+    return Path(sleap_nn_model_ckpts_dir) / "minimal_instance_single_instance"
+
+
+@pytest.fixture
 def minimal_instance_centroid_ckpt(sleap_nn_model_ckpts_dir):
     """Checkpoint file for trained model."""
     return Path(sleap_nn_model_ckpts_dir) / "minimal_instance_centroid"

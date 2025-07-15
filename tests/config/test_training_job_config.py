@@ -32,7 +32,6 @@ from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
 from sleap_nn.config.data_config import IntensityConfig
-from tests.assets.fixtures.datasets import *
 from omegaconf import DictConfig, OmegaConf, MissingMandatoryValue, ValidationError
 from dataclasses import asdict
 from loguru import logger

@@ -118,7 +118,7 @@ trainer_config:
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: minimal_instance_centered_instance
+  save_ckpt_path: minimal_instance_multi_class_centered_instance
   resume_ckpt_path: null
   optimizer_name: Adam
   optimizer:

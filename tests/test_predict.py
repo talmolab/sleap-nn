@@ -4,8 +4,9 @@ from sleap_nn.predict import main
 
 
 def test_predict_main(
+    centered_instance_video,
     minimal_instance,
-    minimal_instance_ckpt,
+    minimal_instance_centered_instance_ckpt,
     minimal_instance_centroid_ckpt,
     tmp_path,
 ):
@@ -15,7 +16,7 @@ def test_predict_main(
             "--data_path",
             f"{minimal_instance}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
             "--peak_threshold",
@@ -39,7 +40,7 @@ def test_predict_main(
             "--model_paths",
             f"{minimal_instance_centroid_ckpt}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_topdown_preds.slp",
             "--peak_threshold",
@@ -59,11 +60,11 @@ def test_predict_main(
     main(
         [
             "--data_path",
-            "./tests/assets/centered_pair_small.mp4",
+            f"{centered_instance_video}",
             "--model_paths",
             f"{minimal_instance_centroid_ckpt}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
             "--frames",
@@ -84,11 +85,11 @@ def test_predict_main(
     main(
         [
             "--data_path",
-            "./tests/assets/centered_pair_small.mp4",
+            f"{centered_instance_video}",
             "--model_paths",
             f"{minimal_instance_centroid_ckpt}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
             "--frames",
@@ -109,11 +110,11 @@ def test_predict_main(
     main(
         [
             "--data_path",
-            "./tests/assets/centered_pair_small.mp4",
+            f"{centered_instance_video}",
             "--model_paths",
             f"{minimal_instance_centroid_ckpt}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
             "--frames",
@@ -138,7 +139,7 @@ def test_predict_main(
             "--model_paths",
             f"{minimal_instance_centroid_ckpt}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
             "--video_index",
