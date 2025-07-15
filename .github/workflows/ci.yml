@@ -35,8 +35,8 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Install dependencies
-        run: uv pip install -e ".[dev]"
+      - name: Install dev dependencies and torch
+        run: uv pip install -e ".[dev, torch]"
 
       - name: Run Black
         run: black --check sleap_nn tests
@@ -72,8 +72,8 @@ jobs:
         with:
           enable-cache: false
 
-      - name: Install dependencies
-        run: uv pip install -e ".[dev]"
+      - name: Install dev dependencies and torch
+        run: uv pip install -e ".[dev, torch]"
 
       - name: Print environment info
         run: |

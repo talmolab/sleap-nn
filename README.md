@@ -19,22 +19,34 @@ Neural network backend for training and inference for animal pose estimation.
    uv pip install -e ".[dev]"
    ```
 
-4. **Install PyTorch based on your platform**  
-   By default, the CPU-only version of `torch` is installed from PyPI.  
-   For GPU support, install the correct wheel **after** installing other dependencies:
+4. **Install PyTorch based on your platform**\
+   You can either:
 
-   - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+   - Install the optional dependencies:
+
      ```bash
-     pip install --upgrade --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu118
+     uv pip install -e ".[torch]"
      ```
 
-   - **macOS with Apple Silicon (M1, M2, M3, M4):**
-     You don’t need to do anything. The default wheels now include Metal backend support for Apple GPUs.
+     This installs the default builds of `torch` and `torchvision` via PyPI for your OS.
 
-   - **CPU-only (no GPU or unsupported GPU):**  
-     You don’t need to do anything. The CPU version will already be installed via `pyproject.toml`.
+   - Or manually install the correct wheel for your system using PyTorch's index URL:
 
-   You can find the correct wheel for your system at:  
+     - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+
+       ```bash
+       pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+       ```
+
+     - **macOS with Apple Silicon (M1, M2, M3, M4):** You don’t need to do anything if you used the `[torch]` optional dependency or default PyPI install--the default wheels now include Metal backend support for Apple GPUs.
+
+     - **CPU-only (no GPU or unsupported GPU):** You don’t need to do anything if you used the `[torch]` optional dependency or default PyPI install.
+
+      ```bash
+      pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      ```
+
+   You can find the correct wheel for your system at:\
    👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
 
 5. **Run tests**  
@@ -47,6 +59,34 @@ Neural network backend for training and inference for animal pose estimation.
    black --check sleap_nn tests
    ruff check sleap_nn/
    ```
+
+---
+
+## ⚠️ PyTorch is Required at Runtime
+
+The `torch` and `torchvision` dependencies are now defined as **optional** in `pyproject.toml`. However, they are **required for the code to run**, and are imported at the top level in many modules. This means:
+
+- You **must** install `sleap-nn` with the `[torch]` extras:
+
+  ```bash
+  uv pip install -e ".[torch]"
+  ```
+
+- **Or** manually install `torch` and `torchvision` with the appropriate build for your system.
+
+> 🛑 If you install `sleap-nn` without `torch`, **any import of **``** will fail** with an `ImportError` until you install it manually.
+
+---
+
+## 🛠️ Future Improvements
+
+To improve the flexibility and user experience, future versions of `sleap-nn` may:
+
+- **Move **``** imports into functions** or use conditional imports to avoid top-level dependency failures.
+- **Add clearer runtime error messages** when `torch` is required but not available.
+- **Enable limited functionality** in environments without PyTorch (e.g. metadata inspection or CLI help).
+
+This would allow `sleap-nn` to be installed and imported without `torch`, only requiring it when deep learning functionality is actually used.
 
 ---
 
