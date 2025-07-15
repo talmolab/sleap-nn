@@ -36,9 +36,7 @@ def test_unet_reference():
 
     unet = UNet.from_config(config=config)
 
-    in_channels = int(
-        unet.max_channels / config.filters_rate ** len(unet.decoders[0].decoder_stack)
-    )
+    in_channels = unet.final_dec_channels
     model = nn.Sequential(
         *[
             unet,
@@ -135,9 +133,7 @@ def test_unet_reference():
 
     unet = UNet.from_config(config=config)
 
-    in_channels = int(
-        unet.max_channels / config.filters_rate ** len(unet.decoders[0].decoder_stack)
-    )
+    in_channels = unet.final_dec_channels
     model = nn.Sequential(
         *[
             unet,
@@ -150,7 +146,6 @@ def test_unet_reference():
     # Test final output shape.
     unet = unet.to(device)
     unet.eval()
-    print(f"unet: {unet}")
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
@@ -165,10 +160,11 @@ def test_unet_reference():
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
     ).to(device)
 
+
     conv2d.eval()
     with torch.no_grad():
         z = conv2d(y["outputs"][-1])
-    assert z.shape == (1, 13, 48, 48)
+    assert z.shape == (1, 13, 192, 192)
 
     # block contraction.
     enc = Encoder(

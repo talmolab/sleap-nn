@@ -166,8 +166,6 @@ class UNet(nn.Module):
                 )
                 self.middle_blocks.append(middle_contract)
 
-            print(f"encoder: {encoder}")
-            print(f"middle_blocks: {self.middle_blocks}")
             self.encoders.append(encoder)
 
             # Calculate current stride for this encoder
@@ -183,7 +181,6 @@ class UNet(nn.Module):
                 2  # for last pool layer MaxPool2dWithSamePadding in encoder
             )
 
-            print(f"current_stride: {current_stride}")
 
             # Create decoder for this stack
             if self.block_contraction:
@@ -196,7 +193,6 @@ class UNet(nn.Module):
                 x_in_shape = int(
                     filters * (filters_rate ** (down_blocks + stem_blocks))
                 )
-            print(f"x_in_shape: {x_in_shape}")
             decoder = Decoder(
                 x_in_shape=x_in_shape,
                 current_stride=current_stride,
@@ -211,8 +207,11 @@ class UNet(nn.Module):
                 up_interpolate=up_interpolate,
                 prefix=f"stack{i}_dec",
             )
-            print(f"decoder: {decoder}")
             self.decoders.append(decoder)
+
+        self.final_dec_channels = self.decoders[-1].decoder_stack[-1].refine_convs_filters
+        if self.final_dec_channels == 0:
+            self.final_dec_channels = self.decoders[-1].decoder_stack[-2].refine_convs_filters
 
     @classmethod
     def from_config(cls, config: OmegaConf):
@@ -277,10 +276,6 @@ class UNet(nn.Module):
 
             if self.stem_blocks > 0:
                 features.append(stem_output)
-
-            print(
-                f"middle output: {middle_output.shape} features: {[x.shape for x in features]}"
-            )
 
             # Forward pass through decoder using the last pool layer output
             output = decoder(

@@ -518,14 +518,11 @@ class SimpleUpsamplingBlock(nn.Module):
                 and idx == self.norm_act_layers
                 and feature is not None
             ):
-                print(f"idx: {idx} feature: {feature.shape} x: {x.shape}")
                 x = torch.concat((x, feature), dim=1)
             elif (
                 self.up_interpolate and idx == 1 and feature is not None
             ):  # Right after upsampling or convtranspose2d.
-                print(f"idx: {idx} feature: {feature.shape} x: {x.shape}")
                 x = torch.concat((x, feature), dim=1)
-            print(f"idx: {idx} x: {x.shape}")
             x = b(x)
         return x
 

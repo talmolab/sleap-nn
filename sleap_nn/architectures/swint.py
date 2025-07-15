@@ -239,7 +239,7 @@ class SwinTWrapper(nn.Module):
         self.up_blocks = np.log2(self.max_stride / output_stride).astype(int)
         self.convs_per_block = convs_per_block
         self.stem_patch_stride = stem_patch_stride
-        self.down_blocks = len(self.arch["channels"]) - 1
+        self.down_blocks = len(self.arch["depths"]) - 1
         self.enc = SwinTransformerEncoder(
             in_channels=in_channels,
             patch_size=patch_size,
@@ -257,7 +257,7 @@ class SwinTWrapper(nn.Module):
         # Create middle blocks (mandatory)
         self.middle_blocks = nn.ModuleList()
         # Get the last block filters from encoder
-        last_block_filters = self.arch["channels"][-1]
+        last_block_filters = self.arch["embed"] * (2 ** (self.down_blocks))
 
         if convs_per_block > 1:
             # Middle expansion block
@@ -304,10 +304,10 @@ class SwinTWrapper(nn.Module):
         # Calculate x_in_shape based on whether we have block contraction
         if self.block_contraction:
             # Contract the channels with an exponent lower than the last encoder block
-            x_in_shape = int(self.arch["channels"][-1])
+            x_in_shape = self.arch["embed"] * (filters_rate ** (self.down_blocks))
         else:
             # Keep the block output filters the same
-            x_in_shape = int(self.arch["channels"][-1] * filters_rate)
+            x_in_shape = self.arch["embed"] * (filters_rate ** (self.down_blocks)) * filters_rate
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,
@@ -322,6 +322,10 @@ class SwinTWrapper(nn.Module):
             output_stride=output_stride,
             up_interpolate=up_interpolate,
         )
+
+        self.final_dec_channels = self.dec.decoder_stack[-1].refine_convs_filters
+        if self.final_dec_channels == 0:
+            self.final_dec_channels = self.dec.decoder_stack[-2].refine_convs_filters
 
     @property
     def max_channels(self):

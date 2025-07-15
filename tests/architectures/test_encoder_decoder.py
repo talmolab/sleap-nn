@@ -83,8 +83,6 @@ def test_simple_upsampling_block():
     x = torch.rand(5, 10, 100, 100).to(device)
     feature = torch.rand(5, 5, 200, 200).to(device)
 
-    print(block)
-
     z = block(x, feature=feature)
 
     assert z.shape == (5, 5, 200, 200)

@@ -113,7 +113,6 @@ def test_convnext_reference():
     )
 
     convnext = ConvNextWrapper.from_config(config)
-    print(f"convnext: {convnext}")
 
     convnext.eval()
 
@@ -159,7 +158,7 @@ def test_convnext_reference():
     assert "strides" in y
     assert y["outputs"][-1].shape == (1, 96, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
+    assert len(y["strides"]) == 5
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -200,9 +199,9 @@ def test_convnext_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 16, 192, 192)
+    assert y["outputs"][-1].shape == (1, 32, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
+    assert len(y["strides"]) == 5
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
