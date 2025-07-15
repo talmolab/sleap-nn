@@ -183,7 +183,6 @@ class ConvNextWrapper(nn.Module):
         self.in_channels = in_channels
         self.kernel_size = kernel_size
         self.filters_rate = filters_rate
-        self.max_stride = max_stride
         self.block_contraction = block_contraction
         arch_types = {
             "tiny": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
@@ -198,7 +197,14 @@ class ConvNextWrapper(nn.Module):
         else:
             self.arch = arch_types["tiny"]
 
-        self.up_blocks = np.log2(self.max_stride / output_stride).astype(int)
+        self.max_stride = (
+            stem_patch_stride * (2**3) * 2
+        )  # stem_stride * down_blocks_stride * final_max_pool_stride
+        self.stem_blocks = 1
+
+        self.up_blocks = np.log2(
+            self.max_stride / (stem_patch_stride * output_stride)
+        ).astype(int) + np.log2(stem_patch_stride).astype(int)
         self.convs_per_block = convs_per_block
         self.stem_patch_kernel = stem_patch_kernel
         self.stem_patch_stride = stem_patch_stride
@@ -295,9 +301,14 @@ class ConvNextWrapper(nn.Module):
             up_interpolate=up_interpolate,
         )
 
-        self.final_dec_channels = self.dec.decoder_stack[-1].refine_convs_filters
-        if self.final_dec_channels == 0:
-            self.final_dec_channels = self.dec.decoder_stack[-2].refine_convs_filters
+        if len(self.dec.decoder_stack):
+            self.final_dec_channels = self.dec.decoder_stack[-1].refine_convs_filters
+            if self.final_dec_channels == 0:
+                self.final_dec_channels = self.dec.decoder_stack[
+                    -2
+                ].refine_convs_filters
+        else:
+            self.final_dec_channels = block_filters
 
     @property
     def max_channels(self):

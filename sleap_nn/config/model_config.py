@@ -170,7 +170,7 @@ class ConvNextConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
@@ -183,7 +183,7 @@ class ConvNextConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -216,7 +216,7 @@ class ConvNextSmallConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "small"  # Options: tiny, small, base, large
@@ -229,7 +229,7 @@ class ConvNextSmallConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -262,7 +262,7 @@ class ConvNextBaseConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "base"  # Options: tiny, small, base, large
@@ -275,7 +275,7 @@ class ConvNextBaseConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -308,7 +308,7 @@ class ConvNextLargeConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "large"  # Options: tiny, small, base, large
@@ -321,7 +321,7 @@ class ConvNextLargeConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -352,7 +352,7 @@ class SwinTConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all swint architectures.
+            This is always `32` for all swint architectures.
     """
 
     model_type: str = field(
@@ -369,7 +369,7 @@ class SwinTConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -411,7 +411,7 @@ class SwinTSmallConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all swint architectures.
+            This is always `32` for all swint architectures.
     """
 
     model_type: str = field(
@@ -428,7 +428,7 @@ class SwinTSmallConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -470,7 +470,7 @@ class SwinTBaseConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all swint architectures.
+            This is always `32` for all swint architectures.
     """
 
     model_type: str = field(
@@ -487,7 +487,7 @@ class SwinTBaseConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
     def validate_model_type(self, value):
         """Validate model_type.

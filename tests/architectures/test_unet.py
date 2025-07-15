@@ -146,6 +146,7 @@ def test_unet_reference():
     # Test final output shape.
     unet = unet.to(device)
     unet.eval()
+    print(unet)
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
@@ -159,7 +160,6 @@ def test_unet_reference():
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
     ).to(device)
-
 
     conv2d.eval()
     with torch.no_grad():

@@ -95,7 +95,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 2,
-            "max_stride": 16,
+            "max_stride": 32,
         },
     )
     model = TopDownCenteredInstanceLightningModule(

@@ -6,7 +6,7 @@ model configuration without actually instantiating the model itself.
 """
 
 from typing import List
-
+import numpy as np
 import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
@@ -143,27 +143,15 @@ class Model(nn.Module):
             backbone_config,
         )
 
-        strides = self.backbone.decoders[-1].current_strides
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
-            in_channels = int(
-                round(
-                    self.backbone.max_channels
-                    / (
-                        self.backbone_config.filters_rate
-                        ** len(self.backbone.decoders[0].decoder_stack)
-                    )
-                )
-            )
-            if head.output_stride != min_output_stride:
-                if isinstance(head, ClassVectorsHead):
-                    in_channels = int(self.backbone.decoders[0].x_in_shape)
-                else:
-                    factor = strides.index(min_output_stride) - strides.index(
-                        head.output_stride
-                    )
-                    in_channels = in_channels * (
-                        self.backbone_config.filters_rate**factor
+            if isinstance(head, ClassVectorsHead):
+                in_channels = int(self.backbone.middle_blocks[-1].filters)
+            else:
+                in_channels = int(self.backbone.final_dec_channels)
+                if head.output_stride > min_output_stride:
+                    in_channels *= self.backbone.filters_rate * (
+                        np.log2(head.output_stride) - np.log2(min_output_stride)
                     )
             self.head_layers.append(head.make_head(x_in=int(in_channels)))
 

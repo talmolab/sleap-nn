@@ -118,11 +118,12 @@ class UNet(nn.Module):
 
             # Create middle block separately (not part of encoder stack)
             self.middle_blocks = nn.ModuleList()
+            # Get the last block filters from encoder
+            last_block_filters = int(
+                filters * (filters_rate ** (down_blocks + stem_blocks - 1))
+            )
+            enc_num = len(encoder.encoder_stack)
             if self.middle_block:
-                # Get the last block filters from encoder
-                last_block_filters = int(
-                    filters * (filters_rate ** (down_blocks + stem_blocks - 1))
-                )
 
                 if convs_per_block > 1:
                     # Middle expansion block
@@ -139,8 +140,9 @@ class UNet(nn.Module):
                         use_bias=True,
                         batch_norm=False,
                         activation="relu",
-                        prefix=f"stack{i}_enc_middle_expand",
+                        prefix=f"stack{i}_enc{enc_num}_middle_expand",
                     )
+                    enc_num += 1
                     self.middle_blocks.append(middle_expand)
 
                 # Middle contraction block
@@ -162,8 +164,9 @@ class UNet(nn.Module):
                     use_bias=True,
                     batch_norm=False,
                     activation="relu",
-                    prefix=f"stack{i}_enc_middle_contract",
+                    prefix=f"stack{i}_enc{enc_num}_middle_contract",
                 )
+                enc_num += 1
                 self.middle_blocks.append(middle_contract)
 
             self.encoders.append(encoder)
@@ -180,7 +183,6 @@ class UNet(nn.Module):
             current_stride *= (
                 2  # for last pool layer MaxPool2dWithSamePadding in encoder
             )
-
 
             # Create decoder for this stack
             if self.block_contraction:
@@ -209,9 +211,18 @@ class UNet(nn.Module):
             )
             self.decoders.append(decoder)
 
-        self.final_dec_channels = self.decoders[-1].decoder_stack[-1].refine_convs_filters
-        if self.final_dec_channels == 0:
-            self.final_dec_channels = self.decoders[-1].decoder_stack[-2].refine_convs_filters
+        if len(self.decoders) and len(self.decoders[-1].decoder_stack):
+            self.final_dec_channels = (
+                self.decoders[-1].decoder_stack[-1].refine_convs_filters
+            )
+            if self.final_dec_channels == 0:
+                self.final_dec_channels = (
+                    self.decoders[-1].decoder_stack[-2].refine_convs_filters
+                )
+        else:
+            self.final_dec_channels = (
+                last_block_filters if not self.middle_block else block_filters
+            )
 
     @classmethod
     def from_config(cls, config: OmegaConf):
@@ -260,13 +271,14 @@ class UNet(nn.Module):
 
         # Process through all stacks
         outputs = []
+        output = stem_output
         for i in range(self.stacks):
             # Get encoder and decoder for this stack
             encoder = self.encoders[i]
             decoder = self.decoders[i]
 
             # Forward pass through encoder (gets output from last pool layer)
-            encoded, features = encoder(stem_output)
+            encoded, features = encoder(output)
 
             # Process through middle block if it exists
             middle_output = encoded

@@ -61,29 +61,6 @@ class TrainingJobConfig:
     sleap_nn_version: Optional[Text] = sleap_nn.__version__
     filename: Optional[Text] = ""
 
-    @classmethod
-    def check_output_strides(
-        cls, config: OmegaConf
-    ) -> OmegaConf:  # TODO in model config
-        """Check max_stride and output_stride in backbone_config with head_config."""
-        output_strides = get_output_strides_from_heads(config.model_config.head_configs)
-        # check which backbone architecture
-        for k, v in config.model_config.backbone_config.items():
-            if v is not None:
-                backbone_type = k
-                break
-        if output_strides:
-            config.model_config.backbone_config[f"{backbone_type}"]["output_stride"] = (
-                min(output_strides)
-            )
-            if config.model_config.backbone_config[f"{backbone_type}"][
-                "max_stride"
-            ] < max(output_strides):
-                config.model_config.backbone_config[f"{backbone_type}"][
-                    "max_stride"
-                ] = max(output_strides)
-        return config
-
     def to_sleap_nn_cfg(self) -> DictConfig:
         """Convert the attrs class to OmegaConf object."""
         config = OmegaConf.structured(self)

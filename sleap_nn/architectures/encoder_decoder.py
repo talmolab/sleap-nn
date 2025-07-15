@@ -417,7 +417,7 @@ class SimpleUpsamplingBlock(nn.Module):
 
         # Upsample via interpolation.
         if self.up_interpolate:
-            self.blocks[f"{prefix}_upsample_interp_{interp_method}"] = nn.Upsample(
+            self.blocks[f"{prefix}_interp_{interp_method}"] = nn.Upsample(
                 scale_factor=upsampling_stride,
                 mode=interp_method,
             )
@@ -601,6 +601,7 @@ class Decoder(nn.Module):
                 filters
                 * (filters_rate ** max(0, down_blocks + self.stem_blocks - 1 - block))
             )
+
             if self.block_contraction:
                 block_filters_out = int(
                     self.filters
@@ -612,7 +613,7 @@ class Decoder(nn.Module):
 
             next_stride = current_stride // 2
 
-            if self.stem_blocks > 0 and block == up_blocks - 1:
+            if self.stem_blocks > 0 and block >= down_blocks + self.stem_blocks:
                 self.decoder_stack.append(
                     SimpleUpsamplingBlock(
                         x_in_shape=(x_in_shape if block == 0 else prev_block_filters),
