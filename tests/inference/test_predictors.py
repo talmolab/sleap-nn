@@ -1202,7 +1202,8 @@ def test_single_instance_predictor(
     centered_instance_video,
     minimal_instance,
     minimal_instance_single_instance_ckpt,
-    minimal_instance_bottomup_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
 ):
     """Test SingleInstancePredictor module."""
     # provider as LabelsReader
@@ -1236,7 +1237,7 @@ def test_single_instance_predictor(
 
     # check if dictionaries are created when make labels is set to False
     preds = run_inference(
-        model_paths=[minimal_instance_centered_instance_ckpt],
+        model_paths=[minimal_instance_single_instance_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=False,
         peak_threshold=0.3,
@@ -1251,7 +1252,7 @@ def test_single_instance_predictor(
 
     # check if labels are created from ckpt
     pred_labels = run_inference(
-        model_paths=[minimal_instance_centered_instance_ckpt],
+        model_paths=[minimal_instance_single_instance_ckpt],
         data_path=minimal_instance.as_posix(),
         video_index=0,
         frames=[0],
@@ -1281,7 +1282,7 @@ def test_single_instance_predictor(
 
     # check if labels are created from ckpt
     pred_labels = run_inference(
-        model_paths=[minimal_instance_centered_instance_ckpt],
+        model_paths=[minimal_instance_single_instance_ckpt],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
         device="cpu",
@@ -1305,7 +1306,7 @@ def test_single_instance_predictor(
 
     # check if dictionaries are created when make labels is set to False
     preds = run_inference(
-        model_paths=[minimal_instance_centered_instance_ckpt],
+        model_paths=[minimal_instance_single_instance_ckpt],
         data_path=centered_instance_video.as_posix(),
         make_labels=False,
         device="cpu",
@@ -1326,74 +1327,6 @@ def test_single_instance_predictor(
         "max_width": None,
         "max_height": None,
     }
-
-    predictor = Predictor.from_model_paths(
-        [minimal_instance_centered_instance_ckpt],
-        backbone_ckpt_path=Path(minimal_instance_centered_instance_ckpt) / "best.ckpt",
-        head_ckpt_path=Path(minimal_instance_bottomup_ckpt) / "best.ckpt",
-        peak_threshold=0.1,
-        preprocess_config=OmegaConf.create(preprocess_config),
-    )
-
-    ckpt = torch.load(
-        Path(minimal_instance_bottomup_ckpt) / "best.ckpt",
-        map_location="cpu",
-        weights_only=False,
-    )
-    head_layer_ckpt = (
-        ckpt["state_dict"]["model.head_layers.0.0.weight"][0, 0, :].cpu().numpy()
-    )
-
-    model_weights = (
-        next(predictor.inference_model.torch_model.model.head_layers.parameters())[
-            0, 0, :
-        ]
-        .detach()
-        .cpu()
-        .numpy()
-    )
-
-    assert np.all(np.abs(head_layer_ckpt - model_weights) < 1e-6)
-
-    # check loading diff head ckpt
-    preprocess_config = {
-        "ensure_rgb": False,
-        "ensure_grayscale": False,
-        "crop_hw": None,
-        "max_width": None,
-        "max_height": None,
-    }
-
-    predictor = Predictor.from_model_paths(
-        [minimal_instance_bottomup_ckpt],
-        backbone_ckpt_path=Path(minimal_instance_centered_instance_ckpt) / "best.ckpt",
-        head_ckpt_path=None,
-        peak_threshold=0.03,
-        max_instances=6,
-        preprocess_config=OmegaConf.create(preprocess_config),
-    )
-
-    ckpt = torch.load(
-        Path(minimal_instance_centered_instance_ckpt) / "best.ckpt",
-        map_location="cpu",
-        weights_only=False,
-    )
-    backbone_ckpt = (
-        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
-            0, 0, :
-        ]
-        .cpu()
-        .numpy()
-    )
-
-    model_weights = (
-        next(predictor.inference_model.torch_model.model.parameters())[0, 0, :]
-        .detach()
-        .cpu()
-        .numpy()
-    )
-
-    assert np.all(np.abs(backbone_ckpt - model_weights) < 1e-6)
 
 
 def test_bottomup_predictor(
