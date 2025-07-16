@@ -389,6 +389,7 @@ class SimpleUpsamplingBlock(nn.Module):
         transpose_convs_batch_norm: bool = True,
         transpose_convs_batch_norm_before_activation: bool = True,
         transpose_convs_activation: Text = "relu",
+        feat_concat: bool = True,
         prefix: Text = "",
     ) -> None:
         """Initialize the class."""
@@ -408,6 +409,7 @@ class SimpleUpsamplingBlock(nn.Module):
         )
         self.refine_convs_activation = refine_convs_activation
         self.up_interpolate = up_interpolate
+        self.feat_concat = feat_concat
         self.prefix = prefix
 
         self.blocks = OrderedDict()
@@ -462,16 +464,21 @@ class SimpleUpsamplingBlock(nn.Module):
             filters = refine_convs_filters
             # For the first conv, calculate the actual input channels after concatenation
             if i == 0:
-                if self.up_interpolate:
-                    # With interpolation, input is x_in_shape + feature channels
-                    # The feature channels are the same as x_in_shape since they come from the same level
-                    first_conv_in_channels = x_in_shape + refine_convs_filters
+                if not self.feat_concat:
+                    first_conv_in_channels = refine_convs_filters
                 else:
-                    # With transpose conv, input is transpose_conv_output + feature channels
-                    first_conv_in_channels = (
-                        refine_convs_filters + transpose_convs_filters
-                    )
+                    if self.up_interpolate:
+                        # With interpolation, input is x_in_shape + feature channels
+                        # The feature channels are the same as x_in_shape since they come from the same level
+                        first_conv_in_channels = x_in_shape + refine_convs_filters
+                    else:
+                        # With transpose conv, input is transpose_conv_output + feature channels
+                        first_conv_in_channels = (
+                            refine_convs_filters + transpose_convs_filters
+                        )
             else:
+                if not self.feat_concat:
+                    first_conv_in_channels = refine_convs_filters
                 first_conv_in_channels = filters
 
             self.blocks[f"{prefix}_refine_conv{i}"] = nn.Conv2d(
@@ -620,13 +627,14 @@ class Decoder(nn.Module):
                         current_stride=current_stride,
                         upsampling_stride=2,
                         interp_method="bilinear",
-                        refine_convs=0,
+                        refine_convs=1,
                         refine_convs_filters=block_filters_out,
                         refine_convs_kernel_size=self.kernel_size,
                         refine_convs_batch_norm=False,
                         up_interpolate=up_interpolate,
                         transpose_convs_filters=block_filters_out,
                         transpose_convs_batch_norm=False,
+                        feat_concat=False,
                         prefix=f"{self.prefix}{block}_s{current_stride}_to_s{next_stride}",
                     )
                 )

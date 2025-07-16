@@ -146,7 +146,6 @@ def test_unet_reference():
     # Test final output shape.
     unet = unet.to(device)
     unet.eval()
-    print(unet)
 
     x = torch.rand(1, 1, 192, 192).to(device)
     with torch.no_grad():
