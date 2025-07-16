@@ -215,10 +215,6 @@ class UNet(nn.Module):
             self.final_dec_channels = (
                 self.decoders[-1].decoder_stack[-1].refine_convs_filters
             )
-            if self.final_dec_channels == 0:
-                self.final_dec_channels = (
-                    self.decoders[-1].decoder_stack[-2].refine_convs_filters
-                )
         else:
             self.final_dec_channels = (
                 last_block_filters if not self.middle_block else block_filters

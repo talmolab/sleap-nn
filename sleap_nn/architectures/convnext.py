@@ -297,10 +297,6 @@ class ConvNextWrapper(nn.Module):
 
         if len(self.dec.decoder_stack):
             self.final_dec_channels = self.dec.decoder_stack[-1].refine_convs_filters
-            if self.final_dec_channels == 0:
-                self.final_dec_channels = self.dec.decoder_stack[
-                    -2
-                ].refine_convs_filters
         else:
             self.final_dec_channels = block_filters
 
