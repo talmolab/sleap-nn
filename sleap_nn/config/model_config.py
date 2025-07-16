@@ -121,7 +121,7 @@ class ConvNextConfig:
         convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
         output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
-        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `16` for all convnext architectures. *Default*: `16`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures. *Default*: `32`.
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
@@ -134,7 +134,7 @@ class ConvNextConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -167,7 +167,7 @@ class ConvNextSmallConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "small"  # Options: tiny, small, base, large
@@ -180,7 +180,7 @@ class ConvNextSmallConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -213,7 +213,7 @@ class ConvNextBaseConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "base"  # Options: tiny, small, base, large
@@ -226,7 +226,7 @@ class ConvNextBaseConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -259,7 +259,7 @@ class ConvNextLargeConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "large"  # Options: tiny, small, base, large
@@ -272,7 +272,7 @@ class ConvNextLargeConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -282,7 +282,7 @@ class SwinTConfig:
     Attributes:
         model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"tiny"`.
         arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
-        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `16` for all swint architectures. *Default*: `16`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
         patch_size: (int) Patch size for the stem layer of SwinT. *Default*: `4`.
         stem_patch_stride: (int) Stride for the patch. *Default*: `2`.
         window_size: (int) Window size. *Default*: `7`.
@@ -299,7 +299,7 @@ class SwinTConfig:
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
     arch: Optional[dict] = None
-    max_stride: int = 16
+    max_stride: int = 32
     patch_size: int = 4
     stem_patch_stride: int = 2
     window_size: int = 7
@@ -329,7 +329,7 @@ class SwinTSmallConfig:
     Attributes:
         model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"small"`.
         arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
-        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `16` for all swint architectures. *Default*: `16`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
         patch_size: (int) Patch size for the stem layer of SwinT. *Default*: `4`.
         stem_patch_stride: (int) Stride for the patch. *Default*: `2`.
         window_size: (int) Window size. *Default*: `7`.
@@ -346,7 +346,7 @@ class SwinTSmallConfig:
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
     arch: Optional[dict] = None
-    max_stride: int = 16
+    max_stride: int = 32
     patch_size: int = 4
     stem_patch_stride: int = 2
     window_size: int = 7
@@ -376,7 +376,7 @@ class SwinTBaseConfig:
     Attributes:
         model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"base"`.
         arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
-        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `16` for all swint architectures. *Default*: `16`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
         patch_size: (int) Patch size for the stem layer of SwinT. *Default*: `4`.
         stem_patch_stride: (int) Stride for the patch. *Default*: `2`.
         window_size: (int) Window size. *Default*: `7`.
@@ -386,6 +386,7 @@ class SwinTBaseConfig:
         convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
         output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
+
     """
 
     model_type: str = field(
@@ -393,7 +394,7 @@ class SwinTBaseConfig:
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
     arch: Optional[dict] = None
-    max_stride: int = 16
+    max_stride: int = 32
     patch_size: int = 4
     stem_patch_stride: int = 2
     window_size: int = 7

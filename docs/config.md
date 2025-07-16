@@ -79,7 +79,7 @@ The config file has three main sections:
                 - `depths`: (List[int]) Number of layers in each block. *Default*: `[3, 3, 9, 3]`.
                 - `channels`: (List[int]) Number of channels in each block. *Default*: `[96, 192, 384, 768]`.
             - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. *Default*: `"tiny"`. 
-            - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `16` for all convnext architectures.
+            - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. *Default*: `32`.
             - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. *Default*: `4`.
             - `stem_patch_stride`: (int) Convolutional stride in the stem layer. *Default*: `2`.
             - `in_channels`: (int) Number of input channels. *Default*: `1`.
@@ -91,7 +91,7 @@ The config file has three main sections:
         - `swint`:
             - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"tiny"`. 
             - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
-            - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `16` for all swint architectures. *Default*: `16`.
+            - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. *Default*: `32`.
             - `patch_size`: (int) Patch size for the stem layer of SwinT. *Default*: `4`.
             - `stem_patch_stride`: (int) Stride for the patch. *Default*: `2`.
             - `window_size`: (int) Window size. *Default*: `7`.

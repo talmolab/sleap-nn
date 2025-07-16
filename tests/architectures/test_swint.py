@@ -23,15 +23,13 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 2,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
     swint = SwinTWrapper.from_config(config)
 
-    in_channels = int(
-        swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)
-    )
+    in_channels = swint.final_dec_channels
     model = nn.Sequential(
         *[
             swint,
@@ -50,9 +48,9 @@ def test_swint_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 48, 192, 192)
+    assert y["outputs"][-1].shape == (1, 96, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
+    assert len(y["strides"]) == 5
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -133,7 +131,7 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 4,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
@@ -145,11 +143,11 @@ def test_swint_reference():
     with torch.no_grad():
         y = swint(x)
     out = y["outputs"]
-    assert out[0].shape == (1, 384, 12, 12)
-    assert out[1].shape == (1, 192, 24, 24)
-    assert out[2].shape == (1, 96, 48, 48)
-    assert out[3].shape == (1, 48, 96, 96)
-    assert out[4].shape == (1, 24, 192, 192)
+    assert out[0].shape == (1, 768, 6, 6)
+    assert out[1].shape == (1, 384, 12, 12)
+    assert out[2].shape == (1, 192, 24, 24)
+    assert out[3].shape == (1, 96, 48, 48)
+    assert out[4].shape == (1, 96, 96, 96)
 
     # without providing arch and model type
     config = OmegaConf.create(
@@ -165,15 +163,13 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 2,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
     swint = SwinTWrapper.from_config(config)
 
-    in_channels = int(
-        swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)
-    )
+    in_channels = swint.final_dec_channels
 
     # Test final output shape.
     swint.eval()
@@ -184,9 +180,9 @@ def test_swint_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 48, 192, 192)
+    assert y["outputs"][-1].shape == (1, 96, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
+    assert len(y["strides"]) == 5
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -211,15 +207,13 @@ def test_swint_reference():
             "up_interpolate": True,
             "stem_patch_stride": 2,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
     swint = SwinTWrapper.from_config(config)
 
-    in_channels = int(
-        swint.max_channels / config.filters_rate ** len(swint.dec.decoder_stack)
-    )
+    in_channels = swint.final_dec_channels
 
     # Test final output shape.
     swint.eval()
@@ -230,9 +224,9 @@ def test_swint_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 48, 192, 192)
+    assert y["outputs"][-1].shape == (1, 96, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
+    assert len(y["strides"]) == 5
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"

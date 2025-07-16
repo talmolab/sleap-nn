@@ -38,6 +38,7 @@ from sleap_nn.config.utils import (
     get_model_type_from_cfg,
 )
 from sleap_nn.training.lightning_modules import LightningModel
+from sleap_nn.config.utils import check_output_strides
 from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
@@ -282,6 +283,23 @@ class ModelTrainer:
             ][
                 "max_stride"
             ]
+
+        # set max stride for the backbone: convnext and swint
+        if self.backbone_type == "convnext":
+            self.config.model_config.backbone_config.convnext.max_stride = (
+                self.config.model_config.backbone_config.convnext.stem_patch_stride
+                * (2**3)
+                * 2
+            )
+        elif self.backbone_type == "swint":
+            self.config.model_config.backbone_config.swint.max_stride = (
+                self.config.model_config.backbone_config.swint.stem_patch_stride
+                * (2**3)
+                * 2
+            )
+
+        # set output stride for backbone from head config and verify max stride
+        self.config = check_output_strides(self.config)
 
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path

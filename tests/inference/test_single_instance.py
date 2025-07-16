@@ -40,7 +40,7 @@ def test_single_instance_inference_model(
 
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model.to("cpu"),
-        output_stride=2,
+        output_stride=4,
         peak_threshold=0.0,
         return_confmaps=False,
     )
@@ -57,8 +57,8 @@ def test_single_instance_inference_model(
     # high peak threshold
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model.to("cpu"),
-        output_stride=2,
-        peak_threshold=1.0,
+        output_stride=4,
+        peak_threshold=2.0,
         return_confmaps=False,
         input_scale=0.5,
     )
@@ -73,11 +73,11 @@ def test_single_instance_inference_model(
     # check return confmaps
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model.to("cpu"),
-        output_stride=2,
+        output_stride=4,
         peak_threshold=0,
         return_confmaps=True,
     )
     outputs = []
     outputs.append(find_peaks_layer(ex))
     assert "pred_confmaps" in outputs[0][0].keys()
-    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (96, 96)
+    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (48, 48)

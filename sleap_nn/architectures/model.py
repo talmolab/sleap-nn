@@ -6,7 +6,7 @@ model configuration without actually instantiating the model itself.
 """
 
 from typing import List
-
+import numpy as np
 import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
@@ -143,27 +143,15 @@ class Model(nn.Module):
             backbone_config,
         )
 
-        strides = self.backbone.dec.current_strides
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
-            in_channels = int(
-                round(
-                    self.backbone.max_channels
-                    / (
-                        self.backbone_config.filters_rate
-                        ** len(self.backbone.dec.decoder_stack)
-                    )
-                )
-            )
-            if head.output_stride != min_output_stride:
-                if isinstance(head, ClassVectorsHead):
-                    in_channels = int(self.backbone.dec.x_in_shape)
-                else:
-                    factor = strides.index(min_output_stride) - strides.index(
-                        head.output_stride
-                    )
-                    in_channels = in_channels * (
-                        self.backbone_config.filters_rate**factor
+            if isinstance(head, ClassVectorsHead):
+                in_channels = int(self.backbone.middle_blocks[-1].filters)
+            else:
+                in_channels = int(self.backbone.final_dec_channels)
+                if head.output_stride > min_output_stride:
+                    in_channels *= self.backbone.filters_rate * (
+                        np.log2(head.output_stride) - np.log2(min_output_stride)
                     )
             self.head_layers.append(head.make_head(x_in=int(in_channels)))
 
@@ -189,11 +177,14 @@ class Model(nn.Module):
 
         outputs = {}
         for head, head_layer in zip(self.heads, self.head_layers):
-            if isinstance(head, ClassVectorsHead):
-                backbone_out = backbone_outputs["intermediate_feat"]
-                outputs[head.name] = head_layer(backbone_out)
+            if not len(backbone_outputs["outputs"]):
+                outputs[head.name] = head_layer(backbone_outputs["middle_output"])
             else:
-                idx = backbone_outputs["strides"].index(head.output_stride)
-                outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
+                if isinstance(head, ClassVectorsHead):
+                    backbone_out = backbone_outputs["intermediate_feat"]
+                    outputs[head.name] = head_layer(backbone_out)
+                else:
+                    idx = backbone_outputs["strides"].index(head.output_stride)
+                    outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
 
         return outputs

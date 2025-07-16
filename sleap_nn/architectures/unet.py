@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 import torch
 from torch import nn
 
-from sleap_nn.architectures.encoder_decoder import Decoder, Encoder
+from sleap_nn.architectures.encoder_decoder import Decoder, Encoder, StemBlock
 
 
 class UNet(nn.Module):
@@ -80,45 +80,145 @@ class UNet(nn.Module):
         self.block_contraction = block_contraction
         self.stacks = stacks
 
-        self.enc = Encoder(
-            in_channels=in_channels,
-            filters=filters,
-            down_blocks=down_blocks,
-            filters_rate=filters_rate,
-            convs_per_block=convs_per_block,
-            kernel_size=kernel_size,
-            stem_blocks=stem_blocks,
-            stem_kernel_size=stem_kernel_size,
-            middle_block=self.middle_block,
-            block_contraction=self.block_contraction,
-        )
-
-        self.current_stride = int(
-            np.prod(
-                [
-                    block.pooling_stride
-                    for block in self.enc.encoder_stack
-                    if hasattr(block, "pool") and block.pool
-                ]
-                + [1]
+        # Create stem block if stem_blocks > 0
+        if self.stem_blocks > 0:
+            self.stem = StemBlock(
+                in_channels=in_channels,
+                filters=filters,
+                stem_blocks=stem_blocks,
+                filters_rate=filters_rate,
+                convs_per_block=convs_per_block,
+                kernel_size=stem_kernel_size,
+                prefix="stem",
             )
-        )
+        else:
+            self.stem = None
 
-        x_in_shape = int(filters * (filters_rate ** (down_blocks + stem_blocks)))
+        # Initialize lists to store multiple encoders and decoders
+        self.encoders = nn.ModuleList()
+        self.decoders = nn.ModuleList()
 
-        self.dec = Decoder(
-            x_in_shape=x_in_shape,
-            current_stride=self.current_stride,
-            filters=filters,
-            up_blocks=up_blocks,
-            down_blocks=down_blocks,
-            filters_rate=filters_rate,
-            stem_blocks=stem_blocks,
-            block_contraction=block_contraction,
-            output_stride=output_stride,
-            kernel_size=kernel_size,
-            up_interpolate=up_interpolate,
-        )
+        for i in range(self.stacks):
+            # Create encoder for this stack
+            in_channels = (
+                int(self.filters * (self.filters_rate ** (self.stem_blocks)))
+                if self.stem_blocks > 0
+                else in_channels
+            )
+            encoder = Encoder(
+                in_channels=in_channels,
+                filters=filters,
+                down_blocks=down_blocks,
+                filters_rate=filters_rate,
+                convs_per_block=convs_per_block,
+                kernel_size=kernel_size,
+                stem_blocks=stem_blocks,
+                prefix=f"stack{i}_enc",
+            )
+
+            # Create middle block separately (not part of encoder stack)
+            self.middle_blocks = nn.ModuleList()
+            # Get the last block filters from encoder
+            last_block_filters = int(
+                filters * (filters_rate ** (down_blocks + stem_blocks - 1))
+            )
+            enc_num = len(encoder.encoder_stack)
+            if self.middle_block:
+
+                if convs_per_block > 1:
+                    # Middle expansion block
+                    from sleap_nn.architectures.encoder_decoder import SimpleConvBlock
+
+                    middle_expand = SimpleConvBlock(
+                        in_channels=last_block_filters,
+                        pool=False,
+                        pool_before_convs=False,
+                        pooling_stride=2,
+                        num_convs=convs_per_block - 1,
+                        filters=int(last_block_filters * filters_rate),
+                        kernel_size=kernel_size,
+                        use_bias=True,
+                        batch_norm=False,
+                        activation="relu",
+                        prefix=f"stack{i}_enc{enc_num}_middle_expand",
+                    )
+                    enc_num += 1
+                    self.middle_blocks.append(middle_expand)
+
+                # Middle contraction block
+                if self.block_contraction:
+                    # Contract the channels with an exponent lower than the last encoder block
+                    block_filters = int(last_block_filters)
+                else:
+                    # Keep the block output filters the same
+                    block_filters = int(last_block_filters * filters_rate)
+
+                middle_contract = SimpleConvBlock(
+                    in_channels=int(last_block_filters * filters_rate),
+                    pool=False,
+                    pool_before_convs=False,
+                    pooling_stride=2,
+                    num_convs=1,
+                    filters=block_filters,
+                    kernel_size=kernel_size,
+                    use_bias=True,
+                    batch_norm=False,
+                    activation="relu",
+                    prefix=f"stack{i}_enc{enc_num}_middle_contract",
+                )
+                enc_num += 1
+                self.middle_blocks.append(middle_contract)
+
+            self.encoders.append(encoder)
+
+            # Calculate current stride for this encoder
+            # Start with stem stride if stem blocks exist
+            current_stride = 2**self.stem_blocks if self.stem_blocks > 0 else 1
+
+            # Add encoder strides
+            for block in encoder.encoder_stack:
+                if hasattr(block, "pool") and block.pool:
+                    current_stride *= block.pooling_stride
+
+            current_stride *= (
+                2  # for last pool layer MaxPool2dWithSamePadding in encoder
+            )
+
+            # Create decoder for this stack
+            if self.block_contraction:
+                # Contract the channels with an exponent lower than the last encoder block
+                x_in_shape = int(
+                    filters * (filters_rate ** (down_blocks + stem_blocks - 1))
+                )
+            else:
+                # Keep the block output filters the same
+                x_in_shape = int(
+                    filters * (filters_rate ** (down_blocks + stem_blocks))
+                )
+            decoder = Decoder(
+                x_in_shape=x_in_shape,
+                current_stride=current_stride,
+                filters=filters,
+                up_blocks=up_blocks,
+                down_blocks=down_blocks,
+                filters_rate=filters_rate,
+                stem_blocks=stem_blocks,
+                output_stride=output_stride,
+                kernel_size=kernel_size,
+                block_contraction=self.block_contraction,
+                up_interpolate=up_interpolate,
+                prefix=f"stack{i}_dec",
+            )
+            self.decoders.append(decoder)
+
+        if len(self.decoders) and len(self.decoders[-1].decoder_stack):
+            self.final_dec_channels = (
+                self.decoders[-1].decoder_stack[-1].refine_convs_filters
+            )
+        else:
+            self.final_dec_channels = (
+                last_block_filters if not self.middle_block else block_filters
+            )
 
     @classmethod
     def from_config(cls, config: OmegaConf):
@@ -127,7 +227,9 @@ class UNet(nn.Module):
         if config.stem_stride is not None:
             stem_blocks = np.log2(config.stem_stride).astype(int)
         down_blocks = np.log2(config.max_stride).astype(int) - stem_blocks
-        up_blocks = np.log2(config.max_stride / config.output_stride).astype(int)
+        up_blocks = (
+            np.log2(config.max_stride / config.output_stride).astype(int) + stem_blocks
+        )
         return cls(
             in_channels=config.in_channels,
             kernel_size=config.kernel_size,
@@ -146,7 +248,7 @@ class UNet(nn.Module):
     @property
     def max_channels(self):
         """Returns the maximum channels of the UNet (last layer of the encoder)."""
-        return self.dec.x_in_shape
+        return self.decoders[0].x_in_shape
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:
         """Forward pass through the U-Net architecture.
@@ -158,6 +260,33 @@ class UNet(nn.Module):
             x: Output a tensor after applying the U-Net operations.
             current_strides: a list of the current strides from the decoder.
         """
-        x, features = self.enc(x)
-        x = self.dec(x, features)
-        return x
+        # Process through stem block if it exists
+        stem_output = x
+        if self.stem is not None:
+            stem_output = self.stem(x)
+
+        # Process through all stacks
+        outputs = []
+        output = stem_output
+        for i in range(self.stacks):
+            # Get encoder and decoder for this stack
+            encoder = self.encoders[i]
+            decoder = self.decoders[i]
+
+            # Forward pass through encoder
+            encoded, features = encoder(output)
+
+            # Process through middle block if it exists
+            middle_output = encoded
+            if self.middle_block and hasattr(self, "middle_blocks"):
+                for middle_block in self.middle_blocks:
+                    middle_output = middle_block(middle_output)
+
+            if self.stem_blocks > 0:
+                features.append(stem_output)
+
+            output = decoder(middle_output, features)
+            output["middle_output"] = middle_output
+            outputs.append(output)
+
+        return outputs[-1]

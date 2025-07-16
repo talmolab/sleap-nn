@@ -18,9 +18,6 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
         nn.MaxPool2d arguments: Arguments that are passed to the parent
             torch.nn.MaxPool2d class.
 
-    Attributes:
-        Inherits all attributes from torch.nn.MaxPool2d.
-
     Methods:
         forward(x: torch.Tensor) -> torch.Tensor:
             Forward pass through the MaxPool2dWithSamePadding module.
@@ -36,6 +33,10 @@ class MaxPool2dWithSamePadding(nn.MaxPool2d):
         input_tensor = torch.rand(1, 3, 32, 32)  # Example input tensor
         output = maxpool_layer(input_tensor)  # Apply the MaxPool2d operation with same padding.
     """
+
+    def __init__(self, *args, **kwargs):
+        """Initialize the MaxPool2dWithSamePadding module."""
+        super().__init__(*args, **kwargs)
 
     def _calc_same_pad(self, i: int, k: int, s: int, d: int) -> int:
         """Calculate the required padding to achieve 'same' padding.

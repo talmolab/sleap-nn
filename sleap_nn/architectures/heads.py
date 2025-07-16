@@ -6,6 +6,7 @@ from omegaconf.dictconfig import DictConfig
 from torch import nn
 from loguru import logger
 from sleap_nn.architectures.utils import get_act_fn
+from collections import OrderedDict
 
 
 class Head:
@@ -53,7 +54,8 @@ class Head:
         Returns:
             A `nn.Sequential` with the correct shape for the head.
         """
-        return nn.Sequential(
+        module_dict = OrderedDict()
+        module_dict[self.name] = nn.Sequential(
             nn.Conv2d(
                 in_channels=x_in,
                 out_channels=self.channels,
@@ -63,6 +65,8 @@ class Head:
             ),
             get_act_fn(self.activation),
         )
+
+        return nn.Sequential(module_dict)
 
 
 class SingleInstanceConfmapsHead(Head):
@@ -497,21 +501,30 @@ class ClassVectorsHead(Head):
         Returns:
             A `nn.Sequential` with the correct shape for the head.
         """
-        module_list = []
+        from collections import OrderedDict
+
+        module_dict = OrderedDict()
+
         if self.global_pool:
-            module_list.append(nn.AdaptiveMaxPool2d(1))
-        module_list.append(nn.Flatten(start_dim=1))
+            module_dict[f"pre_classification_global_pool"] = nn.AdaptiveMaxPool2d(1)
+
+        module_dict[f"pre_classification_flatten"] = nn.Flatten(start_dim=1)
+
         for i in range(self.num_fc_layers):
             if i == 0:
-                module_list.append(nn.Linear(x_in, self.num_fc_units))
+                module_dict[f"pre_classification{i}_fc"] = nn.Linear(
+                    x_in, self.num_fc_units
+                )
             else:
-                module_list.append(nn.Linear(self.num_fc_units, self.num_fc_units))
-            module_list.append(get_act_fn("relu"))
+                module_dict[f"pre_classification{i}_fc"] = nn.Linear(
+                    self.num_fc_units, self.num_fc_units
+                )
+            module_dict[f"pre_classification{i}_relu"] = get_act_fn("relu")
 
-        module_list.append(nn.Linear(self.num_fc_units, self.channels))
-        module_list.append(get_act_fn("softmax"))
+        module_dict[f"ClassVectorsHead"] = nn.Linear(self.num_fc_units, self.channels)
+        module_dict[f"softmax"] = get_act_fn("softmax")
 
-        return nn.Sequential(*module_list)
+        return nn.Sequential(module_dict)
 
 
 class OffsetRefinementHead(Head):
