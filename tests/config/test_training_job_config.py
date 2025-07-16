@@ -32,7 +32,6 @@ from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.data_config import DataConfig
 from sleap_nn.config.trainer_config import TrainerConfig, EarlyStoppingConfig
 from sleap_nn.config.data_config import IntensityConfig
-from tests.assets.fixtures.datasets import *
 from omegaconf import DictConfig, OmegaConf, MissingMandatoryValue, ValidationError
 from dataclasses import asdict
 from loguru import logger
@@ -153,7 +152,7 @@ def test_load_bottomup_multiclass_training_config_from_file(
         "male",
     ]
     assert config.data_config.train_labels_path == []
-    assert config.data_config.val_labels_path == []
+    assert config.data_config.val_labels_path is None
     assert config.model_config.backbone_config.unet.filters == 8
     assert config.model_config.backbone_config.unet.max_stride == 16
     assert config.trainer_config.max_epochs == 200
@@ -178,7 +177,7 @@ def test_load_bottomup_multiclass_training_config_from_file(
 
     # Assertions to check if the output matches expected values
     assert config.data_config.train_labels_path == []
-    assert config.data_config.val_labels_path == []
+    assert config.data_config.val_labels_path is None
     assert config.model_config.backbone_config.unet.filters == 8
     assert config.model_config.backbone_config.unet.max_stride == 16
     assert config.trainer_config.max_epochs == 200
@@ -206,7 +205,7 @@ def test_load_bottomup_training_config_from_file(bottomup_training_config_path):
 
     # Assertions to check if the output matches expected values
     assert config.data_config.train_labels_path == []
-    assert config.data_config.val_labels_path == []
+    assert config.data_config.val_labels_path is None
     assert config.model_config.backbone_config.unet.filters == 16
     assert config.model_config.backbone_config.unet.max_stride == 8
     assert config.model_config.head_configs.bottomup.confmaps.part_names == ["A", "B"]
@@ -227,7 +226,7 @@ def test_load_centered_instance_training_config_from_file(
 
     # Assertions to check if the output matches expected values
     assert config.data_config.train_labels_path == []
-    assert config.data_config.val_labels_path == []
+    assert config.data_config.val_labels_path is None
     assert config.model_config.head_configs.centered_instance.confmaps.part_names == [
         "A",
         "B",

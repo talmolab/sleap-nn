@@ -179,7 +179,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
         )
     assert "There are no images in the path" in caplog.text
 
-    # test with non-empty `train_imgs` but emtpy `val_imgs`
+    # test with non-empty `train_imgs` but empty `val_imgs`
     Path.mkdir(Path(tmp_path) / "train_imgs", parents=True)
     file_path = Path(tmp_path) / "train_imgs" / "sample.jpg"
     Image.fromarray(

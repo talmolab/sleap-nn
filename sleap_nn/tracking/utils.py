@@ -94,7 +94,7 @@ def compute_iou(a, b):
 
 def compute_cosine_sim(a, b):
     """Return cosine simalirity between a and b vectors."""
-    numer = np.dot(a, b)
+    number = np.dot(a, b)
     denom = np.linalg.norm(a) * np.linalg.norm(b)
-    cosine_sim = numer / denom
+    cosine_sim = number / denom
     return cosine_sim

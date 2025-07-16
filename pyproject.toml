@@ -20,8 +20,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
 dependencies = [
-    "torch",
-    "torchvision",
     "lightning",
     "sleap-io>=0.2.0",
     "numpy",
@@ -49,6 +47,10 @@ version = {attr = "sleap_nn.__version__"}
 readme = {file = ["README.md"]}
 
 [project.optional-dependencies]
+torch = [
+    "torch",
+    "torchvision"
+]
 dev = [
     "pytest",
     "pytest-cov",
@@ -79,3 +81,10 @@ select = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.codespell]
+# Ref: https://github.com/codespell-project/codespell#using-a-config-file
+skip = '.git*,*.css'
+check-hidden = true
+# ignore-regex = ''
+# ignore-words-list = ''

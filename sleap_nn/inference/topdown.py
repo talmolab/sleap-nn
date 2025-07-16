@@ -169,7 +169,7 @@ class CentroidCrop(L.LightningModule):
             return_crops is True.
             If return_crops is not True, this module returns the dictionary with
             `centroids` and `centroid_val` keys with shapes (batch, 1, max_instances, 2)
-            and (batch, max_instances) repsectively which could then to passed to
+            and (batch, max_instances) respectively which could then to passed to
             FindInstancePeaksGroundTruth class.
         """
         if self.use_gt_centroids:

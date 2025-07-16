@@ -126,7 +126,7 @@ def test_convnext_reference():
     assert out[3].shape == (1, 96, 48, 48)
     assert out[4].shape == (1, 96, 96, 96)
 
-    # arch as None. selet `tiny` architecture by default
+    # arch as None. select `tiny` architecture by default
 
     config = OmegaConf.create(
         {

@@ -546,7 +546,7 @@ def test_incorrect_model_type(config, caplog, tmp_path: str):
     assert "Incorrect model type." in caplog.text
 
 
-def test_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
+def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance_ckpt):
     """Test loading trained weights for backbone and head layers."""
 
     OmegaConf.update(
@@ -561,17 +561,17 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_ckpt):
     OmegaConf.update(
         config,
         "model_config.pretrained_backbone_weights",
-        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+        (Path(minimal_instance_centered_instance_ckpt) / "best.ckpt").as_posix(),
     )
     OmegaConf.update(
         config,
         "model_config.pretrained_head_weights",
-        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+        (Path(minimal_instance_centered_instance_ckpt) / "best.ckpt").as_posix(),
     )
 
     # check loading trained weights for backbone
     ckpt = torch.load(
-        (Path(minimal_instance_ckpt) / "best.ckpt").as_posix(),
+        (Path(minimal_instance_centered_instance_ckpt) / "best.ckpt").as_posix(),
         map_location="cpu",
         weights_only=False,
     )
