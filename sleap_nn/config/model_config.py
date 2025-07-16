@@ -405,7 +405,6 @@ class SwinTBaseConfig:
     up_interpolate: bool = True
     output_stride: int = 1
 
-
     def validate_model_type(self, value):
         """Validate model_type.
 

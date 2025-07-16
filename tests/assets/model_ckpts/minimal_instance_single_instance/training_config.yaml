@@ -1,6 +1,6 @@
 data_config:
   train_labels_path:
-  - minimal_instance.pkg.slp
+  - tests/data/slp_hdf5/small_robot_minimal.slp
   val_labels_path: null
   validation_fraction: 0.1
   test_file_path: null
@@ -15,7 +15,7 @@ data_config:
     ensure_grayscale: false
     max_height: 384
     max_width: 384
-    scale: 1.0
+    scale: 0.5
     crop_hw: null
     min_crop_size: 100
   use_augmentations_train: true
@@ -35,13 +35,13 @@ data_config:
       - 10.0
       brightness_p: 0.0
     geometric:
-      rotation: 15.0
+      rotation: 180.0
       scale:
-      - 1.0
-      - 1.0
+      - 0.9
+      - 1.1
       translate_width: 0.0
       translate_height: 0.0
-      affine_p: 1.0
+      affine_p: 0.0
       erase_scale_min: 0.0001
       erase_scale_max: 0.01
       erase_ratio_min: 1.0
@@ -71,15 +71,15 @@ model_config:
     unet:
       in_channels: 1
       kernel_size: 3
-      filters: 16
+      filters: 8
       filters_rate: 2.0
-      max_stride: 16
+      max_stride: 4
       stem_stride: null
       middle_block: true
       up_interpolate: true
       stacks: 1
       convs_per_block: 2
-      output_stride: 2
+      output_stride: 4
     convnext: null
     swint: null
   head_configs:
@@ -88,14 +88,14 @@ model_config:
         part_names:
         - A
         - B
-        sigma: 2.5
-        output_stride: 2
+        sigma: 5.0
+        output_stride: 4
     centroid: null
     centered_instance: null
     bottomup: null
     multi_class_bottomup: null
     multi_class_topdown: null
-  total_params: 1953138
+  total_params: 18106
 trainer_config:
   train_data_loader:
     batch_size: 4
@@ -113,10 +113,10 @@ trainer_config:
   profiler: null
   trainer_strategy: auto
   enable_progress_bar: true
-  min_train_steps_per_epoch: 100
-  train_steps_per_epoch: 100
-  visualize_preds_during_training: true
-  max_epochs: 20
+  min_train_steps_per_epoch: 200
+  train_steps_per_epoch: 200
+  visualize_preds_during_training: false
+  max_epochs: 100
   seed: 0
   use_wandb: false
   save_ckpt: true
@@ -133,7 +133,7 @@ trainer_config:
     current_run_id: null
   optimizer_name: Adam
   optimizer:
-    lr: 0.0001
+    lr: 0.001
     amsgrad: false
   lr_scheduler:
     step_lr: null
@@ -145,7 +145,7 @@ trainer_config:
       factor: 0.5
       min_lr: 1.0e-08
   early_stopping:
-    min_delta: 1.0e-08
+    min_delta: 1.0e-06
     patience: 10
     stop_training_on_plateau: true
   online_hard_keypoint_mining:
@@ -155,9 +155,9 @@ trainer_config:
     max_hard_keypoints: null
     loss_scale: 5.0
   zmq:
-    controller_address: null
+    controller_address: tcp://127.0.0.1:9000
     controller_polling_timeout: 10
-    publish_address: null
+    publish_address: tcp://127.0.0.1:9001
 name: ''
 description: ''
 sleap_nn_version: 0.0.1

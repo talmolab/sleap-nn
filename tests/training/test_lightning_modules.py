@@ -576,16 +576,20 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance
         weights_only=False,
     )
     first_layer_ckpt = (
-        ckpt["state_dict"]["model.backbone.enc.encoder_stack.0.blocks.0.weight"][
-            0, 0, :
-        ]
+        ckpt["state_dict"][
+            "model.backbone.encoders.0.encoder_stack.0.blocks.stack0_enc0_conv0.weight"
+        ][0, 0, :]
         .cpu()
         .numpy()
     )
 
     # load head ckpts
     head_layer_ckpt = (
-        ckpt["state_dict"]["model.head_layers.0.0.weight"][0, 0, :].cpu().numpy()
+        ckpt["state_dict"]["model.head_layers.0.CenteredInstanceConfmapsHead.0.weight"][
+            0, 0, :
+        ]
+        .cpu()
+        .numpy()
     )
 
     lightning_module = LightningModel.get_lightning_model_from_config(config=config)

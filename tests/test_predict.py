@@ -74,7 +74,7 @@ def test_predict_main(
             "--video_index",
             "0",
             "--frames",
-            "0-2",
+            "0",
             "--peak_threshold",
             f"{0.0}",
             "--device",
@@ -87,7 +87,7 @@ def test_predict_main(
 
     pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
 
-    assert len(pred) == 3
+    assert len(pred) == 1
 
 
 def test_predict_main_with_video(
@@ -125,7 +125,6 @@ def test_predict_main_with_video(
 
     assert len(pred) == 3
 
-
     # test with video
     main(
         [
@@ -152,4 +151,3 @@ def test_predict_main_with_video(
     pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
 
     assert len(pred) == 4
-

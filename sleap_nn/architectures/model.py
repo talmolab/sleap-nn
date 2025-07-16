@@ -177,11 +177,14 @@ class Model(nn.Module):
 
         outputs = {}
         for head, head_layer in zip(self.heads, self.head_layers):
-            if isinstance(head, ClassVectorsHead):
-                backbone_out = backbone_outputs["intermediate_feat"]
-                outputs[head.name] = head_layer(backbone_out)
+            if not len(backbone_outputs["outputs"]):
+                outputs[head.name] = head_layer(backbone_outputs["middle_output"])
             else:
-                idx = backbone_outputs["strides"].index(head.output_stride)
-                outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
+                if isinstance(head, ClassVectorsHead):
+                    backbone_out = backbone_outputs["intermediate_feat"]
+                    outputs[head.name] = head_layer(backbone_out)
+                else:
+                    idx = backbone_outputs["strides"].index(head.output_stride)
+                    outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
 
         return outputs

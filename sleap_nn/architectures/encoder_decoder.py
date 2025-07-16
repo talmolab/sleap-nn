@@ -621,6 +621,8 @@ class Decoder(nn.Module):
             next_stride = current_stride // 2
 
             if self.stem_blocks > 0 and block >= down_blocks + self.stem_blocks:
+                # This accounts for the case where we dont have any more down block features to concatenate with.
+                # In this case, add a simple upsampling block with a conv layer and with no concatenation
                 self.decoder_stack.append(
                     SimpleUpsamplingBlock(
                         x_in_shape=(x_in_shape if block == 0 else prev_block_filters),

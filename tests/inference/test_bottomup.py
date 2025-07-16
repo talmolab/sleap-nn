@@ -149,7 +149,7 @@ def test_multiclass_bottomup_inference_model(
         refinement="integral",
         integral_patch_size=5,
         cms_output_stride=2,
-        class_maps_output_stride=4,
+        class_maps_output_stride=2,
         return_confmaps=False,
         return_class_maps=False,
     )
@@ -168,14 +168,14 @@ def test_multiclass_bottomup_inference_model(
         refinement="integral",
         integral_patch_size=5,
         cms_output_stride=2,
-        class_maps_output_stride=4,
+        class_maps_output_stride=2,
         return_confmaps=True,
         return_class_maps=True,
     )
 
     output = inference_layer(ex)[0]
     assert tuple(output["pred_confmaps"].shape) == (1, 2, 192, 192)
-    assert tuple(output["pred_class_maps"].shape) == (1, 2, 96, 96)
+    assert tuple(output["pred_class_maps"].shape) == (1, 2, 192, 192)
     assert isinstance(output["pred_instance_peaks"], list)
     assert tuple(output["pred_instance_peaks"][0].shape)[1:] == (2, 2)
     assert tuple(output["pred_peak_values"][0].shape)[1:] == (2,)

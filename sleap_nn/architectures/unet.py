@@ -277,7 +277,7 @@ class UNet(nn.Module):
             encoder = self.encoders[i]
             decoder = self.decoders[i]
 
-            # Forward pass through encoder (gets output from last pool layer)
+            # Forward pass through encoder
             encoded, features = encoder(output)
 
             # Process through middle block if it exists
@@ -289,12 +289,8 @@ class UNet(nn.Module):
             if self.stem_blocks > 0:
                 features.append(stem_output)
 
-            # Forward pass through decoder using the last pool layer output
-            output = decoder(
-                middle_output, features
-            )  # Use encoded (last pool) not middle_output
+            output = decoder(middle_output, features)
+            output["middle_output"] = middle_output
             outputs.append(output)
 
-        # For now, return the output from the last stack
-        # You can modify this to return all outputs or combine them as needed
         return outputs[-1]

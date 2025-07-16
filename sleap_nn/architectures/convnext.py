@@ -200,7 +200,7 @@ class ConvNextWrapper(nn.Module):
         self.max_stride = (
             stem_patch_stride * (2**3) * 2
         )  # stem_stride * down_blocks_stride * final_max_pool_stride
-        self.stem_blocks = 1
+        self.stem_blocks = 1  # 1 stem block + 3 down blocks in convnext
 
         self.up_blocks = np.log2(
             self.max_stride / (stem_patch_stride * output_stride)
@@ -224,7 +224,7 @@ class ConvNextWrapper(nn.Module):
             kernel_size=2, stride=2, padding="same"
         )
 
-        # Create middle blocks (mandatory)
+        # Create middle blocks
         self.middle_blocks = nn.ModuleList()
         # Get the last block filters from encoder
         last_block_filters = self.arch["channels"][-1]
@@ -269,15 +269,9 @@ class ConvNextWrapper(nn.Module):
         )
         self.middle_blocks.append(middle_contract)
 
-        # Calculate the actual current stride at the end of the encoder
-        # ConvNeXt has 4 stages, with downsampling after stages 0, 1, and 2
-        # Stem: stride = 2
-        # After stage 0: stride = 4 (downsampling)
-        # After stage 1: stride = 8 (downsampling)
-        # After stage 2: stride = 16 (downsampling)
-        # After stage 3: stride = 16 (no downsampling)
-        # After additional pool: stride = 32
-        self.current_stride = self.stem_patch_stride * (2**3) * 2  # 2 * 8 * 2 = 32
+        self.current_stride = (
+            self.stem_patch_stride * (2**3) * 2
+        )  # stem_stride * down_blocks_stride * pool
 
         # Calculate x_in_shape based on whether we have block contraction
         if self.block_contraction:
@@ -354,9 +348,11 @@ class ConvNextWrapper(nn.Module):
         # Apply additional pooling layer
         x = self.additional_pool(x)
 
-        # Process through middle blocks (mandatory)
+        # Process through middle blocks
+        middle_output = x
         for middle_block in self.middle_blocks:
-            x = middle_block(x)
+            middle_output = middle_block(middle_output)
 
-        x = self.dec(x, features)
+        x = self.dec(middle_output, features)
+        x["middle_output"] = middle_output
         return x
