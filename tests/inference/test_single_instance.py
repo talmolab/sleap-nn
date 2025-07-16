@@ -13,24 +13,16 @@ from sleap_nn.data.providers import process_lf
 from sleap_nn.data.normalization import apply_normalization
 
 
-def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt):
+def test_single_instance_inference_model(
+    minimal_instance, minimal_instance_single_instance_ckpt
+):
     """Test SingleInstanceInferenceModel."""
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/initial_config.yaml")
-    head_config = config.model_config.head_configs.centered_instance
-    del config.model_config.head_configs.centered_instance
-    OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
-    del config.model_config.head_configs.single_instance.confmaps.anchor_part
-
-    training_config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    head_config = training_config.model_config.head_configs.centered_instance
-    del training_config.model_config.head_configs.centered_instance
-    OmegaConf.update(
-        training_config, "model_config.head_configs.single_instance", head_config
+    training_config = OmegaConf.load(
+        f"{minimal_instance_single_instance_ckpt}/training_config.yaml"
     )
-    del training_config.model_config.head_configs.single_instance.confmaps.anchor_part
 
     torch_model = SingleInstanceLightningModule.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/best.ckpt",
+        f"{minimal_instance_single_instance_ckpt}/best.ckpt",
         config=training_config,
         model_type="single_instance",
         backbone_type="unet",

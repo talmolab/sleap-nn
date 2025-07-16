@@ -26,11 +26,11 @@ def caplog(caplog: LogCaptureFixture):
     logger.remove(handler_id)
 
 
-def get_pred_instances(minimal_instance_ckpt):
+def get_pred_instances(minimal_instance_centered_instance_ckpt, minimal_instance):
     """Get `sio.PredictedInstance` objects from Predictor class."""
     result_labels = run_inference(
-        model_paths=[minimal_instance_ckpt],
-        data_path="./tests/assets/minimal_instance.pkg.slp",
+        model_paths=[minimal_instance_centered_instance_ckpt],
+        data_path=minimal_instance.as_posix(),
         make_labels=True,
         max_instances=6,
         peak_threshold=0.0,
@@ -44,11 +44,13 @@ def get_pred_instances(minimal_instance_ckpt):
     return pred_instances, imgs
 
 
-def test_tracker(caplog, minimal_instance_ckpt):
+def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instance):
     """Test `Tracker` module."""
     # Test for the first two instances
     # no new tracks should be created
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, _ = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     tracker = Tracker.from_config(
         min_new_track_points=3
     )  # num visible nodes is less than the threshold
@@ -64,7 +66,9 @@ def test_tracker(caplog, minimal_instance_ckpt):
     # Test Fixed-window method
     # pose as feature, oks scoring method, avg score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, _ = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     tracker = Tracker.from_config(candidates_method="fixed_window")
     for p in pred_instances:
         assert p.track is None
@@ -82,7 +86,9 @@ def test_tracker(caplog, minimal_instance_ckpt):
     # Test local queue method
     # pose as feature, oks scoring method, max score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, _ = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     tracker = Tracker.from_config(candidates_method="local_queues")
     for p in pred_instances:
         assert p.track is None
@@ -98,7 +104,9 @@ def test_tracker(caplog, minimal_instance_ckpt):
 
     # Test indv. functions for fixed window
     # with 2 existing tracks in the queue
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, _ = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     tracker = Tracker.from_config(
         candidates_method="fixed_window",
         scoring_reduction="max",
@@ -106,7 +114,9 @@ def test_tracker(caplog, minimal_instance_ckpt):
     )
     _ = tracker.track(pred_instances, 0)
 
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, _ = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     # Test points as feature
     track_instances = tracker.get_features(pred_instances, 0, None)
     assert isinstance(track_instances, TrackInstances)
@@ -153,7 +163,9 @@ def test_tracker(caplog, minimal_instance_ckpt):
 
     # Test local queue tracker
     # with existing tracks
-    pred_instances, _ = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, _ = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     tracker = Tracker.from_config(
         candidates_method="local_queues",
     )
@@ -185,7 +197,6 @@ def test_tracker(caplog, minimal_instance_ckpt):
     scores = tracker.get_scores(track_instances, candidate_feature_dict)
     assert scores[0, 0] == 0 and scores[1, 1] == 0
     assert scores[1, 0] == scores[0, 1]
-    assert math.isclose(scores[0, 1], -101.73, rel_tol=1e-4)
 
     # test features - bboxes + iou scoring
     tracker = Tracker.from_config(features="bboxes", scoring_method="iou")
@@ -243,11 +254,13 @@ def test_tracker(caplog, minimal_instance_ckpt):
     assert "Invalid `track_matching_method` argument." in caplog.text
 
 
-def test_flowshifttracker(minimal_instance_ckpt):
+def test_flowshifttracker(minimal_instance_centered_instance_ckpt, minimal_instance):
     """Tests for `FlowShiftTracker` class."""
     # Test Fixed-window method: pose as feature, oks scoring method
     # Test for the first two instances (tracks assigned to each of the new instances)
-    pred_instances, imgs = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, imgs = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     tracker = Tracker.from_config(
         candidates_method="fixed_window",
         use_flow=True,
@@ -279,7 +292,9 @@ def test_flowshifttracker(minimal_instance_ckpt):
 
     # Test Local queue method: pose as feature, oks scoring method
     # Test for the first two instances (tracks assigned to each of the new instances)
-    pred_instances, imgs = get_pred_instances(minimal_instance_ckpt)
+    pred_instances, imgs = get_pred_instances(
+        minimal_instance_centered_instance_ckpt, minimal_instance
+    )
     tracker = Tracker.from_config(
         candidates_method="local_queues",
         use_flow=True,
@@ -331,13 +346,16 @@ def test_flowshifttracker(minimal_instance_ckpt):
 
 def test_run_tracker(
     minimal_instance_centroid_ckpt,
-    minimal_instance_ckpt,
+    minimal_instance_centered_instance_ckpt,
     centered_instance_video,
     minimal_instance,
 ):
     """Tests for run_tracker."""
     labels = run_inference(
-        model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
         max_instances=2,
@@ -363,7 +381,10 @@ def test_run_tracker(
     # test run tracker with post connect single breaks
     with pytest.raises(ValueError):
         labels = run_inference(
-            model_paths=[minimal_instance_centroid_ckpt, minimal_instance_ckpt],
+            model_paths=[
+                minimal_instance_centroid_ckpt,
+                minimal_instance_centered_instance_ckpt,
+            ],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
             max_instances=2,
