@@ -858,3 +858,41 @@ def test_reuse_cache_img_files(config, tmp_path: str):
     )
     trainer2 = ModelTrainer.get_model_trainer_from_config(centroid_config)
     trainer2.train()
+
+
+def test_keep_viz_behavior(config, tmp_path, minimal_instance):
+    # Test keep_viz = True (viz folder should be kept)
+    cfg_keep = config.copy()
+    OmegaConf.update(cfg_keep, "trainer_config.save_ckpt", True)
+    OmegaConf.update(cfg_keep, "trainer_config.visualize_preds_during_training", True)
+    OmegaConf.update(cfg_keep, "trainer_config.keep_viz", True)
+    OmegaConf.update(
+        cfg_keep, "trainer_config.save_ckpt_path", f"{tmp_path}/keep_viz_true"
+    )
+    OmegaConf.update(cfg_keep, "trainer_config.max_epochs", 1)
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg_keep, train_labels=[labels], val_labels=[labels]
+    )
+    trainer.train()
+    viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
+    assert viz_path.exists() and any(
+        viz_path.glob("*.png")
+    ), "viz folder should be kept when keep_viz=True"
+
+    # Test keep_viz = False (viz folder should be deleted)
+    cfg_del = config.copy()
+    OmegaConf.update(cfg_del, "trainer_config.save_ckpt", True)
+    OmegaConf.update(cfg_del, "trainer_config.visualize_preds_during_training", True)
+    OmegaConf.update(cfg_del, "trainer_config.keep_viz", False)
+    OmegaConf.update(
+        cfg_del, "trainer_config.save_ckpt_path", f"{tmp_path}/keep_viz_false"
+    )
+    OmegaConf.update(cfg_del, "trainer_config.max_epochs", 1)
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg_del, train_labels=[labels], val_labels=[labels]
+    )
+    trainer.train()
+    viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
+    assert not viz_path.exists(), "viz folder should be deleted when keep_viz=False"

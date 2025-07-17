@@ -308,6 +308,9 @@ def test_load_topdown_training_config_from_file(topdown_training_config_path):
     assert config.model_config.backbone_config.unet.max_stride == 16
     assert config.model_config.backbone_config.unet.output_stride == 2
 
+    assert not config.trainer_config.keep_viz
+    assert not config.trainer_config.visualize_preds_during_training
+
     # Test topdown head config
     topdown = config.model_config.head_configs.multi_class_topdown
     assert topdown.confmaps.part_names == ["head", "thorax"]

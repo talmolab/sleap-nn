@@ -104,6 +104,7 @@ trainer_config:
   min_train_steps_per_epoch: 200
   train_steps_per_epoch:
   visualize_preds_during_training: true
+  keep_viz: false
   max_epochs: 30
   seed: 0
   use_wandb: true

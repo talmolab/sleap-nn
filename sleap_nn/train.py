@@ -471,6 +471,7 @@ def get_trainer_config(
     min_train_steps_per_epoch: int = 200,
     train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
+    keep_viz: bool = False,
     max_epochs: int = 10,
     seed: int = 0,
     use_wandb: bool = False,
@@ -534,6 +535,8 @@ def get_trainer_config(
             whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
+        keep_viz: If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder
+            will be deleted after training. Only applies when `visualize_preds_during_training` is `True`.
         max_epochs: Maximum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
@@ -637,6 +640,7 @@ def get_trainer_config(
         min_train_steps_per_epoch=min_train_steps_per_epoch,
         train_steps_per_epoch=train_steps_per_epoch,
         visualize_preds_during_training=visualize_preds_during_training,
+        keep_viz=keep_viz,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,
@@ -785,6 +789,7 @@ def train(
     min_train_steps_per_epoch: int = 200,
     train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
+    keep_viz: bool = False,
     max_epochs: int = 10,
     seed: int = 0,
     use_wandb: bool = False,
@@ -955,6 +960,7 @@ def train(
             whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
+        keep_viz: If set to `True`, the `viz` folder containing training visualizations will be kept after training completes. If `False`, the folder will be deleted. This parameter only has an effect when `visualize_preds_during_training` is `True`. Default: `False`.
         max_epochs: Maximum number of epochs to run. Default: 10.
         seed: Seed value for the current experiment. default: 0.
         save_ckpt: True to enable checkpointing. Default: False.
@@ -1057,6 +1063,7 @@ def train(
         min_train_steps_per_epoch=min_train_steps_per_epoch,
         train_steps_per_epoch=train_steps_per_epoch,
         visualize_preds_during_training=visualize_preds_during_training,
+        keep_viz=keep_viz,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,

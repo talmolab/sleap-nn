@@ -126,6 +126,7 @@ def config(sleap_nn_data_dir):
                 "train_steps_per_epoch": None,
                 "max_epochs": 2,
                 "seed": 1000,
+                "keep_viz": True,
                 "use_wandb": False,
                 "save_ckpt": False,
                 "save_ckpt_path": "",

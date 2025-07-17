@@ -213,6 +213,7 @@ class TrainerConfig:
         min_train_steps_per_epoch: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer limit_train_batches parameter of Torch Trainer. *Default*: `200`.
         train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.
+        keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.
         max_epochs: (int) Maximum number of epochs to run. *Default*: `10`.
         seed: (int) Seed value for the current experiment. *Default*: `0`.
         use_wandb: (bool) True to enable wandb logging. *Default*: `False`.
@@ -241,6 +242,7 @@ class TrainerConfig:
     min_train_steps_per_epoch: int = 200
     train_steps_per_epoch: Optional[int] = None
     visualize_preds_during_training: bool = False
+    keep_viz: bool = False
     max_epochs: int = 10
     seed: int = 0
     use_wandb: bool = False
@@ -365,13 +367,15 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
 
     trainer_cfg_args["model_ckpt"] = ModelCkptConfig(**model_ckpt_cfg_args)
 
-    if (
-        legacy_config_outputs.get("visualizations", {}).get("save_visualizations", None)
-        is not None
-    ):
+    if legacy_config_outputs.get("save_visualizations", None) is not None:
         trainer_cfg_args["visualize_preds_during_training"] = legacy_config_outputs[
-            "visualizations"
-        ]["save_visualizations"]
+            "save_visualizations"
+        ]
+
+    # Handle legacy delete_viz_images parameter
+    if legacy_config_outputs.get("keep_viz_images", None) is not None:
+        # Invert the logic: delete_viz_images=True means keep_viz=False
+        trainer_cfg_args["keep_viz"] = not legacy_config_outputs["keep_viz_images"]
 
     if legacy_config_optimization.get("epochs", None) is not None:
         trainer_cfg_args["max_epochs"] = legacy_config_optimization["epochs"]
