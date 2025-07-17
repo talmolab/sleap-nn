@@ -511,7 +511,6 @@ def test_evaluator_metrics(minimal_instance):
 #     assert "Empty Frame Pairs. No match found for the video frames" in err
 def test_evaluator_logging_empty_frame_pairs(caplog, minimal_instance):
     """Test that the Evaluator logs an error when there are no matching frame pairs."""
-
     # Create user_labels and pred_labels that will lead to empty frame pairs
     user_labels, pred_labels = create_labels_no_match_frame_pairs(minimal_instance)
 
