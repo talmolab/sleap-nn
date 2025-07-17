@@ -374,8 +374,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
 
     # Handle legacy delete_viz_images parameter
     if legacy_config_outputs.get("keep_viz_images", None) is not None:
-        # Invert the logic: delete_viz_images=True means keep_viz=False
-        trainer_cfg_args["keep_viz"] = not legacy_config_outputs["keep_viz_images"]
+        trainer_cfg_args["keep_viz"] = legacy_config_outputs["keep_viz_images"]
 
     if legacy_config_optimization.get("epochs", None) is not None:
         trainer_cfg_args["max_epochs"] = legacy_config_optimization["epochs"]
