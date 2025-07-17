@@ -130,7 +130,6 @@ def test_data_mapper():
             "labels": {
                 "training_labels": "notMISSING",
                 "validation_labels": "notMISSING",
-                "skeletons": [{"edges": [[0, 1], [1, 2]]}],
             },
             "preprocessing": {
                 "ensure_rgb": True,
@@ -194,7 +193,7 @@ def test_data_mapper():
     # Test geometric config
     geometric = config.augmentation_config.geometric
     assert geometric.rotation == 90.0
-    assert geometric.scale == (1.0, 1.0)
+    assert geometric.scale == (0.8, 1.2)
 
     # Test skeletons
     assert config.skeletons == None

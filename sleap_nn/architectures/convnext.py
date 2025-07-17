@@ -10,9 +10,10 @@ import torch
 from torch import nn, Tensor
 from torchvision.ops.misc import Conv2dNormActivation
 from torchvision.utils import _log_api_usage_once
-from sleap_nn.architectures.encoder_decoder import Decoder
+from sleap_nn.architectures.encoder_decoder import Decoder, SimpleConvBlock
 from torchvision.models.convnext import LayerNorm2d, CNBlock, CNBlockConfig
 from omegaconf import OmegaConf
+from sleap_nn.architectures.common import MaxPool2dWithSamePadding
 
 
 class ConvNeXtEncoder(nn.Module):
@@ -153,6 +154,9 @@ class ConvNextWrapper(nn.Module):
             convolutions may be able to learn richer or more complex upsampling to
             recover details from higher scales.
         max_stride: Factor by which input image size is reduced through the layers. This is always `16` for all convnext architectures.
+        block_contraction: If True, reduces the number of filters at the end of middle
+            and decoder blocks. This has the effect of introducing an additional
+            bottleneck before each upsampling step.
 
     Attributes:
         Inherits all attributes from torch.nn.Module.
@@ -170,7 +174,8 @@ class ConvNextWrapper(nn.Module):
         filters_rate: int = 2,
         convs_per_block: int = 2,
         up_interpolate: bool = True,
-        max_stride: int = 16,
+        max_stride: int = 32,
+        block_contraction: bool = False,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -178,7 +183,7 @@ class ConvNextWrapper(nn.Module):
         self.in_channels = in_channels
         self.kernel_size = kernel_size
         self.filters_rate = filters_rate
-        self.max_stride = max_stride
+        self.block_contraction = block_contraction
         arch_types = {
             "tiny": {"depths": [3, 3, 9, 3], "channels": [96, 192, 384, 768]},
             "small": {"depths": [3, 3, 27, 3], "channels": [96, 192, 384, 768]},
@@ -192,7 +197,14 @@ class ConvNextWrapper(nn.Module):
         else:
             self.arch = arch_types["tiny"]
 
-        self.up_blocks = np.log2(self.max_stride / output_stride).astype(int) - 1
+        self.max_stride = (
+            stem_patch_stride * (2**3) * 2
+        )  # stem_stride * down_blocks_stride * final_max_pool_stride
+        self.stem_blocks = 1  # 1 stem block + 3 down blocks in convnext
+
+        self.up_blocks = np.log2(
+            self.max_stride / (stem_patch_stride * output_stride)
+        ).astype(int) + np.log2(stem_patch_stride).astype(int)
         self.convs_per_block = convs_per_block
         self.stem_patch_kernel = stem_patch_kernel
         self.stem_patch_stride = stem_patch_stride
@@ -207,22 +219,86 @@ class ConvNextWrapper(nn.Module):
             stem_kernel=stem_patch_kernel,
         )
 
-        self.current_stride = self.stem_patch_stride * (2 ** (self.down_blocks - 1))
-        x_in_shape = self.arch["channels"][-1]
+        # Add additional pooling layer after encoder
+        self.additional_pool = MaxPool2dWithSamePadding(
+            kernel_size=2, stride=2, padding="same"
+        )
+
+        # Create middle blocks
+        self.middle_blocks = nn.ModuleList()
+        # Get the last block filters from encoder
+        last_block_filters = self.arch["channels"][-1]
+
+        if convs_per_block > 1:
+            # Middle expansion block
+            middle_expand = SimpleConvBlock(
+                in_channels=last_block_filters,
+                pool=False,
+                pool_before_convs=False,
+                pooling_stride=2,
+                num_convs=convs_per_block - 1,
+                filters=int(last_block_filters * filters_rate),
+                kernel_size=kernel_size,
+                use_bias=True,
+                batch_norm=False,
+                activation="relu",
+                prefix="convnext_middle_expand",
+            )
+            self.middle_blocks.append(middle_expand)
+
+        # Middle contraction block
+        if self.block_contraction:
+            # Contract the channels with an exponent lower than the last encoder block
+            block_filters = int(last_block_filters)
+        else:
+            # Keep the block output filters the same
+            block_filters = int(last_block_filters * filters_rate)
+
+        middle_contract = SimpleConvBlock(
+            in_channels=int(last_block_filters * filters_rate),
+            pool=False,
+            pool_before_convs=False,
+            pooling_stride=2,
+            num_convs=1,
+            filters=block_filters,
+            kernel_size=kernel_size,
+            use_bias=True,
+            batch_norm=False,
+            activation="relu",
+            prefix="convnext_middle_contract",
+        )
+        self.middle_blocks.append(middle_contract)
+
+        self.current_stride = (
+            self.stem_patch_stride * (2**3) * 2
+        )  # stem_stride * down_blocks_stride * pool
+
+        # Calculate x_in_shape based on whether we have block contraction
+        if self.block_contraction:
+            # Contract the channels with an exponent lower than the last encoder block
+            x_in_shape = int(self.arch["channels"][-1])
+        else:
+            # Keep the block output filters the same
+            x_in_shape = int(self.arch["channels"][-1] * filters_rate)
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,
             current_stride=self.current_stride,
             filters=self.arch["channels"][0],
             up_blocks=self.up_blocks,
-            down_blocks=len(self.arch["channels"]) - 1,
+            down_blocks=self.down_blocks,
             filters_rate=filters_rate,
             kernel_size=self.kernel_size,
-            stem_blocks=0,
-            block_contraction=False,
+            stem_blocks=1,
+            block_contraction=self.block_contraction,
             output_stride=self.output_stride,
             up_interpolate=up_interpolate,
         )
+
+        if len(self.dec.decoder_stack):
+            self.final_dec_channels = self.dec.decoder_stack[-1].refine_convs_filters
+        else:
+            self.final_dec_channels = block_filters
 
     @property
     def max_channels(self):
@@ -244,10 +320,15 @@ class ConvNextWrapper(nn.Module):
             stem_patch_kernel=config.stem_patch_kernel,
             stem_patch_stride=config.stem_patch_stride,
             max_stride=config.max_stride,
+            block_contraction=(
+                config.block_contraction
+                if hasattr(config, "block_contraction")
+                else False
+            ),
         )
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], List]:
-        """Forward pass through the ConvNext architecture.
+        """Forward pass through the ConvNeXt architecture.
 
         Args:
             x: Input tensor (Batch, Channels, Height, Width).
@@ -258,6 +339,16 @@ class ConvNextWrapper(nn.Module):
         """
         enc_output = self.enc(x)
         x, features = enc_output[-1], enc_output[::2]
-        features = features[:-1][::-1]
-        x = self.dec(x, features)
+        features = features[::-1]
+
+        # Apply additional pooling layer
+        x = self.additional_pool(x)
+
+        # Process through middle blocks
+        middle_output = x
+        for middle_block in self.middle_blocks:
+            middle_output = middle_block(middle_output)
+
+        x = self.dec(middle_output, features)
+        x["middle_output"] = middle_output
         return x

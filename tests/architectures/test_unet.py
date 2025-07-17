@@ -36,9 +36,7 @@ def test_unet_reference():
 
     unet = UNet.from_config(config=config)
 
-    in_channels = int(
-        unet.max_channels / config.filters_rate ** len(unet.dec.decoder_stack)
-    )
+    in_channels = unet.final_dec_channels
     model = nn.Sequential(
         *[
             unet,
@@ -108,7 +106,7 @@ def test_unet_reference():
     with torch.no_grad():
         y, features = enc(x)
 
-    assert y.shape == (1, 256, 12, 12)
+    assert y.shape == (1, 128, 12, 12)
     assert len(features) == 4
     assert features[0].shape == (1, 128, 24, 24)
     assert features[1].shape == (1, 64, 48, 48)
@@ -135,9 +133,7 @@ def test_unet_reference():
 
     unet = UNet.from_config(config=config)
 
-    in_channels = int(
-        unet.max_channels / config.filters_rate ** len(unet.dec.decoder_stack)
-    )
+    in_channels = unet.final_dec_channels
     model = nn.Sequential(
         *[
             unet,
@@ -159,7 +155,6 @@ def test_unet_reference():
     assert "strides" in y
     assert y["outputs"][-1].shape == (1, 16, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -179,7 +174,6 @@ def test_unet_reference():
         current_stride=2,
         convs_per_block=convs_per_block,
         kernel_size=kernel_size,
-        block_contraction=True,
     )
 
     enc = enc.to(device)

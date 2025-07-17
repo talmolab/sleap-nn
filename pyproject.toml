@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "sleap-nn"
 authors = [
     {name = "Divya Seshadri Murali", email = "dimurali@salk.edu"},
+    {name = "Elizabeth Berrigan", email = "eberrigan@salk.edu"},
     {name = "Vincent Tu", email = "vitu@ucsd.edu"},
     {name = "Liezl Maree", email = "lmaree@salk.edu"},
     {name = "David Samy", email = "davidasamy@gmail.com"},
@@ -19,23 +20,37 @@ classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
 dependencies = [
-    "torch",
-    "torchvision",
-    "pydantic",
     "lightning",
-    "imageio",
-    "imageio-ffmpeg",
-    "av",
+    "sleap-io>=0.2.0",
+    "numpy",
+    "jsonpickle",
+    "scipy",
+    "attrs",
+    "omegaconf",
+    "wandb",
     "kornia",
-    "hydra-core",
+    "matplotlib",
+    "seaborn",
+    "rich",
+    "loguru",
+    "psutil",
+    "opencv-python",
+    "hydra-core"
 ]
 dynamic = ["version", "readme"]
+
+[tool.setuptools]
+packages = ["sleap_nn"]
 
 [tool.setuptools.dynamic]
 version = {attr = "sleap_nn.__version__"}
 readme = {file = ["README.md"]}
 
 [project.optional-dependencies]
+torch = [
+    "torch",
+    "torchvision"
+]
 dev = [
     "pytest",
     "pytest-cov",
@@ -45,7 +60,8 @@ dev = [
     "twine",
     "build",
     "ipython",
-    "ruff"
+    "ruff",
+    "pyzmq"
 ]
 
 [project.scripts]
@@ -65,3 +81,10 @@ select = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
+
+[tool.codespell]
+# Ref: https://github.com/codespell-project/codespell#using-a-config-file
+skip = '.git*,*.css'
+check-hidden = true
+# ignore-regex = ''
+# ignore-words-list = ''

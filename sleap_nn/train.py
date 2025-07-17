@@ -54,8 +54,12 @@ from sleap_nn.config.model_config import (
     CenteredInstanceConfMapsConfig,
     CenteredInstanceConfig,
     BottomUpConfig,
+    BottomUpMultiClassConfig,
     BottomUpConfMapsConfig,
     PAFConfig,
+    ClassMapConfig,
+    TopDownCenteredInstanceMultiClassConfig,
+    ClassVectorsConfig,
 )
 
 
@@ -185,9 +189,18 @@ def get_head_configs(head_cfg):
             head_configs.bottomup = BottomUpConfig(
                 confmaps=BottomUpConfMapsConfig, pafs=PAFConfig
             )
+        elif head_cfg == "multi_class_bottomup":
+            head_configs.multi_class_bottomup = BottomUpMultiClassConfig(
+                confmaps=BottomUpConfMapsConfig, class_maps=ClassMapConfig
+            )
+        elif head_cfg == "multi_class_topdown":
+            head_configs.multi_class_topdown = TopDownCenteredInstanceMultiClassConfig(
+                confmaps=CenteredInstanceConfMapsConfig,
+                class_vectors=ClassVectorsConfig,
+            )
         else:
             raise ValueError(
-                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance']"
+                f"{head_cfg} is not a valid head type. Please choose one of ['bottomup', 'centered_instance', 'centroid', 'single_instance', 'multi_class_bottomup', 'multi_class_topdown']"
             )
 
     elif isinstance(head_cfg, dict):
@@ -217,6 +230,30 @@ def get_head_configs(head_cfg):
                     **head_cfg["bottomup"]["confmaps"],
                 ),
                 pafs=PAFConfig(**head_cfg["bottomup"]["pafs"]),
+            )
+        elif (
+            "multi_class_bottomup" in head_cfg
+            and head_cfg["multi_class_bottomup"] is not None
+        ):
+            head_configs.multi_class_bottomup = BottomUpMultiClassConfig(
+                confmaps=BottomUpConfMapsConfig(
+                    **head_cfg["multi_class_bottomup"]["confmaps"]
+                ),
+                class_maps=ClassMapConfig(
+                    **head_cfg["multi_class_bottomup"]["class_maps"]
+                ),
+            )
+        elif (
+            "multi_class_topdown" in head_cfg
+            and head_cfg["multi_class_topdown"] is not None
+        ):
+            head_configs.multi_class_topdown = TopDownCenteredInstanceMultiClassConfig(
+                confmaps=CenteredInstanceConfMapsConfig(
+                    **head_cfg["multi_class_topdown"]["confmaps"]
+                ),
+                class_vectors=ClassVectorsConfig(
+                    **head_cfg["multi_class_topdown"]["class_vectors"]
+                ),
             )
 
     return head_configs
@@ -380,11 +417,11 @@ def get_model_config(
                                 "output_stride": 2
                             }
                     }
-        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance"].
+        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance", "multi_class_bottomup", "multi_class_topdown"].
             The default `sigma` and `output_strides` are used if a string is passed. To
             set custom parameters, pass in a dictionary with the structure:
             {
-                "bottomup" (or "centroid" or "single_instance" or "centered_instance"):
+                "bottomup" (or "centroid" or "single_instance" or "centered_instance" or "multi_class_bottomup" or "multi_class_topdown"):
                     {
                         "confmaps":
                             {
@@ -423,19 +460,20 @@ def get_model_config(
 
 
 def get_trainer_config(
-    batch_size: int = 4,
-    shuffle_train: bool = True,
+    batch_size: int = 1,
+    shuffle_train: bool = False,
     num_workers: int = 0,
     ckpt_save_top_k: int = 1,
-    ckpt_save_last: bool = True,
+    ckpt_save_last: Optional[bool] = None,
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
-    enable_progress_bar: bool = False,
+    enable_progress_bar: bool = True,
     min_train_steps_per_epoch: int = 200,
     train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
-    max_epochs: int = 100,
-    seed: int = 1000,
+    keep_viz: bool = False,
+    max_epochs: int = 10,
+    seed: int = 0,
     use_wandb: bool = False,
     save_ckpt: bool = False,
     save_ckpt_path: Optional[str] = None,
@@ -497,7 +535,9 @@ def get_trainer_config(
             whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
-        max_epochs: Maxinum number of epochs to run. Default: 100.
+        keep_viz: If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder
+            will be deleted after training. Only applies when `visualize_preds_during_training` is `True`.
+        max_epochs: Maximum number of epochs to run. Default: 100.
         seed: Seed value for the current experiment. default: 1000.
         save_ckpt: True to enable checkpointing. Default: False.
         save_ckpt_path: Directory path to save the training config and checkpoint files.
@@ -513,10 +553,10 @@ def get_trainer_config(
         wandb_mode: "offline" if only local logging is required. Default: None.
         wandb_resume_prv_runid: Previous run ID if training should be resumed from a previous
             ckpt. Default: None
-        wandb_group_name: Group name fo the wandb run. Default: None.
+        wandb_group_name: Group name for the wandb run. Default: None.
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
-        amsgrad: Enable AMSGrad with the optimizer. Defaul: False.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
         lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
             `sleap_nn.config.trainer_config` are used). To use custom values, pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
@@ -600,6 +640,7 @@ def get_trainer_config(
         min_train_steps_per_epoch=min_train_steps_per_epoch,
         train_steps_per_epoch=train_steps_per_epoch,
         visualize_preds_during_training=visualize_preds_during_training,
+        keep_viz=keep_viz,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,
@@ -737,19 +778,20 @@ def train(
     pretrained_head_weights: Optional[str] = None,
     backbone_config: Union[str, Dict[str, Any]] = "unet",
     head_configs: Union[str, Dict[str, Any]] = None,
-    batch_size: int = 4,
-    shuffle_train: bool = True,
+    batch_size: int = 1,
+    shuffle_train: bool = False,
     num_workers: int = 0,
     ckpt_save_top_k: int = 1,
-    ckpt_save_last: bool = True,
+    ckpt_save_last: Optional[bool] = None,
     trainer_num_devices: Union[str, int] = "auto",
     trainer_accelerator: str = "auto",
-    enable_progress_bar: bool = False,
+    enable_progress_bar: bool = True,
     min_train_steps_per_epoch: int = 200,
     train_steps_per_epoch: Optional[int] = None,
     visualize_preds_during_training: bool = False,
-    max_epochs: int = 100,
-    seed: int = 1000,
+    keep_viz: bool = False,
+    max_epochs: int = 10,
+    seed: int = 0,
     use_wandb: bool = False,
     save_ckpt: bool = False,
     save_ckpt_path: Optional[str] = None,
@@ -863,11 +905,11 @@ def train(
                                 "output_stride": 2
                             }
                     }
-        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance"].
+        head_configs: One of ["bottomup", "centered_instance", "centroid", "single_instance", "multi_class_bottomup", "multi_class_topdown"].
             The default `sigma` and `output_strides` are used if a string is passed. To
             set custom parameters, pass in a dictionary with the structure:
             {
-                "bottomup" (or "centroid" or "single_instance" or "centered_instance"):
+                "bottomup" (or "centroid" or "single_instance" or "centered_instance" or "multi_class_bottomup" or "multi_class_topdown"):
                     {
                         "confmaps":
                             {
@@ -890,7 +932,7 @@ def train(
                                     }
                             }
                     }
-        batch_size: Number of samples per batch or batch size for training data. Default: 4.
+        batch_size: Number of samples per batch or batch size for training data. Default: 1.
         shuffle_train: True to have the train data reshuffled at every epoch. Default: False.
         num_workers: Number of subprocesses to use for data loading. 0 means that the data
             will be loaded in the main process. Default: 0.
@@ -903,13 +945,13 @@ def train(
         ckpt_save_last: When True, saves a last.ckpt whenever a checkpoint file gets saved.
             On a local filesystem, this will be a symbolic link, and otherwise a copy of
             the checkpoint file. This allows accessing the latest checkpoint in a deterministic
-            manner. Default: False.
+            manner. Default: None.
         trainer_num_devices: Number of devices to train on (int), which devices to train
             on (list or str), or "auto" to select automatically. Default: "auto".
         trainer_accelerator: One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".
-        enable_progress_bar: When True, enables printing the logs during training. Default: False.
+        enable_progress_bar: When True, enables printing the logs during training. Default: True.
         min_train_steps_per_epoch: Minimum number of iterations in a single epoch. (Useful if model
             is trained with very few data points). Refer `limit_train_batches` parameter
             of Torch `Trainer`. Default: 200.
@@ -918,8 +960,9 @@ def train(
             whichever is largest. Default: `None`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
-        max_epochs: Maxinum number of epochs to run. Default: 100.
-        seed: Seed value for the current experiment. default: 1000.
+        keep_viz: If set to `True`, the `viz` folder containing training visualizations will be kept after training completes. If `False`, the folder will be deleted. This parameter only has an effect when `visualize_preds_during_training` is `True`. Default: `False`.
+        max_epochs: Maximum number of epochs to run. Default: 10.
+        seed: Seed value for the current experiment. default: 0.
         save_ckpt: True to enable checkpointing. Default: False.
         save_ckpt_path: Directory path to save the training config and checkpoint files.
             If `None` and `save_ckpt` is `True`, then the current working dir is used as
@@ -934,10 +977,10 @@ def train(
         wandb_mode: "offline" if only local logging is required. Default: None.
         wandb_resume_prv_runid: Previous run ID if training should be resumed from a previous
             ckpt. Default: None
-        wandb_group_name: Group name fo the wandb run. Default: None.
+        wandb_group_name: Group name for the wandb run. Default: None.
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
-        amsgrad: Enable AMSGrad with the optimizer. Defaul: False.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
         lr_scheduler: One of ["step_lr", "reduce_lr_on_plateau"] (the default values in
             `sleap_nn.config.trainer_config` are used). To use custom values, pass a
             dictionary with the structure in `sleap_nn.config.trainer_config.LRSchedulerConfig`.
@@ -1020,6 +1063,7 @@ def train(
         min_train_steps_per_epoch=min_train_steps_per_epoch,
         train_steps_per_epoch=train_steps_per_epoch,
         visualize_preds_during_training=visualize_preds_during_training,
+        keep_viz=keep_viz,
         max_epochs=max_epochs,
         seed=seed,
         use_wandb=use_wandb,

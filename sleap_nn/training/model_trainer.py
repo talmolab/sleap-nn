@@ -10,6 +10,7 @@ from itertools import cycle
 from omegaconf import DictConfig, OmegaConf
 import lightning as L
 import wandb
+import yaml
 from typing import List, Optional
 import time
 from datetime import datetime
@@ -23,6 +24,7 @@ from lightning.pytorch.profilers import (
     PassThroughProfiler,
 )
 import sleap_io as sio
+from sleap_io.io.skeleton import SkeletonYAMLEncoder
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.custom_datasets import (
@@ -36,6 +38,7 @@ from sleap_nn.config.utils import (
     get_model_type_from_cfg,
 )
 from sleap_nn.training.lightning_modules import LightningModel
+from sleap_nn.config.utils import check_output_strides
 from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
@@ -62,7 +65,7 @@ class ModelTrainer:
         val_labels: List of `sio.Labels` objects for validation dataset.
         skeletons: List of `sio.Skeleton` objects in a single slp file.
         lightning_model: One of the child classes of `sleap_nn.training.lightning_modules.LightningModel`.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         trainer: Instance of the `lightning.Trainer` initialized with loggers and callbacks.
     """
@@ -232,20 +235,9 @@ class ModelTrainer:
             ]
 
         # save skeleton to config
-        self.config["data_config"]["skeletons"] = {}
-        for skl in self.skeletons:
-            if skl.symmetries:
-                symm = [list(s.nodes) for s in skl.symmetries]
-            else:
-                symm = None
-            skl_name = skl.name if skl.name is not None else "skeleton-0"
-            self.config["data_config"]["skeletons"] = {
-                skl_name: {
-                    "nodes": skl.nodes,
-                    "edges": skl.edges,
-                    "symmetries": symm,
-                }
-            }
+        self.config["data_config"]["skeletons"] = yaml.safe_load(
+            SkeletonYAMLEncoder().encode(self.skeletons)
+        )
 
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
@@ -266,10 +258,56 @@ class ModelTrainer:
                         "edges"
                     ] = edges
 
+            if "classes" in head_config[key].keys():
+                if head_config[key]["classes"] is None:
+                    tracks = []
+                    for train_label in self.train_labels:
+                        tracks.extend(
+                            [x.name for x in train_label.tracks if x is not None]
+                        )
+                    classes = list(set(tracks))
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "classes"
+                    ] = classes
+
+                    if not len(classes):
+                        message = (
+                            f"No tracks found. ID models need tracks to be defined."
+                        )
+                        logger.error(message)
+                        raise Exception(message)
+
+        if self.model_type == "multi_class_topdown":
+            self.config.model_config.head_configs.multi_class_topdown.class_vectors.output_stride = self.config.model_config.backbone_config[
+                f"{self.backbone_type}"
+            ][
+                "max_stride"
+            ]
+
+        # set max stride for the backbone: convnext and swint
+        if self.backbone_type == "convnext":
+            self.config.model_config.backbone_config.convnext.max_stride = (
+                self.config.model_config.backbone_config.convnext.stem_patch_stride
+                * (2**3)
+                * 2
+            )
+        elif self.backbone_type == "swint":
+            self.config.model_config.backbone_config.swint.max_stride = (
+                self.config.model_config.backbone_config.swint.stem_patch_stride
+                * (2**3)
+                * 2
+            )
+
+        # set output stride for backbone from head config and verify max stride
+        self.config = check_output_strides(self.config)
+
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path
         if ckpt_path is None:
-            ckpt_path = datetime.now().strftime("%y%m%d_%H%M%S") + f".{self.model_type}"
+            ckpt_path = (
+                datetime.now().strftime("%y%m%d_%H%M%S")
+                + f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
+            )
 
         self.config.trainer_config.save_ckpt_path = ckpt_path
 
@@ -356,7 +394,11 @@ class ModelTrainer:
                 "train_time",
                 "val_time",
             ]
-            if self.model_type in ["single_instance", "centered_instance"]:
+            if self.model_type in [
+                "single_instance",
+                "centered_instance",
+                "multi_class_topdown",
+            ]:
                 csv_log_keys.extend(self.skeletons[0].node_names)
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.save_ckpt_path)
@@ -459,6 +501,28 @@ class ModelTrainer:
                     )
                 )
 
+            if self.model_type == "multi_class_bottomup":
+                train_viz_pipeline1 = cycle(copy.deepcopy(train_dataset))
+                val_viz_pipeline1 = cycle(copy.deepcopy(val_dataset))
+                callbacks.append(
+                    MatplotlibSaver(
+                        save_folder=viz_dir,
+                        plot_fn=lambda: self.lightning_model.visualize_class_maps_example(
+                            next(train_viz_pipeline1)
+                        ),
+                        prefix="train.class_maps",
+                    )
+                )
+                callbacks.append(
+                    MatplotlibSaver(
+                        save_folder=viz_dir,
+                        plot_fn=lambda: self.lightning_model.visualize_class_maps_example(
+                            next(val_viz_pipeline1)
+                        ),
+                        prefix="validation.class_maps",
+                    )
+                )
+
             if self.config.trainer_config.use_wandb:
                 callbacks.append(
                     WandBPredImageLogger(
@@ -545,6 +609,11 @@ class ModelTrainer:
             train_steps_per_epoch = self.config.trainer_config.min_train_steps_per_epoch
         self.config.trainer_config.train_steps_per_epoch = train_steps_per_epoch
 
+        val_steps_per_epoch = get_steps_per_epoch(
+            dataset=val_dataset,
+            batch_size=self.config.trainer_config.val_data_loader.batch_size,
+        )
+
         # create lightning.Trainer instance.
         self.trainer = L.Trainer(
             callbacks=callbacks,
@@ -563,10 +632,12 @@ class ModelTrainer:
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
         train_dataloader, val_dataloader = get_train_val_dataloaders(
-            train_dataset,
-            val_dataset,
-            self.config,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            config=self.config,
             rank=self.trainer.global_rank if self.trainer is not None else None,
+            train_steps_per_epoch=self.config.trainer_config.train_steps_per_epoch,
+            val_steps_per_epoch=val_steps_per_epoch,
         )
 
         if (
@@ -619,3 +690,13 @@ class ModelTrainer:
                 and self.config.data_config.delete_cache_imgs_after_training
             ):
                 self._delete_cache_imgs()
+
+            # delete viz folder if requested
+            if (
+                self.config.trainer_config.visualize_preds_during_training
+                and not self.config.trainer_config.keep_viz
+            ):
+                viz_dir = Path(self.config.trainer_config.save_ckpt_path) / "viz"
+                if viz_dir.exists():
+                    logger.info(f"Deleting viz folder at {viz_dir}...")
+                    shutil.rmtree(viz_dir, ignore_errors=True)

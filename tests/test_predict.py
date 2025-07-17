@@ -4,8 +4,9 @@ from sleap_nn.predict import main
 
 
 def test_predict_main(
+    centered_instance_video,
     minimal_instance,
-    minimal_instance_ckpt,
+    minimal_instance_centered_instance_ckpt,
     minimal_instance_centroid_ckpt,
     tmp_path,
 ):
@@ -15,13 +16,15 @@ def test_predict_main(
             "--data_path",
             f"{minimal_instance}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
             "--peak_threshold",
             f"{0.1}",
             "--device",
             "cpu",
+            "--max_instances",
+            "6",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
@@ -39,13 +42,15 @@ def test_predict_main(
             "--model_paths",
             f"{minimal_instance_centroid_ckpt}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_topdown_preds.slp",
             "--peak_threshold",
             f"{0.0}",
             "--device",
             "cpu",
+            "--max_instances",
+            "6",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_topdown_preds.slp").exists()
@@ -55,81 +60,6 @@ def test_predict_main(
 
     assert len(gt) == len(pred)
 
-    # test with video
-    main(
-        [
-            "--data_path",
-            "./tests/assets/centered_pair_small.mp4",
-            "--model_paths",
-            f"{minimal_instance_centroid_ckpt}",
-            "--model_paths",
-            f"{minimal_instance_ckpt}",
-            "-o",
-            f"{tmp_path}/minimal_inst_preds.slp",
-            "--frames",
-            "0-5",
-            "--peak_threshold",
-            f"{0.0}",
-            "--device",
-            "cpu",
-        ]
-    )
-    assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
-
-    pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
-
-    assert len(pred) == 6
-
-    # test with video
-    main(
-        [
-            "--data_path",
-            "./tests/assets/centered_pair_small.mp4",
-            "--model_paths",
-            f"{minimal_instance_centroid_ckpt}",
-            "--model_paths",
-            f"{minimal_instance_ckpt}",
-            "-o",
-            f"{tmp_path}/minimal_inst_preds.slp",
-            "--frames",
-            "0,1,2",
-            "--peak_threshold",
-            f"{0.0}",
-            "--device",
-            "cpu",
-        ]
-    )
-    assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
-
-    pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
-
-    assert len(pred) == 3
-
-    # test with video
-    main(
-        [
-            "--data_path",
-            "./tests/assets/centered_pair_small.mp4",
-            "--model_paths",
-            f"{minimal_instance_centroid_ckpt}",
-            "--model_paths",
-            f"{minimal_instance_ckpt}",
-            "-o",
-            f"{tmp_path}/minimal_inst_preds.slp",
-            "--frames",
-            "0-3",
-            "--peak_threshold",
-            f"{0.0}",
-            "--device",
-            "cpu",
-        ]
-    )
-    assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
-
-    pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
-
-    assert len(pred) == 4
-
     # test with video index
     main(
         [
@@ -138,7 +68,7 @@ def test_predict_main(
             "--model_paths",
             f"{minimal_instance_centroid_ckpt}",
             "--model_paths",
-            f"{minimal_instance_ckpt}",
+            f"{minimal_instance_centered_instance_ckpt}",
             "-o",
             f"{tmp_path}/minimal_inst_preds.slp",
             "--video_index",
@@ -149,6 +79,8 @@ def test_predict_main(
             f"{0.0}",
             "--device",
             "cpu",
+            "--max_instances",
+            "6",
         ]
     )
     assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
@@ -156,3 +88,66 @@ def test_predict_main(
     pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
 
     assert len(pred) == 1
+
+
+def test_predict_main_with_video(
+    centered_instance_video,
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    tmp_path,
+):
+    # test with video
+    main(
+        [
+            "--data_path",
+            f"{centered_instance_video}",
+            "--model_paths",
+            f"{minimal_instance_centroid_ckpt}",
+            "--model_paths",
+            f"{minimal_instance_centered_instance_ckpt}",
+            "-o",
+            f"{tmp_path}/minimal_inst_preds.slp",
+            "--frames",
+            "0,1,2",
+            "--peak_threshold",
+            f"{0.0}",
+            "--device",
+            "cpu",
+            "--max_instances",
+            "6",
+        ]
+    )
+
+    assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
+
+    pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
+
+    assert len(pred) == 3
+
+    # test with video
+    main(
+        [
+            "--data_path",
+            f"{centered_instance_video}",
+            "--model_paths",
+            f"{minimal_instance_centroid_ckpt}",
+            "--model_paths",
+            f"{minimal_instance_centered_instance_ckpt}",
+            "-o",
+            f"{tmp_path}/minimal_inst_preds.slp",
+            "--frames",
+            "0-3",
+            "--peak_threshold",
+            f"{0.0}",
+            "--device",
+            "cpu",
+            "--max_instances",
+            "6",
+        ]
+    )
+    assert (Path(tmp_path) / "minimal_inst_preds.slp").exists()
+
+    pred = sio.load_slp((Path(tmp_path) / "minimal_inst_preds.slp").as_posix())
+
+    assert len(pred) == 4

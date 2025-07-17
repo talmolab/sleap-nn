@@ -6,7 +6,7 @@ model configuration without actually instantiating the model itself.
 """
 
 from typing import List
-
+import numpy as np
 import torch
 from omegaconf.dictconfig import DictConfig
 from torch import nn
@@ -68,6 +68,8 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
             - 'centroid'
             - 'centered_instance'
             - 'bottomup'
+            - 'multi_class_bottomup'
+            - 'multi_class_topdown'
         head_config (DictConfig): A config for the head.
 
     Returns:
@@ -87,8 +89,16 @@ def get_head(model_type: str, head_config: DictConfig) -> Head:
         heads.append(MultiInstanceConfmapsHead(**head_config.confmaps))
         heads.append(PartAffinityFieldsHead(**head_config.pafs))
 
+    elif model_type == "multi_class_bottomup":
+        heads.append(MultiInstanceConfmapsHead(**head_config.confmaps))
+        heads.append(ClassMapsHead(**head_config.class_maps))
+
+    elif model_type == "multi_class_topdown":
+        heads.append(CenteredInstanceConfmapsHead(**head_config.confmaps))
+        heads.append(ClassVectorsHead(**head_config.class_vectors))
+
     else:
-        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`."
+        message = f"{model_type} is not a defined model type. Please choose one of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`."
         logger.error(message)
         raise Exception(message)
 
@@ -102,7 +112,7 @@ class Model(nn.Module):
         backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
         backbone_config: An `DictConfig` configuration dictionary for the model backbone.
         head_configs: An `DictConfig` configuration dictionary for the model heads.
-        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`.
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
     """
 
     def __init__(
@@ -133,23 +143,16 @@ class Model(nn.Module):
             backbone_config,
         )
 
-        strides = self.backbone.dec.current_strides
         self.head_layers = nn.ModuleList([])
         for head in self.heads:
-            in_channels = int(
-                round(
-                    self.backbone.max_channels
-                    / (
-                        self.backbone_config.filters_rate
-                        ** len(self.backbone.dec.decoder_stack)
+            if isinstance(head, ClassVectorsHead):
+                in_channels = int(self.backbone.middle_blocks[-1].filters)
+            else:
+                in_channels = int(self.backbone.final_dec_channels)
+                if head.output_stride > min_output_stride:
+                    in_channels *= self.backbone.filters_rate * (
+                        np.log2(head.output_stride) - np.log2(min_output_stride)
                     )
-                )
-            )
-            if head.output_stride != min_output_stride:
-                factor = strides.index(min_output_stride) - strides.index(
-                    head.output_stride
-                )
-                in_channels = in_channels * (self.backbone_config.filters_rate**factor)
             self.head_layers.append(head.make_head(x_in=int(in_channels)))
 
     @classmethod
@@ -174,7 +177,14 @@ class Model(nn.Module):
 
         outputs = {}
         for head, head_layer in zip(self.heads, self.head_layers):
-            idx = backbone_outputs["strides"].index(head.output_stride)
-            outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
+            if not len(backbone_outputs["outputs"]):
+                outputs[head.name] = head_layer(backbone_outputs["middle_output"])
+            else:
+                if isinstance(head, ClassVectorsHead):
+                    backbone_out = backbone_outputs["intermediate_feat"]
+                    outputs[head.name] = head_layer(backbone_out)
+                else:
+                    idx = backbone_outputs["strides"].index(head.output_stride)
+                    outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
 
         return outputs

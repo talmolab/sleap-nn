@@ -1,7 +1,7 @@
 """Utilities for config building and validation."""
 
 from loguru import logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 
 def get_model_type_from_cfg(config: DictConfig):
@@ -34,6 +34,27 @@ def get_output_strides_from_heads(head_configs: DictConfig):
                     head_configs[head_type][head_layer]["output_stride"]
                 )
     return output_strides_from_heads
+
+
+def check_output_strides(config: OmegaConf) -> OmegaConf:
+    """Check max_stride and output_stride in backbone_config with head_config."""
+    output_strides = get_output_strides_from_heads(config.model_config.head_configs)
+    # check which backbone architecture
+    for k, v in config.model_config.backbone_config.items():
+        if v is not None:
+            backbone_type = k
+            break
+    if output_strides:
+        config.model_config.backbone_config[f"{backbone_type}"]["output_stride"] = min(
+            output_strides
+        )
+        if config.model_config.backbone_config[f"{backbone_type}"]["max_stride"] < max(
+            output_strides
+        ):
+            config.model_config.backbone_config[f"{backbone_type}"]["max_stride"] = max(
+                output_strides
+            )
+    return config
 
 
 def oneof(attrs_cls, must_be_set: bool = False):

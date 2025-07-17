@@ -13,24 +13,16 @@ from sleap_nn.data.providers import process_lf
 from sleap_nn.data.normalization import apply_normalization
 
 
-def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt):
+def test_single_instance_inference_model(
+    minimal_instance, minimal_instance_single_instance_ckpt
+):
     """Test SingleInstanceInferenceModel."""
-    config = OmegaConf.load(f"{minimal_instance_ckpt}/initial_config.yaml")
-    head_config = config.model_config.head_configs.centered_instance
-    del config.model_config.head_configs.centered_instance
-    OmegaConf.update(config, "model_config.head_configs.single_instance", head_config)
-    del config.model_config.head_configs.single_instance.confmaps.anchor_part
-
-    training_config = OmegaConf.load(f"{minimal_instance_ckpt}/training_config.yaml")
-    head_config = training_config.model_config.head_configs.centered_instance
-    del training_config.model_config.head_configs.centered_instance
-    OmegaConf.update(
-        training_config, "model_config.head_configs.single_instance", head_config
+    training_config = OmegaConf.load(
+        f"{minimal_instance_single_instance_ckpt}/training_config.yaml"
     )
-    del training_config.model_config.head_configs.single_instance.confmaps.anchor_part
 
     torch_model = SingleInstanceLightningModule.load_from_checkpoint(
-        f"{minimal_instance_ckpt}/best.ckpt",
+        f"{minimal_instance_single_instance_ckpt}/best.ckpt",
         config=training_config,
         model_type="single_instance",
         backbone_type="unet",
@@ -48,7 +40,7 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
 
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model.to("cpu"),
-        output_stride=2,
+        output_stride=4,
         peak_threshold=0.0,
         return_confmaps=False,
     )
@@ -65,8 +57,8 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
     # high peak threshold
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model.to("cpu"),
-        output_stride=2,
-        peak_threshold=1.0,
+        output_stride=4,
+        peak_threshold=2.0,
         return_confmaps=False,
         input_scale=0.5,
     )
@@ -81,11 +73,11 @@ def test_single_instance_inference_model(minimal_instance, minimal_instance_ckpt
     # check return confmaps
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model.to("cpu"),
-        output_stride=2,
+        output_stride=4,
         peak_threshold=0,
         return_confmaps=True,
     )
     outputs = []
     outputs.append(find_peaks_layer(ex))
     assert "pred_confmaps" in outputs[0][0].keys()
-    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (96, 96)
+    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (48, 48)

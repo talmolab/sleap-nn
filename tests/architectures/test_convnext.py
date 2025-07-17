@@ -21,15 +21,13 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
     convnext = ConvNextWrapper.from_config(config)
 
-    in_channels = int(
-        convnext.max_channels / config.filters_rate ** len(convnext.dec.decoder_stack)
-    )
+    in_channels = convnext.final_dec_channels
     # Test final output shape.
     convnext.eval()
 
@@ -39,9 +37,8 @@ def test_convnext_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 48, 192, 192)
+    assert y["outputs"][-1].shape == (1, 96, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -110,7 +107,7 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 4,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
@@ -122,13 +119,13 @@ def test_convnext_reference():
     with torch.no_grad():
         y = convnext(x)
     out = y["outputs"]
-    assert out[0].shape == (1, 384, 12, 12)
-    assert out[1].shape == (1, 192, 24, 24)
-    assert out[2].shape == (1, 96, 48, 48)
-    assert out[3].shape == (1, 48, 96, 96)
-    assert out[4].shape == (1, 24, 192, 192)
+    assert out[0].shape == (1, 768, 6, 6)
+    assert out[1].shape == (1, 384, 12, 12)
+    assert out[2].shape == (1, 192, 24, 24)
+    assert out[3].shape == (1, 96, 48, 48)
+    assert out[4].shape == (1, 96, 96, 96)
 
-    # arch as None. selet `tiny` architecture by default
+    # arch as None. select `tiny` architecture by default
 
     config = OmegaConf.create(
         {
@@ -142,15 +139,13 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
     convnext = ConvNextWrapper.from_config(config)
 
-    in_channels = int(
-        convnext.max_channels / config.filters_rate ** len(convnext.dec.decoder_stack)
-    )
+    in_channels = convnext.final_dec_channels
     # Test final output shape.
     convnext.eval()
 
@@ -160,9 +155,9 @@ def test_convnext_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 48, 192, 192)
+    assert y["outputs"][-1].shape == (1, 96, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
+    assert len(y["strides"]) == 5
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"
@@ -187,15 +182,13 @@ def test_convnext_reference():
             "stem_patch_kernel": 4,
             "stem_patch_stride": 2,
             "output_stride": 1,
-            "max_stride": 16,
+            "max_stride": 32,
         }
     )
 
     convnext = ConvNextWrapper.from_config(config)
 
-    in_channels = int(
-        convnext.max_channels / config.filters_rate ** len(convnext.dec.decoder_stack)
-    )
+    in_channels = convnext.final_dec_channels
     # Test final output shape.
     convnext.eval()
 
@@ -205,9 +198,9 @@ def test_convnext_reference():
     assert type(y) is dict
     assert "outputs" in y
     assert "strides" in y
-    assert y["outputs"][-1].shape == (1, 16, 192, 192)
+    assert y["outputs"][-1].shape == (1, 32, 192, 192)
     assert type(y["strides"]) is list
-    assert len(y["strides"]) == 4
+    assert len(y["strides"]) == 5
 
     conv2d = nn.Conv2d(
         in_channels=in_channels, out_channels=13, kernel_size=1, padding="same"

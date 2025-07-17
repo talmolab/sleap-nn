@@ -277,7 +277,7 @@ def test_trainer_mapper():
     assert config.max_epochs == 20
     assert config.optimizer_name == "Adam"
     assert config.optimizer.lr == 0.001
-    assert config.model_ckpt.save_last is False
+    assert config.model_ckpt.save_last is None
     assert config.visualize_preds_during_training is True
 
     # Test for default values (unspecified by legacy config)

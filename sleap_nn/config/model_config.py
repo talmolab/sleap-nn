@@ -16,29 +16,17 @@ class UNetConfig:
     """UNet config for backbone.
 
     Attributes:
-        in_channels: (int) Number of input channels. Default is 1.
-        kernel_size: (int) Size of the convolutional kernels. Default is 3.
-        filters: (int) Base number of filters in the network. Default is 32
-        filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
-        max_stride: (int) Scalar integer specifying the maximum stride that the image
-            must be divisible by.
-        stem_stride: (int) If not None, will create additional "down" blocks for initial
-            downsampling based on the stride. These will be configured identically to
-            the down blocks below.
-        middle_block: (bool) If True, add an additional block at the end of the encoder.
-            default: True
-        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
-        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
-        output_stride: (int) The stride of the output confidence maps relative to the
-            input image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
+        in_channels: (int) Number of input channels. *Default*: `1`.
+        kernel_size: (int) Size of the convolutional kernels. *Default*: `3`.
+        filters: (int) Base number of filters in the network. *Default*: `32`.
+        filters_rate: (float) Factor to adjust the number of filters per block. *Default*: `1.5`.
+        max_stride: (int) Scalar integer specifying the maximum stride that the image must be divisible by. *Default*: `16`.
+        stem_stride: (int) If not None, will create additional "down" blocks for initial downsampling based on the stride. These will be configured identically to the down blocks below. *Default*: `None`.
+        middle_block: (bool) If True, add an additional block at the end of the encoder. *Default*: `True`.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
+        stacks: (int) Number of upsampling blocks in the decoder. *Default*: `1`.
+        convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
     """
 
     in_channels: int = 1
@@ -59,29 +47,17 @@ class UNetLargeRFConfig:
     """UNet config for backbone with large receptive field.
 
     Attributes:
-        in_channels: (int) Number of input channels. Default is 1.
-        kernel_size: (int) Size of the convolutional kernels. Default is 3.
-        filters: (int) Base number of filters in the network. Default is 32
-        filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
-        max_stride: (int) Scalar integer specifying the maximum stride that the image
-            must be divisible by.
-        stem_stride: (int) If not None, will create additional "down" blocks for initial
-            downsampling based on the stride. These will be configured identically to
-            the down blocks below.
-        middle_block: (bool) If True, add an additional block at the end of the encoder.
-            default: True
-        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
-        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
-        output_stride: (int) The stride of the output confidence maps relative to the
-            input image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
+        in_channels: (int) Number of input channels. *Default*: `1`.
+        kernel_size: (int) Size of the convolutional kernels. *Default*: `3`.
+        filters: (int) Base number of filters in the network. *Default*: `24`.
+        filters_rate: (float) Factor to adjust the number of filters per block. *Default*: `1.5`.
+        max_stride: (int) Scalar integer specifying the maximum stride that the image must be divisible by. *Default*: `32`.
+        stem_stride: (int) If not None, will create additional "down" blocks for initial downsampling based on the stride. These will be configured identically to the down blocks below. *Default*: `None`.
+        middle_block: (bool) If True, add an additional block at the end of the encoder. *Default*: `True`.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
+        stacks: (int) Number of upsampling blocks in the decoder. *Default*: `1`.
+        convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `4`.
     """
 
     in_channels: int = 1
@@ -102,29 +78,17 @@ class UNetMediumRFConfig:
     """UNet config for backbone with medium receptive field.
 
     Attributes:
-        in_channels: (int) Number of input channels. Default is 1.
-        kernel_size: (int) Size of the convolutional kernels. Default is 3.
-        filters: (int) Base number of filters in the network. Default is 32
-        filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 1.5.
-        max_stride: (int) Scalar integer specifying the maximum stride that the image
-            must be divisible by.
-        stem_stride: (int) If not None, will create additional "down" blocks for initial
-            downsampling based on the stride. These will be configured identically to
-            the down blocks below.
-        middle_block: (bool) If True, add an additional block at the end of the encoder.
-            default: True
-        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-        stacks: (int) Number of upsampling blocks in the decoder. Default is 1.
-        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
-        output_stride: (int) The stride of the output confidence maps relative to the
-            input image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
+        in_channels: (int) Number of input channels. *Default*: `1`.
+        kernel_size: (int) Size of the convolutional kernels. *Default*: `3`.
+        filters: (int) Base number of filters in the network. *Default*: `32`.
+        filters_rate: (float) Factor to adjust the number of filters per block. *Default*: `2`.
+        max_stride: (int) Scalar integer specifying the maximum stride that the image must be divisible by. *Default*: `16`.
+        stem_stride: (int) If not None, will create additional "down" blocks for initial downsampling based on the stride. These will be configured identically to the down blocks below. *Default*: `None`.
+        middle_block: (bool) If True, add an additional block at the end of the encoder. *Default*: `True`.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
+        stacks: (int) Number of upsampling blocks in the decoder. *Default*: `1`.
+        convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `4`.
     """
 
     in_channels: int = 1
@@ -145,32 +109,19 @@ class ConvNextConfig:
     """Convnext configuration for backbone.
 
     Attributes:
-        arch: (Default is Tiny architecture config. No need to provide if model_type
-            is provided)
-            depths: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
-            channels: (List(int)) Number of channels in each block. Default:
-                [96, 192, 384, 768].
-        model_type: (str) One of the ConvNext architecture types:
-            ["tiny", "small", "base", "large"]. Default: "tiny".
-        stem_patch_kernel: (int) Size of the convolutional kernels in the stem layer.
-            Default is 4.
-        stem_patch_stride: (int) Convolutional stride in the stem layer. Default is 2.
-        in_channels: (int) Number of input channels. Default is 1.
-        kernel_size: (int) Size of the convolutional kernels. Default is 3.
-        filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 2.
-        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
-        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-        output_stride: (int) The stride of the output confidence maps relative to the
-            input image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
-        max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+        arch: (Default is Tiny architecture config. No need to provide if model_type is provided)
+            depths: (List[int]) Number of layers in each block. *Default*: `[3, 3, 9, 3]`.
+            channels: (List[int]) Number of channels in each block. *Default*: `[96, 192, 384, 768]`.
+        model_type: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. *Default*: `"tiny"`.
+        stem_patch_kernel: (int) Size of the convolutional kernels in the stem layer. *Default*: `4`.
+        stem_patch_stride: (int) Convolutional stride in the stem layer. *Default*: `2`.
+        in_channels: (int) Number of input channels. *Default*: `1`.
+        kernel_size: (int) Size of the convolutional kernels. *Default*: `3`.
+        filters_rate: (float) Factor to adjust the number of filters per block. *Default*: `2`.
+        convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures. *Default*: `32`.
     """
 
     model_type: str = "tiny"  # Options: tiny, small, base, large
@@ -183,7 +134,7 @@ class ConvNextConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -216,7 +167,7 @@ class ConvNextSmallConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "small"  # Options: tiny, small, base, large
@@ -229,7 +180,7 @@ class ConvNextSmallConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -262,7 +213,7 @@ class ConvNextBaseConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "base"  # Options: tiny, small, base, large
@@ -275,7 +226,7 @@ class ConvNextBaseConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -308,7 +259,7 @@ class ConvNextLargeConfig:
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
         max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all convnext architectures.
+            This is always `32` for all convnext architectures.
     """
 
     model_type: str = "large"  # Options: tiny, small, base, large
@@ -321,7 +272,7 @@ class ConvNextLargeConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
+    max_stride: int = 32
 
 
 @define
@@ -329,30 +280,18 @@ class SwinTConfig:
     """SwinT configuration (tiny) for backbone.
 
     Attributes:
-        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"].
-            Default: "tiny".
-        arch: Dictionary of embed dimension, depths and number of heads in each layer.
-            Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2],
-            'channels':[3, 6, 12, 24]}
-        patch_size: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
-        stem_patch_stride: (int) Stride for the patch. Default is 2.
-        window_size: (List[int]) Window size. Default: [7,7].
-        in_channels: (int) Number of input channels. Default is 1.
-        kernel_size: (int) Size of the convolutional kernels. Default is 3.
-        filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 2.
-        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
-        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-        output_stride: (int) The stride of the output confidence maps relative to the
-            input image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
-        max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all swint architectures.
+        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"tiny"`.
+        arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
+        patch_size: (int) Patch size for the stem layer of SwinT. *Default*: `4`.
+        stem_patch_stride: (int) Stride for the patch. *Default*: `2`.
+        window_size: (int) Window size. *Default*: `7`.
+        in_channels: (int) Number of input channels. *Default*: `1`.
+        kernel_size: (int) Size of the convolutional kernels. *Default*: `3`.
+        filters_rate: (float) Factor to adjust the number of filters per block. *Default*: `2`.
+        convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
     """
 
     model_type: str = field(
@@ -360,6 +299,7 @@ class SwinTConfig:
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
     arch: Optional[dict] = None
+    max_stride: int = 32
     patch_size: int = 4
     stem_patch_stride: int = 2
     window_size: int = 7
@@ -369,7 +309,6 @@ class SwinTConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -388,30 +327,18 @@ class SwinTSmallConfig:
     """SwinT configuration (small) for backbone.
 
     Attributes:
-        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"].
-            Default: "tiny".
-        arch: Dictionary of embed dimension, depths and number of heads in each layer.
-            Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2],
-            'channels':[3, 6, 12, 24]}
-        patch_size: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
-        stem_patch_stride: (int) Stride for the patch. Default is 2.
-        window_size: (List[int]) Window size. Default: [7,7].
-        in_channels: (int) Number of input channels. Default is 1.
-        kernel_size: (int) Size of the convolutional kernels. Default is 3.
-        filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 2.
-        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
-        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-        output_stride: (int) The stride of the output confidence maps relative to the
-            input image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
-        max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all swint architectures.
+        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"small"`.
+        arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
+        patch_size: (int) Patch size for the stem layer of SwinT. *Default*: `4`.
+        stem_patch_stride: (int) Stride for the patch. *Default*: `2`.
+        window_size: (int) Window size. *Default*: `7`.
+        in_channels: (int) Number of input channels. *Default*: `1`.
+        kernel_size: (int) Size of the convolutional kernels. *Default*: `3`.
+        filters_rate: (float) Factor to adjust the number of filters per block. *Default*: `2`.
+        convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
     """
 
     model_type: str = field(
@@ -419,6 +346,7 @@ class SwinTSmallConfig:
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
     arch: Optional[dict] = None
+    max_stride: int = 32
     patch_size: int = 4
     stem_patch_stride: int = 2
     window_size: int = 7
@@ -428,7 +356,6 @@ class SwinTSmallConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -447,30 +374,19 @@ class SwinTBaseConfig:
     """SwinT configuration for backbone.
 
     Attributes:
-        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"].
-            Default: "tiny".
-        arch: Dictionary of embed dimension, depths and number of heads in each layer.
-            Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2],
-            'channels':[3, 6, 12, 24]}
-        patch_size: (List[int]) Patch size for the stem layer of SwinT. Default: [4,4].
-        stem_patch_stride: (int) Stride for the patch. Default is 2.
-        window_size: (List[int]) Window size. Default: [7,7].
-        in_channels: (int) Number of input channels. Default is 1.
-        kernel_size: (int) Size of the convolutional kernels. Default is 3.
-        filters_rate: (float) Factor to adjust the number of filters per block.
-            Default is 2.
-        convs_per_block: (int) Number of convolutional layers per block. Default is 2.
-        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed
-            convolutions for upsampling. Interpolation is faster but transposed
-            convolutions may be able to learn richer or more complex upsampling to
-            recover details from higher scales. Default: True.
-        output_stride: (int) The stride of the output confidence maps relative to the
-            input image. This is the reciprocal of the resolution, e.g., an output stride
-            of 2 results in confidence maps that are 0.5x the size of the input.
-            Increasing this value can considerably speed up model performance and
-            decrease memory requirements, at the cost of decreased spatial resolution.
-        max_stride: Factor by which input image size is reduced through the layers.
-            This is always `16` for all swint architectures.
+        model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"base"`.
+        arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
+        max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
+        patch_size: (int) Patch size for the stem layer of SwinT. *Default*: `4`.
+        stem_patch_stride: (int) Stride for the patch. *Default*: `2`.
+        window_size: (int) Window size. *Default*: `7`.
+        in_channels: (int) Number of input channels. *Default*: `1`.
+        kernel_size: (int) Size of the convolutional kernels. *Default*: `3`.
+        filters_rate: (float) Factor to adjust the number of filters per block. *Default*: `2`.
+        convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
+        up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
+
     """
 
     model_type: str = field(
@@ -478,6 +394,7 @@ class SwinTBaseConfig:
         validator=lambda instance, attr, value: instance.validate_model_type(value),
     )
     arch: Optional[dict] = None
+    max_stride: int = 32
     patch_size: int = 4
     stem_patch_stride: int = 2
     window_size: int = 7
@@ -487,7 +404,6 @@ class SwinTBaseConfig:
     convs_per_block: int = 2
     up_interpolate: bool = True
     output_stride: int = 1
-    max_stride: int = 16
 
     def validate_model_type(self, value):
         """Validate model_type.
@@ -585,12 +501,16 @@ class CenteredInstanceConfMapsConfig:
             stride of 2 results in confidence maps that are 0.5x the size of the input.
             Increasing this value can considerably speed up model performance and
             decrease memory requirements, at the cost of decreased spatial resolution.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head
+            during training. Increase this to encourage the optimization to focus on
+            improving this specific output in multi-head models.
     """
 
     part_names: Optional[List[str]] = None
     anchor_part: Optional[str] = None
     sigma: float = 5.0
     output_stride: int = 1
+    loss_weight: float = 1.0
 
 
 @define
@@ -657,6 +577,68 @@ class PAFConfig:
 
 
 @define
+class ClassMapConfig:
+    """Class map head config.
+
+    Attributes:
+        classes: (List[str]) List of class (track) names. Default is `None`. When `None`, these are inferred from the track names in the labels file.
+        sigma: (float) Spread of the Gaussian distribution of the confidence maps as
+            a scalar float. Smaller values are more precise but may be difficult to
+            learn as they have a lower density within the image space. Larger values
+            are easier to learn but are less precise with respect to the peak
+            coordinate. This spread is in units of pixels of the model input image,
+            i.e., the image resolution after any input scaling is applied.
+        output_stride: (int) The stride of the output confidence maps relative to
+            the input image. This is the reciprocal of the resolution, e.g., an output
+            stride of 2 results in confidence maps that are 0.5x the size of the
+            input. Increasing this value can considerably speed up model performance
+            and decrease memory requirements, at the cost of decreased spatial
+            resolution.
+        loss_weight: (float) Scalar float used to weigh the loss term for this head
+            during training. Increase this to encourage the optimization to focus on
+            improving this specific output in multi-head models.
+    """
+
+    classes: Optional[List[str]] = None
+    sigma: float = 15.0
+    output_stride: int = 1
+    loss_weight: Optional[float] = None
+
+
+@define
+class ClassVectorsConfig:
+    """Configurations for class vectors heads.
+
+    These heads are used in top-down multi-instance models that classify detected
+    points using a fixed set of learned classes (e.g., animal identities).
+
+    Attributes:
+        classes: List of string names of the classes that this head will predict.
+        num_fc_layers: Number of fully-connected layers before the classification output
+            layer. These can help in transforming general image features into
+            classification-specific features.
+        num_fc_units: Number of units (dimensions) in the fully-connected layers before
+            classification. Increasing this can improve the representational capacity in
+            the pre-classification layers.
+        output_stride: (Ideally this should be same as the backbone's maxstride).
+            The stride of the output class maps relative to the input image.
+            This is the reciprocal of the resolution, e.g., an output stride of 2
+            results in maps that are 0.5x the size of the input. This should be the same
+            size as the confidence maps they are associated with.
+        loss_weight: Scalar float used to weigh the loss term for this head during
+            training. Increase this to encourage the optimization to focus on improving
+            this specific output in multi-head models.
+    """
+
+    classes: Optional[List[str]] = None
+    num_fc_layers: int = 1
+    num_fc_units: int = 64
+    global_pool: bool = True
+    output_stride: int = 1
+    loss_weight: float = 1.0
+
+
+@define
 class SingleInstanceConfig:
     """single instance head_config."""
 
@@ -685,6 +667,22 @@ class BottomUpConfig:
     pafs: Optional[PAFConfig] = None
 
 
+@define
+class BottomUpMultiClassConfig:
+    """Head config for BottomUp Id models."""
+
+    confmaps: Optional[BottomUpConfMapsConfig] = None
+    class_maps: Optional[ClassMapConfig] = None
+
+
+@define
+class TopDownCenteredInstanceMultiClassConfig:
+    """Head config for TopDown centered instance ID models."""
+
+    confmaps: Optional[CenteredInstanceConfMapsConfig] = None
+    class_vectors: Optional[ClassVectorsConfig] = None
+
+
 @oneof
 @define
 class HeadConfig:
@@ -697,12 +695,16 @@ class HeadConfig:
         centroid: An instance of `CentroidsHeadConfig`.
         centered_instance: An instance of `CenteredInstanceConfmapsHeadConfig`.
         bottomup: An instance of `BottomUpConfig`.
+        multi_class_bottomup: An instance of `BottomUpMultiClassConfig`.
+        multi_class_topdown: An instance of `TopDownCenteredInstanceMultiClassConfig`.
     """
 
     single_instance: Optional[SingleInstanceConfig] = None
     centroid: Optional[CentroidConfig] = None
     centered_instance: Optional[CenteredInstanceConfig] = None
     bottomup: Optional[BottomUpConfig] = None
+    multi_class_bottomup: Optional[BottomUpMultiClassConfig] = None
+    multi_class_topdown: Optional[TopDownCenteredInstanceMultiClassConfig] = None
 
 
 @oneof
@@ -814,142 +816,220 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
         An instance of `ModelConfig` with the mapped configuration.
     """
     legacy_config_model = legacy_config.get("model", {})
-    return ModelConfig(
-        backbone_config=BackboneConfig(
-            unet=(
-                UNetConfig(
-                    filters=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("filters", 32),
-                    filters_rate=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("filters_rate", 1.5),
-                    max_stride=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("max_stride", 16),
-                    stem_stride=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("stem_stride", 16),
-                    middle_block=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("middle_block", True),
-                    up_interpolate=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("up_interpolate", True),
-                    stacks=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("stacks", 1),
-                    # convs_per_block=2,
-                    output_stride=legacy_config_model.get("backbone", {})
-                    .get("unet", {})
-                    .get("output_stride", 1),
-                )
-                if legacy_config_model.get("backbone", {}).get("unet", None) is not None
-                else None
+    backbone_cfg_args = {}
+    head_cfg_args = {}
+    if legacy_config_model.get("backbone", {}).get("unet", None) is not None:
+        backbone_cfg_args["unet"] = UNetConfig(
+            filters=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("filters", 32),
+            filters_rate=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("filters_rate", 1.5),
+            max_stride=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("max_stride", 16),
+            stem_stride=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("stem_stride", 16),
+            middle_block=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("middle_block", True),
+            up_interpolate=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("up_interpolate", True),
+            stacks=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("stacks", 1),
+            output_stride=legacy_config_model.get("backbone", {})
+            .get("unet", {})
+            .get("output_stride", 1),
+        )
+
+    backbone_cfg = BackboneConfig(**backbone_cfg_args)
+
+    if legacy_config_model.get("heads", {}).get("single_instance", None) is not None:
+        head_cfg_args["single_instance"] = SingleInstanceConfig(
+            confmaps=SingleInstanceConfMapsConfig(
+                part_names=legacy_config_model.get("heads", {})
+                .get("single_instance", {})
+                .get("part_names", None),
+                sigma=legacy_config_model.get("heads", {})
+                .get("single_instance", {})
+                .get("sigma", 5.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("single_instance", {})
+                .get("output_stride", 1),
+            )
+        )
+    if legacy_config_model.get("heads", {}).get("centroid", None) is not None:
+        head_cfg_args["centroid"] = CentroidConfig(
+            confmaps=CentroidConfMapsConfig(
+                anchor_part=legacy_config_model.get("heads", {})
+                .get("centroid", {})
+                .get("anchor_part", None),
+                sigma=legacy_config_model.get("heads", {})
+                .get("centroid", {})
+                .get("sigma", 5.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("centroid", {})
+                .get("output_stride", 1),
+            )
+        )
+    if legacy_config_model.get("heads", {}).get("centered_instance", None) is not None:
+        head_cfg_args["centered_instance"] = CenteredInstanceConfig(
+            confmaps=CenteredInstanceConfMapsConfig(
+                anchor_part=legacy_config_model.get("heads", {})
+                .get("centered_instance", {})
+                .get("anchor_part", None),
+                sigma=legacy_config_model.get("heads", {})
+                .get("centered_instance", {})
+                .get("sigma", 5.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("centered_instance", {})
+                .get("output_stride", 1),
+                part_names=legacy_config_model.get("heads", {})
+                .get("centered_instance", {})
+                .get("part_names", None),
+            )
+        )
+    if legacy_config_model.get("heads", {}).get("multi_instance", None) is not None:
+        head_cfg_args["bottomup"] = BottomUpConfig(
+            confmaps=BottomUpConfMapsConfig(
+                loss_weight=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("confmaps", {})
+                .get("loss_weight", 1.0),
+                sigma=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("confmaps", {})
+                .get("sigma", 5.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("confmaps", {})
+                .get("output_stride", 1),
+                part_names=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("confmaps", {})
+                .get("part_names", None),
             ),
-        ),
-        head_configs=HeadConfig(
-            single_instance=(
-                (
-                    SingleInstanceConfig(
-                        confmaps=SingleInstanceConfMapsConfig(
-                            part_names=legacy_config_model.get("heads", {})
-                            .get("single_instance", {})
-                            .get("part_names", None),
-                            sigma=legacy_config_model.get("heads", {})
-                            .get("single_instance", {})
-                            .get("sigma", 5.0),
-                            output_stride=legacy_config_model.get("heads", {})
-                            .get("single_instance", {})
-                            .get("output_stride", 1),
-                        )
-                    )
-                )
-                if legacy_config_model.get("heads", {}).get("single_instance", None)
-                is not None
-                else None
+            pafs=PAFConfig(
+                edges=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("pafs", {})
+                .get("edges", None),
+                sigma=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("pafs", {})
+                .get("sigma", 15.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("pafs", {})
+                .get("output_stride", 1),
+                loss_weight=legacy_config_model.get("heads", {})
+                .get("multi_instance", {})
+                .get("pafs", {})
+                .get("loss_weight", 1.0),
             ),
-            centroid=(
-                CentroidConfig(
-                    confmaps=CentroidConfMapsConfig(
-                        anchor_part=legacy_config_model.get("heads", {})
-                        .get("centroid", {})
-                        .get("anchor_part", None),
-                        sigma=legacy_config_model.get("heads", {})
-                        .get("centroid", {})
-                        .get("sigma", 5.0),
-                        output_stride=legacy_config_model.get("heads", {})
-                        .get("centroid", {})
-                        .get("output_stride", 1),
-                    )
-                )
-                if legacy_config_model.get("heads", {}).get("centroid", None)
-                is not None
-                else None
+        )
+    if (
+        legacy_config_model.get("heads", {}).get("multi_class_bottomup", None)
+        is not None
+    ):
+        head_cfg_args["multi_class_bottomup"] = BottomUpMultiClassConfig(
+            confmaps=BottomUpConfMapsConfig(
+                loss_weight=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("confmaps", {})
+                .get("loss_weight", 1.0),
+                sigma=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("confmaps", {})
+                .get("sigma", 5.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("confmaps", {})
+                .get("output_stride", 1),
+                part_names=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("confmaps", {})
+                .get("part_names", None),
             ),
-            centered_instance=(
-                CenteredInstanceConfig(
-                    confmaps=CenteredInstanceConfMapsConfig(
-                        anchor_part=legacy_config_model.get("heads", {})
-                        .get("centered_instance", {})
-                        .get("anchor_part", None),
-                        sigma=legacy_config_model.get("heads", {})
-                        .get("centered_instance", {})
-                        .get("sigma", 5.0),
-                        output_stride=legacy_config_model.get("heads", {})
-                        .get("centered_instance", {})
-                        .get("output_stride", 1),
-                        part_names=legacy_config_model.get("heads", {})
-                        .get("centered_instance", {})
-                        .get("part_names", None),
-                    )
-                )
-                if legacy_config_model.get("heads", {}).get("centered_instance", None)
-                is not None
-                else None
+            class_maps=ClassMapConfig(
+                sigma=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("class_maps", {})
+                .get("sigma", 15.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("class_maps", {})
+                .get("output_stride", 1),
+                loss_weight=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("class_maps", {})
+                .get("loss_weight", 1.0),
+                classes=legacy_config_model.get("heads", {})
+                .get("multi_class_bottomup", {})
+                .get("class_maps", {})
+                .get("classes", None),
             ),
-            bottomup=(
-                BottomUpConfig(
-                    confmaps=BottomUpConfMapsConfig(
-                        loss_weight=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("confmaps", {})
-                        .get("loss_weight", None),
-                        sigma=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("confmaps", {})
-                        .get("sigma", 5.0),
-                        output_stride=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("confmaps", {})
-                        .get("output_stride", 1),
-                        part_names=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("confmaps", {})
-                        .get("part_names", None),
-                    ),
-                    pafs=PAFConfig(
-                        edges=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("pafs", {})
-                        .get("edges", None),
-                        sigma=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("pafs", {})
-                        .get("sigma", 15.0),
-                        output_stride=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("pafs", {})
-                        .get("output_stride", 1),
-                        loss_weight=legacy_config_model.get("heads", {})
-                        .get("multi_instance", {})
-                        .get("pafs", {})
-                        .get("loss_weight", None),
-                    ),
-                )
-                if legacy_config_model.get("heads", {}).get("multi_instance", None)
-                is not None
-                else None
+        )
+
+    if (
+        legacy_config_model.get("heads", {}).get("multi_class_topdown", None)
+        is not None
+    ):
+        head_cfg_args["multi_class_topdown"] = TopDownCenteredInstanceMultiClassConfig(
+            confmaps=CenteredInstanceConfMapsConfig(
+                loss_weight=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("confmaps", {})
+                .get("loss_weight", 1.0),
+                sigma=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("confmaps", {})
+                .get("sigma", 5.0),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("confmaps", {})
+                .get("output_stride", 1),
+                anchor_part=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("confmaps", {})
+                .get("anchor_part", None),
+                part_names=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("confmaps", {})
+                .get("part_names", None),
             ),
-        ),
-    )
+            class_vectors=ClassVectorsConfig(
+                classes=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("class_vectors", {})
+                .get("classes", None),
+                num_fc_layers=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("class_vectors", {})
+                .get("num_fc_layers", 2),
+                num_fc_units=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("class_vectors", {})
+                .get("num_fc_units", 1024),
+                global_pool=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("class_vectors", {})
+                .get("global_pool", True),
+                output_stride=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("class_vectors", {})
+                .get("output_stride", 1),
+                loss_weight=legacy_config_model.get("heads", {})
+                .get("multi_class_topdown", {})
+                .get("class_vectors", {})
+                .get("loss_weight", 1.0),
+            ),
+        )
+
+    head_cfg = HeadConfig(**head_cfg_args)
+
+    return ModelConfig(backbone_config=backbone_cfg, head_configs=head_cfg)
