@@ -690,3 +690,13 @@ class ModelTrainer:
                 and self.config.data_config.delete_cache_imgs_after_training
             ):
                 self._delete_cache_imgs()
+
+            # delete viz folder if requested
+            if (
+                self.config.trainer_config.visualize_preds_during_training
+                and not self.config.trainer_config.keep_viz
+            ):
+                viz_dir = Path(self.config.trainer_config.save_ckpt_path) / "viz"
+                if viz_dir.exists():
+                    logger.info(f"Deleting viz folder at {viz_dir}...")
+                    shutil.rmtree(viz_dir, ignore_errors=True)
