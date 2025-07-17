@@ -11,6 +11,7 @@ from typing import Dict, Tuple, Any, Optional, List
 from pathlib import Path
 from omegaconf import OmegaConf
 import re
+from loguru import logger
 
 from sleap_nn.architectures.model import Model
 from sleap_nn.config.training_job_config import TrainingJobConfig
@@ -83,7 +84,7 @@ def load_keras_weights(h5_path: str) -> Dict[str, np.ndarray]:
 
 
 def parse_keras_layer_name(layer_path: str) -> Dict[str, Any]:
-    """Parse a Keras layer path to extract information.
+    """Parse a Keras layer path to extract basic information.
 
     Args:
         layer_path: Full path like "model_weights/stack0_enc0_conv0/stack0_enc0_conv0/kernel:0"
@@ -92,11 +93,6 @@ def parse_keras_layer_name(layer_path: str) -> Dict[str, Any]:
         Dictionary with parsed information:
         - layer_name: Base layer name (e.g., "stack0_enc0_conv0")
         - weight_type: "kernel" or "bias"
-        - is_encoder: True if encoder layer
-        - is_decoder: True if decoder layer
-        - is_head: True if output head layer
-        - block_idx: Block index if applicable
-        - conv_idx: Conv index within block if applicable
     """
     # Remove model_weights prefix and split
     clean_path = layer_path.replace("model_weights/", "")
@@ -111,38 +107,7 @@ def parse_keras_layer_name(layer_path: str) -> Dict[str, Any]:
     info = {
         "layer_name": layer_name,
         "weight_type": "kernel" if "kernel" in weight_name else "bias",
-        "is_encoder": "enc" in layer_name,
-        "is_decoder": "dec" in layer_name,
-        "is_head": "Head" in layer_name,
-        "block_idx": None,
-        "conv_idx": None,
     }
-
-    # Extract indices for encoder/decoder layers
-    if info["is_encoder"] or info["is_decoder"]:
-        # Pattern: stack0_enc0_conv1 or stack0_dec0_s8_to_s4_refine_conv0
-        import re
-
-        if info["is_encoder"]:
-            # Check for middle blocks first
-            if "middle" in layer_name:
-                # Middle blocks don't follow the standard pattern
-                # Extract conv index from the layer name
-                match = re.search(r"conv(\d+)", layer_name)
-                if match:
-                    info["conv_idx"] = int(match.group(1))
-                # Block idx will remain None for middle blocks
-            else:
-                match = re.search(r"enc(\d+)_conv(\d+)", layer_name)
-                if match:
-                    info["block_idx"] = int(match.group(1))
-                    info["conv_idx"] = int(match.group(2))
-        elif info["is_decoder"]:
-            # Decoder naming is more complex
-            match = re.search(r"dec(\d+)_.*conv(\d+)", layer_name)
-            if match:
-                info["block_idx"] = int(match.group(1))
-                info["conv_idx"] = int(match.group(2))
 
     return info
 
@@ -161,173 +126,80 @@ def map_legacy_to_pytorch_layers(
     """
     mapping = {}
 
-    # Get all PyTorch layers with their shapes
+    # Get all PyTorch parameters with their shapes
     pytorch_params = {}
     for name, param in pytorch_model.named_parameters():
         pytorch_params[name] = param.shape
 
-    # Parse legacy layers
-    legacy_info = {}
-    for path, weight in legacy_weights.items():
-        info = parse_keras_layer_name(path)
-        info["shape"] = weight.shape
-        info["path"] = path
-        legacy_info[path] = info
+    # For each legacy weight, find the corresponding PyTorch parameter
+    for legacy_path, weight in legacy_weights.items():
+        # Extract the layer name from the legacy path
+        # Legacy path format: "model_weights/stack0_enc0_conv0/stack0_enc0_conv0/kernel:0"
+        clean_path = legacy_path.replace("model_weights/", "")
+        parts = clean_path.split("/")
 
-    # Map encoder layers
-    encoder_layers = []
-    for path, info in legacy_info.items():
-        if info["is_encoder"]:
-            # Use a high value for None block_idx so middle blocks sort last
-            block_idx = info["block_idx"] if info["block_idx"] is not None else 999
-            conv_idx = info["conv_idx"] if info["conv_idx"] is not None else 0
-            encoder_layers.append((block_idx, conv_idx, path, info))
-    encoder_layers.sort()
+        if len(parts) < 2:
+            continue
 
-    # Map decoder layers
-    decoder_layers = []
-    for path, info in legacy_info.items():
-        if info["is_decoder"]:
-            block_idx = info["block_idx"] if info["block_idx"] is not None else 0
-            conv_idx = info["conv_idx"] if info["conv_idx"] is not None else 0
-            decoder_layers.append((block_idx, conv_idx, path, info))
-    decoder_layers.sort()
+        layer_name = parts[0]  # e.g., "stack0_enc0_conv0" or "CentroidConfmapsHead_0"
+        weight_name = parts[-1]  # e.g., "kernel:0" or "bias:0"
 
-    # Map head layers
-    head_layers = [
-        (path, info) for path, info in legacy_info.items() if info["is_head"]
-    ]
+        # Convert Keras weight type to PyTorch weight type
+        weight_type = "weight" if "kernel" in weight_name else "bias"
 
-    # Separate middle/bottleneck blocks from regular encoder blocks
-    middle_blocks = []
-    regular_encoder_blocks = []
+        # For head layers, strip numeric suffixes (e.g., "CentroidConfmapsHead_0" -> "CentroidConfmapsHead")
+        # This handles cases where Keras uses suffixes like _0, _1, etc.
+        if "Head" in layer_name:
+            # Remove trailing _N where N is a number
+            import re
 
-    for block_idx, conv_idx, path, info in encoder_layers:
-        # Check if this is a middle block (usually has "middle" in the name)
-        if "middle" in info["layer_name"]:
-            middle_blocks.append((block_idx, conv_idx, path, info))
-        elif block_idx is not None:
-            regular_encoder_blocks.append((block_idx, conv_idx, path, info))
-
-    # Mapping logic for regular encoder layers
-    for block_idx, conv_idx, path, info in regular_encoder_blocks:
-        weight_type = info["weight_type"]
-
-        # In PyTorch UNet:
-        # - Stack 0: blocks.0 and blocks.2
-        # - Stack 1+: blocks.1 and blocks.3
-
-        # PyTorch uses "weight" instead of "kernel"
-        pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-
-        if block_idx == 0:
-            # First encoder stack
-            if conv_idx == 0:
-                pytorch_name = (
-                    f"backbone.enc.encoder_stack.0.blocks.0.{pytorch_weight_type}"
-                )
-            elif conv_idx == 1:
-                pytorch_name = (
-                    f"backbone.enc.encoder_stack.0.blocks.2.{pytorch_weight_type}"
-                )
+            layer_name_clean = re.sub(r"_\d+$", "", layer_name)
         else:
-            # Subsequent encoder stacks
-            if conv_idx == 0:
-                pytorch_name = f"backbone.enc.encoder_stack.{block_idx}.blocks.1.{pytorch_weight_type}"
-            elif conv_idx == 1:
-                pytorch_name = f"backbone.enc.encoder_stack.{block_idx}.blocks.3.{pytorch_weight_type}"
+            layer_name_clean = layer_name
 
-        # Check if this parameter exists in the PyTorch model
-        if pytorch_name in pytorch_params:
-            mapping[path] = pytorch_name
+        # Find the PyTorch parameter that contains this layer name
+        # PyTorch names will be like: "backbone.enc.encoder_stack.0.blocks.0.stack0_enc0_conv0.weight"
+        matching_pytorch_name = None
 
-    # Map middle blocks
-    # Group middle blocks by layer name to handle them in order
-    middle_layers = {}
-    for _, _, path, info in middle_blocks:
-        layer_name = info["layer_name"]
-        if layer_name not in middle_layers:
-            middle_layers[layer_name] = []
-        middle_layers[layer_name].append((path, info))
+        for pytorch_name in pytorch_params.keys():
+            # Check if the PyTorch parameter name contains the layer name (or cleaned layer name for heads)
+            # and has the correct weight type
+            search_name = layer_name_clean if "Head" in layer_name else layer_name
+            if search_name in pytorch_name and pytorch_name.endswith(f".{weight_type}"):
+                # For kernel weights, we need to check shape after conversion
+                if weight_type == "weight":
+                    # Convert Keras kernel to PyTorch format for shape comparison
+                    if "trans_conv" in legacy_path:
+                        converted_weight = convert_keras_to_pytorch_conv2d_transpose(
+                            weight
+                        )
+                    else:
+                        converted_weight = convert_keras_to_pytorch_conv2d(weight)
+                    shape_to_check = converted_weight.shape
+                else:
+                    # Bias weights don't need conversion
+                    shape_to_check = weight.shape
 
-    # Sort layers - in legacy models, "expand" comes before "contract"
-    sorted_layer_names = sorted(
-        middle_layers.keys(), key=lambda x: (0 if "expand" in x else 1, x)
-    )
+                # Verify shape compatibility
+                if shape_to_check == pytorch_params[pytorch_name]:
+                    matching_pytorch_name = pytorch_name
+                    break
 
-    # Middle blocks in PyTorch start after regular encoder blocks
-    middle_idx = (
-        len(regular_encoder_blocks) // 2
-    )  # Divide by 2 because each block has kernel and bias
+        if matching_pytorch_name:
+            mapping[legacy_path] = matching_pytorch_name
+        else:
+            logger.warning(f"No matching PyTorch parameter found for {legacy_path}")
 
-    for layer_name in sorted_layer_names:
-        for path, info in middle_layers[layer_name]:
-            weight_type = info["weight_type"]
-            pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-
-            # Middle blocks use blocks.1 in PyTorch
-            pytorch_name = f"backbone.enc.encoder_stack.{middle_idx}.blocks.1.{pytorch_weight_type}"
-
-            if pytorch_name in pytorch_params:
-                mapping[path] = pytorch_name
-                # Only increment after both weight and bias are mapped
-                if weight_type == "bias":
-                    middle_idx += 1
-
-    # Mapping logic for decoder layers
-    # In PyTorch, decoder stacks are numbered in reverse order
-    max_decoder_block = (
-        max([block_idx for block_idx, _, _, _ in decoder_layers])
-        if decoder_layers
-        else 0
-    )
-
-    for block_idx, conv_idx, path, info in decoder_layers:
-        weight_type = info["weight_type"]
-        pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-
-        # Reverse the block index for PyTorch
-        pytorch_block_idx = max_decoder_block - block_idx
-
-        # In PyTorch decoder:
-        # - First conv in block: blocks.1
-        # - Second conv in block: blocks.3
-        if conv_idx == 0:
-            pytorch_name = f"backbone.dec.decoder_stack.{pytorch_block_idx}.blocks.1.{pytorch_weight_type}"
-        elif conv_idx == 1:
-            pytorch_name = f"backbone.dec.decoder_stack.{pytorch_block_idx}.blocks.3.{pytorch_weight_type}"
-
-        if pytorch_name in pytorch_params:
-            mapping[path] = pytorch_name
-
-    # Mapping logic for head layers
-    # Filter out unsupported heads like OffsetRefinementHead
-    supported_heads = []
-    for path, info in head_layers:
-        layer_name = info["layer_name"]
-        # Skip offset refinement heads as they're not supported in current architecture
-        if "OffsetRefinement" not in layer_name:
-            supported_heads.append((path, info))
-
-    head_idx = 0
-    current_head_type = None
-    for path, info in supported_heads:
-        weight_type = info["weight_type"]
-        pytorch_weight_type = "weight" if weight_type == "kernel" else weight_type
-        layer_name = info["layer_name"]
-
-        # Track when we move to a new head type
-        head_type = layer_name.split("_")[0]  # e.g., "CentroidConfmapsHead"
-        if current_head_type != head_type:
-            if current_head_type is not None:
-                head_idx += 1
-            current_head_type = head_type
-
-        # Most heads have a single conv2d layer at index 0
-        pytorch_name = f"head_layers.{head_idx}.0.{pytorch_weight_type}"
-
-        if pytorch_name in pytorch_params:
-            mapping[path] = pytorch_name
+    # Log mapping results
+    if not mapping:
+        logger.info(
+            f"No mappings could be created between legacy weights and PyTorch model. "
+            f"Legacy weights: {len(legacy_weights)}, PyTorch parameters: {len(pytorch_params)}"
+        )
+    else:
+        logger.info(
+            f"Successfully mapped {len(mapping)}/{len(legacy_weights)} legacy weights to PyTorch parameters"
+        )
 
     return mapping
 
@@ -350,12 +222,19 @@ def load_legacy_model_weights(
 
     if mapping is None:
         # Attempt automatic mapping
-        mapping = map_legacy_to_pytorch_layers(legacy_weights, pytorch_model)
+        try:
+            mapping = map_legacy_to_pytorch_layers(legacy_weights, pytorch_model)
+        except Exception as e:
+            logger.error(f"Failed to create weight mappings: {e}")
+            return
 
     # Apply weights
+    loaded_count = 0
+    errors = []
+
     for legacy_path, pytorch_name in mapping.items():
         if legacy_path not in legacy_weights:
-            print(f"Warning: Legacy weight not found: {legacy_path}")
+            logger.warning(f"Legacy weight not found: {legacy_path}")
             continue
 
         weight = legacy_weights[legacy_path]
@@ -375,14 +254,14 @@ def load_legacy_model_weights(
         try:
             state_dict = pytorch_model.state_dict()
             if pytorch_name not in state_dict:
-                print(f"Warning: PyTorch parameter not found: {pytorch_name}")
+                logger.warning(f"PyTorch parameter not found: {pytorch_name}")
                 continue
 
             # Check shape compatibility
             pytorch_shape = state_dict[pytorch_name].shape
             if weight.shape != pytorch_shape:
-                print(
-                    f"Warning: Shape mismatch for {pytorch_name}: "
+                logger.warning(
+                    f"Shape mismatch for {pytorch_name}: "
                     f"legacy {weight.shape} vs pytorch {pytorch_shape}"
                 )
                 continue
@@ -395,8 +274,29 @@ def load_legacy_model_weights(
                 param_name = pytorch_name.split(".")[-1]
                 setattr(param, param_name, torch.nn.Parameter(weight))
 
+            loaded_count += 1
+
         except Exception as e:
-            print(f"Error loading {pytorch_name}: {e}")
+            error_msg = f"Error loading {pytorch_name}: {e}"
+            logger.error(error_msg)
+            errors.append(error_msg)
+
+    # Log summary
+    if loaded_count == 0:
+        logger.info(
+            f"No weights were successfully loaded. "
+            f"Attempted to load {len(mapping)} weights, but all failed."
+        )
+    else:
+        logger.info(
+            f"Successfully loaded {loaded_count}/{len(mapping)} weights from legacy model"
+        )
+
+    # Log any errors that occurred
+    if errors:
+        logger.info(
+            f"Weight loading completed with {len(errors)} errors: {'; '.join(errors[:5])}"
+        )
 
 
 def create_model_from_legacy_config(config_path: str) -> Model:
@@ -468,14 +368,21 @@ def load_legacy_model(model_dir: str, load_weights: bool = True) -> Model:
     model_dir = Path(model_dir)
 
     # Create model from config
-    model = create_model_from_legacy_config(str(model_dir))
+    try:
+        model = create_model_from_legacy_config(str(model_dir))
+    except Exception as e:
+        logger.error(f"Failed to create model from legacy config: {e}")
+        raise
 
     # Load weights if requested
     if load_weights:
         h5_path = model_dir / "best_model.h5"
         if h5_path.exists():
-            load_legacy_model_weights(model, str(h5_path))
+            try:
+                load_legacy_model_weights(model, str(h5_path))
+            except Exception as e:
+                logger.error(f"Failed to load legacy weights: {e}")
         else:
-            print(f"Warning: Model weights not found at {h5_path}")
+            logger.warning(f"Model weights not found at {h5_path}")
 
     return model
