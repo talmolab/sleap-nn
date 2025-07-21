@@ -8,7 +8,7 @@ The config file has three main sections:
 2. **`model_config`**: Initialize the sleap-nn backbone and head models  
 3. **`trainer_config`**: Hyperparameters required to train the model with Lightning
 
-> **Note**: The structure for `train` in data_config is used for validation set as well, with the key: `val`. Similarly, the structure for `train_data_loader` in trainer_config section is used for `val_data_loader`.
+
 
 ---
 
