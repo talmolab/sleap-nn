@@ -439,4 +439,4 @@ filename: ''
 - **Batch Size**: Start with smaller batch sizes and increase based on your GPU memory.
 - **Learning Rate**: The default learning rate of `0.0001` works well for most cases, but may need adjustment based on your dataset.
 
-For more detailed examples and specific use cases, examine the sample configuration files in the `docs/` directory.
+For more detailed examples and specific use cases, examine the sample configuration files in the `docs/sample_configs` directory.
