@@ -311,6 +311,13 @@ class ModelTrainer:
 
         self.config.trainer_config.save_ckpt_path = ckpt_path
 
+        # set output dir for cache img
+        if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk":
+            if self.config.data_config.cache_img_path is None:
+                self.config.data_config.cache_img_path = Path(
+                    self.config.trainer_config.save_ckpt_path
+                )
+
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder."""
         ckpt_path = self.config.trainer_config.save_ckpt_path
@@ -328,8 +335,14 @@ class ModelTrainer:
             self._initial_config, (Path(ckpt_path) / "initial_config.yaml").as_posix()
         )
         for idx, (train, val) in enumerate(zip(self.train_labels, self.val_labels)):
-            train.save(Path(ckpt_path) / f"labels_train_gt_{idx}.slp")
-            val.save(Path(ckpt_path) / f"labels_val_gt_{idx}.slp")
+            train.save(
+                Path(ckpt_path) / f"labels_train_gt_{idx}.slp",
+                restore_original_videos=False,
+            )
+            val.save(
+                Path(ckpt_path) / f"labels_val_gt_{idx}.slp",
+                restore_original_videos=False,
+            )
 
     def _setup_datasets(self):
         """Setup dataloaders."""

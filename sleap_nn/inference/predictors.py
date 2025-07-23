@@ -115,7 +115,7 @@ class Predictor(ABC):
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: Union[float, List[float]] = 0.2,
-        integral_refinement: str = None,
+        integral_refinement: str = "integral",
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
@@ -140,7 +140,7 @@ class Predictor(ABC):
                 centered-instance model peak finding.
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: None.
+                Default: "integral".
             integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
@@ -511,7 +511,7 @@ class TopDownPredictor(Predictor):
                 centered-instance model peak finding.
         integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
             If `"integral"`, peaks will be refined with integral regression.
-            Default: None.
+            Default: "integral".
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -540,7 +540,7 @@ class TopDownPredictor(Predictor):
     videos: Optional[List[sio.Video]] = None
     skeletons: Optional[List[sio.Skeleton]] = None
     peak_threshold: Union[float, List[float]] = 0.2
-    integral_refinement: str = None
+    integral_refinement: str = "integral"
     integral_patch_size: int = 5
     batch_size: int = 4
     max_instances: Optional[int] = None
@@ -667,7 +667,7 @@ class TopDownPredictor(Predictor):
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
-        integral_refinement: str = None,
+        integral_refinement: str = "integral",
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
@@ -689,7 +689,7 @@ class TopDownPredictor(Predictor):
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: None.
+                Default: "integral".
             integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
@@ -1077,7 +1077,7 @@ class SingleInstancePredictor(Predictor):
             this will be ignored. Default: 0.2
         integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
             If `"integral"`, peaks will be refined with integral regression.
-            Default: None.
+            Default: "integral".
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -1097,7 +1097,7 @@ class SingleInstancePredictor(Predictor):
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
     peak_threshold: float = 0.2
-    integral_refinement: str = None
+    integral_refinement: str = "integral"
     integral_patch_size: int = 5
     batch_size: int = 4
     return_confmaps: bool = False
@@ -1131,7 +1131,7 @@ class SingleInstancePredictor(Predictor):
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
-        integral_refinement: str = None,
+        integral_refinement: str = "integral",
         integral_patch_size: int = 5,
         batch_size: int = 4,
         return_confmaps: bool = False,
@@ -1151,7 +1151,7 @@ class SingleInstancePredictor(Predictor):
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: None.
+                Default: "integral".
             integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
@@ -1437,7 +1437,7 @@ class BottomUpPredictor(Predictor):
             this will be ignored. Default: 0.2
         integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
             If `"integral"`, peaks will be refined with integral regression.
-            Default: None.
+            Default: "integral".
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -1466,7 +1466,7 @@ class BottomUpPredictor(Predictor):
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
     peak_threshold: float = 0.2
-    integral_refinement: str = None
+    integral_refinement: str = "integral"
     integral_patch_size: int = 5
     batch_size: int = 4
     max_instances: Optional[int] = None
@@ -1524,7 +1524,7 @@ class BottomUpPredictor(Predictor):
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
-        integral_refinement: str = None,
+        integral_refinement: str = "integral",
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
@@ -1545,7 +1545,7 @@ class BottomUpPredictor(Predictor):
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: None.
+                Default: "integral".
             integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
@@ -1848,7 +1848,7 @@ class BottomUpMultiClassPredictor(Predictor):
             this will be ignored. Default: 0.2
         integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
             If `"integral"`, peaks will be refined with integral regression.
-            Default: None.
+            Default: "integral".
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -1869,7 +1869,7 @@ class BottomUpMultiClassPredictor(Predictor):
     videos: Optional[List[sio.Video]] = attrs.field(default=None)
     skeletons: Optional[List[sio.Skeleton]] = attrs.field(default=None)
     peak_threshold: float = 0.2
-    integral_refinement: str = None
+    integral_refinement: str = "integral"
     integral_patch_size: int = 5
     batch_size: int = 4
     max_instances: Optional[int] = None
@@ -1906,7 +1906,7 @@ class BottomUpMultiClassPredictor(Predictor):
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
-        integral_refinement: str = None,
+        integral_refinement: str = "integral",
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
@@ -1927,7 +1927,7 @@ class BottomUpMultiClassPredictor(Predictor):
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: None.
+                Default: "integral".
             integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
@@ -2247,7 +2247,7 @@ class TopDownMultiClassPredictor(Predictor):
                 centered-instance model peak finding.
         integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
             If `"integral"`, peaks will be refined with integral regression.
-            Default: None.
+            Default: "integral".
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
             integer scalar. Default: 5.
         batch_size: (int) Number of samples per batch. Default: 4.
@@ -2273,7 +2273,7 @@ class TopDownMultiClassPredictor(Predictor):
     videos: Optional[List[sio.Video]] = None
     skeletons: Optional[List[sio.Skeleton]] = None
     peak_threshold: Union[float, List[float]] = 0.2
-    integral_refinement: str = None
+    integral_refinement: str = "integral"
     integral_patch_size: int = 5
     batch_size: int = 4
     max_instances: Optional[int] = None
@@ -2388,7 +2388,7 @@ class TopDownMultiClassPredictor(Predictor):
         backbone_ckpt_path: Optional[str] = None,
         head_ckpt_path: Optional[str] = None,
         peak_threshold: float = 0.2,
-        integral_refinement: str = None,
+        integral_refinement: str = "integral",
         integral_patch_size: int = 5,
         batch_size: int = 4,
         max_instances: Optional[int] = None,
@@ -2410,7 +2410,7 @@ class TopDownMultiClassPredictor(Predictor):
                 this will be ignored. Default: 0.2
             integral_refinement: If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: None.
+                Default: "integral".
             integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
             batch_size: (int) Number of samples per batch. Default: 4.
@@ -2835,7 +2835,7 @@ def run_inference(
     crop_size: Optional[int] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
     ##
-    integral_refinement: str = None,
+    integral_refinement: str = "integral",
     integral_patch_size: int = 5,
     return_confmaps: bool = False,
     return_pafs: bool = False,
@@ -2910,7 +2910,7 @@ def run_inference(
                 centered-instance model peak finding.
         integral_refinement: (str) If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: None.
+                Default: "integral".
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
@@ -3070,8 +3070,11 @@ def run_inference(
                 else "mps" if torch.backends.mps.is_available() else "cpu"
             )
 
-        if integral_refinement is not None:  # TODO
+        if integral_refinement is not None and device == "mps":  # TODO
             # kornia/geometry/transform/imgwarp.py:382: in get_perspective_transform. NotImplementedError: The operator 'aten::_linalg_solve_ex.result' is not currently implemented for the MPS device. If you want this op to be added in priority during the prototype phase of this feature, please comment on https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be slower than running natively on MPS.
+            logger.info(
+                "Integral refinement is not supported with MPS device. Using CPU."
+            )
             device = "cpu"  # not supported with mps
 
         logger.info(f"Using device: {device}")
@@ -3196,7 +3199,7 @@ def run_inference(
     if make_labels:
         if output_path is None:
             output_path = Path(data_path).with_suffix(".predictions.slp")
-        output.save(Path(output_path).as_posix())
+        output.save(Path(output_path).as_posix(), restore_original_videos=False)
     finish_timestamp = str(datetime.now())
     logger.info(f"Predictions output path: {output_path}")
     logger.info("Saved file at:", finish_timestamp)
