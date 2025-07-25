@@ -63,6 +63,16 @@ dev = [
     "ruff",
     "pyzmq"
 ]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocs-jupyter",
+    "mike",
+    "mkdocstrings[python]",
+    "mkdocs-gen-files",
+    "mkdocs-literate-nav",
+    "mkdocs-section-index"
+]
 
 [project.scripts]
 biogtr = "sleap_nn.cli:cli"
