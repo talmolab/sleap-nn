@@ -9,7 +9,6 @@ from omegaconf import OmegaConf
 
 def test_convnext_reference():
     """Test ConvNextEncoder and ConvNextWrapper."""
-
     config = OmegaConf.create(
         {
             "in_channels": 1,
