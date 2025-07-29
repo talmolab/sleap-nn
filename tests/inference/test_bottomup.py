@@ -63,7 +63,7 @@ def test_bottomup_inference_model(
                 }
             )
         ),
-        peak_threshold=0.03,
+        peak_threshold=0.2,
         refinement="integral",
         integral_patch_size=5,
         cms_output_stride=2,
@@ -90,7 +90,7 @@ def test_bottomup_inference_model(
                 }
             )
         ),
-        peak_threshold=0.03,
+        peak_threshold=0.2,
         refinement="integral",
         integral_patch_size=5,
         cms_output_stride=2,
@@ -145,7 +145,7 @@ def test_multiclass_bottomup_inference_model(
 
     inference_layer = BottomUpMultiClassInferenceModel(
         torch_model=torch_model,
-        peak_threshold=0.03,
+        peak_threshold=0.2,
         refinement="integral",
         integral_patch_size=5,
         cms_output_stride=2,
@@ -164,7 +164,7 @@ def test_multiclass_bottomup_inference_model(
     # check return confmaps and pafs
     inference_layer = BottomUpMultiClassInferenceModel(
         torch_model=torch_model,
-        peak_threshold=0.03,
+        peak_threshold=0.2,
         refinement="integral",
         integral_patch_size=5,
         cms_output_stride=2,

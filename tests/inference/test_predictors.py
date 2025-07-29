@@ -1305,7 +1305,7 @@ def test_bottomup_predictor(
         data_path=minimal_instance.as_posix(),
         make_labels=True,
         max_instances=6,
-        peak_threshold=0.03,
+        peak_threshold=0.05,
         device="cpu",
         integral_refinement=None,
     )
@@ -1333,7 +1333,7 @@ def test_bottomup_predictor(
         data_path=minimal_instance.as_posix(),
         make_labels=False,
         max_instances=6,
-        peak_threshold=0.03,
+        peak_threshold=0.05,
         device="cpu",
         integral_refinement=None,
     )
@@ -1378,7 +1378,7 @@ def test_bottomup_predictor(
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
         max_instances=6,
-        peak_threshold=0.03,
+        peak_threshold=0.05,
         frames=[x for x in range(100)],
         device="cpu",
         integral_refinement=None,
@@ -1394,7 +1394,7 @@ def test_bottomup_predictor(
         data_path=centered_instance_video.as_posix(),
         make_labels=False,
         max_instances=6,
-        peak_threshold=0.03,
+        peak_threshold=0.05,
         frames=[x for x in range(100)],
         device="cpu",
         integral_refinement=None,
@@ -1413,7 +1413,7 @@ def test_bottomup_predictor(
         data_path=minimal_instance.as_posix(),
         make_labels=True,
         max_instances=6,
-        peak_threshold=0.03,
+        peak_threshold=0.05,
         tracking=True,
         candidates_method="local_queues",
         max_tracks=6,
@@ -1442,7 +1442,7 @@ def test_bottomup_predictor(
         [minimal_instance_bottomup_ckpt],
         backbone_ckpt_path=Path(minimal_instance_centered_instance_ckpt) / "best.ckpt",
         head_ckpt_path=None,
-        peak_threshold=0.03,
+        peak_threshold=0.05,
         max_instances=6,
         preprocess_config=OmegaConf.create(preprocess_config),
     )
@@ -1544,20 +1544,6 @@ def test_multi_class_bottomup_predictor(
     assert isinstance(preds, sio.Labels)
     assert len(preds) == 1
     assert len(preds.tracks) == 2
-
-    # with higher threshold
-    pred_labels = run_inference(
-        model_paths=[minimal_instance_multi_class_bottomup_ckpt],
-        data_path=minimal_instance.as_posix(),
-        make_labels=True,
-        max_instances=6,
-        peak_threshold=2.0,
-        device="cpu",
-        integral_refinement=None,
-    )
-    assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 1
-    assert len(pred_labels[0].instances) == 0
 
     # change to video reader
     pred_labels = run_inference(

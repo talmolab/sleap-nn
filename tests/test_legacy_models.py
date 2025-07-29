@@ -152,9 +152,9 @@ class TestLayerNameParsing:
 class TestWeightLoading:
     """Test loading weights from actual legacy model files."""
 
-    def test_load_centroid_weights(self, centroid_model_path):
+    def test_load_centroid_weights(self, sleap_centroid_model_path):
         """Test loading weights from centroid model."""
-        h5_path = centroid_model_path / "best_model.h5"
+        h5_path = sleap_centroid_model_path / "best_model.h5"
         weights = load_keras_weights(str(h5_path))
 
         # Check that we loaded weights
@@ -177,9 +177,9 @@ class TestWeightLoading:
                     # Regular conv layers use 3x3
                     assert weight.shape[0] == 3 and weight.shape[1] == 3
 
-    def test_weight_conversion_integration(self, centroid_model_path):
+    def test_weight_conversion_integration(self, sleap_centroid_model_path):
         """Test converting actual model weights to PyTorch format."""
-        h5_path = centroid_model_path / "best_model.h5"
+        h5_path = sleap_centroid_model_path / "best_model.h5"
         weights = load_keras_weights(str(h5_path))
 
         # Convert a specific conv layer
@@ -205,9 +205,9 @@ class TestWeightLoading:
 class TestModelCreation:
     """Test creating PyTorch models from legacy configs."""
 
-    def test_create_centroid_model(self, centroid_model_path):
+    def test_create_centroid_model(self, sleap_centroid_model_path):
         """Test creating a centroid model from legacy config."""
-        model = create_model_from_legacy_config(str(centroid_model_path))
+        model = create_model_from_legacy_config(str(sleap_centroid_model_path))
 
         # Check model structure
         assert hasattr(model, "backbone")
@@ -223,9 +223,9 @@ class TestModelCreation:
         outputs = model(x)
         assert len(outputs) > 0
 
-    def test_create_centered_instance_model(self, centered_instance_model_path):
+    def test_create_centered_instance_model(self, sleap_centered_instance_model_path):
         """Test creating a centered instance model from legacy config."""
-        model = create_model_from_legacy_config(str(centered_instance_model_path))
+        model = create_model_from_legacy_config(str(sleap_centered_instance_model_path))
 
         # Check model structure
         assert hasattr(model, "backbone")
@@ -240,9 +240,9 @@ class TestModelCreation:
         outputs = model(x)
         assert len(outputs) > 0
 
-    def test_create_single_instance_model(self, single_instance_model_path):
+    def test_create_single_instance_model(self, sleap_single_instance_model_path):
         """Test creating a single instance model from legacy config."""
-        model = create_model_from_legacy_config(str(single_instance_model_path))
+        model = create_model_from_legacy_config(str(sleap_single_instance_model_path))
 
         # Check head types
         head_names = [head.name for head in model.heads]
@@ -259,10 +259,10 @@ class TestModelCreation:
             # Expected for some legacy configs with stride mismatches
             pass
 
-    def test_create_bottomup_model_config_path(self, bottomup_model_path):
+    def test_create_bottomup_model_config_path(self, sleap_bottomup_model_path):
         """Test creating a bottomup model specifically via create_model_from_legacy_config."""
         # This ensures we test the bottomup branch in create_model_from_legacy_config
-        model = create_model_from_legacy_config(str(bottomup_model_path))
+        model = create_model_from_legacy_config(str(sleap_bottomup_model_path))
 
         # Check model structure
         assert hasattr(model, "backbone")
@@ -283,13 +283,13 @@ class TestModelCreation:
 class TestFullModelLoading:
     """Test loading complete models with weights."""
 
-    def test_load_centroid_model_weights(self, centroid_model_path):
+    def test_load_centroid_model_weights(self, sleap_centroid_model_path):
         """Test loading weights into a centroid model."""
         # Create model
-        model = create_model_from_legacy_config(str(centroid_model_path))
+        model = create_model_from_legacy_config(str(sleap_centroid_model_path))
 
         # Load weights
-        h5_path = centroid_model_path / "best_model.h5"
+        h5_path = sleap_centroid_model_path / "best_model.h5"
 
         # Get initial random weights
         initial_weights = {
@@ -313,13 +313,13 @@ class TestFullModelLoading:
         assert "CentroidConfmapsHead" in outputs
         assert outputs["CentroidConfmapsHead"].shape[1] == 1  # Single centroid channel
 
-    def test_load_centered_instance_weights(self, centered_instance_model_path):
+    def test_load_centered_instance_weights(self, sleap_centered_instance_model_path):
         """Test loading weights into a centered instance model."""
         # Create model
-        model = create_model_from_legacy_config(str(centered_instance_model_path))
+        model = create_model_from_legacy_config(str(sleap_centered_instance_model_path))
 
         # Load weights
-        h5_path = centered_instance_model_path / "best_model.h5"
+        h5_path = sleap_centered_instance_model_path / "best_model.h5"
 
         # Load legacy weights
         load_legacy_model_weights(model, str(h5_path))
@@ -329,13 +329,13 @@ class TestFullModelLoading:
         outputs = model(x)
         assert "CenteredInstanceConfmapsHead" in outputs
 
-    def test_load_single_instance_weights(self, single_instance_model_path):
+    def test_load_single_instance_weights(self, sleap_single_instance_model_path):
         """Test loading weights into a single instance model."""
         # Create model
-        model = create_model_from_legacy_config(str(single_instance_model_path))
+        model = create_model_from_legacy_config(str(sleap_single_instance_model_path))
 
         # Load weights
-        h5_path = single_instance_model_path / "best_model.h5"
+        h5_path = sleap_single_instance_model_path / "best_model.h5"
 
         # Load legacy weights
         load_legacy_model_weights(model, str(h5_path))
@@ -343,13 +343,13 @@ class TestFullModelLoading:
         # Note: Skip forward pass due to stride/channel mismatches in legacy configs
         # This is a known limitation of the legacy config conversion
 
-    def test_layer_mapping(self, centroid_model_path):
+    def test_layer_mapping(self, sleap_centroid_model_path):
         """Test that layer mapping correctly identifies all layers."""
         # Create model
-        model = create_model_from_legacy_config(str(centroid_model_path))
+        model = create_model_from_legacy_config(str(sleap_centroid_model_path))
 
         # Load legacy weights
-        h5_path = centroid_model_path / "best_model.h5"
+        h5_path = sleap_centroid_model_path / "best_model.h5"
         legacy_weights = load_keras_weights(str(h5_path))
 
         # Get mapping
@@ -374,13 +374,13 @@ class TestFullModelLoading:
         print(f"  Decoder layers: {decoder_count}")
         print(f"  Head layers: {head_count}")
 
-    def test_simplified_layer_mapping(self, centroid_model_path):
+    def test_simplified_layer_mapping(self, sleap_centroid_model_path):
         """Test that the simplified layer mapping works with string matching."""
         # Create model
-        model = create_model_from_legacy_config(str(centroid_model_path))
+        model = create_model_from_legacy_config(str(sleap_centroid_model_path))
 
         # Load legacy weights
-        h5_path = centroid_model_path / "best_model.h5"
+        h5_path = sleap_centroid_model_path / "best_model.h5"
         legacy_weights = load_keras_weights(str(h5_path))
 
         # Get mapping using the simplified approach
@@ -465,9 +465,9 @@ class TestErrorHandling:
         # Skip this test since the existing config loader handles validation
         pytest.skip("Test not applicable with new config loading approach")
 
-    def test_load_legacy_model_no_weights(self, centroid_model_path):
+    def test_load_legacy_model_no_weights(self, sleap_centroid_model_path):
         """Test loading model without weights."""
-        model = load_legacy_model(str(centroid_model_path), load_weights=False)
+        model = load_legacy_model(str(sleap_centroid_model_path), load_weights=False)
         assert hasattr(model, "backbone")
         assert hasattr(model, "heads")
 
@@ -506,10 +506,10 @@ class TestUtilityFunctions:
         weights = load_keras_weights(str(h5_file))
         assert len(weights) == 0
 
-    def test_convert_weights_with_manual_mapping(self, centroid_model_path):
+    def test_convert_weights_with_manual_mapping(self, sleap_centroid_model_path):
         """Test loading weights with manual mapping."""
-        model = create_model_from_legacy_config(str(centroid_model_path))
-        h5_path = centroid_model_path / "best_model.h5"
+        model = create_model_from_legacy_config(str(sleap_centroid_model_path))
+        h5_path = sleap_centroid_model_path / "best_model.h5"
 
         # Create a simple manual mapping (empty for this test)
         manual_mapping = {}
@@ -589,6 +589,8 @@ class TestUtilityFunctions:
                             "centered_instance": None,
                             "single_instance": None,
                             "bottomup": None,
+                            "multi_class_bottomup": None,
+                            "multi_class_topdown": None,
                         },
                     }
                 }
@@ -904,13 +906,13 @@ def compare_activations(
 class TestLegacyInference:
     """Test that loaded legacy models produce similar outputs to original."""
 
-    def test_centroid_inference(self, centroid_model_path):
+    def test_centroid_inference(self, sleap_centroid_model_path):
         """Test centroid model inference matches original."""
         # Load dummy activations
-        keras_activations, metadata = load_dummy_activations(centroid_model_path)
+        keras_activations, metadata = load_dummy_activations(sleap_centroid_model_path)
 
         # Load model with weights
-        model = load_legacy_model(str(centroid_model_path), load_weights=True)
+        model = load_legacy_model(str(sleap_centroid_model_path), load_weights=True)
         model.eval()
 
         # Create input tensor matching metadata
@@ -945,15 +947,17 @@ class TestLegacyInference:
                 f"Warning: Could not match outputs - looking for {keras_key} in Keras and {pytorch_key} in PyTorch"
             )
 
-    def test_centered_instance_inference(self, centered_instance_model_path):
+    def test_centered_instance_inference(self, sleap_centered_instance_model_path):
         """Test centered instance model inference matches original."""
         # Load dummy activations
         keras_activations, metadata = load_dummy_activations(
-            centered_instance_model_path
+            sleap_centered_instance_model_path
         )
 
         # Load model with weights
-        model = load_legacy_model(str(centered_instance_model_path), load_weights=True)
+        model = load_legacy_model(
+            str(sleap_centered_instance_model_path), load_weights=True
+        )
         model.eval()
 
         # Create input tensor matching metadata
@@ -980,13 +984,17 @@ class TestLegacyInference:
                 name="CenteredInstanceConfmapsHead",
             )
 
-    def test_single_instance_inference(self, single_instance_model_path):
+    def test_single_instance_inference(self, sleap_single_instance_model_path):
         """Test single instance model inference matches original."""
         # Load dummy activations
-        keras_activations, metadata = load_dummy_activations(single_instance_model_path)
+        keras_activations, metadata = load_dummy_activations(
+            sleap_single_instance_model_path
+        )
 
         # Load model with weights
-        model = load_legacy_model(str(single_instance_model_path), load_weights=True)
+        model = load_legacy_model(
+            str(sleap_single_instance_model_path), load_weights=True
+        )
         model.eval()
 
         # Create input tensor matching metadata
@@ -1024,13 +1032,13 @@ class TestLegacyInference:
             else:
                 raise
 
-    def test_bottomup_inference(self, bottomup_model_path):
+    def test_bottomup_inference(self, sleap_bottomup_model_path):
         """Test bottom-up model inference matches original."""
         # Load dummy activations
-        keras_activations, metadata = load_dummy_activations(bottomup_model_path)
+        keras_activations, metadata = load_dummy_activations(sleap_bottomup_model_path)
 
         # Load model with weights
-        model = load_legacy_model(str(bottomup_model_path), load_weights=True)
+        model = load_legacy_model(str(sleap_bottomup_model_path), load_weights=True)
         model.eval()
 
         # Create input tensor matching metadata
@@ -1084,11 +1092,15 @@ class TestLegacyInference:
 class TestActivationStatistics:
     """Test activation statistics to understand weight loading."""
 
-    def test_weight_loading_statistics(self, centroid_model_path):
+    def test_weight_loading_statistics(self, sleap_centroid_model_path):
         """Check statistics of loaded weights vs random initialization."""
         # Create two models - one with loaded weights, one without
-        model_loaded = load_legacy_model(str(centroid_model_path), load_weights=True)
-        model_random = load_legacy_model(str(centroid_model_path), load_weights=False)
+        model_loaded = load_legacy_model(
+            str(sleap_centroid_model_path), load_weights=True
+        )
+        model_random = load_legacy_model(
+            str(sleap_centroid_model_path), load_weights=False
+        )
 
         # Compare parameter statistics
         print("\nParameter statistics comparison:")

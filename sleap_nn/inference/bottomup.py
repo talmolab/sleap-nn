@@ -57,7 +57,7 @@ class BottomUpInferenceModel(L.LightningModule):
         cms_output_stride: Optional[int] = None,
         pafs_output_stride: Optional[int] = None,
         peak_threshold: float = 0.0,
-        refinement: Optional[str] = None,
+        refinement: Optional[str] = "integral",
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         return_pafs: Optional[bool] = False,
