@@ -47,6 +47,8 @@ from sleap_nn.inference.topdown import (
 )
 from sleap_nn.inference.utils import get_skeleton_from_config
 from sleap_nn.tracking.tracker import Tracker, run_tracker, connect_single_breaks
+from sleap_nn.legacy_models import load_legacy_model
+from sleap_nn.config.training_job_config import TrainingJobConfig
 import rich
 from rich.progress import (
     Progress,
@@ -126,8 +128,8 @@ class Predictor(ABC):
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            model_paths: (List[str]) List of paths to the directory where the best.ckpt
-                and training_config.yaml are saved.
+            model_paths: (List[str]) List of paths to the directory where the best.ckpt (or from SLEAP <=1.4 best_model.h5)
+                and training_config.yaml (or from SLEAP <=1.4 training_config.json) are saved.
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -160,9 +162,24 @@ class Predictor(ABC):
             `MoveNetPredictor`, `TopDownMultiClassPredictor`,
             `BottomUpMultiClassPredictor`.
         """
-        model_configs = [
-            OmegaConf.load(f"{Path(c)}/training_config.yaml") for c in model_paths
-        ]
+        model_configs = []
+        for model_path in model_paths:
+            path = Path(model_path)
+            if path / "training_config.yaml" in path.iterdir():
+                model_configs.append(
+                    OmegaConf.load((path / "training_config.yaml").as_posix())
+                )
+            elif path / "training_config.json" in path.iterdir():
+                model_configs.append(
+                    TrainingJobConfig.load_sleap_config(
+                        (path / "training_config.json").as_posix()
+                    )
+                )
+            else:
+                raise ValueError(
+                    f"Could not find training_config.yaml or training_config.json in {model_path}"
+                )
+
         model_names = []
         for config in model_configs:
             model_names.append(get_model_type_from_cfg(config=config))
@@ -678,8 +695,8 @@ class TopDownPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
-            confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            centroid_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5)  and training_config.yaml (or from SLEAP <=1.4 training_config.json).
+            confmap_ckpt_path: Path to a centered-instance ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -712,12 +729,25 @@ class TopDownPredictor(Predictor):
         centered_instance_backbone_type = None
         centroid_backbone_type = None
         if centroid_ckpt_path is not None:
+            is_sleap_ckpt = False
             # Load centroid model.
-            centroid_config = OmegaConf.load(
-                f"{centroid_ckpt_path}/training_config.yaml"
-            )
+            if (
+                Path(centroid_ckpt_path) / "training_config.yaml"
+                in Path(centroid_ckpt_path).iterdir()
+            ):
+                centroid_config = OmegaConf.load(
+                    (Path(centroid_ckpt_path) / "training_config.yaml").as_posix()
+                )
+            elif (
+                Path(centroid_ckpt_path) / "training_config.json"
+                in Path(centroid_ckpt_path).iterdir()
+            ):
+                is_sleap_ckpt = True
+                centroid_config = TrainingJobConfig.load_sleap_config(
+                    (Path(centroid_ckpt_path) / "training_config.json").as_posix()
+                )
+
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
-            ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
 
             # check which backbone architecture
             for k, v in centroid_config.model_config.backbone_config.items():
@@ -725,14 +755,32 @@ class TopDownPredictor(Predictor):
                     centroid_backbone_type = k
                     break
 
-            centroid_model = CentroidLightningModule.load_from_checkpoint(
-                checkpoint_path=ckpt_path,
-                config=centroid_config,
-                skeletons=skeletons,
-                model_type="centroid",
-                backbone_type=centroid_backbone_type,
-                map_location=device,
-            )
+            if not is_sleap_ckpt:
+                ckpt_path = (Path(centroid_ckpt_path) / "best.ckpt").as_posix()
+                centroid_model = CentroidLightningModule.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    config=centroid_config,
+                    skeletons=skeletons,
+                    model_type="centroid",
+                    backbone_type=centroid_backbone_type,
+                    map_location=device,
+                )
+            else:
+                # Load the converted model
+                centroid_converted_model = load_legacy_model(
+                    model_dir=f"{centroid_ckpt_path}"
+                )
+                centroid_model = CentroidLightningModule(
+                    config=centroid_config,
+                    backbone_type=centroid_backbone_type,
+                    model_type="centroid",
+                )
+
+                centroid_model.eval()
+                centroid_model.model = centroid_converted_model
+                centroid_model.to(device)
+
+            centroid_model.eval()
 
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
@@ -772,23 +820,62 @@ class TopDownPredictor(Predictor):
             centroid_model = None
 
         if confmap_ckpt_path is not None:
+            is_sleap_ckpt = False
             # Load confmap model.
-            confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
+            if (
+                Path(confmap_ckpt_path) / "training_config.yaml"
+                in Path(confmap_ckpt_path).iterdir()
+            ):
+                confmap_config = OmegaConf.load(
+                    (Path(confmap_ckpt_path) / "training_config.yaml").as_posix()
+                )
+            elif (
+                Path(confmap_ckpt_path) / "training_config.json"
+                in Path(confmap_ckpt_path).iterdir()
+            ):
+                is_sleap_ckpt = True
+                confmap_config = TrainingJobConfig.load_sleap_config(
+                    (Path(confmap_ckpt_path) / "training_config.json").as_posix()
+                )
+
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
-            ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
 
             # check which backbone architecture
             for k, v in confmap_config.model_config.backbone_config.items():
                 if v is not None:
                     centered_instance_backbone_type = k
                     break
-            confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
-                checkpoint_path=ckpt_path,
-                config=confmap_config,
-                model_type="centered_instance",
-                backbone_type=centered_instance_backbone_type,
-                map_location=device,
-            )
+
+            if not is_sleap_ckpt:
+                ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
+                confmap_model = (
+                    TopDownCenteredInstanceLightningModule.load_from_checkpoint(
+                        checkpoint_path=ckpt_path,
+                        config=confmap_config,
+                        model_type="centered_instance",
+                        backbone_type=centered_instance_backbone_type,
+                        map_location=device,
+                    )
+                )
+            else:
+                # Load the converted model
+                confmap_converted_model = load_legacy_model(
+                    model_dir=f"{confmap_ckpt_path}"
+                )
+
+                # Create a new LightningModule with the converted model
+                confmap_model = TopDownCenteredInstanceLightningModule(
+                    config=confmap_config,
+                    backbone_type=centered_instance_backbone_type,
+                    model_type="centered_instance",
+                )
+
+                confmap_model.eval()
+                confmap_model.model = confmap_converted_model
+                confmap_model.to(device)
+
+            confmap_model.eval()
+
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(
@@ -1141,7 +1228,7 @@ class SingleInstancePredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            confmap_ckpt_path: Path to a single instance ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -1167,9 +1254,22 @@ class SingleInstancePredictor(Predictor):
             An instance of `SingleInstancePredictor` with the loaded models.
 
         """
-        confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
-        skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
-        ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+        is_sleap_ckpt = False
+        if (
+            Path(confmap_ckpt_path) / "training_config.yaml"
+            in Path(confmap_ckpt_path).iterdir()
+        ):
+            confmap_config = OmegaConf.load(
+                (Path(confmap_ckpt_path) / "training_config.yaml").as_posix()
+            )
+        elif (
+            Path(confmap_ckpt_path) / "training_config.json"
+            in Path(confmap_ckpt_path).iterdir()
+        ):
+            is_sleap_ckpt = True
+            confmap_config = TrainingJobConfig.load_sleap_config(
+                (Path(confmap_ckpt_path) / "training_config.json").as_posix()
+            )
 
         # check which backbone architecture
         for k, v in confmap_config.model_config.backbone_config.items():
@@ -1177,13 +1277,32 @@ class SingleInstancePredictor(Predictor):
                 backbone_type = k
                 break
 
-        confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
-            checkpoint_path=ckpt_path,
-            config=confmap_config,
-            model_type="single_instance",
-            backbone_type=backbone_type,
-            map_location=device,
-        )
+        if not is_sleap_ckpt:
+            ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
+            confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=confmap_config,
+                model_type="single_instance",
+                backbone_type=backbone_type,
+                map_location=device,
+            )
+        else:
+            confmap_converted_model = load_legacy_model(
+                model_dir=f"{confmap_ckpt_path}"
+            )
+            confmap_model = SingleInstanceLightningModule(
+                config=confmap_config,
+                backbone_type=backbone_type,
+                model_type="single_instance",
+            )
+            confmap_model.eval()
+            confmap_model.model = confmap_converted_model
+            confmap_model.to(device)
+
+        confmap_model.eval()
+
+        skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
             logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(
@@ -1535,7 +1654,7 @@ class BottomUpPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            bottomup_ckpt_path: Path to a bottom-up ckpt dir with model.ckpt and config.yaml.
+            bottomup_ckpt_path: Path to a bottom-up ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -1562,9 +1681,22 @@ class BottomUpPredictor(Predictor):
             An instance of `BottomUpPredictor` with the loaded models.
 
         """
-        bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
-        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
-        ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
+        is_sleap_ckpt = False
+        if (
+            Path(bottomup_ckpt_path) / "training_config.yaml"
+            in Path(bottomup_ckpt_path).iterdir()
+        ):
+            bottomup_config = OmegaConf.load(
+                (Path(bottomup_ckpt_path) / "training_config.yaml").as_posix()
+            )
+        elif (
+            Path(bottomup_ckpt_path) / "training_config.json"
+            in Path(bottomup_ckpt_path).iterdir()
+        ):
+            is_sleap_ckpt = True
+            bottomup_config = TrainingJobConfig.load_sleap_config(
+                (Path(bottomup_ckpt_path) / "training_config.json").as_posix()
+            )
 
         # check which backbone architecture
         for k, v in bottomup_config.model_config.backbone_config.items():
@@ -1572,13 +1704,32 @@ class BottomUpPredictor(Predictor):
                 backbone_type = k
                 break
 
-        bottomup_model = BottomUpLightningModule.load_from_checkpoint(
-            checkpoint_path=ckpt_path,
-            config=bottomup_config,
-            backbone_type=backbone_type,
-            model_type="bottomup",
-            map_location=device,
-        )
+        if not is_sleap_ckpt:
+            ckpt_path = (Path(bottomup_ckpt_path) / "best.ckpt").as_posix()
+
+            bottomup_model = BottomUpLightningModule.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=bottomup_config,
+                backbone_type=backbone_type,
+                model_type="bottomup",
+                map_location=device,
+            )
+        else:
+            bottomup_converted_model = load_legacy_model(
+                model_dir=f"{bottomup_ckpt_path}"
+            )
+            bottomup_model = BottomUpLightningModule(
+                config=bottomup_config,
+                backbone_type=backbone_type,
+                model_type="bottomup",
+            )
+            bottomup_model.eval()
+            bottomup_model.model = bottomup_converted_model
+            bottomup_model.to(device)
+
+        bottomup_model.eval()
+        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
+
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
             logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(
@@ -1917,7 +2068,7 @@ class BottomUpMultiClassPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            bottomup_ckpt_path: Path to a multi-class bottom-up ckpt dir with model.ckpt and config.yaml.
+            bottomup_ckpt_path: Path to a multi-class bottom-up ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -1944,9 +2095,22 @@ class BottomUpMultiClassPredictor(Predictor):
             An instance of `BottomUpPredictor` with the loaded models.
 
         """
-        bottomup_config = OmegaConf.load(f"{bottomup_ckpt_path}/training_config.yaml")
-        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
-        ckpt_path = f"{bottomup_ckpt_path}/best.ckpt"
+        is_sleap_ckpt = False
+        if (
+            Path(bottomup_ckpt_path) / "training_config.yaml"
+            in Path(bottomup_ckpt_path).iterdir()
+        ):
+            bottomup_config = OmegaConf.load(
+                (Path(bottomup_ckpt_path) / "training_config.yaml").as_posix()
+            )
+        elif (
+            Path(bottomup_ckpt_path) / "training_config.json"
+            in Path(bottomup_ckpt_path).iterdir()
+        ):
+            is_sleap_ckpt = True
+            bottomup_config = TrainingJobConfig.load_sleap_config(
+                (Path(bottomup_ckpt_path) / "training_config.json").as_posix()
+            )
 
         # check which backbone architecture
         for k, v in bottomup_config.model_config.backbone_config.items():
@@ -1954,13 +2118,32 @@ class BottomUpMultiClassPredictor(Predictor):
                 backbone_type = k
                 break
 
-        bottomup_model = BottomUpMultiClassLightningModule.load_from_checkpoint(
-            checkpoint_path=ckpt_path,
-            config=bottomup_config,
-            backbone_type=backbone_type,
-            model_type="multi_class_bottomup",
-            map_location=device,
-        )
+        if not is_sleap_ckpt:
+            ckpt_path = (Path(bottomup_ckpt_path) / "best.ckpt").as_posix()
+
+            bottomup_model = BottomUpMultiClassLightningModule.load_from_checkpoint(
+                checkpoint_path=ckpt_path,
+                config=bottomup_config,
+                backbone_type=backbone_type,
+                model_type="multi_class_bottomup",
+                map_location=device,
+            )
+        else:
+            bottomup_converted_model = load_legacy_model(
+                model_dir=f"{bottomup_ckpt_path}"
+            )
+            bottomup_model = BottomUpMultiClassLightningModule(
+                config=bottomup_config,
+                backbone_type=backbone_type,
+                model_type="multi_class_bottomup",
+            )
+            bottomup_model.eval()
+            bottomup_model.model = bottomup_converted_model
+            bottomup_model.to(device)
+
+        bottomup_model.eval()
+        skeletons = get_skeleton_from_config(bottomup_config.data_config.skeletons)
+
         if backbone_ckpt_path is not None and head_ckpt_path is not None:
             logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
             ckpt = torch.load(
@@ -2399,8 +2582,8 @@ class TopDownMultiClassPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            centroid_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
-            confmap_ckpt_path: Path to a centroid ckpt dir with model.ckpt and config.yaml.
+            centroid_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
+            confmap_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -2433,12 +2616,25 @@ class TopDownMultiClassPredictor(Predictor):
         centered_instance_backbone_type = None
         centroid_backbone_type = None
         if centroid_ckpt_path is not None:
+            is_sleap_ckpt = False
+            if (
+                Path(centroid_ckpt_path) / "training_config.yaml"
+                in Path(centroid_ckpt_path).iterdir()
+            ):
+                centroid_config = OmegaConf.load(
+                    (Path(centroid_ckpt_path) / "training_config.yaml").as_posix()
+                )
+            elif (
+                Path(centroid_ckpt_path) / "training_config.json"
+                in Path(centroid_ckpt_path).iterdir()
+            ):
+                is_sleap_ckpt = True
+                centroid_config = TrainingJobConfig.load_sleap_config(
+                    (Path(centroid_ckpt_path) / "training_config.json").as_posix()
+                )
+
             # Load centroid model.
-            centroid_config = OmegaConf.load(
-                f"{centroid_ckpt_path}/training_config.yaml"
-            )
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
-            ckpt_path = f"{centroid_ckpt_path}/best.ckpt"
 
             # check which backbone architecture
             for k, v in centroid_config.model_config.backbone_config.items():
@@ -2446,14 +2642,31 @@ class TopDownMultiClassPredictor(Predictor):
                     centroid_backbone_type = k
                     break
 
-            centroid_model = CentroidLightningModule.load_from_checkpoint(
-                checkpoint_path=ckpt_path,
-                config=centroid_config,
-                skeletons=skeletons,
-                model_type="centroid",
-                backbone_type=centroid_backbone_type,
-                map_location=device,
-            )
+            if not is_sleap_ckpt:
+                ckpt_path = (Path(centroid_ckpt_path) / "best.ckpt").as_posix()
+
+                centroid_model = CentroidLightningModule.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    config=centroid_config,
+                    model_type="centroid",
+                    backbone_type=centroid_backbone_type,
+                    map_location=device,
+                )
+
+            else:
+                centroid_converted_model = load_legacy_model(
+                    model_dir=f"{centroid_ckpt_path}"
+                )
+                centroid_model = CentroidLightningModule(
+                    config=centroid_config,
+                    model_type="centroid",
+                    backbone_type=centroid_backbone_type,
+                )
+                centroid_model.eval()
+                centroid_model.model = centroid_converted_model
+                centroid_model.to(device)
+
+            centroid_model.eval()
 
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
@@ -2504,24 +2717,55 @@ class TopDownMultiClassPredictor(Predictor):
 
         if confmap_ckpt_path is not None:
             # Load confmap model.
-            confmap_config = OmegaConf.load(f"{confmap_ckpt_path}/training_config.yaml")
-            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
-            ckpt_path = f"{confmap_ckpt_path}/best.ckpt"
+            is_sleap_ckpt = False
+            if (
+                Path(confmap_ckpt_path) / "training_config.yaml"
+                in Path(confmap_ckpt_path).iterdir()
+            ):
+                confmap_config = OmegaConf.load(
+                    (Path(confmap_ckpt_path) / "training_config.yaml").as_posix()
+                )
+            elif (
+                Path(confmap_ckpt_path) / "training_config.json"
+                in Path(confmap_ckpt_path).iterdir()
+            ):
+                is_sleap_ckpt = True
+                confmap_config = TrainingJobConfig.load_sleap_config(
+                    (Path(confmap_ckpt_path) / "training_config.json").as_posix()
+                )
 
             # check which backbone architecture
             for k, v in confmap_config.model_config.backbone_config.items():
                 if v is not None:
                     centered_instance_backbone_type = k
                     break
-            confmap_model = (
-                TopDownCenteredInstanceMultiClassLightningModule.load_from_checkpoint(
+
+            if not is_sleap_ckpt:
+                ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
+
+                confmap_model = TopDownCenteredInstanceMultiClassLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     config=confmap_config,
                     model_type="multi_class_topdown",
                     backbone_type=centered_instance_backbone_type,
                     map_location=device,
                 )
-            )
+            else:
+                confmap_converted_model = load_legacy_model(
+                    model_dir=f"{confmap_ckpt_path}"
+                )
+                confmap_model = TopDownCenteredInstanceMultiClassLightningModule(
+                    config=confmap_config,
+                    model_type="multi_class_topdown",
+                    backbone_type=centered_instance_backbone_type,
+                )
+                confmap_model.eval()
+                confmap_model.model = confmap_converted_model
+                confmap_model.to(device)
+
+            confmap_model.eval()
+            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+
             if backbone_ckpt_path is not None and head_ckpt_path is not None:
                 logger.info(f"Loading backbone weights from `{backbone_ckpt_path}` ...")
                 ckpt = torch.load(
@@ -2835,7 +3079,7 @@ def run_inference(
     crop_size: Optional[int] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
     ##
-    integral_refinement: str = "integral",
+    integral_refinement: Optional[str] = "integral",
     integral_patch_size: int = 5,
     return_confmaps: bool = False,
     return_pafs: bool = False,
@@ -2910,7 +3154,7 @@ def run_inference(
                 centered-instance model peak finding.
         integral_refinement: (str) If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
-                Default: "integral".
+                Default: `"integral"`.
         integral_patch_size: (int) Size of patches to crop around each rough peak as an
                 integer scalar. Default: 5.
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
