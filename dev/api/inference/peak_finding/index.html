@@ -2118,7 +2118,7 @@
               </td>
             </tr>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;find_local_peaks&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;cms&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;refinement&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;s1&quot;&gt;&amp;#39;integral&amp;#39;&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;integral_patch_size&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.peak_finding.find_local_peaks&lt;/code&gt;)" href="#sleap_nn.inference.peak_finding.find_local_peaks">find_local_peaks</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;find_local_peaks&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;cms&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.2&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;refinement&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;integral_patch_size&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;5&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.inference.peak_finding.find_local_peaks&lt;/code&gt;)" href="#sleap_nn.inference.peak_finding.find_local_peaks">find_local_peaks</a></code></td>
               <td>
                 <div class="doc-md-description">
                   <p>Find local peaks with optional refinement.</p>
@@ -2830,7 +2830,7 @@ the peak points.</p>
 
 
 <h3 id="sleap_nn.inference.peak_finding.find_local_peaks" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">find_local_peaks</span><span class="p">(</span><span class="n">cms</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">refinement</span><span class="o">=</span><span class="s1">&#39;integral&#39;</span><span class="p">,</span> <span class="n">integral_patch_size</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">find_local_peaks</span><span class="p">(</span><span class="n">cms</span><span class="p">,</span> <span class="n">threshold</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">refinement</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">integral_patch_size</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span></code>
 
 <a href="#sleap_nn.inference.peak_finding.find_local_peaks" class="headerlink" title="Permanent link">&para;</a></h3>
 
@@ -2898,7 +2898,7 @@ ignored.</p>
               </div>
             </td>
             <td>
-                  <code>&#39;integral&#39;</code>
+                  <code>None</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -3033,7 +3033,7 @@ the channel each peak belongs to.</p>
 <span class="normal"><a href="#__codelineno-0-338">338</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-263"><a id="__codelineno-0-263" name="__codelineno-0-263"></a><span class="k">def</span><span class="w"> </span><span class="nf">find_local_peaks</span><span class="p">(</span>
 </span><span id="__span-0-264"><a id="__codelineno-0-264" name="__codelineno-0-264"></a>    <span class="n">cms</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span>
 </span><span id="__span-0-265"><a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="n">threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.2</span><span class="p">,</span>
-</span><span id="__span-0-266"><a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="n">refinement</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;integral&quot;</span><span class="p">,</span>
+</span><span id="__span-0-266"><a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="n">refinement</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 </span><span id="__span-0-267"><a id="__codelineno-0-267" name="__codelineno-0-267"></a>    <span class="n">integral_patch_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">5</span><span class="p">,</span>
 </span><span id="__span-0-268"><a id="__codelineno-0-268" name="__codelineno-0-268"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tuple</span><span class="p">[</span><span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
 </span><span id="__span-0-269"><a id="__codelineno-0-269" name="__codelineno-0-269"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Find local peaks with optional refinement.</span>
