@@ -563,11 +563,8 @@ class TestUtilityFunctions:
         shutil.copy(config_path, model_dir / "training_config.json")
 
         # Load model without weights file present
-        model = load_legacy_model(str(model_dir), load_weights=True)
-
-        # Check that warning was logged
-        assert "Model weights not found at" in caplog.text
-        assert "best_model.h5" in caplog.text
+        with pytest.raises(ValueError, match="Model weights not found at"):
+            model = load_legacy_model(str(model_dir), load_weights=True)
 
     def test_create_model_no_valid_heads(self, monkeypatch):
         """Test error when no valid head config is found."""

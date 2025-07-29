@@ -332,9 +332,9 @@ def load_legacy_model_weights(
                         )
 
                 if channel_errors:
-                    verification_errors.append(
-                        f"{pytorch_name}: {'; '.join(channel_errors)}"
-                    )
+                    message = f"Channel verification failed for {pytorch_name}: {'; '.join(channel_errors)}"
+                    logger.error(message)
+                    verification_errors.append(message)
 
             else:
                 # Bias: just compare all values
@@ -344,22 +344,16 @@ def load_legacy_model_weights(
                 ).item()
                 diff = abs(keras_mean - torch_mean)
                 if diff > 1e-6:
-                    verification_errors.append(
-                        f"{pytorch_name} (bias): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
-                    )
+                    message = f"Weight verification failed for {pytorch_name} bias): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
+                    logger.error(message)
+                    verification_errors.append(message)
 
         except Exception as e:
             error_msg = f"Error verifying {pytorch_name}: {e}"
             logger.error(error_msg)
             verification_errors.append(error_msg)
 
-    if verification_errors:
-        logger.error(
-            f"Weight verification completed with {len(verification_errors)} errors"
-        )
-        for error in verification_errors[:5]:  # Show first 5 errors
-            logger.error(f"  {error}")
-    else:
+    if not verification_errors:
         logger.info("✓ All weight assignments verified successfully")
 
 
@@ -438,22 +432,18 @@ def load_legacy_model(model_dir: str, load_weights: bool = True) -> Model:
     model_dir = Path(model_dir)
 
     # Create model from config
-    try:
-        model = create_model_from_legacy_config(str(model_dir))
-        model.eval()
-    except Exception as e:
-        logger.error(f"Failed to create model from legacy config: {e}")
-        raise
+    model = create_model_from_legacy_config(str(model_dir))
+    model.eval()
 
     # Load weights if requested
     if load_weights:
         h5_path = model_dir / "best_model.h5"
         if h5_path.exists():
-            try:
-                load_legacy_model_weights(model, str(h5_path))
-            except Exception as e:
-                logger.error(f"Failed to load legacy weights: {e}")
+            load_legacy_model_weights(model, str(h5_path))
+
         else:
-            logger.warning(f"Model weights not found at {h5_path}")
+            message = f"Model weights not found at {h5_path}"
+            logger.error(message)
+            raise ValueError(message)
 
     return model

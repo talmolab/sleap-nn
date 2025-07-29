@@ -746,10 +746,6 @@ class TopDownPredictor(Predictor):
                 centroid_config = TrainingJobConfig.load_sleap_config(
                     (Path(centroid_ckpt_path) / "training_config.json").as_posix()
                 )
-            else:
-                raise ValueError(
-                    f"Could not find training_config.yaml or training_config.json in {centroid_ckpt_path}"
-                )
 
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
 
@@ -841,10 +837,7 @@ class TopDownPredictor(Predictor):
                 confmap_config = TrainingJobConfig.load_sleap_config(
                     (Path(confmap_ckpt_path) / "training_config.json").as_posix()
                 )
-            else:
-                raise ValueError(
-                    f"Could not find training_config.yaml or training_config.json in {confmap_ckpt_path}"
-                )
+
             skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
 
             # check which backbone architecture
@@ -1277,10 +1270,6 @@ class SingleInstancePredictor(Predictor):
             confmap_config = TrainingJobConfig.load_sleap_config(
                 (Path(confmap_ckpt_path) / "training_config.json").as_posix()
             )
-        else:
-            raise ValueError(
-                f"Could not find training_config.yaml or training_config.json in {confmap_ckpt_path}"
-            )
 
         # check which backbone architecture
         for k, v in confmap_config.model_config.backbone_config.items():
@@ -1708,10 +1697,6 @@ class BottomUpPredictor(Predictor):
             bottomup_config = TrainingJobConfig.load_sleap_config(
                 (Path(bottomup_ckpt_path) / "training_config.json").as_posix()
             )
-        else:
-            raise ValueError(
-                f"Could not find training_config.yaml or training_config.json in {bottomup_ckpt_path}"
-            )
 
         # check which backbone architecture
         for k, v in bottomup_config.model_config.backbone_config.items():
@@ -2125,10 +2110,6 @@ class BottomUpMultiClassPredictor(Predictor):
             is_sleap_ckpt = True
             bottomup_config = TrainingJobConfig.load_sleap_config(
                 (Path(bottomup_ckpt_path) / "training_config.json").as_posix()
-            )
-        else:
-            raise ValueError(
-                f"Could not find training_config.yaml or training_config.json in {bottomup_ckpt_path}"
             )
 
         # check which backbone architecture
@@ -2651,10 +2632,6 @@ class TopDownMultiClassPredictor(Predictor):
                 centroid_config = TrainingJobConfig.load_sleap_config(
                     (Path(centroid_ckpt_path) / "training_config.json").as_posix()
                 )
-            else:
-                raise ValueError(
-                    f"Could not find training_config.yaml or training_config.json in {centroid_ckpt_path}"
-                )
 
             # Load centroid model.
             skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
@@ -2755,10 +2732,6 @@ class TopDownMultiClassPredictor(Predictor):
                 is_sleap_ckpt = True
                 confmap_config = TrainingJobConfig.load_sleap_config(
                     (Path(confmap_ckpt_path) / "training_config.json").as_posix()
-                )
-            else:
-                raise ValueError(
-                    f"Could not find training_config.yaml or training_config.json in {confmap_ckpt_path}"
                 )
 
             # check which backbone architecture
