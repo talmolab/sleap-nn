@@ -827,14 +827,14 @@ class TopDownPredictor(Predictor):
             is_sleap_ckpt = False
             # Load confmap model.
             if (
-                confmap_ckpt_path / "training_config.yaml"
+                Path(confmap_ckpt_path) / "training_config.yaml"
                 in Path(confmap_ckpt_path).iterdir()
             ):
                 confmap_config = OmegaConf.load(
                     (Path(confmap_ckpt_path) / "training_config.yaml").as_posix()
                 )
             elif (
-                confmap_ckpt_path / "training_config.json"
+                Path(confmap_ckpt_path) / "training_config.json"
                 in Path(confmap_ckpt_path).iterdir()
             ):
                 is_sleap_ckpt = True
