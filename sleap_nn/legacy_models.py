@@ -298,6 +298,70 @@ def load_legacy_model_weights(
             f"Weight loading completed with {len(errors)} errors: {'; '.join(errors[:5])}"
         )
 
+    # Verify all loaded weights by comparing means
+    logger.info("Verifying weight assignments...")
+    verification_errors = []
+
+    for legacy_path, pytorch_name in mapping.items():
+        if legacy_path not in legacy_weights:
+            continue
+
+        try:
+            original_weight = legacy_weights[legacy_path]
+            info = parse_keras_layer_name(legacy_path)
+
+            if info["weight_type"] == "kernel":
+                # Convert Keras to PyTorch format
+                torch_weight = convert_keras_to_pytorch_conv2d(original_weight)
+                # Keras: (H, W, C_in, C_out), PyTorch: (C_out, C_in, H, W)
+                keras_cout = original_weight.shape[-1]
+                torch_cout = torch_weight.shape[0]
+                assert (
+                    keras_cout == torch_cout
+                ), f"Output channel mismatch: {keras_cout} vs {torch_cout}"
+
+                # Check each output channel
+                channel_errors = []
+                for i in range(keras_cout):
+                    keras_ch_mean = np.mean(original_weight[..., i])
+                    torch_ch_mean = torch.mean(torch_weight[i]).item()
+                    diff = abs(keras_ch_mean - torch_ch_mean)
+                    if diff > 1e-6:
+                        channel_errors.append(
+                            f"channel {i}: keras={keras_ch_mean:.6f}, torch={torch_ch_mean:.6f}, diff={diff:.6e}"
+                        )
+
+                if channel_errors:
+                    verification_errors.append(
+                        f"{pytorch_name}: {'; '.join(channel_errors)}"
+                    )
+
+            else:
+                # Bias: just compare all values
+                keras_mean = np.mean(original_weight)
+                torch_mean = torch.mean(
+                    torch.from_numpy(original_weight).float()
+                ).item()
+                diff = abs(keras_mean - torch_mean)
+                if diff > 1e-6:
+                    verification_errors.append(
+                        f"{pytorch_name} (bias): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
+                    )
+
+        except Exception as e:
+            error_msg = f"Error verifying {pytorch_name}: {e}"
+            logger.error(error_msg)
+            verification_errors.append(error_msg)
+
+    if verification_errors:
+        logger.error(
+            f"Weight verification completed with {len(verification_errors)} errors"
+        )
+        for error in verification_errors[:5]:  # Show first 5 errors
+            logger.error(f"  {error}")
+    else:
+        logger.info("✓ All weight assignments verified successfully")
+
 
 def create_model_from_legacy_config(config_path: str) -> Model:
     """Create a PyTorch model from a legacy training config.
@@ -339,6 +403,12 @@ def create_model_from_legacy_config(config_path: str) -> Model:
     elif head_configs.bottomup is not None:
         model_type = "bottomup"
         active_head_config = head_configs.bottomup
+    elif head_configs.multi_class_topdown is not None:
+        model_type = "multi_class_topdown"
+        active_head_config = head_configs.multi_class_topdown
+    elif head_configs.multi_class_bottomup is not None:
+        model_type = "multi_class_bottomup"
+        active_head_config = head_configs.multi_class_bottomup
     else:
         raise ValueError("Could not determine model type from head configs")
 
@@ -370,6 +440,7 @@ def load_legacy_model(model_dir: str, load_weights: bool = True) -> Model:
     # Create model from config
     try:
         model = create_model_from_legacy_config(str(model_dir))
+        model.eval()
     except Exception as e:
         logger.error(f"Failed to create model from legacy config: {e}")
         raise

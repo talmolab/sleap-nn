@@ -6,6 +6,7 @@ import pytest
 import torch
 from omegaconf import OmegaConf
 from sleap_nn.inference.predictors import Predictor, run_inference
+from sleap_nn.evaluation import Evaluator
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
 
@@ -1640,3 +1641,131 @@ def test_tracking_only_pipeline(
         labels = run_inference(
             data_path=centered_instance_video.as_posix(), tracking=False
         )
+
+
+def test_legacy_topdown_predictor(
+    minimal_instance,
+    sleap_centroid_model_path,
+    sleap_centered_instance_model_path,
+):
+    """Test legacy topdown predictor."""
+    pred_labels = run_inference(
+        model_paths=[sleap_centroid_model_path, sleap_centered_instance_model_path],
+        data_path=minimal_instance.as_posix(),
+        make_labels=True,
+        integral_refinement="integral",
+        max_instances=2,
+    )
+    gt_labels = sio.load_slp(minimal_instance)
+
+    assert np.all(
+        np.isclose(
+            pred_labels[0].instances[0].numpy(),
+            gt_labels[0].instances[1].numpy(),
+            atol=6,
+        )
+    ) or np.all(
+        np.isclose(
+            pred_labels[0].instances[0].numpy(),
+            gt_labels[0].instances[0].numpy(),
+            atol=6,
+        )
+    )
+    assert np.all(
+        np.isclose(
+            pred_labels[0].instances[1].numpy(),
+            gt_labels[0].instances[0].numpy(),
+            atol=6,
+        )
+    ) or np.all(
+        np.isclose(
+            pred_labels[0].instances[1].numpy(),
+            gt_labels[0].instances[1].numpy(),
+            atol=6,
+        )
+    )
+
+
+def test_legacy_bottomup_predictor(
+    minimal_instance,
+    sleap_bottomup_model_path,
+):
+    """Test legacy bottomup predictor."""
+    pred_labels = run_inference(
+        model_paths=[sleap_bottomup_model_path],
+        data_path=minimal_instance.as_posix(),
+        make_labels=True,
+        integral_refinement="integral",
+    )
+    gt_labels = sio.load_slp(minimal_instance)
+
+    assert np.all(
+        np.isclose(
+            pred_labels[0].instances[0].numpy(),
+            gt_labels[0].instances[1].numpy(),
+            atol=6,
+        )
+    ) or np.all(
+        np.isclose(
+            pred_labels[0].instances[0].numpy(),
+            gt_labels[0].instances[0].numpy(),
+            atol=6,
+        )
+    )
+    assert np.all(
+        np.isclose(
+            pred_labels[0].instances[1].numpy(),
+            gt_labels[0].instances[0].numpy(),
+            atol=6,
+        )
+    ) or np.all(
+        np.isclose(
+            pred_labels[0].instances[1].numpy(),
+            gt_labels[0].instances[1].numpy(),
+            atol=6,
+        )
+    )
+
+
+def test_legacy_single_instance_predictor(
+    minimal_instance,
+    sleap_single_instance_model_path,
+):
+    """Test legacy single instance predictor."""
+    pred_labels = run_inference(
+        model_paths=[sleap_single_instance_model_path],
+        data_path=minimal_instance.as_posix(),
+        make_labels=True,
+        integral_refinement="integral",
+    )
+    gt_labels = sio.load_slp(minimal_instance)
+
+
+def test_legacy_multiclass_bottomup_predictor(
+    minimal_instance,
+    sleap_bottomup_multiclass_model_path,
+):
+    """Test legacy multiclass bottomup predictor."""
+    pred_labels = run_inference(
+        model_paths=[sleap_bottomup_multiclass_model_path],
+        data_path=minimal_instance.as_posix(),
+        make_labels=True,
+        integral_refinement="integral",
+    )
+    gt_labels = sio.load_slp(minimal_instance)
+
+
+def test_legacy_multiclass_topdown_predictor(
+    minimal_instance,
+    sleap_centroid_model_path,
+    sleap_topdown_multiclass_model_path,
+):
+    """Test legacy multiclass topdown predictor."""
+    pred_labels = run_inference(
+        model_paths=[sleap_centroid_model_path, sleap_topdown_multiclass_model_path],
+        data_path=minimal_instance.as_posix(),
+        make_labels=True,
+        integral_refinement="integral",
+        max_instances=2,
+    )
+    gt_labels = sio.load_slp(minimal_instance)

@@ -422,6 +422,7 @@ class SimpleUpsamplingBlock(nn.Module):
             self.blocks[f"{prefix}_interp_{interp_method}"] = nn.Upsample(
                 scale_factor=upsampling_stride,
                 mode=interp_method,
+                align_corners=False,
             )
         else:
             # Upsample via strided transposed convolution.
@@ -525,11 +526,11 @@ class SimpleUpsamplingBlock(nn.Module):
                 and idx == self.norm_act_layers
                 and feature is not None
             ):
-                x = torch.concat((x, feature), dim=1)
+                x = torch.concat((feature, x), dim=1)
             elif (
                 self.up_interpolate and idx == 1 and feature is not None
             ):  # Right after upsampling or convtranspose2d.
-                x = torch.concat((x, feature), dim=1)
+                x = torch.concat((feature, x), dim=1)
             x = b(x)
         return x
 

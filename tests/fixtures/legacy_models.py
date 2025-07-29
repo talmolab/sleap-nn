@@ -32,7 +32,7 @@ LEGACY_MODELS_DIR = Path(__file__).parent.parent / "assets" / "legacy_models"
 
 
 @pytest.fixture
-def centroid_model_path() -> Path:
+def sleap_centroid_model_path() -> Path:
     """Path to a trained centroid model.
 
     This model detects animal centroids in 384x384 grayscale images.
@@ -43,7 +43,7 @@ def centroid_model_path() -> Path:
 
 
 @pytest.fixture
-def centered_instance_model_path() -> Path:
+def sleap_centered_instance_model_path() -> Path:
     """Path to a trained centered instance model.
 
     This model predicts poses for cropped single animals in 96x96 grayscale images.
@@ -55,7 +55,7 @@ def centered_instance_model_path() -> Path:
 
 
 @pytest.fixture
-def single_instance_model_path() -> Path:
+def sleap_single_instance_model_path() -> Path:
     """Path to a trained single instance model.
 
     This model predicts poses for single animals in 192x192 RGB images.
@@ -67,7 +67,7 @@ def single_instance_model_path() -> Path:
 
 
 @pytest.fixture
-def bottomup_model_path() -> Path:
+def sleap_bottomup_model_path() -> Path:
     """Path to a trained bottom-up model.
 
     This model predicts multi-animal poses in 384x384 grayscale images.
@@ -79,7 +79,7 @@ def bottomup_model_path() -> Path:
 
 
 @pytest.fixture
-def bottomup_multiclass_model_path() -> Path:
+def sleap_bottomup_multiclass_model_path() -> Path:
     """Path to a trained multiclass bottom-up model.
 
     This model predicts multi-animal poses with identity classes in 384x384 grayscale images.
@@ -92,7 +92,7 @@ def bottomup_multiclass_model_path() -> Path:
 
 
 @pytest.fixture
-def topdown_multiclass_model_path() -> Path:
+def sleap_topdown_multiclass_model_path() -> Path:
     """Path to a trained multiclass top-down model.
 
     This model predicts multi-animal poses with identity classes in 384x384 grayscale images.

@@ -724,6 +724,8 @@ def run_training(config: DictConfig):
                 device=trainer.trainer.strategy.root_device,
                 output_path=Path(config.trainer_config.save_ckpt_path)
                 / f"pred_{d_name}.slp",
+                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
             )
 
             if not len(pred_labels):
