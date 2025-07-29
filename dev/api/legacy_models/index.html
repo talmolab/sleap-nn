@@ -2473,7 +2473,13 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.</p>
 
             <details class="quote">
               <summary>Source code in <code>sleap_nn/legacy_models.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-366">366</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-360">360</a></span>
+<span class="normal"><a href="#__codelineno-0-361">361</a></span>
+<span class="normal"><a href="#__codelineno-0-362">362</a></span>
+<span class="normal"><a href="#__codelineno-0-363">363</a></span>
+<span class="normal"><a href="#__codelineno-0-364">364</a></span>
+<span class="normal"><a href="#__codelineno-0-365">365</a></span>
+<span class="normal"><a href="#__codelineno-0-366">366</a></span>
 <span class="normal"><a href="#__codelineno-0-367">367</a></span>
 <span class="normal"><a href="#__codelineno-0-368">368</a></span>
 <span class="normal"><a href="#__codelineno-0-369">369</a></span>
@@ -2524,70 +2530,64 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.</p>
 <span class="normal"><a href="#__codelineno-0-414">414</a></span>
 <span class="normal"><a href="#__codelineno-0-415">415</a></span>
 <span class="normal"><a href="#__codelineno-0-416">416</a></span>
-<span class="normal"><a href="#__codelineno-0-417">417</a></span>
-<span class="normal"><a href="#__codelineno-0-418">418</a></span>
-<span class="normal"><a href="#__codelineno-0-419">419</a></span>
-<span class="normal"><a href="#__codelineno-0-420">420</a></span>
-<span class="normal"><a href="#__codelineno-0-421">421</a></span>
-<span class="normal"><a href="#__codelineno-0-422">422</a></span>
-<span class="normal"><a href="#__codelineno-0-423">423</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-366"><a id="__codelineno-0-366" name="__codelineno-0-366"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_model_from_legacy_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Model</span><span class="p">:</span>
-</span><span id="__span-0-367"><a id="__codelineno-0-367" name="__codelineno-0-367"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a PyTorch model from a legacy training config.</span>
-</span><span id="__span-0-368"><a id="__codelineno-0-368" name="__codelineno-0-368"></a>
-</span><span id="__span-0-369"><a id="__codelineno-0-369" name="__codelineno-0-369"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-370"><a id="__codelineno-0-370" name="__codelineno-0-370"></a><span class="sd">        config_path: Path to the legacy training_config.json file</span>
-</span><span id="__span-0-371"><a id="__codelineno-0-371" name="__codelineno-0-371"></a>
-</span><span id="__span-0-372"><a id="__codelineno-0-372" name="__codelineno-0-372"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-373"><a id="__codelineno-0-373" name="__codelineno-0-373"></a><span class="sd">        Model instance configured to match the legacy architecture</span>
-</span><span id="__span-0-374"><a id="__codelineno-0-374" name="__codelineno-0-374"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-375"><a id="__codelineno-0-375" name="__codelineno-0-375"></a>    <span class="c1"># Load config using existing functionality</span>
-</span><span id="__span-0-376"><a id="__codelineno-0-376" name="__codelineno-0-376"></a>    <span class="n">config_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
-</span><span id="__span-0-377"><a id="__codelineno-0-377" name="__codelineno-0-377"></a>    <span class="k">if</span> <span class="n">config_path</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
-</span><span id="__span-0-378"><a id="__codelineno-0-378" name="__codelineno-0-378"></a>        <span class="n">config_path</span> <span class="o">=</span> <span class="n">config_path</span> <span class="o">/</span> <span class="s2">&quot;training_config.json&quot;</span>
+<span class="normal"><a href="#__codelineno-0-417">417</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-360"><a id="__codelineno-0-360" name="__codelineno-0-360"></a><span class="k">def</span><span class="w"> </span><span class="nf">create_model_from_legacy_config</span><span class="p">(</span><span class="n">config_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Model</span><span class="p">:</span>
+</span><span id="__span-0-361"><a id="__codelineno-0-361" name="__codelineno-0-361"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a PyTorch model from a legacy training config.</span>
+</span><span id="__span-0-362"><a id="__codelineno-0-362" name="__codelineno-0-362"></a>
+</span><span id="__span-0-363"><a id="__codelineno-0-363" name="__codelineno-0-363"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-364"><a id="__codelineno-0-364" name="__codelineno-0-364"></a><span class="sd">        config_path: Path to the legacy training_config.json file</span>
+</span><span id="__span-0-365"><a id="__codelineno-0-365" name="__codelineno-0-365"></a>
+</span><span id="__span-0-366"><a id="__codelineno-0-366" name="__codelineno-0-366"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-367"><a id="__codelineno-0-367" name="__codelineno-0-367"></a><span class="sd">        Model instance configured to match the legacy architecture</span>
+</span><span id="__span-0-368"><a id="__codelineno-0-368" name="__codelineno-0-368"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-369"><a id="__codelineno-0-369" name="__codelineno-0-369"></a>    <span class="c1"># Load config using existing functionality</span>
+</span><span id="__span-0-370"><a id="__codelineno-0-370" name="__codelineno-0-370"></a>    <span class="n">config_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">config_path</span><span class="p">)</span>
+</span><span id="__span-0-371"><a id="__codelineno-0-371" name="__codelineno-0-371"></a>    <span class="k">if</span> <span class="n">config_path</span><span class="o">.</span><span class="n">is_dir</span><span class="p">():</span>
+</span><span id="__span-0-372"><a id="__codelineno-0-372" name="__codelineno-0-372"></a>        <span class="n">config_path</span> <span class="o">=</span> <span class="n">config_path</span> <span class="o">/</span> <span class="s2">&quot;training_config.json&quot;</span>
+</span><span id="__span-0-373"><a id="__codelineno-0-373" name="__codelineno-0-373"></a>
+</span><span id="__span-0-374"><a id="__codelineno-0-374" name="__codelineno-0-374"></a>    <span class="c1"># Use the existing config loader</span>
+</span><span id="__span-0-375"><a id="__codelineno-0-375" name="__codelineno-0-375"></a>    <span class="n">config</span> <span class="o">=</span> <span class="n">TrainingJobConfig</span><span class="o">.</span><span class="n">load_sleap_config</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">))</span>
+</span><span id="__span-0-376"><a id="__codelineno-0-376" name="__codelineno-0-376"></a>
+</span><span id="__span-0-377"><a id="__codelineno-0-377" name="__codelineno-0-377"></a>    <span class="c1"># Determine backbone type from config</span>
+</span><span id="__span-0-378"><a id="__codelineno-0-378" name="__codelineno-0-378"></a>    <span class="n">backbone_type</span> <span class="o">=</span> <span class="s2">&quot;unet&quot;</span>  <span class="c1"># Default for legacy models</span>
 </span><span id="__span-0-379"><a id="__codelineno-0-379" name="__codelineno-0-379"></a>
-</span><span id="__span-0-380"><a id="__codelineno-0-380" name="__codelineno-0-380"></a>    <span class="c1"># Use the existing config loader</span>
-</span><span id="__span-0-381"><a id="__codelineno-0-381" name="__codelineno-0-381"></a>    <span class="n">config</span> <span class="o">=</span> <span class="n">TrainingJobConfig</span><span class="o">.</span><span class="n">load_sleap_config</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">config_path</span><span class="p">))</span>
+</span><span id="__span-0-380"><a id="__codelineno-0-380" name="__codelineno-0-380"></a>    <span class="c1"># Get backbone config (should be under the unet key for legacy models)</span>
+</span><span id="__span-0-381"><a id="__codelineno-0-381" name="__codelineno-0-381"></a>    <span class="n">backbone_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">model_config</span><span class="o">.</span><span class="n">backbone_config</span><span class="o">.</span><span class="n">unet</span>
 </span><span id="__span-0-382"><a id="__codelineno-0-382" name="__codelineno-0-382"></a>
-</span><span id="__span-0-383"><a id="__codelineno-0-383" name="__codelineno-0-383"></a>    <span class="c1"># Determine backbone type from config</span>
-</span><span id="__span-0-384"><a id="__codelineno-0-384" name="__codelineno-0-384"></a>    <span class="n">backbone_type</span> <span class="o">=</span> <span class="s2">&quot;unet&quot;</span>  <span class="c1"># Default for legacy models</span>
-</span><span id="__span-0-385"><a id="__codelineno-0-385" name="__codelineno-0-385"></a>
-</span><span id="__span-0-386"><a id="__codelineno-0-386" name="__codelineno-0-386"></a>    <span class="c1"># Get backbone config (should be under the unet key for legacy models)</span>
-</span><span id="__span-0-387"><a id="__codelineno-0-387" name="__codelineno-0-387"></a>    <span class="n">backbone_config</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">model_config</span><span class="o">.</span><span class="n">backbone_config</span><span class="o">.</span><span class="n">unet</span>
-</span><span id="__span-0-388"><a id="__codelineno-0-388" name="__codelineno-0-388"></a>
-</span><span id="__span-0-389"><a id="__codelineno-0-389" name="__codelineno-0-389"></a>    <span class="c1"># Determine model type from head configs</span>
-</span><span id="__span-0-390"><a id="__codelineno-0-390" name="__codelineno-0-390"></a>    <span class="n">head_configs</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">model_config</span><span class="o">.</span><span class="n">head_configs</span>
-</span><span id="__span-0-391"><a id="__codelineno-0-391" name="__codelineno-0-391"></a>    <span class="n">model_type</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-392"><a id="__codelineno-0-392" name="__codelineno-0-392"></a>    <span class="n">active_head_config</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-393"><a id="__codelineno-0-393" name="__codelineno-0-393"></a>
-</span><span id="__span-0-394"><a id="__codelineno-0-394" name="__codelineno-0-394"></a>    <span class="k">if</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centroid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-395"><a id="__codelineno-0-395" name="__codelineno-0-395"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;centroid&quot;</span>
-</span><span id="__span-0-396"><a id="__codelineno-0-396" name="__codelineno-0-396"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centroid</span>
-</span><span id="__span-0-397"><a id="__codelineno-0-397" name="__codelineno-0-397"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centered_instance</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-398"><a id="__codelineno-0-398" name="__codelineno-0-398"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;centered_instance&quot;</span>
-</span><span id="__span-0-399"><a id="__codelineno-0-399" name="__codelineno-0-399"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centered_instance</span>
-</span><span id="__span-0-400"><a id="__codelineno-0-400" name="__codelineno-0-400"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">single_instance</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-401"><a id="__codelineno-0-401" name="__codelineno-0-401"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;single_instance&quot;</span>
-</span><span id="__span-0-402"><a id="__codelineno-0-402" name="__codelineno-0-402"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">single_instance</span>
-</span><span id="__span-0-403"><a id="__codelineno-0-403" name="__codelineno-0-403"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">bottomup</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-404"><a id="__codelineno-0-404" name="__codelineno-0-404"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;bottomup&quot;</span>
-</span><span id="__span-0-405"><a id="__codelineno-0-405" name="__codelineno-0-405"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">bottomup</span>
-</span><span id="__span-0-406"><a id="__codelineno-0-406" name="__codelineno-0-406"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_topdown</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-407"><a id="__codelineno-0-407" name="__codelineno-0-407"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;multi_class_topdown&quot;</span>
-</span><span id="__span-0-408"><a id="__codelineno-0-408" name="__codelineno-0-408"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_topdown</span>
-</span><span id="__span-0-409"><a id="__codelineno-0-409" name="__codelineno-0-409"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_bottomup</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-410"><a id="__codelineno-0-410" name="__codelineno-0-410"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;multi_class_bottomup&quot;</span>
-</span><span id="__span-0-411"><a id="__codelineno-0-411" name="__codelineno-0-411"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_bottomup</span>
-</span><span id="__span-0-412"><a id="__codelineno-0-412" name="__codelineno-0-412"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-413"><a id="__codelineno-0-413" name="__codelineno-0-413"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Could not determine model type from head configs&quot;</span><span class="p">)</span>
-</span><span id="__span-0-414"><a id="__codelineno-0-414" name="__codelineno-0-414"></a>
-</span><span id="__span-0-415"><a id="__codelineno-0-415" name="__codelineno-0-415"></a>    <span class="c1"># Create model using the from_config method</span>
-</span><span id="__span-0-416"><a id="__codelineno-0-416" name="__codelineno-0-416"></a>    <span class="n">model</span> <span class="o">=</span> <span class="n">Model</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span>
-</span><span id="__span-0-417"><a id="__codelineno-0-417" name="__codelineno-0-417"></a>        <span class="n">backbone_type</span><span class="o">=</span><span class="n">backbone_type</span><span class="p">,</span>
-</span><span id="__span-0-418"><a id="__codelineno-0-418" name="__codelineno-0-418"></a>        <span class="n">backbone_config</span><span class="o">=</span><span class="n">backbone_config</span><span class="p">,</span>
-</span><span id="__span-0-419"><a id="__codelineno-0-419" name="__codelineno-0-419"></a>        <span class="n">head_configs</span><span class="o">=</span><span class="n">active_head_config</span><span class="p">,</span>
-</span><span id="__span-0-420"><a id="__codelineno-0-420" name="__codelineno-0-420"></a>        <span class="n">model_type</span><span class="o">=</span><span class="n">model_type</span><span class="p">,</span>
-</span><span id="__span-0-421"><a id="__codelineno-0-421" name="__codelineno-0-421"></a>    <span class="p">)</span>
-</span><span id="__span-0-422"><a id="__codelineno-0-422" name="__codelineno-0-422"></a>
-</span><span id="__span-0-423"><a id="__codelineno-0-423" name="__codelineno-0-423"></a>    <span class="k">return</span> <span class="n">model</span>
+</span><span id="__span-0-383"><a id="__codelineno-0-383" name="__codelineno-0-383"></a>    <span class="c1"># Determine model type from head configs</span>
+</span><span id="__span-0-384"><a id="__codelineno-0-384" name="__codelineno-0-384"></a>    <span class="n">head_configs</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">model_config</span><span class="o">.</span><span class="n">head_configs</span>
+</span><span id="__span-0-385"><a id="__codelineno-0-385" name="__codelineno-0-385"></a>    <span class="n">model_type</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-386"><a id="__codelineno-0-386" name="__codelineno-0-386"></a>    <span class="n">active_head_config</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-387"><a id="__codelineno-0-387" name="__codelineno-0-387"></a>
+</span><span id="__span-0-388"><a id="__codelineno-0-388" name="__codelineno-0-388"></a>    <span class="k">if</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centroid</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-389"><a id="__codelineno-0-389" name="__codelineno-0-389"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;centroid&quot;</span>
+</span><span id="__span-0-390"><a id="__codelineno-0-390" name="__codelineno-0-390"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centroid</span>
+</span><span id="__span-0-391"><a id="__codelineno-0-391" name="__codelineno-0-391"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centered_instance</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-392"><a id="__codelineno-0-392" name="__codelineno-0-392"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;centered_instance&quot;</span>
+</span><span id="__span-0-393"><a id="__codelineno-0-393" name="__codelineno-0-393"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">centered_instance</span>
+</span><span id="__span-0-394"><a id="__codelineno-0-394" name="__codelineno-0-394"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">single_instance</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-395"><a id="__codelineno-0-395" name="__codelineno-0-395"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;single_instance&quot;</span>
+</span><span id="__span-0-396"><a id="__codelineno-0-396" name="__codelineno-0-396"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">single_instance</span>
+</span><span id="__span-0-397"><a id="__codelineno-0-397" name="__codelineno-0-397"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">bottomup</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-398"><a id="__codelineno-0-398" name="__codelineno-0-398"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;bottomup&quot;</span>
+</span><span id="__span-0-399"><a id="__codelineno-0-399" name="__codelineno-0-399"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">bottomup</span>
+</span><span id="__span-0-400"><a id="__codelineno-0-400" name="__codelineno-0-400"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_topdown</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-401"><a id="__codelineno-0-401" name="__codelineno-0-401"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;multi_class_topdown&quot;</span>
+</span><span id="__span-0-402"><a id="__codelineno-0-402" name="__codelineno-0-402"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_topdown</span>
+</span><span id="__span-0-403"><a id="__codelineno-0-403" name="__codelineno-0-403"></a>    <span class="k">elif</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_bottomup</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-404"><a id="__codelineno-0-404" name="__codelineno-0-404"></a>        <span class="n">model_type</span> <span class="o">=</span> <span class="s2">&quot;multi_class_bottomup&quot;</span>
+</span><span id="__span-0-405"><a id="__codelineno-0-405" name="__codelineno-0-405"></a>        <span class="n">active_head_config</span> <span class="o">=</span> <span class="n">head_configs</span><span class="o">.</span><span class="n">multi_class_bottomup</span>
+</span><span id="__span-0-406"><a id="__codelineno-0-406" name="__codelineno-0-406"></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-407"><a id="__codelineno-0-407" name="__codelineno-0-407"></a>        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">&quot;Could not determine model type from head configs&quot;</span><span class="p">)</span>
+</span><span id="__span-0-408"><a id="__codelineno-0-408" name="__codelineno-0-408"></a>
+</span><span id="__span-0-409"><a id="__codelineno-0-409" name="__codelineno-0-409"></a>    <span class="c1"># Create model using the from_config method</span>
+</span><span id="__span-0-410"><a id="__codelineno-0-410" name="__codelineno-0-410"></a>    <span class="n">model</span> <span class="o">=</span> <span class="n">Model</span><span class="o">.</span><span class="n">from_config</span><span class="p">(</span>
+</span><span id="__span-0-411"><a id="__codelineno-0-411" name="__codelineno-0-411"></a>        <span class="n">backbone_type</span><span class="o">=</span><span class="n">backbone_type</span><span class="p">,</span>
+</span><span id="__span-0-412"><a id="__codelineno-0-412" name="__codelineno-0-412"></a>        <span class="n">backbone_config</span><span class="o">=</span><span class="n">backbone_config</span><span class="p">,</span>
+</span><span id="__span-0-413"><a id="__codelineno-0-413" name="__codelineno-0-413"></a>        <span class="n">head_configs</span><span class="o">=</span><span class="n">active_head_config</span><span class="p">,</span>
+</span><span id="__span-0-414"><a id="__codelineno-0-414" name="__codelineno-0-414"></a>        <span class="n">model_type</span><span class="o">=</span><span class="n">model_type</span><span class="p">,</span>
+</span><span id="__span-0-415"><a id="__codelineno-0-415" name="__codelineno-0-415"></a>    <span class="p">)</span>
+</span><span id="__span-0-416"><a id="__codelineno-0-416" name="__codelineno-0-416"></a>
+</span><span id="__span-0-417"><a id="__codelineno-0-417" name="__codelineno-0-417"></a>    <span class="k">return</span> <span class="n">model</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -2803,7 +2803,13 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.</p>
 
             <details class="quote">
               <summary>Source code in <code>sleap_nn/legacy_models.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-426">426</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-420">420</a></span>
+<span class="normal"><a href="#__codelineno-0-421">421</a></span>
+<span class="normal"><a href="#__codelineno-0-422">422</a></span>
+<span class="normal"><a href="#__codelineno-0-423">423</a></span>
+<span class="normal"><a href="#__codelineno-0-424">424</a></span>
+<span class="normal"><a href="#__codelineno-0-425">425</a></span>
+<span class="normal"><a href="#__codelineno-0-426">426</a></span>
 <span class="normal"><a href="#__codelineno-0-427">427</a></span>
 <span class="normal"><a href="#__codelineno-0-428">428</a></span>
 <span class="normal"><a href="#__codelineno-0-429">429</a></span>
@@ -2826,50 +2832,36 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.</p>
 <span class="normal"><a href="#__codelineno-0-446">446</a></span>
 <span class="normal"><a href="#__codelineno-0-447">447</a></span>
 <span class="normal"><a href="#__codelineno-0-448">448</a></span>
-<span class="normal"><a href="#__codelineno-0-449">449</a></span>
-<span class="normal"><a href="#__codelineno-0-450">450</a></span>
-<span class="normal"><a href="#__codelineno-0-451">451</a></span>
-<span class="normal"><a href="#__codelineno-0-452">452</a></span>
-<span class="normal"><a href="#__codelineno-0-453">453</a></span>
-<span class="normal"><a href="#__codelineno-0-454">454</a></span>
-<span class="normal"><a href="#__codelineno-0-455">455</a></span>
-<span class="normal"><a href="#__codelineno-0-456">456</a></span>
-<span class="normal"><a href="#__codelineno-0-457">457</a></span>
-<span class="normal"><a href="#__codelineno-0-458">458</a></span>
-<span class="normal"><a href="#__codelineno-0-459">459</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-426"><a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_legacy_model</span><span class="p">(</span><span class="n">model_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">load_weights</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Model</span><span class="p">:</span>
-</span><span id="__span-0-427"><a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Load a complete legacy SLEAP model including weights.</span>
+<span class="normal"><a href="#__codelineno-0-449">449</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-420"><a id="__codelineno-0-420" name="__codelineno-0-420"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_legacy_model</span><span class="p">(</span><span class="n">model_dir</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">load_weights</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Model</span><span class="p">:</span>
+</span><span id="__span-0-421"><a id="__codelineno-0-421" name="__codelineno-0-421"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Load a complete legacy SLEAP model including weights.</span>
+</span><span id="__span-0-422"><a id="__codelineno-0-422" name="__codelineno-0-422"></a>
+</span><span id="__span-0-423"><a id="__codelineno-0-423" name="__codelineno-0-423"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-424"><a id="__codelineno-0-424" name="__codelineno-0-424"></a><span class="sd">        model_dir: Path to the legacy model directory containing</span>
+</span><span id="__span-0-425"><a id="__codelineno-0-425" name="__codelineno-0-425"></a><span class="sd">                   training_config.json and best_model.h5</span>
+</span><span id="__span-0-426"><a id="__codelineno-0-426" name="__codelineno-0-426"></a><span class="sd">        load_weights: Whether to load the weights. If False, only</span>
+</span><span id="__span-0-427"><a id="__codelineno-0-427" name="__codelineno-0-427"></a><span class="sd">                      creates the model architecture.</span>
 </span><span id="__span-0-428"><a id="__codelineno-0-428" name="__codelineno-0-428"></a>
-</span><span id="__span-0-429"><a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">    Args:</span>
-</span><span id="__span-0-430"><a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">        model_dir: Path to the legacy model directory containing</span>
-</span><span id="__span-0-431"><a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">                   training_config.json and best_model.h5</span>
-</span><span id="__span-0-432"><a id="__codelineno-0-432" name="__codelineno-0-432"></a><span class="sd">        load_weights: Whether to load the weights. If False, only</span>
-</span><span id="__span-0-433"><a id="__codelineno-0-433" name="__codelineno-0-433"></a><span class="sd">                      creates the model architecture.</span>
-</span><span id="__span-0-434"><a id="__codelineno-0-434" name="__codelineno-0-434"></a>
-</span><span id="__span-0-435"><a id="__codelineno-0-435" name="__codelineno-0-435"></a><span class="sd">    Returns:</span>
-</span><span id="__span-0-436"><a id="__codelineno-0-436" name="__codelineno-0-436"></a><span class="sd">        Model instance with loaded weights</span>
-</span><span id="__span-0-437"><a id="__codelineno-0-437" name="__codelineno-0-437"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-438"><a id="__codelineno-0-438" name="__codelineno-0-438"></a>    <span class="n">model_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">model_dir</span><span class="p">)</span>
-</span><span id="__span-0-439"><a id="__codelineno-0-439" name="__codelineno-0-439"></a>
-</span><span id="__span-0-440"><a id="__codelineno-0-440" name="__codelineno-0-440"></a>    <span class="c1"># Create model from config</span>
-</span><span id="__span-0-441"><a id="__codelineno-0-441" name="__codelineno-0-441"></a>    <span class="k">try</span><span class="p">:</span>
-</span><span id="__span-0-442"><a id="__codelineno-0-442" name="__codelineno-0-442"></a>        <span class="n">model</span> <span class="o">=</span> <span class="n">create_model_from_legacy_config</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">model_dir</span><span class="p">))</span>
-</span><span id="__span-0-443"><a id="__codelineno-0-443" name="__codelineno-0-443"></a>        <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
-</span><span id="__span-0-444"><a id="__codelineno-0-444" name="__codelineno-0-444"></a>    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-445"><a id="__codelineno-0-445" name="__codelineno-0-445"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to create model from legacy config: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-446"><a id="__codelineno-0-446" name="__codelineno-0-446"></a>        <span class="k">raise</span>
-</span><span id="__span-0-447"><a id="__codelineno-0-447" name="__codelineno-0-447"></a>
-</span><span id="__span-0-448"><a id="__codelineno-0-448" name="__codelineno-0-448"></a>    <span class="c1"># Load weights if requested</span>
-</span><span id="__span-0-449"><a id="__codelineno-0-449" name="__codelineno-0-449"></a>    <span class="k">if</span> <span class="n">load_weights</span><span class="p">:</span>
-</span><span id="__span-0-450"><a id="__codelineno-0-450" name="__codelineno-0-450"></a>        <span class="n">h5_path</span> <span class="o">=</span> <span class="n">model_dir</span> <span class="o">/</span> <span class="s2">&quot;best_model.h5&quot;</span>
-</span><span id="__span-0-451"><a id="__codelineno-0-451" name="__codelineno-0-451"></a>        <span class="k">if</span> <span class="n">h5_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
-</span><span id="__span-0-452"><a id="__codelineno-0-452" name="__codelineno-0-452"></a>            <span class="k">try</span><span class="p">:</span>
-</span><span id="__span-0-453"><a id="__codelineno-0-453" name="__codelineno-0-453"></a>                <span class="n">load_legacy_model_weights</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">h5_path</span><span class="p">))</span>
-</span><span id="__span-0-454"><a id="__codelineno-0-454" name="__codelineno-0-454"></a>            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span id="__span-0-455"><a id="__codelineno-0-455" name="__codelineno-0-455"></a>                <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Failed to load legacy weights: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-456"><a id="__codelineno-0-456" name="__codelineno-0-456"></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-457"><a id="__codelineno-0-457" name="__codelineno-0-457"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Model weights not found at </span><span class="si">{</span><span class="n">h5_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-458"><a id="__codelineno-0-458" name="__codelineno-0-458"></a>
-</span><span id="__span-0-459"><a id="__codelineno-0-459" name="__codelineno-0-459"></a>    <span class="k">return</span> <span class="n">model</span>
+</span><span id="__span-0-429"><a id="__codelineno-0-429" name="__codelineno-0-429"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-430"><a id="__codelineno-0-430" name="__codelineno-0-430"></a><span class="sd">        Model instance with loaded weights</span>
+</span><span id="__span-0-431"><a id="__codelineno-0-431" name="__codelineno-0-431"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-432"><a id="__codelineno-0-432" name="__codelineno-0-432"></a>    <span class="n">model_dir</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">model_dir</span><span class="p">)</span>
+</span><span id="__span-0-433"><a id="__codelineno-0-433" name="__codelineno-0-433"></a>
+</span><span id="__span-0-434"><a id="__codelineno-0-434" name="__codelineno-0-434"></a>    <span class="c1"># Create model from config</span>
+</span><span id="__span-0-435"><a id="__codelineno-0-435" name="__codelineno-0-435"></a>    <span class="n">model</span> <span class="o">=</span> <span class="n">create_model_from_legacy_config</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">model_dir</span><span class="p">))</span>
+</span><span id="__span-0-436"><a id="__codelineno-0-436" name="__codelineno-0-436"></a>    <span class="n">model</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+</span><span id="__span-0-437"><a id="__codelineno-0-437" name="__codelineno-0-437"></a>
+</span><span id="__span-0-438"><a id="__codelineno-0-438" name="__codelineno-0-438"></a>    <span class="c1"># Load weights if requested</span>
+</span><span id="__span-0-439"><a id="__codelineno-0-439" name="__codelineno-0-439"></a>    <span class="k">if</span> <span class="n">load_weights</span><span class="p">:</span>
+</span><span id="__span-0-440"><a id="__codelineno-0-440" name="__codelineno-0-440"></a>        <span class="n">h5_path</span> <span class="o">=</span> <span class="n">model_dir</span> <span class="o">/</span> <span class="s2">&quot;best_model.h5&quot;</span>
+</span><span id="__span-0-441"><a id="__codelineno-0-441" name="__codelineno-0-441"></a>        <span class="k">if</span> <span class="n">h5_path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+</span><span id="__span-0-442"><a id="__codelineno-0-442" name="__codelineno-0-442"></a>            <span class="n">load_legacy_model_weights</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">h5_path</span><span class="p">))</span>
+</span><span id="__span-0-443"><a id="__codelineno-0-443" name="__codelineno-0-443"></a>
+</span><span id="__span-0-444"><a id="__codelineno-0-444" name="__codelineno-0-444"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-445"><a id="__codelineno-0-445" name="__codelineno-0-445"></a>            <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Model weights not found at </span><span class="si">{</span><span class="n">h5_path</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-446"><a id="__codelineno-0-446" name="__codelineno-0-446"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-447"><a id="__codelineno-0-447" name="__codelineno-0-447"></a>            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-448"><a id="__codelineno-0-448" name="__codelineno-0-448"></a>
+</span><span id="__span-0-449"><a id="__codelineno-0-449" name="__codelineno-0-449"></a>    <span class="k">return</span> <span class="n">model</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -3106,13 +3098,7 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.</p>
 <span class="normal"><a href="#__codelineno-0-354">354</a></span>
 <span class="normal"><a href="#__codelineno-0-355">355</a></span>
 <span class="normal"><a href="#__codelineno-0-356">356</a></span>
-<span class="normal"><a href="#__codelineno-0-357">357</a></span>
-<span class="normal"><a href="#__codelineno-0-358">358</a></span>
-<span class="normal"><a href="#__codelineno-0-359">359</a></span>
-<span class="normal"><a href="#__codelineno-0-360">360</a></span>
-<span class="normal"><a href="#__codelineno-0-361">361</a></span>
-<span class="normal"><a href="#__codelineno-0-362">362</a></span>
-<span class="normal"><a href="#__codelineno-0-363">363</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-207"><a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_legacy_model_weights</span><span class="p">(</span>
+<span class="normal"><a href="#__codelineno-0-357">357</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-207"><a id="__codelineno-0-207" name="__codelineno-0-207"></a><span class="k">def</span><span class="w"> </span><span class="nf">load_legacy_model_weights</span><span class="p">(</span>
 </span><span id="__span-0-208"><a id="__codelineno-0-208" name="__codelineno-0-208"></a>    <span class="n">pytorch_model</span><span class="p">:</span> <span class="n">torch</span><span class="o">.</span><span class="n">nn</span><span class="o">.</span><span class="n">Module</span><span class="p">,</span>
 </span><span id="__span-0-209"><a id="__codelineno-0-209" name="__codelineno-0-209"></a>    <span class="n">h5_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
 </span><span id="__span-0-210"><a id="__codelineno-0-210" name="__codelineno-0-210"></a>    <span class="n">mapping</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
@@ -3240,9 +3226,9 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.</p>
 </span><span id="__span-0-332"><a id="__codelineno-0-332" name="__codelineno-0-332"></a>                        <span class="p">)</span>
 </span><span id="__span-0-333"><a id="__codelineno-0-333" name="__codelineno-0-333"></a>
 </span><span id="__span-0-334"><a id="__codelineno-0-334" name="__codelineno-0-334"></a>                <span class="k">if</span> <span class="n">channel_errors</span><span class="p">:</span>
-</span><span id="__span-0-335"><a id="__codelineno-0-335" name="__codelineno-0-335"></a>                    <span class="n">verification_errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-</span><span id="__span-0-336"><a id="__codelineno-0-336" name="__codelineno-0-336"></a>                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">pytorch_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="s1">&#39;; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">channel_errors</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
-</span><span id="__span-0-337"><a id="__codelineno-0-337" name="__codelineno-0-337"></a>                    <span class="p">)</span>
+</span><span id="__span-0-335"><a id="__codelineno-0-335" name="__codelineno-0-335"></a>                    <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Channel verification failed for </span><span class="si">{</span><span class="n">pytorch_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="s1">&#39;; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">channel_errors</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-336"><a id="__codelineno-0-336" name="__codelineno-0-336"></a>                    <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-337"><a id="__codelineno-0-337" name="__codelineno-0-337"></a>                    <span class="n">verification_errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
 </span><span id="__span-0-338"><a id="__codelineno-0-338" name="__codelineno-0-338"></a>
 </span><span id="__span-0-339"><a id="__codelineno-0-339" name="__codelineno-0-339"></a>            <span class="k">else</span><span class="p">:</span>
 </span><span id="__span-0-340"><a id="__codelineno-0-340" name="__codelineno-0-340"></a>                <span class="c1"># Bias: just compare all values</span>
@@ -3252,23 +3238,17 @@ TensorFlow/Keras backend to PyTorch format compatible with sleap-nn.</p>
 </span><span id="__span-0-344"><a id="__codelineno-0-344" name="__codelineno-0-344"></a>                <span class="p">)</span><span class="o">.</span><span class="n">item</span><span class="p">()</span>
 </span><span id="__span-0-345"><a id="__codelineno-0-345" name="__codelineno-0-345"></a>                <span class="n">diff</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">keras_mean</span> <span class="o">-</span> <span class="n">torch_mean</span><span class="p">)</span>
 </span><span id="__span-0-346"><a id="__codelineno-0-346" name="__codelineno-0-346"></a>                <span class="k">if</span> <span class="n">diff</span> <span class="o">&gt;</span> <span class="mf">1e-6</span><span class="p">:</span>
-</span><span id="__span-0-347"><a id="__codelineno-0-347" name="__codelineno-0-347"></a>                    <span class="n">verification_errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-</span><span id="__span-0-348"><a id="__codelineno-0-348" name="__codelineno-0-348"></a>                        <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">pytorch_name</span><span class="si">}</span><span class="s2"> (bias): keras=</span><span class="si">{</span><span class="n">keras_mean</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">, torch=</span><span class="si">{</span><span class="n">torch_mean</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">, diff=</span><span class="si">{</span><span class="n">diff</span><span class="si">:</span><span class="s2">.6e</span><span class="si">}</span><span class="s2">&quot;</span>
-</span><span id="__span-0-349"><a id="__codelineno-0-349" name="__codelineno-0-349"></a>                    <span class="p">)</span>
+</span><span id="__span-0-347"><a id="__codelineno-0-347" name="__codelineno-0-347"></a>                    <span class="n">message</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Weight verification failed for </span><span class="si">{</span><span class="n">pytorch_name</span><span class="si">}</span><span class="s2"> bias): keras=</span><span class="si">{</span><span class="n">keras_mean</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">, torch=</span><span class="si">{</span><span class="n">torch_mean</span><span class="si">:</span><span class="s2">.6f</span><span class="si">}</span><span class="s2">, diff=</span><span class="si">{</span><span class="n">diff</span><span class="si">:</span><span class="s2">.6e</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-348"><a id="__codelineno-0-348" name="__codelineno-0-348"></a>                    <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</span><span id="__span-0-349"><a id="__codelineno-0-349" name="__codelineno-0-349"></a>                    <span class="n">verification_errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
 </span><span id="__span-0-350"><a id="__codelineno-0-350" name="__codelineno-0-350"></a>
 </span><span id="__span-0-351"><a id="__codelineno-0-351" name="__codelineno-0-351"></a>        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
 </span><span id="__span-0-352"><a id="__codelineno-0-352" name="__codelineno-0-352"></a>            <span class="n">error_msg</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">&quot;Error verifying </span><span class="si">{</span><span class="n">pytorch_name</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span>
 </span><span id="__span-0-353"><a id="__codelineno-0-353" name="__codelineno-0-353"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
 </span><span id="__span-0-354"><a id="__codelineno-0-354" name="__codelineno-0-354"></a>            <span class="n">verification_errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">error_msg</span><span class="p">)</span>
 </span><span id="__span-0-355"><a id="__codelineno-0-355" name="__codelineno-0-355"></a>
-</span><span id="__span-0-356"><a id="__codelineno-0-356" name="__codelineno-0-356"></a>    <span class="k">if</span> <span class="n">verification_errors</span><span class="p">:</span>
-</span><span id="__span-0-357"><a id="__codelineno-0-357" name="__codelineno-0-357"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span>
-</span><span id="__span-0-358"><a id="__codelineno-0-358" name="__codelineno-0-358"></a>            <span class="sa">f</span><span class="s2">&quot;Weight verification completed with </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">verification_errors</span><span class="p">)</span><span class="si">}</span><span class="s2"> errors&quot;</span>
-</span><span id="__span-0-359"><a id="__codelineno-0-359" name="__codelineno-0-359"></a>        <span class="p">)</span>
-</span><span id="__span-0-360"><a id="__codelineno-0-360" name="__codelineno-0-360"></a>        <span class="k">for</span> <span class="n">error</span> <span class="ow">in</span> <span class="n">verification_errors</span><span class="p">[:</span><span class="mi">5</span><span class="p">]:</span>  <span class="c1"># Show first 5 errors</span>
-</span><span id="__span-0-361"><a id="__codelineno-0-361" name="__codelineno-0-361"></a>            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-362"><a id="__codelineno-0-362" name="__codelineno-0-362"></a>    <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-363"><a id="__codelineno-0-363" name="__codelineno-0-363"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;✓ All weight assignments verified successfully&quot;</span><span class="p">)</span>
+</span><span id="__span-0-356"><a id="__codelineno-0-356" name="__codelineno-0-356"></a>    <span class="k">if</span> <span class="ow">not</span> <span class="n">verification_errors</span><span class="p">:</span>
+</span><span id="__span-0-357"><a id="__codelineno-0-357" name="__codelineno-0-357"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;✓ All weight assignments verified successfully&quot;</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
