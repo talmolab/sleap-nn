@@ -46,6 +46,7 @@ def test_topdown_predictor(
         peak_threshold=0.0,
         device="cpu",
         output_path=f"{tmp_path}/test.pkg.slp",
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -83,6 +84,7 @@ def test_topdown_predictor(
         make_labels=True,
         device="cpu",
         peak_threshold=0.0,
+        integral_refinement=None,
     )
     assert isinstance(preds, sio.Labels)
     assert len(preds) == 1
@@ -120,6 +122,7 @@ def test_topdown_predictor(
             model_paths=[minimal_instance_centered_instance_ckpt],
             data_path=minimal_instance.as_posix(),
             make_labels=False,
+            integral_refinement=None,
         )
     assert "Could not create predictor" in caplog.text
 
@@ -153,6 +156,7 @@ def test_topdown_predictor(
         max_instances=max_instances,
         device="cpu",
         peak_threshold=0.1,
+        integral_refinement=None,
     )
     assert len(pred_labels) == 1
     assert (
@@ -193,6 +197,7 @@ def test_topdown_predictor(
         device="cpu",
         frames=[1100, 1101, 1102, 1103],
         peak_threshold=0.1,
+        integral_refinement=None,
     )
 
     # Provider = VideoReader
@@ -209,6 +214,7 @@ def test_topdown_predictor(
             device="cpu",
             frames=[x for x in range(100)],
             peak_threshold=0.1,
+            integral_refinement=None,
         )
     assert "Error when reading video frame." in caplog.text
 
@@ -227,6 +233,7 @@ def test_topdown_predictor(
         peak_threshold=0.1,
         frames=[x for x in range(20)],
         tracking=True,
+        integral_refinement=None,
     )
 
     assert len(pred_labels.tracks) <= 2  # should be less than max tracks
@@ -251,6 +258,7 @@ def test_topdown_predictor(
             peak_threshold=0.1,
             frames=[x for x in range(20)],
             tracking=True,
+            integral_refinement=None,
         )
         assert "Max_tracks (and max instances) is None" in caplog.text
 
@@ -799,6 +807,7 @@ def test_multiclass_topdown_predictor(
         peak_threshold=0.0,
         device="cpu",
         output_path=f"{tmp_path}/test.pkg.slp",
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -838,6 +847,7 @@ def test_multiclass_topdown_predictor(
         make_labels=True,
         device="cpu",
         peak_threshold=0.0,
+        integral_refinement=None,
     )
     assert isinstance(preds, sio.Labels)
     assert len(preds) == 1
@@ -877,6 +887,7 @@ def test_multiclass_topdown_predictor(
             model_paths=[minimal_instance_multi_class_topdown_ckpt],
             data_path=minimal_instance.as_posix(),
             make_labels=False,
+            integral_refinement=None,
         )
     assert "Could not create predictor" in caplog.text
 
@@ -936,6 +947,7 @@ def test_multiclass_topdown_predictor(
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
         max_instances=6,
+        integral_refinement=None,
         device="cpu",
         frames=[1100, 1101, 1102, 1103],
         peak_threshold=0.1,
@@ -955,6 +967,7 @@ def test_multiclass_topdown_predictor(
             device="cpu",
             frames=[x for x in range(100)],
             peak_threshold=0.1,
+            integral_refinement=None,
         )
     assert "Error when reading video frame." in caplog.text
 
@@ -1158,6 +1171,7 @@ def test_single_instance_predictor(
         max_instances=6,
         device="cpu",
         peak_threshold=0.1,
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1184,6 +1198,7 @@ def test_single_instance_predictor(
         make_labels=False,
         peak_threshold=0.3,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(preds, list)
     assert len(preds) == 1
@@ -1201,6 +1216,7 @@ def test_single_instance_predictor(
         device="cpu",
         make_labels=True,
         peak_threshold=0.1,
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1229,6 +1245,7 @@ def test_single_instance_predictor(
         make_labels=True,
         device="cpu",
         peak_threshold=0.0,
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1100
@@ -1254,6 +1271,7 @@ def test_single_instance_predictor(
         device="cpu",
         peak_threshold=0.3,
         frames=[x for x in range(100)],
+        integral_refinement=None,
     )
     assert isinstance(preds, list)
     assert len(preds) == 25
@@ -1289,6 +1307,7 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1316,6 +1335,7 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(preds, list)
     assert len(preds) == 1
@@ -1333,6 +1353,7 @@ def test_bottomup_predictor(
         frames=[0],
         make_labels=True,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(preds, sio.Labels)
     assert len(preds) == 1
@@ -1345,6 +1366,7 @@ def test_bottomup_predictor(
         max_instances=6,
         peak_threshold=1.0,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1359,6 +1381,7 @@ def test_bottomup_predictor(
         peak_threshold=0.03,
         frames=[x for x in range(100)],
         device="cpu",
+        integral_refinement=None,
     )
 
     assert isinstance(pred_labels, sio.Labels)
@@ -1374,6 +1397,7 @@ def test_bottomup_predictor(
         peak_threshold=0.03,
         frames=[x for x in range(100)],
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(preds, list)
     assert len(preds) == 25
@@ -1395,6 +1419,7 @@ def test_bottomup_predictor(
         max_tracks=6,
         post_connect_single_breaks=True,
         device="cpu",
+        integral_refinement=None,
     )
 
     for lf in pred_labels:
@@ -1463,6 +1488,7 @@ def test_multi_class_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1494,6 +1520,7 @@ def test_multi_class_bottomup_predictor(
         max_instances=6,
         peak_threshold=0.03,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(preds, list)
     assert len(preds) == 1
@@ -1512,6 +1539,7 @@ def test_multi_class_bottomup_predictor(
         frames=[0],
         make_labels=True,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(preds, sio.Labels)
     assert len(preds) == 1
@@ -1525,6 +1553,7 @@ def test_multi_class_bottomup_predictor(
         max_instances=6,
         peak_threshold=2.0,
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
     assert len(pred_labels) == 1
@@ -1539,6 +1568,7 @@ def test_multi_class_bottomup_predictor(
         peak_threshold=0.03,
         frames=[x for x in range(100)],
         device="cpu",
+        integral_refinement=None,
     )
 
     assert isinstance(pred_labels, sio.Labels)
@@ -1555,6 +1585,7 @@ def test_multi_class_bottomup_predictor(
         peak_threshold=0.03,
         frames=[x for x in range(100)],
         device="cpu",
+        integral_refinement=None,
     )
     assert isinstance(preds, list)
     assert len(preds) == 25
@@ -1632,6 +1663,7 @@ def test_tracking_only_pipeline(
         tracking=True,
         post_connect_single_breaks=True,
         max_instances=2,
+        integral_refinement=None,
     )
 
     assert len(tracked_labels.tracks) == 2
@@ -1639,7 +1671,9 @@ def test_tracking_only_pipeline(
     # neither model nor tracking is provided
     with pytest.raises(Exception):
         labels = run_inference(
-            data_path=centered_instance_video.as_posix(), tracking=False
+            data_path=centered_instance_video.as_posix(),
+            tracking=False,
+            integral_refinement=None,
         )
 
 

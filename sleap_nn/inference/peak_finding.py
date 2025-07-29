@@ -263,7 +263,7 @@ def find_local_peaks_rough(
 def find_local_peaks(
     cms: torch.Tensor,
     threshold: float = 0.2,
-    refinement: Optional[str] = "integral",
+    refinement: Optional[str] = None,
     integral_patch_size: int = 5,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """Find local peaks with optional refinement.

@@ -39,7 +39,7 @@ class SingleInstanceInferenceModel(L.LightningModule):
         torch_model: L.LightningModule,
         output_stride: Optional[int] = None,
         peak_threshold: float = 0.0,
-        refinement: Optional[str] = "integral",
+        refinement: Optional[str] = None,
         integral_patch_size: int = 5,
         return_confmaps: Optional[bool] = False,
         input_scale: float = 1.0,

@@ -3106,7 +3106,7 @@ def run_inference(
     crop_size: Optional[int] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
     ##
-    integral_refinement: str = "integral",
+    integral_refinement: Optional[str] = "integral",
     integral_patch_size: int = 5,
     return_confmaps: bool = False,
     return_pafs: bool = False,
