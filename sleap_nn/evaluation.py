@@ -27,7 +27,11 @@ def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     """
     instance_list = []
     frame_idx = labeled_frame.frame_idx
-    video_path = labeled_frame.video.backend.source_filename
+    video_path = (
+        labeled_frame.video.backend.source_filename
+        if hasattr(labeled_frame.video.backend, "source_filename")
+        else labeled_frame.video.backend.filename
+    )
     for instance in labeled_frame.instances:
         match_instance = MatchInstance(
             instance=instance, frame_idx=frame_idx, video_path=video_path
