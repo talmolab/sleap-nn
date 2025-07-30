@@ -2,70 +2,138 @@
 
 ## Prerequisites
 
-- Python 3.8 or higher
-- [Anaconda](https://www.anaconda.com/products/distribution) or [Miniconda](https://docs.conda.io/en/latest/miniconda.html)
-- [Mamba](https://mamba.readthedocs.io/) (recommended for faster dependency resolution)
+- Python 3.11
+- [Miniforge](https://github.com/conda-forge/miniforge) (recommended for isolated Python environments with fast dependency resolution)
+- [Mamba](https://mamba.readthedocs.io/) (included with Miniforge, recommended for faster dependency resolution)
 
-## Environment Setup
-
-### GPU Support (Windows/Linux)
-
-For systems with NVIDIA GPUs:
+## 🚀 Quick Start
 
 ```bash
+# For GPU (Windows/Linux)
 mamba env create -f environment.yml
-mamba activate sleap-nn
-```
 
-### CPU Only (Windows/Linux/Intel Mac)
-
-For systems without GPUs or when GPU support is not needed:
-
-```bash
+# For CPU (Windows/Linux/Intel Mac)
 mamba env create -f environment_cpu.yml
-mamba activate sleap-nn
-```
 
-### Apple Silicon (M1/M2/M3)
-
-For Apple Silicon Macs:
-
-```bash
+# For Apple Silicon (M1/M2 Mac)
 mamba env create -f environment_osx-arm64.yml
+
+# Activate the environment
 mamba activate sleap-nn
 ```
 
-## Development Installation
+## 🚀 Development Setup
 
-If you plan to contribute or modify the code:
+### 1. Install Miniforge
+
+We recommend using [Miniforge](https://github.com/conda-forge/miniforge) for an isolated Python environment with fast dependency resolution.
+
+### 2. Create and Activate Development Environment
 
 ```bash
-# Clone the repository
-git clone https://github.com/talmolab/sleap-nn.git
-cd sleap-nn
-
-# Create environment (choose appropriate file for your platform)
-mamba env create -f environment.yml
-mamba activate sleap-nn
-
-# Install in development mode
-pip install -e ".[dev]"
+mamba create -n sleap-nn-dev python=3.11
+mamba activate sleap-nn-dev
 ```
 
-## Verifying Installation
+### 3. Install `uv` and Development Dependencies
+
+[`uv`](https://github.com/astral-sh/uv) is a fast and modern package manager for `pyproject.toml`-based projects.
+
+```bash
+pip install uv
+uv pip install -e ".[dev]"
+```
+
+### 4. Install PyTorch
+
+You can either:
+
+#### Option A: Install with Optional Dependencies (Recommended)
+
+```bash
+uv pip install -e ".[torch]"
+```
+
+This installs the default builds of `torch` and `torchvision` via PyPI for your OS.
+
+#### Option B: Manual Installation for Specific Platforms
+
+Install the correct wheel for your system using PyTorch's index URL:
+
+**Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+```
+
+**macOS with Apple Silicon (M1, M2, M3, M4):**
+You don't need to do anything if you used the `[torch]` optional dependency or default PyPI install—the default wheels now include Metal backend support for Apple GPUs.
+
+**CPU-only (no GPU or unsupported GPU):**
+```bash
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+```
+
+You can find the correct wheel for your system at:
+👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
+
+### 5. Verify Installation
 
 Test your installation:
 
-```python
-import sleap_nn
-import torch
+```bash
+# Run tests
+pytest tests
 
-print(f"sleap-nn version: {sleap_nn.__version__}")
-print(f"PyTorch version: {torch.__version__}")
-print(f"CUDA available: {torch.cuda.is_available()}")
+# Optional: Lint and format code
+black --check sleap_nn tests
+ruff check sleap_nn/
 ```
 
+## ⚠️ Important: PyTorch is Required at Runtime
+
+The `torch` and `torchvision` dependencies are defined as **optional** in `pyproject.toml`. However, they are **required for the code to run**, and are imported at the top level in many modules. This means:
+
+- You **must** install `sleap-nn` with the `[torch]` extras:
+
+  ```bash
+  uv pip install -e ".[torch]"
+  ```
+
+- **Or** manually install `torch` and `torchvision` with the appropriate build for your system.
+
+> 🛑 If you install `sleap-nn` without `torch`, **any import of sleap_nn will fail** with an `ImportError` until you install it manually.
+
+## ⚙️ GPU Support Strategy
+
+We intentionally **do not include GPU-specific `torch` or `torchvision` builds** in `pyproject.toml`. Instead, we recommend installing them manually based on your platform.
+
+### ✅ Why this strategy works
+
+- **Portability**: No CUDA version or hardware is assumed. This avoids broken installs on unsupported platforms.
+- **Flexibility**: You can use the appropriate PyTorch build for your system.
+- **Reliability**: All other dependencies are managed cleanly with `uv`.
+
+> 💡 This makes `sleap-nn` compatible with both GPU-accelerated and CPU-only environments.
+
+<details>
+<summary>📦 Why not use `pyproject.toml` for GPU builds?</summary>
+
+- GPU wheels are not on PyPI — they live at [https://download.pytorch.org/whl/](https://download.pytorch.org/whl/)
+- These builds vary by platform, CUDA version, and GPU architecture.
+- `uv` does not currently support CLI-based extra index URLs like pip's `--index-url`.
+- Hardcoding GPU wheels into `pyproject.toml` would break cross-platform support.
+
+</details>
+
 ## Troubleshooting
+
+### Import Errors
+
+If you get import errors:
+
+1. Ensure you've activated the conda environment: `mamba activate sleap-nn-dev`
+2. Verify PyTorch is installed: `python -c "import torch; print(torch.__version__)"`
+3. Try reinstalling with torch extras: `uv pip install -e ".[torch]"`
 
 ### CUDA Issues
 
@@ -74,14 +142,6 @@ If you encounter CUDA-related errors:
 1. Verify your NVIDIA drivers are up to date
 2. Check CUDA compatibility with PyTorch version
 3. Try the CPU-only installation as a fallback
-
-### Import Errors
-
-If you get import errors:
-
-1. Ensure you've activated the conda environment
-2. Verify all dependencies installed correctly
-3. Try reinstalling the package
 
 ### Memory Issues
 

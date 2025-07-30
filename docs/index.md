@@ -20,17 +20,16 @@ sleap-nn provides high-performance implementations of neural network architectur
 ### Installation
 
 ```bash
-# For GPU (Windows/Linux)
-mamba env create -f environment.yml
+# Create and activate environment
+mamba create -n sleap-nn-dev python=3.11
+mamba activate sleap-nn-dev
 
-# For CPU (Windows/Linux/Intel Mac)
-mamba env create -f environment_cpu.yml
+# Install uv and dependencies
+pip install uv
+uv pip install -e ".[torch]"
 
-# For Apple Silicon (M1/M2 Mac)
-mamba env create -f environment_osx-arm64.yml
-
-# Activate the environment
-mamba activate sleap-nn
+# For GPU support (Windows/Linux with NVIDIA GPU)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 ```
 
 ### Basic Usage
