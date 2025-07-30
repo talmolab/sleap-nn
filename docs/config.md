@@ -1,4 +1,4 @@
-# SLEAP-NN Configuration Guide
+# Configuration Guide
 
 This document contains the docstrings for the config file required to pass to the `sleap_nn.ModelTrainer` class to train and run inference on a sleap-nn model.
 
@@ -12,8 +12,7 @@ The config file has three main sections:
 
 ---
 
-<details>
-<summary><strong>Data Configuration (`data_config`)</strong></summary>
+## Data Configuration (`data_config`)
 
 The data configuration section controls how training and validation data is loaded, preprocessed, and augmented.
 
@@ -33,13 +32,13 @@ The data configuration section controls how training and validation data is load
 
 ### Image Preprocessing
 - `preprocessing`:
-  - `ensure_rgb`: (bool) True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. **Default**: `False`
-  - `ensure_grayscale`: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. **Default**: `False`
-  - `max_height`: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. **Default**: `None`
-  - `max_width`: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. **Default**: `None`
-  - `scale`: (float) Factor to resize the image dimensions by, specified as a float. **Default**: `1.0`
-  - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. **Default**: `None`
-  - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`. **Default**: `100`
+    - `ensure_rgb`: (bool) True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. **Default**: `False`
+    - `ensure_grayscale`: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. **Default**: `False`
+    - `max_height`: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. **Default**: `None`
+    - `max_width`: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. **Default**: `None`
+    - `scale`: (float) Factor to resize the image dimensions by, specified as a float. **Default**: `1.0`
+    - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. **Default**: `None`
+    - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`. **Default**: `100`
 
 ### Data Augmentation
 - `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. **Default**: `False`
@@ -70,12 +69,9 @@ The data configuration section controls how training and validation data is load
     - `mixup_lambda`: (list) min-max value of mixup strength. **Default**: `[0.01, 0.05]`
     - `mixup_p`: (float) Probability of applying random mixup v2. **Default**: `0.0`
 
-</details>
-
 ---
 
-<details>
-<summary><strong>Model Configuration (`model_config`)</strong></summary>
+## Model Configuration (`model_config`)
 
 The model configuration section defines the neural network architecture, including backbone and head configurations.
 
@@ -90,133 +86,130 @@ The model configuration section defines the neural network architecture, includi
 
 #### UNet Backbone
 - `backbone_config.unet`:
-  - `in_channels`: (int) Number of input channels. **Default**: `1`
-  - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
-  - `filters`: (int) Base number of filters in the network. **Default**: `32`
-  - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `1.5`
-  - `max_stride`: (int) Scalar integer specifying the maximum stride which is used to compute the number of down blocks. **Default**: `16`
-  - `stem_stride`: (int) If not None, will create additional "down" blocks for initial downsampling based on the stride. These will be configured identically to the down blocks below. **Default**: `None`
-  - `middle_block`: (bool) If True, add an additional block at the end of the encoder. **Default**: `True`
-  - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
-  - `stacks`: (int) Number of upsampling blocks in the decoder. **Default**: `1`
-  - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
+    - `in_channels`: (int) Number of input channels. **Default**: `1`
+    - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
+    - `filters`: (int) Base number of filters in the network. **Default**: `32`
+    - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `1.5`
+    - `max_stride`: (int) Scalar integer specifying the maximum stride which is used to compute the number of down blocks. **Default**: `16`
+    - `stem_stride`: (int) If not None, will create additional "down" blocks for initial downsampling based on the stride. These will be configured identically to the down blocks below. **Default**: `None`
+    - `middle_block`: (bool) If True, add an additional block at the end of the encoder. **Default**: `True`
+    - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
+    - `stacks`: (int) Number of upsampling blocks in the decoder. **Default**: `1`
+    - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
 
 #### ConvNeXt Backbone
 - `backbone_config.convnext`:
-  - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
-    - `depths`: (List[int]) Number of layers in each block. **Default**: `[3, 3, 9, 3]`
-    - `channels`: (List[int]) Number of channels in each block. **Default**: `[96, 192, 384, 768]`
-  - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. **Default**: `"tiny"`
-  - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
-  - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. **Default**: `4`
-  - `stem_patch_stride`: (int) Convolutional stride in the stem layer. **Default**: `2`
-  - `in_channels`: (int) Number of input channels. **Default**: `1`
-  - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
-  - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
-  - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
-  - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
+    - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
+        - `depths`: (List[int]) Number of layers in each block. **Default**: `[3, 3, 9, 3]`
+        - `channels`: (List[int]) Number of channels in each block. **Default**: `[96, 192, 384, 768]`
+    - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. **Default**: `"tiny"`
+    - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
+    - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. **Default**: `4`
+    - `stem_patch_stride`: (int) Convolutional stride in the stem layer. **Default**: `2`
+    - `in_channels`: (int) Number of input channels. **Default**: `1`
+    - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
+    - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
+    - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
+    - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
 
 #### Swin Transformer Backbone
 - `backbone_config.swint`:
-  - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. **Default**: `"tiny"`
-  - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. **Default**: `None`
-  - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
-  - `patch_size`: (int) Patch size for the stem layer of SwinT. **Default**: `4`
-  - `stem_patch_stride`: (int) Stride for the patch. **Default**: `2`
-  - `window_size`: (int) Window size. **Default**: `7`
-  - `in_channels`: (int) Number of input channels. **Default**: `1`
-  - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
-  - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
-  - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
-  - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
+    - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. **Default**: `"tiny"`
+    - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. **Default**: `None`
+    - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
+    - `patch_size`: (int) Patch size for the stem layer of SwinT. **Default**: `4`
+    - `stem_patch_stride`: (int) Stride for the patch. **Default**: `2`
+    - `window_size`: (int) Window size. **Default**: `7`
+    - `in_channels`: (int) Number of input channels. **Default**: `1`
+    - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
+    - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
+    - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
+    - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
 
 ### Head Configuration
 **Note**: Configs should be provided only for the model to train and others should be `None`.
 
 #### Single Instance Head
 - `head_configs.single_instance.confmaps`:
-  - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'.
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
 
 #### Centroid Head
 - `head_configs.centroid.confmaps`:
-  - `anchor_part`: (str) Node name to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image. **Default**: `None`
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `anchor_part`: (str) Node name to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image. **Default**: `None`
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
 
 #### Centered Instance Head
 - `head_configs.centered_instance.confmaps`:
-  - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
-  - `anchor_part`: (str) Node name to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image. **Default**: `None`
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
+    - `anchor_part`: (str) Node name to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image. **Default**: `None`
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
 
 #### Bottom-Up Head
 - `head_configs.bottomup.confmaps`:
-  - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
-  - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
+    - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
 
 - `head_configs.bottomup.pafs`: (same structure as that of `confmaps`. **Note**: This section is only for BottomUp model.)
-  - `edges`: (List[str]) `None` if edges from `sio.Labels` file can be used directly. **Note**: Only for 'PartAffinityFieldsHead'. List of indices `(src, dest)` that form an edge. **Default**: `None`
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `15.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
-  - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
+    - `edges`: (List[str]) `None` if edges from `sio.Labels` file can be used directly. **Note**: Only for 'PartAffinityFieldsHead'. List of indices `(src, dest)` that form an edge. **Default**: `None`
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `15.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
 
 #### Multi-Class Bottom-Up Head
 - `head_configs.multi_class_bottomup.confmaps`:
-  - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
-  - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
+    - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
 
 - `head_configs.multi_class_bottomup.class_maps`:
-  - `classes`: (List[str]) List of class (track) names. **Default**: `None`. When `None`, these are inferred from the track names in the labels file.
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
-  - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
+    - `classes`: (List[str]) List of class (track) names. **Default**: `None`. When `None`, these are inferred from the track names in the labels file.
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
 
 #### Multi-Class Top-Down Head
 - `head_configs.multi_class_topdown.confmaps`:
-  - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
-  - `anchor_part`: (str) Node name to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image. **Default**: `None`
-  - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`. (Ideally this should be same as the backbone's maxstride).
-  - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
+    - `part_names`: (List[str]) `None` if nodes from `sio.Labels` file can be used directly. Else provide text name of the body parts (nodes) that the head will be configured to produce. The number of parts determines the number of channels in the output. If not specified, all body parts in the skeleton will be used. This config does not apply for 'PartAffinityFieldsHead'. **Default**: `None`
+    - `anchor_part`: (str) Node name to use as the anchor point. If None, the midpoint of the bounding box of all visible instance points will be used as the anchor. The bounding box midpoint will also be used if the anchor part is specified but not visible in the instance. Setting a reliable anchor point can significantly improve topdown model accuracy as they benefit from a consistent geometry of the body parts relative to the center of the image. **Default**: `None`
+    - `sigma`: (float) Spread of the Gaussian distribution of the confidence maps as a scalar float. Smaller values are more precise but may be difficult to learn as they have a lower density within the image space. Larger values are easier to learn but are less precise with respect to the peak coordinate. This spread is in units of pixels of the model input image, i.e., the image resolution after any input scaling is applied. **Default**: `5.0`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`. (Ideally this should be same as the backbone's maxstride).
+    - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
 
 - `head_configs.multi_class_topdown.class_vectors`:
-  - `classes`: (List[str]) List of class (track) names. **Default**: `None`. When `None`, these are inferred from the track names in the labels file.
-  - `num_fc_layers`: (int) Number of fully connected layers after flattening input features. **Default**: `1`
-  - `num_fc_units`: (int) Number of units (dimensions) in fully connected layers prior to classification output. **Default**: `64`
-  - `global_pool`: (bool) Enable global pooling. **Default**: `True`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
-  - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
-
-</details>
+    - `classes`: (List[str]) List of class (track) names. **Default**: `None`. When `None`, these are inferred from the track names in the labels file.
+    - `num_fc_layers`: (int) Number of fully connected layers after flattening input features. **Default**: `1`
+    - `num_fc_units`: (int) Number of units (dimensions) in fully connected layers prior to classification output. **Default**: `64`
+    - `global_pool`: (bool) Enable global pooling. **Default**: `True`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
 
 ---
 
-<details>
-<summary><strong>Trainer Configuration (`trainer_config`)</strong></summary>
+## Trainer Configuration (`trainer_config`)
 
 The trainer configuration section controls the training process, including data loading, optimization, and monitoring.
 
 ### Data Loader Settings
 - `train_data_loader`:
-  - `batch_size`: (int) Number of samples per batch or batch size for training data. **Default**: `1`
-  - `shuffle`: (bool) True to have the data reshuffled at every epoch. **Default**: `False`
-  - `num_workers`: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. **Default**: `0`
+    - `batch_size`: (int) Number of samples per batch or batch size for training data. **Default**: `1`
+    - `shuffle`: (bool) True to have the data reshuffled at every epoch. **Default**: `False`
+    - `num_workers`: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. **Default**: `0`
 - `val_data_loader`: (Similar to `train_data_loader`)
 
 ### Model Checkpointing
 - `model_ckpt`:
-  - `save_top_k`: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False. **Default**: `1`
-  - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. **Default**: `None`
+    - `save_top_k`: (int) If save_top_k == k, the best k models according to the quantity monitored will be saved. If save_top_k == 0, no models are saved. If save_top_k == -1, all models are saved. Please note that the monitors are checked every every_n_epochs epochs. if save_top_k >= 2 and the callback is called multiple times inside an epoch, the name of the saved file will be appended with a version count starting with v1 unless enable_version_counter is set to False. **Default**: `1`
+    - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. **Default**: `None`
 
 ### Hardware Configuration
 - `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. **Default**: `"auto"`
@@ -240,80 +233,76 @@ The trainer configuration section controls the training process, including data 
 ### Optimizer Configuration
 - `optimizer_name`: (str) Optimizer to be used. One of ["Adam", "AdamW"]. **Default**: `"Adam"`
 - `optimizer`:
-  - `lr`: (float) Learning rate of type float. **Default**: `1e-3`
-  - `amsgrad`: (bool) Enable AMSGrad with the optimizer. **Default**: `False`
+    - `lr`: (float) Learning rate of type float. **Default**: `1e-3`
+    - `amsgrad`: (bool) Enable AMSGrad with the optimizer. **Default**: `False`
 
 ### Learning Rate Schedulers
 **Note**: Configs should only be provided for one scheduler. Others should be `None`.
 
 #### Step LR Scheduler
 - `lr_scheduler.step_lr`:
-  - `step_size`: (int) Period of learning rate decay. If `step_size`=10, then every 10 epochs, learning rate will be reduced by a factor of `gamma`. **Default**: `10`
-  - `gamma`: (float) Multiplicative factor of learning rate decay. **Default**: `0.1`
+    - `step_size`: (int) Period of learning rate decay. If `step_size`=10, then every 10 epochs, learning rate will be reduced by a factor of `gamma`. **Default**: `10`
+    - `gamma`: (float) Multiplicative factor of learning rate decay. **Default**: `0.1`
 
 #### Reduce LR on Plateau
 - `lr_scheduler.reduce_lr_on_plateau`:
-  - `threshold`: (float) Threshold for measuring the new optimum, to only focus on significant changes. **Default**: `1e-4`
-  - `threshold_mode`: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. **Default**: `"rel"`
-  - `cooldown`: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. **Default**: `0`
-  - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. **Default**: `10`
-  - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. **Default**: `0.1`
-  - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. **Default**: `0.0`
+    - `threshold`: (float) Threshold for measuring the new optimum, to only focus on significant changes. **Default**: `1e-4`
+    - `threshold_mode`: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. **Default**: `"rel"`
+    - `cooldown`: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. **Default**: `0`
+    - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. **Default**: `10`
+    - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. **Default**: `0.1`
+    - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. **Default**: `0.0`
 
 ### Early Stopping
 - `early_stopping`:
-  - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. **Default**: `False`
-  - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. **Default**: `0.0`
-  - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. **Default**: `1`
+    - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. **Default**: `False`
+    - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. **Default**: `0.0`
+    - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. **Default**: `1`
 
 ### Online Hard Keypoint Mining (OHKM)
 - `online_hard_keypoint_mining`:
-  - `online_mining`: (bool) If True, online hard keypoint mining (OHKM) will be enabled. When this is enabled, the loss is computed per keypoint (or edge for PAFs) and sorted from lowest (easy) to highest (hard). The hard keypoint loss will be scaled to have a higher weight in the total loss, encouraging the training to focus on tricky body parts that are more difficult to learn. If False, no mining will be performed and all keypoints will be weighted equally in the loss. **Default**: `False`
-  - `hard_to_easy_ratio`: (float) The minimum ratio of the individual keypoint loss with respect to the lowest keypoint loss in order to be considered as "hard". This helps to switch focus on across groups of keypoints during training. **Default**: `2.0`
-  - `min_hard_keypoints`: (int) The minimum number of keypoints that will be considered as "hard", even if they are not below the `hard_to_easy_ratio`. **Default**: `2`
-  - `max_hard_keypoints`: (int) The maximum number of hard keypoints to apply scaling to. This can help when there are few very easy keypoints which may skew the ratio and result in loss scaling being applied to most keypoints, which can reduce the impact of hard mining altogether. **Default**: `None`
-  - `loss_scale`: (float) Factor to scale the hard keypoint losses by. **Default**: `5.0`
+    - `online_mining`: (bool) If True, online hard keypoint mining (OHKM) will be enabled. When this is enabled, the loss is computed per keypoint (or edge for PAFs) and sorted from lowest (easy) to highest (hard). The hard keypoint loss will be scaled to have a higher weight in the total loss, encouraging the training to focus on tricky body parts that are more difficult to learn. If False, no mining will be performed and all keypoints will be weighted equally in the loss. **Default**: `False`
+    - `hard_to_easy_ratio`: (float) The minimum ratio of the individual keypoint loss with respect to the lowest keypoint loss in order to be considered as "hard". This helps to switch focus on across groups of keypoints during training. **Default**: `2.0`
+    - `min_hard_keypoints`: (int) The minimum number of keypoints that will be considered as "hard", even if they are not below the `hard_to_easy_ratio`. **Default**: `2`
+    - `max_hard_keypoints`: (int) The maximum number of hard keypoints to apply scaling to. This can help when there are few very easy keypoints which may skew the ratio and result in loss scaling being applied to most keypoints, which can reduce the impact of hard mining altogether. **Default**: `None`
+    - `loss_scale`: (float) Factor to scale the hard keypoint losses by. **Default**: `5.0`
 
 ### WandB Configuration
 **Note**: Only required if `use_wandb` is `True`.
+
 - `wandb`:
-  - `entity`: (str) Entity of wandb project. **Default**: `None`
-  - `project`: (str) Project name for the wandb project. **Default**: `None`
-  - `name`: (str) Name of the current run. **Default**: `None`
-  - `api_key`: (str) API key. The API key is masked when saved to config files. **Default**: `None`
-  - `wandb_mode`: (str) "offline" if only local logging is required. **Default**: `"None"`
-  - `prv_runid`: (str) Previous run ID if training should be resumed from a previous ckpt. **Default**: `None`
-  - `group`: (str) Group name for the run.
+    - `entity`: (str) Entity of wandb project. **Default**: `None`
+    - `project`: (str) Project name for the wandb project. **Default**: `None`
+    - `name`: (str) Name of the current run. **Default**: `None`
+    - `api_key`: (str) API key. The API key is masked when saved to config files. **Default**: `None`
+    - `wandb_mode`: (str) "offline" if only local logging is required. **Default**: `"None"`
+    - `prv_runid`: (str) Previous run ID if training should be resumed from a previous ckpt. **Default**: `None`
+    - `group`: (str) Group name for the run.
 
 ### ZMQ Configuration
 - `zmq`:
-  - `publish_address`: (str) Specifies the address and port to which the training logs (loss values) should be sent to. **Default**: `None`
-  - `controller_address`: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI). **Default**: `None`
-  - `controller_polling_timeout`: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. **Default**: `10`
-
-</details>
+    - `publish_address`: (str) Specifies the address and port to which the training logs (loss values) should be sent to. **Default**: `None`
+    - `controller_address`: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI). **Default**: `None`
+    - `controller_polling_timeout`: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. **Default**: `10`
 
 ---
 
 ## Sample Configuration Files
 
-For practical examples of how to configure SLEAP-NN models, refer to the sample configuration files in the `docs/` directory:
+For practical examples of how to configure SLEAP-NN models, refer to the sample configuration files [here](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
 
 ### Available Sample Configurations
 
-- **Single Instance Models**:
-  - `config_single_instance_unet.yaml` - Basic single instance detection with UNet backbone
-  - `config_centroid_unet.yaml` - Centroid-based detection with UNet backbone
-  - `config_centroid_swint.yaml` - Centroid-based detection with Swin Transformer backbone
+- `config_single_instance_unet.yaml` - Basic single instance detection with UNet backbone
+- `config_centroid_unet.yaml` - Centroid-based detection with UNet backbone
+- `config_centroid_swint.yaml` - Centroid-based detection with Swin Transformer backbone
 
-- **Centered Instance Models**:
-  - `config_topdown_centered_instance_unet.yaml` - Top-down centered instance detection
-  - `config_topdown_multi_class_centered_instance_unet.yaml` - Multi-class centered instance detection
+- `config_topdown_centered_instance_unet.yaml` - Top-down centered instance detection with UNet backbone
+- `config_topdown_multi_class_centered_instance_unet.yaml` - Top-down multi-class centered instance detection with UNet backbone
 
-- **Bottom-Up Models**:
-  - `config_bottomup_unet.yaml` - Bottom-up detection with UNet backbone
-  - `config_bottomup_convnext.yaml` - Bottom-up detection with ConvNeXt backbone
-  - `config_multi_class_bottomup_unet.yaml` - Multi-class bottom-up detection
+- `config_bottomup_unet.yaml` - Bottom-up detection with UNet backbone
+- `config_bottomup_convnext.yaml` - Bottom-up detection with ConvNeXt backbone
+- `config_multi_class_bottomup_unet.yaml` - Multi-class bottom-up detection with UNet backbone
 
 ### Basic Configuration Structure
 
@@ -439,4 +428,8 @@ filename: ''
 - **Batch Size**: Start with smaller batch sizes and increase based on your GPU memory.
 - **Learning Rate**: The default learning rate of `0.0001` works well for most cases, but may need adjustment based on your dataset.
 
-For more detailed examples and specific use cases, examine the sample configuration files in the `docs/sample_configs` directory.
+## Next Steps
+
+- [Model Architectures](architectures.md)
+- [Training Guide](training.md)
+- [API Reference](api/index.md)

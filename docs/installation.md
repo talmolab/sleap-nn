@@ -6,23 +6,7 @@
 - [Miniforge](https://github.com/conda-forge/miniforge) (recommended for isolated Python environments with fast dependency resolution)
 - [Mamba](https://mamba.readthedocs.io/) (included with Miniforge, recommended for faster dependency resolution)
 
-## 🚀 Quick Start
-
-```bash
-# For GPU (Windows/Linux)
-mamba env create -f environment.yml
-
-# For CPU (Windows/Linux/Intel Mac)
-mamba env create -f environment_cpu.yml
-
-# For Apple Silicon (M1/M2 Mac)
-mamba env create -f environment_osx-arm64.yml
-
-# Activate the environment
-mamba activate sleap-nn
-```
-
-## 🚀 Development Setup
+## Development Setup
 
 ### 1. Install Miniforge
 
@@ -54,7 +38,14 @@ You can either:
 uv pip install -e ".[torch]"
 ```
 
-This installs the default builds of `torch` and `torchvision` via PyPI for your OS.
+This installs the default builds of `torch` and `torchvision` via PyPI for your OS. By default, this means:
+
+- **Windows:** CPU-only build.
+
+- **Linux:** CUDA-enabled (GPU) build (if a compatible NVIDIA GPU is detected).
+
+- **macOS:** CPU-only build (with Metal backend support for Apple Silicon in recent versions)
+If you need a different build (e.g., GPU support on Windows, or CPU-only on Linux), see the manual installation options below.
 
 #### Option B: Manual Installation for Specific Platforms
 
@@ -154,5 +145,5 @@ For large models or datasets:
 ## Next Steps
 
 - [Training Your First Model](training.md)
-- [Configuration Guide](configuration.md)
+- [Configuration Guide](config.md)
 - [API Reference](api/index.md)

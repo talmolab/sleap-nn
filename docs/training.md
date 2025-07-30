@@ -10,6 +10,21 @@ sleap-nn uses a configuration-based training system powered by Hydra and PyTorch
 python -m sleap_nn.train --config-name config
 ```
 
+### Command Line Overrides
+
+Override any configuration from command line:
+
+```bash
+# Change batch size
+python -m sleap_nn.train --config-name config data_config.batch_size=32
+
+# Use different GPU
+python -m sleap_nn.train --config-name config trainer_config.devices=1
+
+# Change learning rate
+python -m sleap_nn.train --config-name config trainer_config.learning_rate=5e-4
+```
+
 ## Model Types
 
 ### Single Instance
@@ -164,5 +179,5 @@ trainer_config:
 ## Next Steps
 
 - [Running Inference](inference.md)
-- [Configuration Reference](configuration.md)
+- [Configuration Guide](config.md)
 - [Model Architecture Guide](architectures.md)
