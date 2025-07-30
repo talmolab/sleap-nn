@@ -405,27 +405,36 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#environment-setup" class="md-nav__link">
+  <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
-      Environment Setup
+      🚀 Quick Start
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#development-installation" class="md-nav__link">
+  <a href="#development-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      Development Installation
+      🚀 Development Setup
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#verifying-installation" class="md-nav__link">
+  <a href="#important-pytorch-is-required-at-runtime" class="md-nav__link">
     <span class="md-ellipsis">
-      Verifying Installation
+      ⚠️ Important: PyTorch is Required at Runtime
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gpu-support-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      ⚙️ GPU Support Strategy
     </span>
   </a>
   
@@ -2086,27 +2095,36 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#environment-setup" class="md-nav__link">
+  <a href="#quick-start" class="md-nav__link">
     <span class="md-ellipsis">
-      Environment Setup
+      🚀 Quick Start
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#development-installation" class="md-nav__link">
+  <a href="#development-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      Development Installation
+      🚀 Development Setup
     </span>
   </a>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#verifying-installation" class="md-nav__link">
+  <a href="#important-pytorch-is-required-at-runtime" class="md-nav__link">
     <span class="md-ellipsis">
-      Verifying Installation
+      ⚠️ Important: PyTorch is Required at Runtime
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gpu-support-strategy" class="md-nav__link">
+    <span class="md-ellipsis">
+      ⚙️ GPU Support Strategy
     </span>
   </a>
   
@@ -2152,62 +2170,110 @@
 <h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h1>
 <h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
 <ul>
-<li>Python 3.8 or higher</li>
-<li><a href="https://www.anaconda.com/products/distribution">Anaconda</a> or <a href="https://docs.conda.io/en/latest/miniconda.html">Miniconda</a></li>
-<li><a href="https://mamba.readthedocs.io/">Mamba</a> (recommended for faster dependency resolution)</li>
+<li>Python 3.11</li>
+<li><a href="https://github.com/conda-forge/miniforge">Miniforge</a> (recommended for isolated Python environments with fast dependency resolution)</li>
+<li><a href="https://mamba.readthedocs.io/">Mamba</a> (included with Miniforge, recommended for faster dependency resolution)</li>
 </ul>
-<h2 id="environment-setup">Environment Setup<a class="headerlink" href="#environment-setup" title="Permanent link">&para;</a></h2>
-<h3 id="gpu-support-windowslinux">GPU Support (Windows/Linux)<a class="headerlink" href="#gpu-support-windowslinux" title="Permanent link">&para;</a></h3>
-<p>For systems with NVIDIA GPUs:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>environment.yml
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mamba<span class="w"> </span>activate<span class="w"> </span>sleap-nn
+<h2 id="quick-start">🚀 Quick Start<a class="headerlink" href="#quick-start" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># For GPU (Windows/Linux)</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>environment.yml
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># For CPU (Windows/Linux/Intel Mac)</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>environment_cpu.yml
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="c1"># For Apple Silicon (M1/M2 Mac)</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>environment_osx-arm64.yml
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="c1"># Activate the environment</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>mamba<span class="w"> </span>activate<span class="w"> </span>sleap-nn
 </span></code></pre></div>
-<h3 id="cpu-only-windowslinuxintel-mac">CPU Only (Windows/Linux/Intel Mac)<a class="headerlink" href="#cpu-only-windowslinuxintel-mac" title="Permanent link">&para;</a></h3>
-<p>For systems without GPUs or when GPU support is not needed:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>environment_cpu.yml
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>mamba<span class="w"> </span>activate<span class="w"> </span>sleap-nn
+<h2 id="development-setup">🚀 Development Setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h2>
+<h3 id="1-install-miniforge">1. Install Miniforge<a class="headerlink" href="#1-install-miniforge" title="Permanent link">&para;</a></h3>
+<p>We recommend using <a href="https://github.com/conda-forge/miniforge">Miniforge</a> for an isolated Python environment with fast dependency resolution.</p>
+<h3 id="2-create-and-activate-development-environment">2. Create and Activate Development Environment<a class="headerlink" href="#2-create-and-activate-development-environment" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>mamba<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>sleap-nn-dev<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>mamba<span class="w"> </span>activate<span class="w"> </span>sleap-nn-dev
 </span></code></pre></div>
-<h3 id="apple-silicon-m1m2m3">Apple Silicon (M1/M2/M3)<a class="headerlink" href="#apple-silicon-m1m2m3" title="Permanent link">&para;</a></h3>
-<p>For Apple Silicon Macs:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>environment_osx-arm64.yml
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>mamba<span class="w"> </span>activate<span class="w"> </span>sleap-nn
+<h3 id="3-install-uv-and-development-dependencies">3. Install <code>uv</code> and Development Dependencies<a class="headerlink" href="#3-install-uv-and-development-dependencies" title="Permanent link">&para;</a></h3>
+<p><a href="https://github.com/astral-sh/uv"><code>uv</code></a> is a fast and modern package manager for <code>pyproject.toml</code>-based projects.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>pip<span class="w"> </span>install<span class="w"> </span>uv
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
 </span></code></pre></div>
-<h2 id="development-installation">Development Installation<a class="headerlink" href="#development-installation" title="Permanent link">&para;</a></h2>
-<p>If you plan to contribute or modify the code:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Clone the repository</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/talmolab/sleap-nn.git
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nb">cd</span><span class="w"> </span>sleap-nn
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>
-</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="c1"># Create environment (choose appropriate file for your platform)</span>
-</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>mamba<span class="w"> </span>env<span class="w"> </span>create<span class="w"> </span>-f<span class="w"> </span>environment.yml
-</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>mamba<span class="w"> </span>activate<span class="w"> </span>sleap-nn
-</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
-</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="c1"># Install in development mode</span>
-</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+<h3 id="4-install-pytorch">4. Install PyTorch<a class="headerlink" href="#4-install-pytorch" title="Permanent link">&para;</a></h3>
+<p>You can either:</p>
+<h4 id="option-a-install-with-optional-dependencies-recommended">Option A: Install with Optional Dependencies (Recommended)<a class="headerlink" href="#option-a-install-with-optional-dependencies-recommended" title="Permanent link">&para;</a></h4>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[torch]&quot;</span>
 </span></code></pre></div>
-<h2 id="verifying-installation">Verifying Installation<a class="headerlink" href="#verifying-installation" title="Permanent link">&para;</a></h2>
+<p>This installs the default builds of <code>torch</code> and <code>torchvision</code> via PyPI for your OS.</p>
+<h4 id="option-b-manual-installation-for-specific-platforms">Option B: Manual Installation for Specific Platforms<a class="headerlink" href="#option-b-manual-installation-for-specific-platforms" title="Permanent link">&para;</a></h4>
+<p>Install the correct wheel for your system using PyTorch's index URL:</p>
+<p><strong>Windows/Linux with NVIDIA GPU (CUDA 11.8):</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>torchvision<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu118
+</span></code></pre></div></p>
+<p><strong>macOS with Apple Silicon (M1, M2, M3, M4):</strong>
+You don't need to do anything if you used the <code>[torch]</code> optional dependency or default PyPI install—the default wheels now include Metal backend support for Apple GPUs.</p>
+<p><strong>CPU-only (no GPU or unsupported GPU):</strong>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>torchvision<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
+</span></code></pre></div></p>
+<p>You can find the correct wheel for your system at:
+👉 <a href="https://pytorch.org/get-started/locally">https://pytorch.org/get-started/locally</a></p>
+<h3 id="5-verify-installation">5. Verify Installation<a class="headerlink" href="#5-verify-installation" title="Permanent link">&para;</a></h3>
 <p>Test your installation:</p>
-<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_nn</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sleap-nn version: </span><span class="si">{</span><span class="n">sleap_nn</span><span class="o">.</span><span class="n">__version__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;PyTorch version: </span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">__version__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;CUDA available: </span><span class="si">{</span><span class="n">torch</span><span class="o">.</span><span class="n">cuda</span><span class="o">.</span><span class="n">is_available</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Run tests</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>pytest<span class="w"> </span>tests
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Optional: Lint and format code</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
 </span></code></pre></div>
+<h2 id="important-pytorch-is-required-at-runtime">⚠️ Important: PyTorch is Required at Runtime<a class="headerlink" href="#important-pytorch-is-required-at-runtime" title="Permanent link">&para;</a></h2>
+<p>The <code>torch</code> and <code>torchvision</code> dependencies are defined as <strong>optional</strong> in <code>pyproject.toml</code>. However, they are <strong>required for the code to run</strong>, and are imported at the top level in many modules. This means:</p>
+<ul>
+<li>You <strong>must</strong> install <code>sleap-nn</code> with the <code>[torch]</code> extras:</li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[torch]&quot;</span>
+</span></code></pre></div>
+<ul>
+<li><strong>Or</strong> manually install <code>torch</code> and <code>torchvision</code> with the appropriate build for your system.</li>
+</ul>
+<blockquote>
+<p>🛑 If you install <code>sleap-nn</code> without <code>torch</code>, <strong>any import of sleap_nn will fail</strong> with an <code>ImportError</code> until you install it manually.</p>
+</blockquote>
+<h2 id="gpu-support-strategy">⚙️ GPU Support Strategy<a class="headerlink" href="#gpu-support-strategy" title="Permanent link">&para;</a></h2>
+<p>We intentionally <strong>do not include GPU-specific <code>torch</code> or <code>torchvision</code> builds</strong> in <code>pyproject.toml</code>. Instead, we recommend installing them manually based on your platform.</p>
+<h3 id="why-this-strategy-works">✅ Why this strategy works<a class="headerlink" href="#why-this-strategy-works" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Portability</strong>: No CUDA version or hardware is assumed. This avoids broken installs on unsupported platforms.</li>
+<li><strong>Flexibility</strong>: You can use the appropriate PyTorch build for your system.</li>
+<li><strong>Reliability</strong>: All other dependencies are managed cleanly with <code>uv</code>.</li>
+</ul>
+<blockquote>
+<p>💡 This makes <code>sleap-nn</code> compatible with both GPU-accelerated and CPU-only environments.</p>
+</blockquote>
+<details>
+<summary>📦 Why not use `pyproject.toml` for GPU builds?</summary>
+
+- GPU wheels are not on PyPI — they live at [https://download.pytorch.org/whl/](https://download.pytorch.org/whl/)
+- These builds vary by platform, CUDA version, and GPU architecture.
+- `uv` does not currently support CLI-based extra index URLs like pip's `--index-url`.
+- Hardcoding GPU wheels into `pyproject.toml` would break cross-platform support.
+
+</details>
+
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="import-errors">Import Errors<a class="headerlink" href="#import-errors" title="Permanent link">&para;</a></h3>
+<p>If you get import errors:</p>
+<ol>
+<li>Ensure you've activated the conda environment: <code>mamba activate sleap-nn-dev</code></li>
+<li>Verify PyTorch is installed: <code>python -c "import torch; print(torch.__version__)"</code></li>
+<li>Try reinstalling with torch extras: <code>uv pip install -e ".[torch]"</code></li>
+</ol>
 <h3 id="cuda-issues">CUDA Issues<a class="headerlink" href="#cuda-issues" title="Permanent link">&para;</a></h3>
 <p>If you encounter CUDA-related errors:</p>
 <ol>
 <li>Verify your NVIDIA drivers are up to date</li>
 <li>Check CUDA compatibility with PyTorch version</li>
 <li>Try the CPU-only installation as a fallback</li>
-</ol>
-<h3 id="import-errors">Import Errors<a class="headerlink" href="#import-errors" title="Permanent link">&para;</a></h3>
-<p>If you get import errors:</p>
-<ol>
-<li>Ensure you've activated the conda environment</li>
-<li>Verify all dependencies installed correctly</li>
-<li>Try reinstalling the package</li>
 </ol>
 <h3 id="memory-issues">Memory Issues<a class="headerlink" href="#memory-issues" title="Permanent link">&para;</a></h3>
 <p>For large models or datasets:</p>
