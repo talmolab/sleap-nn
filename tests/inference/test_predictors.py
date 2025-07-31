@@ -268,7 +268,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
-        "anchor_part": None,
+        "scale": None,
     }
 
     # load only backbone and head ckpt as None - centered instance
@@ -311,7 +311,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
-        "anchor_part": None,
+        "scale": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -419,7 +419,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
-        "anchor_part": None,
+        "scale": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -527,7 +527,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
-        "anchor_part": None,
+        "scale": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -638,7 +638,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
-        "anchor_part": None,
+        "scale": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -749,7 +749,7 @@ def test_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
-        "anchor_part": None,
+        "scale": None,
     }
 
     predictor = Predictor.from_model_paths(
@@ -977,7 +977,7 @@ def test_multiclass_topdown_predictor(
         "crop_hw": None,
         "max_width": None,
         "max_height": None,
-        "anchor_part": None,
+        "scale": None,
     }
 
     # load only backbone and head ckpt as None - centered instance

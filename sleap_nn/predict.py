@@ -66,7 +66,7 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Maximum height the image should be padded to. If not provided, the"
-            "values in the training config are used."
+            "values from the training config are used. Default: None."
         ),
     )
     parser.add_argument(
@@ -75,7 +75,16 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Maximum width the image should be padded to. If not provided, the"
-            "values in the training config are used."
+            "values from the training config are used. Default: None."
+        ),
+    )
+    parser.add_argument(
+        "--input_scale",
+        type=float,
+        default=None,
+        help=(
+            "Scale factor to apply to the input image. If not provided, the"
+            "values from the training config are used. Default: None."
         ),
     )
     parser.add_argument(
@@ -83,10 +92,10 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "True if the image should have 3 channels (RGB image). If input has only one"
+            "True if the input image should have 3 channels (RGB image). If input has only one"
             "channel when this is set to `True`, then the images from single-channel"
-            "is replicated along the channel axis. If input has three channels and this"
-            "is set to False, then we retain the image with three channels."
+            "is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. If not provided, the"
+            "values from the training config are used. Default: `None`."
         ),
     )
     parser.add_argument(
@@ -94,10 +103,10 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "True if the image should only have a single channel. If input has only three"
-            "channel when this is set to `True`, then we convert the image to grayscale."
-            "If input has single channel and this"
-            "is set to False, then we reatin the grayscale image."
+            "True if the input image should only have a single channel. If input has three channels (RGB) and this"
+            "is set to True, then we convert the image to grayscale (single-channel)"
+            "image. If the source image has only one channel and this is set to False, then we retain the single channel input. If not provided, the"
+            "values from the training config are used. Default: `None`."
         ),
     )
     parser.add_argument(
@@ -106,7 +115,7 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "The node name to use as the anchor for the centroid. If not"
-            "provided, the anchor part in the `training_config.yaml` is used."
+            "provided, the anchor part in the `training_config.yaml` is used. Default: `None`."
         ),
     )
     parser.add_argument(
@@ -185,6 +194,16 @@ def _make_cli_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.2,
         help="Minimum confidence map value to consider a peak as valid.",
+    )
+    parser.add_argument(
+        "--integral_refinement",
+        type=str,
+        default="integral",
+        help=(
+            "If `None`, returns the grid-aligned peaks with no refinement. "
+            "If `'integral'`, peaks will be refined with integral regression. "
+            "Default: 'integral'."
+        ),
     )
     parser.add_argument(
         "-o",
