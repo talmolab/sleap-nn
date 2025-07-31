@@ -11,10 +11,10 @@
         <link rel="canonical" href="https://nn.sleap.ai/dev/installation/">
       
       
-        <link rel="prev" href="../config/">
+        <link rel="prev" href="../inference/">
       
       
-        <link rel="next" href="../training/">
+        <link rel="next" href="../models/">
       
       
       <link rel="icon" href="../assets/favicon.ico">
@@ -321,6 +321,28 @@
       
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Running Inference
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
     
   
   
@@ -383,20 +405,62 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#development-setup" class="md-nav__link">
+  <a href="#install-sleap-nn" class="md-nav__link">
     <span class="md-ellipsis">
-      Development Setup
+      Install sleap-nn
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install sleap-nn">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-install-miniforge" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Install Miniforge
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#important-pytorch-is-required-at-runtime" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#2-create-and-activate-development-environment" class="md-nav__link">
     <span class="md-ellipsis">
-      ⚠️ Important: PyTorch is Required at Runtime
+      2. Create and Activate Development Environment
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-install-uv-and-development-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Install uv and Development Dependencies
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-install-pytorch" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Install PyTorch
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-verify-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      5. Verify Installation
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -407,6 +471,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="⚙️ GPU Support Strategy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-this-strategy-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      ✅ Why this strategy works
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -415,6 +494,30 @@
       Troubleshooting
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#import-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Import Errors
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cuda-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      CUDA Issues
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -431,6 +534,28 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Models
+    
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -477,10 +602,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
         
           
-          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="">
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
             
   
   
@@ -493,8 +618,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             Api
           </label>
@@ -517,7 +642,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -534,14 +659,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1" id="__nav_6_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1" id="__nav_8_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_6_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1">
             <span class="md-nav__icon md-icon"></span>
             sleap_nn
           </label>
@@ -564,7 +689,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -581,14 +706,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_1" id="__nav_6_1_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_1" id="__nav_8_1_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_1">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_1">
             <span class="md-nav__icon md-icon"></span>
             architectures
           </label>
@@ -826,7 +951,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_3" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -843,14 +968,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_3" id="__nav_6_1_3_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_3" id="__nav_8_1_3_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_3">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_3">
             <span class="md-nav__icon md-icon"></span>
             config
           </label>
@@ -996,7 +1121,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_4" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1013,14 +1138,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_4" id="__nav_6_1_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_4" id="__nav_8_1_4_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_4">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_4">
             <span class="md-nav__icon md-icon"></span>
             data
           </label>
@@ -1327,7 +1452,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_6" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1344,14 +1469,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_6" id="__nav_6_1_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_6" id="__nav_8_1_6_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_6">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_6">
             <span class="md-nav__icon md-icon"></span>
             inference
           </label>
@@ -1612,7 +1737,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_9" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_9" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1629,14 +1754,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_9" id="__nav_6_1_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_9" id="__nav_8_1_9_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_9_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_9">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_9">
             <span class="md-nav__icon md-icon"></span>
             tracking
           </label>
@@ -1659,7 +1784,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_9_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_9_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1676,14 +1801,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_9_1" id="__nav_6_1_9_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_9_1" id="__nav_8_1_9_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_6_1_9_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_9_1">
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_8_1_9_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_9_1">
             <span class="md-nav__icon md-icon"></span>
             candidates
           </label>
@@ -1860,7 +1985,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6_1_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_11" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1877,14 +2002,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_6_1_11" id="__nav_6_1_11_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_11" id="__nav_8_1_11_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_6_1_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_6_1_11">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_11">
             <span class="md-nav__icon md-icon"></span>
             training
           </label>
@@ -2064,20 +2189,62 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#development-setup" class="md-nav__link">
+  <a href="#install-sleap-nn" class="md-nav__link">
     <span class="md-ellipsis">
-      Development Setup
+      Install sleap-nn
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install sleap-nn">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-install-miniforge" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Install Miniforge
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#important-pytorch-is-required-at-runtime" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#2-create-and-activate-development-environment" class="md-nav__link">
     <span class="md-ellipsis">
-      ⚠️ Important: PyTorch is Required at Runtime
+      2. Create and Activate Development Environment
     </span>
   </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-install-uv-and-development-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Install uv and Development Dependencies
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-install-pytorch" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Install PyTorch
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-verify-installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      5. Verify Installation
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2088,6 +2255,21 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="⚙️ GPU Support Strategy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-this-strategy-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      ✅ Why this strategy works
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2096,6 +2278,30 @@
       Troubleshooting
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#import-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      Import Errors
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cuda-issues" class="md-nav__link">
+    <span class="md-ellipsis">
+      CUDA Issues
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2134,7 +2340,7 @@
 <li><a href="https://github.com/conda-forge/miniforge">Miniforge</a> (recommended for isolated Python environments with fast dependency resolution)</li>
 <li><a href="https://mamba.readthedocs.io/">Mamba</a> (included with Miniforge, recommended for faster dependency resolution)</li>
 </ul>
-<h2 id="development-setup">Development Setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h2>
+<h2 id="install-sleap-nn">Install sleap-nn<a class="headerlink" href="#install-sleap-nn" title="Permanent link">&para;</a></h2>
 <h3 id="1-install-miniforge">1. Install Miniforge<a class="headerlink" href="#1-install-miniforge" title="Permanent link">&para;</a></h3>
 <p>We recommend using <a href="https://github.com/conda-forge/miniforge">Miniforge</a> for an isolated Python environment with fast dependency resolution.</p>
 <h3 id="2-create-and-activate-development-environment">2. Create and Activate Development Environment<a class="headerlink" href="#2-create-and-activate-development-environment" title="Permanent link">&para;</a></h3>
@@ -2185,19 +2391,6 @@ You don't need to do anything if you used the <code>[torch]</code> optional depe
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
 </span></code></pre></div>
-<h2 id="important-pytorch-is-required-at-runtime">⚠️ Important: PyTorch is Required at Runtime<a class="headerlink" href="#important-pytorch-is-required-at-runtime" title="Permanent link">&para;</a></h2>
-<p>The <code>torch</code> and <code>torchvision</code> dependencies are defined as <strong>optional</strong> in <code>pyproject.toml</code>. However, they are <strong>required for the code to run</strong>, and are imported at the top level in many modules. This means:</p>
-<ul>
-<li>You <strong>must</strong> install <code>sleap-nn</code> with the <code>[torch]</code> extras:</li>
-</ul>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[torch]&quot;</span>
-</span></code></pre></div>
-<ul>
-<li><strong>Or</strong> manually install <code>torch</code> and <code>torchvision</code> with the appropriate build for your system.</li>
-</ul>
-<blockquote>
-<p>🛑 If you install <code>sleap-nn</code> without <code>torch</code>, <strong>any import of sleap_nn will fail</strong> with an <code>ImportError</code> until you install it manually.</p>
-</blockquote>
 <h2 id="gpu-support-strategy">⚙️ GPU Support Strategy<a class="headerlink" href="#gpu-support-strategy" title="Permanent link">&para;</a></h2>
 <p>We intentionally <strong>do not include GPU-specific <code>torch</code> or <code>torchvision</code> builds</strong> in <code>pyproject.toml</code>. Instead, we recommend installing them manually based on your platform.</p>
 <h3 id="why-this-strategy-works">✅ Why this strategy works<a class="headerlink" href="#why-this-strategy-works" title="Permanent link">&para;</a></h3>
@@ -2209,16 +2402,6 @@ You don't need to do anything if you used the <code>[torch]</code> optional depe
 <blockquote>
 <p>💡 This makes <code>sleap-nn</code> compatible with both GPU-accelerated and CPU-only environments.</p>
 </blockquote>
-<details>
-<summary>📦 Why not use `pyproject.toml` for GPU builds?</summary>
-
-- GPU wheels are not on PyPI — they live at [https://download.pytorch.org/whl/](https://download.pytorch.org/whl/)
-- These builds vary by platform, CUDA version, and GPU architecture.
-- `uv` does not currently support CLI-based extra index URLs like pip's `--index-url`.
-- Hardcoding GPU wheels into `pyproject.toml` would break cross-platform support.
-
-</details>
-
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="import-errors">Import Errors<a class="headerlink" href="#import-errors" title="Permanent link">&para;</a></h3>
 <p>If you get import errors:</p>
@@ -2233,13 +2416,6 @@ You don't need to do anything if you used the <code>[torch]</code> optional depe
 <li>Verify your NVIDIA drivers are up to date</li>
 <li>Check CUDA compatibility with PyTorch version</li>
 <li>Try the CPU-only installation as a fallback</li>
-</ol>
-<h3 id="memory-issues">Memory Issues<a class="headerlink" href="#memory-issues" title="Permanent link">&para;</a></h3>
-<p>For large models or datasets:</p>
-<ol>
-<li>Consider using mixed precision training</li>
-<li>Reduce batch size</li>
-<li>Use gradient accumulation</li>
 </ol>
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
