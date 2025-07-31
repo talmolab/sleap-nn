@@ -6,7 +6,7 @@
 - [Miniforge](https://github.com/conda-forge/miniforge) (recommended for isolated Python environments with fast dependency resolution)
 - [Mamba](https://mamba.readthedocs.io/) (included with Miniforge, recommended for faster dependency resolution)
 
-## Development Setup
+## Install sleap-nn
 
 ### 1. Install Miniforge
 
@@ -80,20 +80,6 @@ black --check sleap_nn tests
 ruff check sleap_nn/
 ```
 
-## ⚠️ Important: PyTorch is Required at Runtime
-
-The `torch` and `torchvision` dependencies are defined as **optional** in `pyproject.toml`. However, they are **required for the code to run**, and are imported at the top level in many modules. This means:
-
-- You **must** install `sleap-nn` with the `[torch]` extras:
-
-  ```bash
-  uv pip install -e ".[torch]"
-  ```
-
-- **Or** manually install `torch` and `torchvision` with the appropriate build for your system.
-
-> 🛑 If you install `sleap-nn` without `torch`, **any import of sleap_nn will fail** with an `ImportError` until you install it manually.
-
 ## ⚙️ GPU Support Strategy
 
 We intentionally **do not include GPU-specific `torch` or `torchvision` builds** in `pyproject.toml`. Instead, we recommend installing them manually based on your platform.
@@ -105,16 +91,6 @@ We intentionally **do not include GPU-specific `torch` or `torchvision` builds**
 - **Reliability**: All other dependencies are managed cleanly with `uv`.
 
 > 💡 This makes `sleap-nn` compatible with both GPU-accelerated and CPU-only environments.
-
-<details>
-<summary>📦 Why not use `pyproject.toml` for GPU builds?</summary>
-
-- GPU wheels are not on PyPI — they live at [https://download.pytorch.org/whl/](https://download.pytorch.org/whl/)
-- These builds vary by platform, CUDA version, and GPU architecture.
-- `uv` does not currently support CLI-based extra index URLs like pip's `--index-url`.
-- Hardcoding GPU wheels into `pyproject.toml` would break cross-platform support.
-
-</details>
 
 ## Troubleshooting
 
@@ -134,13 +110,6 @@ If you encounter CUDA-related errors:
 2. Check CUDA compatibility with PyTorch version
 3. Try the CPU-only installation as a fallback
 
-### Memory Issues
-
-For large models or datasets:
-
-1. Consider using mixed precision training
-2. Reduce batch size
-3. Use gradient accumulation
 
 ## Next Steps
 

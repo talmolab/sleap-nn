@@ -1,6 +1,6 @@
 # Configuration Guide
 
-This document contains the docstrings for the config file required to pass to the `sleap_nn.ModelTrainer` class to train and run inference on a sleap-nn model.
+This document contains the docstrings for the config file required to train and run inference on a sleap-nn model.
 
 The config file has three main sections:
 
@@ -8,9 +8,6 @@ The config file has three main sections:
 2. **`model_config`**: Initialize the sleap-nn backbone and head models  
 3. **`trainer_config`**: Hyperparameters required to train the model with Lightning
 
-
-
----
 
 ## Data Configuration (`data_config`)
 
@@ -287,24 +284,7 @@ The trainer configuration section controls the training process, including data 
 
 ---
 
-## Sample Configuration Files
-
-For practical examples of how to configure SLEAP-NN models, refer to the sample configuration files [here](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
-
-### Available Sample Configurations
-
-- `config_single_instance_unet.yaml` - Basic single instance detection with UNet backbone
-- `config_centroid_unet.yaml` - Centroid-based detection with UNet backbone
-- `config_centroid_swint.yaml` - Centroid-based detection with Swin Transformer backbone
-
-- `config_topdown_centered_instance_unet.yaml` - Top-down centered instance detection with UNet backbone
-- `config_topdown_multi_class_centered_instance_unet.yaml` - Top-down multi-class centered instance detection with UNet backbone
-
-- `config_bottomup_unet.yaml` - Bottom-up detection with UNet backbone
-- `config_bottomup_convnext.yaml` - Bottom-up detection with ConvNeXt backbone
-- `config_multi_class_bottomup_unet.yaml` - Multi-class bottom-up detection with UNet backbone
-
-### Basic Configuration Structure
+## Basic Configuration Structure
 
 ```yaml
 data_config:
@@ -420,7 +400,28 @@ sleap_nn_version: '0.0.1'
 filename: ''
 ```
 
-### Usage Notes
+---
+
+## Sample Configuration Files
+
+For practical examples of how to configure SLEAP-NN models, refer to the sample configuration files [here](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
+
+### Available Sample Configurations
+
+- `config_single_instance_unet.yaml` - Basic single instance detection with UNet backbone
+- `config_centroid_unet.yaml` - Centroid-based detection with UNet backbone
+- `config_centroid_swint.yaml` - Centroid-based detection with Swin Transformer backbone
+
+- `config_topdown_centered_instance_unet.yaml` - Top-down centered instance detection with UNet backbone
+- `config_topdown_multi_class_centered_instance_unet.yaml` - Top-down multi-class centered instance detection with UNet backbone
+
+- `config_bottomup_unet.yaml` - Bottom-up detection with UNet backbone
+- `config_bottomup_convnext.yaml` - Bottom-up detection with ConvNeXt backbone
+- `config_multi_class_bottomup_unet.yaml` - Multi-class bottom-up detection with UNet backbone
+
+---
+
+## Usage Notes
 
 - **Model Selection**: Only configure the backbone and head you intend to use. Set others to `null`.
 - **Data Paths**: Update `train_labels_path` and `val_labels_path` to point to your `.slp` files.
@@ -428,8 +429,11 @@ filename: ''
 - **Batch Size**: Start with smaller batch sizes and increase based on your GPU memory.
 - **Learning Rate**: The default learning rate of `0.0001` works well for most cases, but may need adjustment based on your dataset.
 
+
+---
+
 ## Next Steps
 
-- [Model Architectures](architectures.md)
+- [Model Architectures](models.md)
 - [Training Guide](training.md)
 - [API Reference](api/index.md)
