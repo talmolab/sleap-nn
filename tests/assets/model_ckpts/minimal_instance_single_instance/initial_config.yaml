@@ -69,7 +69,7 @@ model_config:
   pretrained_head_weights: null
   backbone_config:
     unet:
-      in_channels: 1
+      in_channels: 3
       kernel_size: 3
       filters: 8
       filters_rate: 2.0
@@ -115,7 +115,8 @@ trainer_config:
   enable_progress_bar: true
   min_train_steps_per_epoch: 200
   train_steps_per_epoch: 200
-  visualize_preds_during_training: false
+  visualize_preds_during_training: true
+  keep_viz: true
   max_epochs: 100
   seed: 0
   use_wandb: false

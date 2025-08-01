@@ -53,8 +53,8 @@ data_config:
   skeletons:
     Skeleton-3:
       nodes:
-      - name: head
       - name: thorax
+      - name: head
       edges:
       - source:
           name: thorax
@@ -123,6 +123,7 @@ trainer_config:
   min_train_steps_per_epoch: 200
   train_steps_per_epoch: 200
   visualize_preds_during_training: false
+  keep_viz: false
   max_epochs: 200
   seed: 0
   use_wandb: false
