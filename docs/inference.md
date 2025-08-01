@@ -39,6 +39,7 @@ python -m sleap_nn.predict \
 | `--device` | Device on which torch.Tensor will be allocated. One of ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen) | `auto` |
 | `--batch_size` | Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory | `4` |
 | `--peak_threshold` | Minimum confidence map value to consider a peak as valid | `0.2` |
+| `--integral_refinement` | If `None`, returns the grid-aligned peaks with no refinement. If `'integral'`, peaks will be refined with integral regression. Default: 'integral'. | `integral` |
 
 #### Model Configuration
 
@@ -52,12 +53,13 @@ python -m sleap_nn.predict \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--max_height` | Maximum height the image should be padded to. If not provided, the values in the training config are used | `None` |
-| `--max_width` | Maximum width the image should be padded to. If not provided, the values in the training config are used | `None` |
-| `--ensure_rgb` | True if the image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels | `False` |
-| `--ensure_grayscale` | True if the image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input | `False` |
+| `--max_height` | Maximum height the image should be padded to. If not provided, the values from the training config are used. Default: None. | `None` |
+| `--max_width` | Maximum width the image should be padded to. If not provided, the values from the training config are used. Default: None. | `None` |
+| `--input_scale` | Scale factor to apply to the input image. If not provided, the values from the training config are used. Default: None. | `None` |
+| `--ensure_rgb` | True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. If not provided, the values from the training config are used. Default: `None`. | `False` |
+| `--ensure_grayscale` | True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. If not provided, the values from the training config are used. Default: `None`. | `False` |
 | `--crop_size` | Crop size. If not provided, the crop size from training_config.yaml is used | `None` |
-| `--anchor_part` | The node name to use as the anchor for the centroid. If not provided, the anchor part in the `training_config.yaml` is used | `None` |
+| `--anchor_part` | The node name to use as the anchor for the centroid. If not provided, the anchor part in the `training_config.yaml` is used. Default: `None`. | `None` |
 
 #### Data Selection
 
@@ -132,8 +134,7 @@ labels = run_inference(
     data_path="video.mp4",
     model_paths=["models/unet/"],
     output_path="predictions.slp",
-    make_labels=False,
-    return_confmaps=True
+    make_labels=True,
 )
 ```
 

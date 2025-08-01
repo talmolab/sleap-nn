@@ -5,7 +5,7 @@
 [![code](https://img.shields.io/github/stars/talmolab/sleap-nn)](https://github.com/talmolab/sleap-nn)
 <!-- [![Release](https://img.shields.io/github/v/release/talmolab/sleap-nn?label=Latest)](https://github.com/talmolab/sleap-nn/releases/)
 -->
-sleap-nn is a PyTorch-based backend for animal pose estimation. It provides efficient neural network architectures for multi-instance pose tracking and serves as the deep learning engine for [SLEAP](https://sleap.ai) (Social LEAP Estimates Animal Poses).
+**SLEAP-NN** is the deep learning engine that powers [SLEAP](https://sleap.ai) (Social LEAP Estimates Animal Poses), providing neural network architectures for multi-instance animal pose estimation and tracking. Built on PyTorch, SLEAP-NN offers an end-to-end training workflow, supporting multiple model types (Single Instance, Top-Down, Bottom-Up, Multi-Class), and seamless integration with SLEAP's GUI and command-line tools.
 
 ## ✨ Features 
 
@@ -13,7 +13,6 @@ sleap-nn is a PyTorch-based backend for animal pose estimation. It provides effi
 - **Multiple model architectures**: Support for single-instance, top-down, and bottom-up pose estimation models using a variety of backbones, including highly-customizable UNet, ConvNeXt, and Swin Transformer.
 - **PyTorch Lightning integration**: Built on PyTorch Lightning for fast and scalable training, with support for multi-GPU and distributed training.
 - **Flexible configuration**: Hydra and OmegaConf based config system to validate training parameters and enable reproducible experiments.
-- **Built-in wandb support**: Integrated Weights & Biases (wandb) logging for efficient experiment management and visualization.
 
 ---
 
@@ -57,27 +56,86 @@ python -m sleap_nn.train --config-name config.yaml --config-path configs/
 
 #### 4. Run inference on the trained model
 
-To run inference on a topdown model:
+To run inference:
 ```bash
-python -m sleap_nn.predict --data-path video.mp4 --model-paths centroid/ --model-paths centered_instance/
+python -m sleap_nn.predict --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
 > For more details on running inference + tracking, refer to the [Inference Guide](inference.md).
 
 ---
 
 
-## Architecture
+## 🛠️ Core Components
 
-sleap-nn follows a modular architecture with clear separation of concerns:
+SLEAP-NN provides a modular, PyTorch-based architecture:
 
-- **Data Pipeline**: Efficient data loading, augmentation, and preprocessing
-- **Model Architectures**: Pluggable backbone and head modules to support different backbone architectures and different pose estimation model types
-- **Training System**: Lightning-based training with custom callbacks
-- **Inference Pipeline**: Optimized inference for different model types
-- **Tracking**: Multi-instance tracking across frames using a flow-shift based tracker
+### **Data Pipeline**
+
+- Efficient loading of data from SLEAP label files
+- Parallelized data loading using PyTorch's multiprocessing for high throughput
+- Caching (memory/ disk) to accelerate repeated data access and minimize I/O bottlenecks
+
+### **Model System**
+
+- **Backbone Networks**: UNet, ConvNeXt, Swin Transformer
+- **Model Types**: Single Instance, Top-Down, Bottom-Up, Multi-Class (Supervised ID models) variants
+- **Pluggable Design**: Easy to add new backbones/ head modules
+
+> Model Types
+
+> - **Single Instance**: Direct pose prediction for single animals
+
+> - **Top-Down**: Two-stage (centroid → pose) for multi-animal scenes
+
+> - **Bottom-Up**: Simultaneous keypoint detection and association using Part Affinity Fields (PAFs).
+
+> - **Supervised ID or Multi-Class**: Pose estimation + ID assignment for multi-instance scenarios
+
+> Explore detailed descriptions and comparisons of all supported architectures in the [Model Types Guide](models.md).
+
+### **Training Engine**
+
+- PyTorch Lightning integration with custom callbacks
+- In-built multi-GPU and distributed training support
+- Experiment tracking with wandb
+
+### **Inference Pipeline**
+
+- Optimized inference workflow for different model types
+- Integration with SLEAP's labeling interface
+
+### **Tracking System**
+
+- Multi-instance tracking across frames
+- Flow-shift based tracker for robust tracking
+
 
 ---
 
+
+## Get Help
+
+If you encounter issues or have questions about SLEAP-NN:
+
+**Report Bugs**:
+
+Found a bug? Please create an issue on GitHub:
+- [Create a new issue](https://github.com/talmolab/sleap-nn/issues/new)
+- Include details about your environment, error messages, and steps to reproduce
+
+**Start a Discussion**:
+
+Have questions about usage, feature requests, or want to share your experience?
+- [Start a discussion](https://github.com/talmolab/sleap-nn/discussions)
+- Great for asking questions, sharing tips, or requesting new features
+
+**Additional Resources**:
+
+- [SLEAP Documentation](https://sleap.ai) - Main SLEAP documentation
+- [SLEAP-NN GitHub Repository](https://github.com/talmolab/sleap-nn) - Source code and releases
+- [SLEAP Community](https://github.com/talmolab/sleap/discussions) - General SLEAP discussions
+
+---
 
 ## Next Steps
 
