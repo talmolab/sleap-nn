@@ -38,7 +38,7 @@ uv pip install -e ".[torch]"
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 ```
 
-Refer [Installation](installation.md) for more details on how to install sleap-nn package for your specific hardware.
+> Refer [Installation](installation.md) for more details on how to install sleap-nn package for your specific hardware.
 
 #### 2. Set Up Your Configuration
 
@@ -50,9 +50,9 @@ Create a `config.yaml` file for your experiment.
 #### 3. Train a model
 
 ```bash
-python -m sleap_nn.train --config-name config.yaml --config-path configs/
+python -m sleap_nn.train --config-name config.yaml --config-path configs/ "data_config.train_labels_path=[labels.pkg.slp]"
 ```
-> For more details on training, refer to the [Training Guide](training.md).
+> For detailed information on training workflows, configuration options, and advanced usage, please refer to the [Training Guide](training.md).
 
 #### 4. Run inference on the trained model
 
@@ -60,7 +60,7 @@ To run inference:
 ```bash
 python -m sleap_nn.predict --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
-> For more details on running inference + tracking, refer to the [Inference Guide](inference.md).
+> More options on running inference and tracking workflows are available in the [Inference Guide](inference.md).
 
 ---
 
