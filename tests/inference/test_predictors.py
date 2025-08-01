@@ -1178,7 +1178,7 @@ def test_single_instance_predictor(
     lf = pred_labels[0]
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
-    
+
     gt_lf = gt_labels[0]
     skl = pred_labels.skeletons[0]
     gt_skl = gt_labels.skeletons[0]
