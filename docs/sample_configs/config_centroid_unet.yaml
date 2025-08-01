@@ -1,8 +1,6 @@
 data_config:
   train_labels_path: 
-    - minimal_instance.pkg.slp
   val_labels_path: 
-    - minimal_instance.pkg.slp
   validation_fraction: 0.1
   test_file_path: null
   provider: LabelsReader
@@ -108,12 +106,12 @@ trainer_config:
   seed: 0
   use_wandb: true
   save_ckpt: true
-  save_ckpt_path: minimal_instance_centroid
+  save_ckpt_path:
   resume_ckpt_path: null
   wandb: # sample wandb config
     entity:
-    project: 'test_centroid_centered'
-    name: 'fly_unet_centered'
+    project: 'project_name'
+    name: 'run_name'
     wandb_mode: ''
     api_key: ''
     prv_runid:

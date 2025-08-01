@@ -94,7 +94,7 @@ model_config:
         part_names:
         - A
         - B
-        anchor_part: B
+        anchor_part: A
         sigma: 1.5
         output_stride: 2
         loss_weight: 1.0
@@ -128,6 +128,7 @@ trainer_config:
   min_train_steps_per_epoch: 200
   train_steps_per_epoch: 200
   visualize_preds_during_training: false
+  keep_viz: false
   max_epochs: 200
   seed: 0
   use_wandb: false
