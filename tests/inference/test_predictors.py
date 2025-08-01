@@ -1154,19 +1154,18 @@ def test_multiclass_topdown_predictor(
 
 
 def test_single_instance_predictor(
-    centered_instance_video,
-    minimal_instance,
+    small_robot_minimal_video,
+    small_robot_minimal,
     minimal_instance_single_instance_ckpt,
-    minimal_instance_centered_instance_ckpt,
-    minimal_instance_centroid_ckpt,
 ):
     """Test SingleInstancePredictor module."""
     # provider as LabelsReader
+    gt_labels = sio.load_slp(small_robot_minimal)
 
     # check if labels are created from ckpt
     pred_labels = run_inference(
         model_paths=[minimal_instance_single_instance_ckpt],
-        data_path=minimal_instance.as_posix(),
+        data_path=small_robot_minimal.as_posix(),
         make_labels=True,
         max_instances=6,
         device="cpu",
@@ -1174,12 +1173,12 @@ def test_single_instance_predictor(
         integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 1
+    assert len(pred_labels) == len(gt_labels)
     assert len(pred_labels[0].instances) == 1
     lf = pred_labels[0]
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
-    gt_labels = sio.load_slp(minimal_instance)
+    
     gt_lf = gt_labels[0]
     skl = pred_labels.skeletons[0]
     gt_skl = gt_labels.skeletons[0]
@@ -1194,7 +1193,7 @@ def test_single_instance_predictor(
     # check if dictionaries are created when make labels is set to False
     preds = run_inference(
         model_paths=[minimal_instance_single_instance_ckpt],
-        data_path=minimal_instance.as_posix(),
+        data_path=small_robot_minimal.as_posix(),
         make_labels=False,
         peak_threshold=0.3,
         device="cpu",
@@ -1210,7 +1209,7 @@ def test_single_instance_predictor(
     # check if labels are created from ckpt
     pred_labels = run_inference(
         model_paths=[minimal_instance_single_instance_ckpt],
-        data_path=minimal_instance.as_posix(),
+        data_path=small_robot_minimal.as_posix(),
         video_index=0,
         frames=[0],
         device="cpu",
@@ -1224,7 +1223,7 @@ def test_single_instance_predictor(
     lf = pred_labels[0]
 
     # check if the predicted labels have same video and skeleton as the ground truth labels
-    gt_labels = sio.load_slp(minimal_instance)
+    gt_labels = sio.load_slp(small_robot_minimal)
     gt_lf = gt_labels[0]
     skl = pred_labels.skeletons[0]
     gt_skl = gt_labels.skeletons[0]
@@ -1241,19 +1240,19 @@ def test_single_instance_predictor(
     # check if labels are created from ckpt
     pred_labels = run_inference(
         model_paths=[minimal_instance_single_instance_ckpt],
-        data_path=centered_instance_video.as_posix(),
+        data_path=small_robot_minimal_video.as_posix(),
         make_labels=True,
         device="cpu",
-        peak_threshold=0.0,
+        peak_threshold=0.1,
         integral_refinement=None,
     )
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 1100
+    assert len(pred_labels) == len(sio.Video(small_robot_minimal_video))
     assert len(pred_labels[0].instances) == 1
     lf = pred_labels[0]
 
     # check if the predicted labels have same skeleton as the GT labels
-    gt_labels = sio.load_slp(minimal_instance)
+    gt_labels = sio.load_slp(small_robot_minimal)
     skl = pred_labels.skeletons[0]
     gt_skl = gt_labels.skeletons[0]
     assert [a.name for a in skl.nodes] == [a.name for a in gt_skl.nodes]
@@ -1266,7 +1265,7 @@ def test_single_instance_predictor(
     # check if dictionaries are created when make labels is set to False
     preds = run_inference(
         model_paths=[minimal_instance_single_instance_ckpt],
-        data_path=centered_instance_video.as_posix(),
+        data_path=small_robot_minimal_video.as_posix(),
         make_labels=False,
         device="cpu",
         peak_threshold=0.3,
@@ -1748,17 +1747,18 @@ def test_legacy_bottomup_predictor(
 
 
 def test_legacy_single_instance_predictor(
-    minimal_instance,
+    small_robot_minimal,
     sleap_single_instance_model_path,
 ):
     """Test legacy single instance predictor."""
     pred_labels = run_inference(
         model_paths=[sleap_single_instance_model_path],
-        data_path=minimal_instance.as_posix(),
+        data_path=small_robot_minimal.as_posix(),
         make_labels=True,
         integral_refinement="integral",
+        ensure_grayscale=True,
     )
-    gt_labels = sio.load_slp(minimal_instance)
+    gt_labels = sio.load_slp(small_robot_minimal)
 
 
 def test_legacy_multiclass_bottomup_predictor(

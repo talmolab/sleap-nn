@@ -14,7 +14,7 @@ from sleap_nn.data.normalization import apply_normalization
 
 
 def test_single_instance_inference_model(
-    minimal_instance, minimal_instance_single_instance_ckpt
+    small_robot_minimal, minimal_instance_single_instance_ckpt
 ):
     """Test SingleInstanceInferenceModel."""
     training_config = OmegaConf.load(
@@ -29,7 +29,7 @@ def test_single_instance_inference_model(
         map_location="cpu",
     )
 
-    labels = sio.load_slp(minimal_instance)
+    labels = sio.load_slp(small_robot_minimal)
     # Making our minimal 2-instance example into a single instance example.
     for lf in labels:
         lf.instances = lf.instances[:1]
@@ -80,4 +80,4 @@ def test_single_instance_inference_model(
     outputs = []
     outputs.append(find_peaks_layer(ex))
     assert "pred_confmaps" in outputs[0][0].keys()
-    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (48, 48)
+    assert outputs[0][0]["pred_confmaps"].shape[-2:] == (40, 70)

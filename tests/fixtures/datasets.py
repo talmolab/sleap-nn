@@ -17,6 +17,15 @@ def minimal_instance(sleap_nn_data_dir):
     """Sleap fly .slp and video file paths."""
     return Path(sleap_nn_data_dir) / "minimal_instance.pkg.slp"
 
+@pytest.fixture
+def small_robot_minimal(sleap_nn_data_dir):
+    """Sleap robot .slp path."""
+    return Path(sleap_nn_data_dir) / "small_robot_minimal.slp"
+
+@pytest.fixture
+def small_robot_minimal_video(sleap_nn_data_dir):
+    """Sleap robot .mp4 path."""
+    return Path(sleap_nn_data_dir) / "small_robot.mp4"
 
 @pytest.fixture
 def centered_instance_video(sleap_nn_data_dir):
