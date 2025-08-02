@@ -153,7 +153,7 @@ class Model(nn.Module):
                     in_channels *= self.backbone.filters_rate * (
                         np.log2(head.output_stride) - np.log2(min_output_stride)
                     )
-            self.head_layers.append(head.make_head(x_in=int(in_channels)))
+            self.head_layers.append(head.make_head(x_in=round(in_channels)))
 
     @classmethod
     def from_config(
