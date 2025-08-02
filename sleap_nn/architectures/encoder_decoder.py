@@ -185,7 +185,7 @@ class StemBlock(nn.Module):
 
         for block in range(self.stem_blocks):
             prev_block_filters = in_channels if block == 0 else block_filters
-            block_filters = round(self.filters * (self.filters_rate**block))
+            block_filters = int(self.filters * (self.filters_rate**block))
 
             self.stem_stack.append(
                 SimpleConvBlock(
@@ -271,12 +271,10 @@ class Encoder(nn.Module):
         self.prefix = prefix
 
         self.encoder_stack = nn.ModuleList([])
-        block_filters = round(filters * (filters_rate ** (stem_blocks - 1)))
+        block_filters = int(filters * (filters_rate ** (stem_blocks - 1)))
         for block in range(down_blocks):
             prev_block_filters = -1 if block + self.stem_blocks == 0 else block_filters
-            block_filters = round(
-                filters * (filters_rate ** (block + self.stem_blocks))
-            )
+            block_filters = int(filters * (filters_rate ** (block + self.stem_blocks)))
 
             self.encoder_stack.append(
                 SimpleConvBlock(
@@ -607,13 +605,13 @@ class Decoder(nn.Module):
 
         for block in range(up_blocks):
             prev_block_filters = -1 if block == 0 else block_filters_out
-            block_filters_out = round(
+            block_filters_out = int(
                 filters
                 * (filters_rate ** max(0, down_blocks + self.stem_blocks - 1 - block))
             )
 
             if self.block_contraction:
-                block_filters_out = round(
+                block_filters_out = int(
                     self.filters
                     * (
                         self.filters_rate

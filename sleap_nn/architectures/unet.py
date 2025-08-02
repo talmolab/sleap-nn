@@ -101,7 +101,7 @@ class UNet(nn.Module):
         for i in range(self.stacks):
             # Create encoder for this stack
             in_channels = (
-                round(self.filters * (self.filters_rate ** (self.stem_blocks)))
+                int(self.filters * (self.filters_rate ** (self.stem_blocks)))
                 if self.stem_blocks > 0
                 else in_channels
             )
@@ -119,7 +119,7 @@ class UNet(nn.Module):
             # Create middle block separately (not part of encoder stack)
             self.middle_blocks = nn.ModuleList()
             # Get the last block filters from encoder
-            last_block_filters = round(
+            last_block_filters = int(
                 filters * (filters_rate ** (down_blocks + stem_blocks - 1))
             )
             enc_num = len(encoder.encoder_stack)
@@ -151,10 +151,10 @@ class UNet(nn.Module):
                     block_filters = int(last_block_filters)
                 else:
                     # Keep the block output filters the same
-                    block_filters = round(last_block_filters * filters_rate)
+                    block_filters = int(last_block_filters * filters_rate)
 
                 middle_contract = SimpleConvBlock(
-                    in_channels=round(last_block_filters * filters_rate),
+                    in_channels=int(last_block_filters * filters_rate),
                     pool=False,
                     pool_before_convs=False,
                     pooling_stride=2,
@@ -187,12 +187,12 @@ class UNet(nn.Module):
             # Create decoder for this stack
             if self.block_contraction:
                 # Contract the channels with an exponent lower than the last encoder block
-                x_in_shape = round(
+                x_in_shape = int(
                     filters * (filters_rate ** (down_blocks + stem_blocks - 1))
                 )
             else:
                 # Keep the block output filters the same
-                x_in_shape = round(
+                x_in_shape = int(
                     filters * (filters_rate ** (down_blocks + stem_blocks))
                 )
             decoder = Decoder(

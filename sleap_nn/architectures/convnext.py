@@ -237,7 +237,7 @@ class ConvNextWrapper(nn.Module):
                 pool_before_convs=False,
                 pooling_stride=2,
                 num_convs=convs_per_block - 1,
-                filters=round(last_block_filters * filters_rate),
+                filters=int(last_block_filters * filters_rate),
                 kernel_size=kernel_size,
                 use_bias=True,
                 batch_norm=False,
@@ -252,10 +252,10 @@ class ConvNextWrapper(nn.Module):
             block_filters = int(last_block_filters)
         else:
             # Keep the block output filters the same
-            block_filters = round(last_block_filters * filters_rate)
+            block_filters = int(last_block_filters * filters_rate)
 
         middle_contract = SimpleConvBlock(
-            in_channels=round(last_block_filters * filters_rate),
+            in_channels=int(last_block_filters * filters_rate),
             pool=False,
             pool_before_convs=False,
             pooling_stride=2,
@@ -279,7 +279,7 @@ class ConvNextWrapper(nn.Module):
             x_in_shape = int(self.arch["channels"][-1])
         else:
             # Keep the block output filters the same
-            x_in_shape = round(self.arch["channels"][-1] * filters_rate)
+            x_in_shape = int(self.arch["channels"][-1] * filters_rate)
 
         self.dec = Decoder(
             x_in_shape=x_in_shape,
