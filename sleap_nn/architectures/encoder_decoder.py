@@ -604,6 +604,8 @@ class Decoder(nn.Module):
 
         self.decoder_stack = nn.ModuleList([])
 
+        self.stride_to_filters[current_stride] = x_in_shape
+
         for block in range(up_blocks):
             prev_block_filters = -1 if block == 0 else block_filters_out
             block_filters_out = int(
