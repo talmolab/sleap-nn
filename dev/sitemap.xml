@@ -1,251 +1,251 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
-         <loc>https://nn.sleap.ai/dev/</loc>
+         <loc>https://nn.sleap.ai/dev/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/CHANGELOG/</loc>
+         <loc>https://nn.sleap.ai/dev/CHANGELOG.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/config/</loc>
+         <loc>https://nn.sleap.ai/dev/config.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/configuration/</loc>
+         <loc>https://nn.sleap.ai/dev/configuration.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/installation/</loc>
+         <loc>https://nn.sleap.ai/dev/installation.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/training/</loc>
+         <loc>https://nn.sleap.ai/dev/training.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/</loc>
+         <loc>https://nn.sleap.ai/dev/api/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/SUMMARY/</loc>
+         <loc>https://nn.sleap.ai/dev/api/SUMMARY.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/cli/</loc>
+         <loc>https://nn.sleap.ai/dev/api/cli.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/evaluation/</loc>
+         <loc>https://nn.sleap.ai/dev/api/evaluation.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/legacy_models/</loc>
+         <loc>https://nn.sleap.ai/dev/api/legacy_models.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/predict/</loc>
+         <loc>https://nn.sleap.ai/dev/api/predict.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/train/</loc>
+         <loc>https://nn.sleap.ai/dev/api/train.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/common/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/common.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/convnext/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/convnext.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/encoder_decoder/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/encoder_decoder.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/heads/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/heads.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/model/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/model.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/swint/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/swint.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/unet/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/unet.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/architectures/utils/</loc>
+         <loc>https://nn.sleap.ai/dev/api/architectures/utils.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/config/</loc>
+         <loc>https://nn.sleap.ai/dev/api/config/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/config/data_config/</loc>
+         <loc>https://nn.sleap.ai/dev/api/config/data_config.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/config/model_config/</loc>
+         <loc>https://nn.sleap.ai/dev/api/config/model_config.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/config/trainer_config/</loc>
+         <loc>https://nn.sleap.ai/dev/api/config/trainer_config.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/config/training_job_config/</loc>
+         <loc>https://nn.sleap.ai/dev/api/config/training_job_config.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/config/utils/</loc>
+         <loc>https://nn.sleap.ai/dev/api/config/utils.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/augmentation/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/augmentation.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/confidence_maps/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/confidence_maps.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/custom_datasets/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/custom_datasets.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/edge_maps/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/edge_maps.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/identity/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/identity.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/instance_centroids/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/instance_centroids.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/instance_cropping/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/instance_cropping.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/normalization/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/normalization.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/providers/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/providers.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/resizing/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/resizing.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/data/utils/</loc>
+         <loc>https://nn.sleap.ai/dev/api/data/utils.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/bottomup/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/bottomup.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/identity/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/identity.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/paf_grouping/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/paf_grouping.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/peak_finding/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/peak_finding.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/predictors/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/predictors.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/single_instance/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/single_instance.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/topdown/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/topdown.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/inference/utils/</loc>
+         <loc>https://nn.sleap.ai/dev/api/inference/utils.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/tracking/</loc>
+         <loc>https://nn.sleap.ai/dev/api/tracking/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/tracking/track_instance/</loc>
+         <loc>https://nn.sleap.ai/dev/api/tracking/track_instance.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/tracking/tracker/</loc>
+         <loc>https://nn.sleap.ai/dev/api/tracking/tracker.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/tracking/utils/</loc>
+         <loc>https://nn.sleap.ai/dev/api/tracking/utils.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/tracking/candidates/</loc>
+         <loc>https://nn.sleap.ai/dev/api/tracking/candidates/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/tracking/candidates/fixed_window/</loc>
+         <loc>https://nn.sleap.ai/dev/api/tracking/candidates/fixed_window.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/tracking/candidates/local_queues/</loc>
+         <loc>https://nn.sleap.ai/dev/api/tracking/candidates/local_queues.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/training/</loc>
+         <loc>https://nn.sleap.ai/dev/api/training/index.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/training/callbacks/</loc>
+         <loc>https://nn.sleap.ai/dev/api/training/callbacks.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/training/lightning_modules/</loc>
+         <loc>https://nn.sleap.ai/dev/api/training/lightning_modules.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/training/losses/</loc>
+         <loc>https://nn.sleap.ai/dev/api/training/losses.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/training/model_trainer/</loc>
+         <loc>https://nn.sleap.ai/dev/api/training/model_trainer.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
     <url>
-         <loc>https://nn.sleap.ai/dev/api/training/utils/</loc>
+         <loc>https://nn.sleap.ai/dev/api/training/utils.html</loc>
          <lastmod>2025-08-02</lastmod>
     </url>
 </urlset>

@@ -8,28 +8,28 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/tracking/index.html">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/api/predict.html">
       
       
-        <link rel="prev" href="../predict.html">
+        <link rel="prev" href="legacy_models.html">
       
       
-        <link rel="next" href="candidates/index.html">
+        <link rel="next" href="tracking/index.html">
       
       
-      <link rel="icon" href="../../assets/favicon.ico">
+      <link rel="icon" href="../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.16">
     
     
       
-        <title>tracking - sleap-nn documentation</title>
+        <title>predict - sleap-nn documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.7e37652d.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -48,9 +48,9 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.tracking" class="md-skip">
+        <a href="#sleap_nn.predict" class="md-skip">
           Skip to content
         </a>
       
@@ -92,9 +92,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../index.html" title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../index.html" title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -111,7 +111,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              tracking
+              predict
             
           </span>
         </div>
@@ -229,9 +229,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../index.html" title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href="../index.html" title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     sleap-nn documentation
@@ -258,7 +258,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../index.html" class="md-nav__link">
+      <a href="../index.html" class="md-nav__link">
         
   
   
@@ -280,7 +280,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../CHANGELOG.html" class="md-nav__link">
+      <a href="../CHANGELOG.html" class="md-nav__link">
         
   
   
@@ -302,7 +302,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config.html" class="md-nav__link">
+      <a href="../config.html" class="md-nav__link">
         
   
   
@@ -324,7 +324,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../configuration.html" class="md-nav__link">
+      <a href="../configuration.html" class="md-nav__link">
         
   
   
@@ -346,7 +346,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../installation.html" class="md-nav__link">
+      <a href="../installation.html" class="md-nav__link">
         
   
   
@@ -368,7 +368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training.html" class="md-nav__link">
+      <a href="../training.html" class="md-nav__link">
         
   
   
@@ -451,7 +451,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../index.html" class="md-nav__link ">
+            <a href="index.html" class="md-nav__link ">
               
   
   
@@ -498,7 +498,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../architectures/index.html" class="md-nav__link ">
+            <a href="architectures/index.html" class="md-nav__link ">
               
   
   
@@ -531,7 +531,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/common.html" class="md-nav__link">
+      <a href="architectures/common.html" class="md-nav__link">
         
   
   
@@ -554,7 +554,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/convnext.html" class="md-nav__link">
+      <a href="architectures/convnext.html" class="md-nav__link">
         
   
   
@@ -577,7 +577,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/encoder_decoder.html" class="md-nav__link">
+      <a href="architectures/encoder_decoder.html" class="md-nav__link">
         
   
   
@@ -600,7 +600,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/heads.html" class="md-nav__link">
+      <a href="architectures/heads.html" class="md-nav__link">
         
   
   
@@ -623,7 +623,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/model.html" class="md-nav__link">
+      <a href="architectures/model.html" class="md-nav__link">
         
   
   
@@ -646,7 +646,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/swint.html" class="md-nav__link">
+      <a href="architectures/swint.html" class="md-nav__link">
         
   
   
@@ -669,7 +669,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/unet.html" class="md-nav__link">
+      <a href="architectures/unet.html" class="md-nav__link">
         
   
   
@@ -692,7 +692,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/utils.html" class="md-nav__link">
+      <a href="architectures/utils.html" class="md-nav__link">
         
   
   
@@ -723,7 +723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../cli.html" class="md-nav__link">
+      <a href="cli.html" class="md-nav__link">
         
   
   
@@ -760,7 +760,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../config/index.html" class="md-nav__link ">
+            <a href="config/index.html" class="md-nav__link ">
               
   
   
@@ -793,7 +793,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/data_config.html" class="md-nav__link">
+      <a href="config/data_config.html" class="md-nav__link">
         
   
   
@@ -816,7 +816,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/model_config.html" class="md-nav__link">
+      <a href="config/model_config.html" class="md-nav__link">
         
   
   
@@ -839,7 +839,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/trainer_config.html" class="md-nav__link">
+      <a href="config/trainer_config.html" class="md-nav__link">
         
   
   
@@ -862,7 +862,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/training_job_config.html" class="md-nav__link">
+      <a href="config/training_job_config.html" class="md-nav__link">
         
   
   
@@ -885,7 +885,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/utils.html" class="md-nav__link">
+      <a href="config/utils.html" class="md-nav__link">
         
   
   
@@ -930,7 +930,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../data/index.html" class="md-nav__link ">
+            <a href="data/index.html" class="md-nav__link ">
               
   
   
@@ -963,7 +963,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/augmentation.html" class="md-nav__link">
+      <a href="data/augmentation.html" class="md-nav__link">
         
   
   
@@ -986,7 +986,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/confidence_maps.html" class="md-nav__link">
+      <a href="data/confidence_maps.html" class="md-nav__link">
         
   
   
@@ -1009,7 +1009,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/custom_datasets.html" class="md-nav__link">
+      <a href="data/custom_datasets.html" class="md-nav__link">
         
   
   
@@ -1032,7 +1032,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/edge_maps.html" class="md-nav__link">
+      <a href="data/edge_maps.html" class="md-nav__link">
         
   
   
@@ -1055,7 +1055,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/identity.html" class="md-nav__link">
+      <a href="data/identity.html" class="md-nav__link">
         
   
   
@@ -1078,7 +1078,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/instance_centroids.html" class="md-nav__link">
+      <a href="data/instance_centroids.html" class="md-nav__link">
         
   
   
@@ -1101,7 +1101,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/instance_cropping.html" class="md-nav__link">
+      <a href="data/instance_cropping.html" class="md-nav__link">
         
   
   
@@ -1124,7 +1124,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/normalization.html" class="md-nav__link">
+      <a href="data/normalization.html" class="md-nav__link">
         
   
   
@@ -1147,7 +1147,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/providers.html" class="md-nav__link">
+      <a href="data/providers.html" class="md-nav__link">
         
   
   
@@ -1170,7 +1170,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/resizing.html" class="md-nav__link">
+      <a href="data/resizing.html" class="md-nav__link">
         
   
   
@@ -1193,7 +1193,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/utils.html" class="md-nav__link">
+      <a href="data/utils.html" class="md-nav__link">
         
   
   
@@ -1224,7 +1224,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../evaluation.html" class="md-nav__link">
+      <a href="evaluation.html" class="md-nav__link">
         
   
   
@@ -1261,7 +1261,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../inference/index.html" class="md-nav__link ">
+            <a href="inference/index.html" class="md-nav__link ">
               
   
   
@@ -1294,7 +1294,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/bottomup.html" class="md-nav__link">
+      <a href="inference/bottomup.html" class="md-nav__link">
         
   
   
@@ -1317,7 +1317,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/identity.html" class="md-nav__link">
+      <a href="inference/identity.html" class="md-nav__link">
         
   
   
@@ -1340,7 +1340,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/paf_grouping.html" class="md-nav__link">
+      <a href="inference/paf_grouping.html" class="md-nav__link">
         
   
   
@@ -1363,7 +1363,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/peak_finding.html" class="md-nav__link">
+      <a href="inference/peak_finding.html" class="md-nav__link">
         
   
   
@@ -1386,7 +1386,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/predictors.html" class="md-nav__link">
+      <a href="inference/predictors.html" class="md-nav__link">
         
   
   
@@ -1409,7 +1409,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/single_instance.html" class="md-nav__link">
+      <a href="inference/single_instance.html" class="md-nav__link">
         
   
   
@@ -1432,7 +1432,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/topdown.html" class="md-nav__link">
+      <a href="inference/topdown.html" class="md-nav__link">
         
   
   
@@ -1455,7 +1455,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/utils.html" class="md-nav__link">
+      <a href="inference/utils.html" class="md-nav__link">
         
   
   
@@ -1486,7 +1486,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../legacy_models.html" class="md-nav__link">
+      <a href="legacy_models.html" class="md-nav__link">
         
   
   
@@ -1506,10 +1506,30 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../predict.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    predict
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="predict.html" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1520,6 +1540,33 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#sleap_nn.predict" class="md-nav__link">
+    <span class="md-ellipsis">
+      predict
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1529,8 +1576,6 @@
                 
   
   
-    
-  
   
   
     
@@ -1540,15 +1585,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_9" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_9" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="index.html" class="md-nav__link md-nav__link--active">
+            <a href="tracking/index.html" class="md-nav__link ">
               
   
   
@@ -1561,13 +1606,13 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_7_1_9" id="__nav_7_1_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_7_1_9" id="__nav_7_1_9_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_9_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_9_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_7_1_9">
             <span class="md-nav__icon md-icon"></span>
             tracking
@@ -1595,7 +1640,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="candidates/index.html" class="md-nav__link ">
+            <a href="tracking/candidates/index.html" class="md-nav__link ">
               
   
   
@@ -1628,7 +1673,7 @@
   
   
     <li class="md-nav__item">
-      <a href="candidates/fixed_window.html" class="md-nav__link">
+      <a href="tracking/candidates/fixed_window.html" class="md-nav__link">
         
   
   
@@ -1651,7 +1696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="candidates/local_queues.html" class="md-nav__link">
+      <a href="tracking/candidates/local_queues.html" class="md-nav__link">
         
   
   
@@ -1682,7 +1727,7 @@
   
   
     <li class="md-nav__item">
-      <a href="track_instance.html" class="md-nav__link">
+      <a href="tracking/track_instance.html" class="md-nav__link">
         
   
   
@@ -1705,7 +1750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="tracker.html" class="md-nav__link">
+      <a href="tracking/tracker.html" class="md-nav__link">
         
   
   
@@ -1728,7 +1773,7 @@
   
   
     <li class="md-nav__item">
-      <a href="utils.html" class="md-nav__link">
+      <a href="tracking/utils.html" class="md-nav__link">
         
   
   
@@ -1759,7 +1804,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../train.html" class="md-nav__link">
+      <a href="train.html" class="md-nav__link">
         
   
   
@@ -1796,7 +1841,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../training/index.html" class="md-nav__link ">
+            <a href="training/index.html" class="md-nav__link ">
               
   
   
@@ -1829,7 +1874,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/callbacks.html" class="md-nav__link">
+      <a href="training/callbacks.html" class="md-nav__link">
         
   
   
@@ -1852,7 +1897,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/lightning_modules.html" class="md-nav__link">
+      <a href="training/lightning_modules.html" class="md-nav__link">
         
   
   
@@ -1875,7 +1920,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/losses.html" class="md-nav__link">
+      <a href="training/losses.html" class="md-nav__link">
         
   
   
@@ -1898,7 +1943,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/model_trainer.html" class="md-nav__link">
+      <a href="training/model_trainer.html" class="md-nav__link">
         
   
   
@@ -1921,7 +1966,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/utils.html" class="md-nav__link">
+      <a href="training/utils.html" class="md-nav__link">
         
   
   
@@ -1985,9 +2030,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.tracking" class="md-nav__link">
+  <a href="#sleap_nn.predict" class="md-nav__link">
     <span class="md-ellipsis">
-      tracking
+      predict
     </span>
   </a>
   
@@ -2012,28 +2057,32 @@
   
 
 
-  <h1>tracking</h1>
+  <h1>predict</h1>
 
 <div class="doc doc-object doc-module">
 
 
 
-<h2 id="sleap_nn.tracking" class="doc doc-heading">
-            <code>sleap_nn.tracking</code>
+<h2 id="sleap_nn.predict" class="doc doc-heading">
+            <code>sleap_nn.predict</code>
 
 
-<a href="#sleap_nn.tracking" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#sleap_nn.predict" class="headerlink" title="Permanent link">&para;</a></h2>
 
     <div class="doc doc-contents first">
 
-        <p>Tracker related modules.</p>
+        <p>Entry point for running inference.</p>
 
 
 
 
 
 
-<p><span class="doc-section-title">Modules:</span></p>
+
+
+
+
+<p><span class="doc-section-title">Functions:</span></p>
     <table>
       <thead>
         <tr>
@@ -2042,44 +2091,24 @@
         </tr>
       </thead>
       <tbody>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.candidates&lt;/code&gt;" href="candidates/index.html#sleap_nn.tracking.candidates">candidates</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Candidate generation modules for tracking.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.track_instance&lt;/code&gt;" href="track_instance.html#sleap_nn.tracking.track_instance">track_instance</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>TrackInstance Data structure for Tracker queue.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.tracker&lt;/code&gt;" href="tracker.html#sleap_nn.tracking.tracker">tracker</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Module for tracking.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.utils&lt;/code&gt;" href="utils.html#sleap_nn.tracking.utils">utils</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Helper functions for Tracker module.</p>
-              </div>
-            </td>
-          </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;frame_list&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;frame_str&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.predict.frame_list&lt;/code&gt;)" href="#sleap_nn.predict.frame_list">frame_list</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Converts 'n-m' string to list of ints.</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;args&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.predict.main&lt;/code&gt;)" href="#sleap_nn.predict.main">main</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Entrypoint for sleap-nn CLI for running inference.</p>
+                </div>
+              </td>
+            </tr>
       </tbody>
     </table>
-
-
-
-
 
 
 
@@ -2094,6 +2123,205 @@
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.predict.frame_list" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">frame_list</span><span class="p">(</span><span class="n">frame_str</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.predict.frame_list" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Converts 'n-m' string to list of ints.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>frame_str</code>
+            </td>
+            <td>
+                  <code><span title="str">str</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>string representing range</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.List">List</span>[<span title="int">int</span>]]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of ints, or None if string does not represent valid range.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>sleap_nn/predict.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-370">370</a></span>
+<span class="normal"><a href="#__codelineno-0-371">371</a></span>
+<span class="normal"><a href="#__codelineno-0-372">372</a></span>
+<span class="normal"><a href="#__codelineno-0-373">373</a></span>
+<span class="normal"><a href="#__codelineno-0-374">374</a></span>
+<span class="normal"><a href="#__codelineno-0-375">375</a></span>
+<span class="normal"><a href="#__codelineno-0-376">376</a></span>
+<span class="normal"><a href="#__codelineno-0-377">377</a></span>
+<span class="normal"><a href="#__codelineno-0-378">378</a></span>
+<span class="normal"><a href="#__codelineno-0-379">379</a></span>
+<span class="normal"><a href="#__codelineno-0-380">380</a></span>
+<span class="normal"><a href="#__codelineno-0-381">381</a></span>
+<span class="normal"><a href="#__codelineno-0-382">382</a></span>
+<span class="normal"><a href="#__codelineno-0-383">383</a></span>
+<span class="normal"><a href="#__codelineno-0-384">384</a></span>
+<span class="normal"><a href="#__codelineno-0-385">385</a></span>
+<span class="normal"><a href="#__codelineno-0-386">386</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-370"><a id="__codelineno-0-370" name="__codelineno-0-370"></a><span class="k">def</span><span class="w"> </span><span class="nf">frame_list</span><span class="p">(</span><span class="n">frame_str</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]:</span>
+</span><span id="__span-0-371"><a id="__codelineno-0-371" name="__codelineno-0-371"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Converts &#39;n-m&#39; string to list of ints.</span>
+</span><span id="__span-0-372"><a id="__codelineno-0-372" name="__codelineno-0-372"></a>
+</span><span id="__span-0-373"><a id="__codelineno-0-373" name="__codelineno-0-373"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-374"><a id="__codelineno-0-374" name="__codelineno-0-374"></a><span class="sd">        frame_str: string representing range</span>
+</span><span id="__span-0-375"><a id="__codelineno-0-375" name="__codelineno-0-375"></a>
+</span><span id="__span-0-376"><a id="__codelineno-0-376" name="__codelineno-0-376"></a><span class="sd">    Returns:</span>
+</span><span id="__span-0-377"><a id="__codelineno-0-377" name="__codelineno-0-377"></a><span class="sd">        List of ints, or None if string does not represent valid range.</span>
+</span><span id="__span-0-378"><a id="__codelineno-0-378" name="__codelineno-0-378"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-379"><a id="__codelineno-0-379" name="__codelineno-0-379"></a>    <span class="c1"># Handle ranges of frames. Must be of the form &quot;1-200&quot; (or &quot;1,-200&quot;)</span>
+</span><span id="__span-0-380"><a id="__codelineno-0-380" name="__codelineno-0-380"></a>    <span class="k">if</span> <span class="s2">&quot;-&quot;</span> <span class="ow">in</span> <span class="n">frame_str</span><span class="p">:</span>
+</span><span id="__span-0-381"><a id="__codelineno-0-381" name="__codelineno-0-381"></a>        <span class="n">min_max</span> <span class="o">=</span> <span class="n">frame_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;-&quot;</span><span class="p">)</span>
+</span><span id="__span-0-382"><a id="__codelineno-0-382" name="__codelineno-0-382"></a>        <span class="n">min_frame</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">min_max</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">))</span>
+</span><span id="__span-0-383"><a id="__codelineno-0-383" name="__codelineno-0-383"></a>        <span class="n">max_frame</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">min_max</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+</span><span id="__span-0-384"><a id="__codelineno-0-384" name="__codelineno-0-384"></a>        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">min_frame</span><span class="p">,</span> <span class="n">max_frame</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+</span><span id="__span-0-385"><a id="__codelineno-0-385" name="__codelineno-0-385"></a>
+</span><span id="__span-0-386"><a id="__codelineno-0-386" name="__codelineno-0-386"></a>    <span class="k">return</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">frame_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">)]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">frame_str</span><span class="p">)</span> <span class="k">else</span> <span class="kc">None</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.predict.main" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">main</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.predict.main" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Entrypoint for sleap-nn CLI for running inference.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>args</code>
+            </td>
+            <td>
+                  <code><span title="typing.Optional">Optional</span>[<span title="list">list</span>]</code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A list of arguments to be passed.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+            <details class="quote">
+              <summary>Source code in <code>sleap_nn/predict.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-389">389</a></span>
+<span class="normal"><a href="#__codelineno-0-390">390</a></span>
+<span class="normal"><a href="#__codelineno-0-391">391</a></span>
+<span class="normal"><a href="#__codelineno-0-392">392</a></span>
+<span class="normal"><a href="#__codelineno-0-393">393</a></span>
+<span class="normal"><a href="#__codelineno-0-394">394</a></span>
+<span class="normal"><a href="#__codelineno-0-395">395</a></span>
+<span class="normal"><a href="#__codelineno-0-396">396</a></span>
+<span class="normal"><a href="#__codelineno-0-397">397</a></span>
+<span class="normal"><a href="#__codelineno-0-398">398</a></span>
+<span class="normal"><a href="#__codelineno-0-399">399</a></span>
+<span class="normal"><a href="#__codelineno-0-400">400</a></span>
+<span class="normal"><a href="#__codelineno-0-401">401</a></span>
+<span class="normal"><a href="#__codelineno-0-402">402</a></span>
+<span class="normal"><a href="#__codelineno-0-403">403</a></span>
+<span class="normal"><a href="#__codelineno-0-404">404</a></span>
+<span class="normal"><a href="#__codelineno-0-405">405</a></span>
+<span class="normal"><a href="#__codelineno-0-406">406</a></span>
+<span class="normal"><a href="#__codelineno-0-407">407</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-389"><a id="__codelineno-0-389" name="__codelineno-0-389"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="n">args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">):</span>
+</span><span id="__span-0-390"><a id="__codelineno-0-390" name="__codelineno-0-390"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Entrypoint for sleap-nn CLI for running inference.</span>
+</span><span id="__span-0-391"><a id="__codelineno-0-391" name="__codelineno-0-391"></a>
+</span><span id="__span-0-392"><a id="__codelineno-0-392" name="__codelineno-0-392"></a><span class="sd">    Args:</span>
+</span><span id="__span-0-393"><a id="__codelineno-0-393" name="__codelineno-0-393"></a><span class="sd">        args: A list of arguments to be passed.</span>
+</span><span id="__span-0-394"><a id="__codelineno-0-394" name="__codelineno-0-394"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-395"><a id="__codelineno-0-395" name="__codelineno-0-395"></a>    <span class="n">parser</span> <span class="o">=</span> <span class="n">_make_cli_parser</span><span class="p">()</span>
+</span><span id="__span-0-396"><a id="__codelineno-0-396" name="__codelineno-0-396"></a>
+</span><span id="__span-0-397"><a id="__codelineno-0-397" name="__codelineno-0-397"></a>    <span class="c1"># Parse inputs.</span>
+</span><span id="__span-0-398"><a id="__codelineno-0-398" name="__codelineno-0-398"></a>    <span class="n">args</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_known_args</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+</span><span id="__span-0-399"><a id="__codelineno-0-399" name="__codelineno-0-399"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Inference args:&quot;</span><span class="p">)</span>
+</span><span id="__span-0-400"><a id="__codelineno-0-400" name="__codelineno-0-400"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="nb">vars</span><span class="p">(</span><span class="n">args</span><span class="p">))</span>
+</span><span id="__span-0-401"><a id="__codelineno-0-401" name="__codelineno-0-401"></a>
+</span><span id="__span-0-402"><a id="__codelineno-0-402" name="__codelineno-0-402"></a>    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">frames</span><span class="p">:</span>
+</span><span id="__span-0-403"><a id="__codelineno-0-403" name="__codelineno-0-403"></a>        <span class="n">args</span><span class="o">.</span><span class="n">frames</span> <span class="o">=</span> <span class="n">frame_list</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">frames</span><span class="p">)</span>
+</span><span id="__span-0-404"><a id="__codelineno-0-404" name="__codelineno-0-404"></a>    <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-405"><a id="__codelineno-0-405" name="__codelineno-0-405"></a>        <span class="n">args</span><span class="o">.</span><span class="n">frames</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-406"><a id="__codelineno-0-406" name="__codelineno-0-406"></a>
+</span><span id="__span-0-407"><a id="__codelineno-0-407" name="__codelineno-0-407"></a>    <span class="n">_</span> <span class="o">=</span> <span class="n">run_inference</span><span class="p">(</span><span class="o">**</span><span class="nb">vars</span><span class="p">(</span><span class="n">args</span><span class="p">))</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
 
 
 
@@ -2156,10 +2384,10 @@
     
     
       
-      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.50899def.min.js"></script>
+      <script src="../assets/javascripts/bundle.50899def.min.js"></script>
       
     
   </body>

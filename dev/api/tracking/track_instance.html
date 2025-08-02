@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/tracking/index.html">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/api/tracking/track_instance.html">
       
       
-        <link rel="prev" href="../predict.html">
+        <link rel="prev" href="candidates/local_queues.html">
       
       
-        <link rel="next" href="candidates/index.html">
+        <link rel="next" href="tracker.html">
       
       
       <link rel="icon" href="../../assets/favicon.ico">
@@ -22,7 +22,7 @@
     
     
       
-        <title>tracking - sleap-nn documentation</title>
+        <title>track_instance - sleap-nn documentation</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.tracking" class="md-skip">
+        <a href="#sleap_nn.tracking.track_instance" class="md-skip">
           Skip to content
         </a>
       
@@ -111,7 +111,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              tracking
+              track_instance
             
           </span>
         </div>
@@ -1548,7 +1548,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="index.html" class="md-nav__link md-nav__link--active">
+            <a href="index.html" class="md-nav__link ">
               
   
   
@@ -1561,7 +1561,7 @@
             </a>
             
               
-              <label class="md-nav__link md-nav__link--active" for="__nav_7_1_9" id="__nav_7_1_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_7_1_9" id="__nav_7_1_9_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
@@ -1679,10 +1679,30 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="track_instance.html" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    track_instance
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="track_instance.html" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1693,6 +1713,33 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#sleap_nn.tracking.track_instance" class="md-nav__link">
+    <span class="md-ellipsis">
+      track_instance
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1985,9 +2032,9 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.tracking" class="md-nav__link">
+  <a href="#sleap_nn.tracking.track_instance" class="md-nav__link">
     <span class="md-ellipsis">
-      tracking
+      track_instance
     </span>
   </a>
   
@@ -2012,28 +2059,30 @@
   
 
 
-  <h1>tracking</h1>
+  <h1>track_instance</h1>
 
 <div class="doc doc-object doc-module">
 
 
 
-<h2 id="sleap_nn.tracking" class="doc doc-heading">
-            <code>sleap_nn.tracking</code>
+<h2 id="sleap_nn.tracking.track_instance" class="doc doc-heading">
+            <code>sleap_nn.tracking.track_instance</code>
 
 
-<a href="#sleap_nn.tracking" class="headerlink" title="Permanent link">&para;</a></h2>
+<a href="#sleap_nn.tracking.track_instance" class="headerlink" title="Permanent link">&para;</a></h2>
 
     <div class="doc doc-contents first">
 
-        <p>Tracker related modules.</p>
+        <p>TrackInstance Data structure for Tracker queue.</p>
 
 
 
 
 
 
-<p><span class="doc-section-title">Modules:</span></p>
+
+
+<p><span class="doc-section-title">Classes:</span></p>
     <table>
       <thead>
         <tr>
@@ -2043,41 +2092,31 @@
       </thead>
       <tbody>
           <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.candidates&lt;/code&gt;" href="candidates/index.html#sleap_nn.tracking.candidates">candidates</a></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackInstanceLocalQueue&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackInstanceLocalQueue&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue">TrackInstanceLocalQueue</a></code></td>
             <td>
               <div class="doc-md-description">
-                <p>Candidate generation modules for tracking.</p>
+                <p>Data structure for instances in tracker queue for Local Queue method.</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.track_instance&lt;/code&gt;" href="track_instance.html#sleap_nn.tracking.track_instance">track_instance</a></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackInstances&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackInstances&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackInstances">TrackInstances</a></code></td>
             <td>
               <div class="doc-md-description">
-                <p>TrackInstance Data structure for Tracker queue.</p>
+                <p>Data structure for instances in tracker queue for fixed window method.</p>
               </div>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.tracker&lt;/code&gt;" href="tracker.html#sleap_nn.tracking.tracker">tracker</a></code></td>
+            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackedInstanceFeature&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackedInstanceFeature&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature">TrackedInstanceFeature</a></code></td>
             <td>
               <div class="doc-md-description">
-                <p>Module for tracking.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;sleap_nn.tracking.utils&lt;/code&gt;" href="utils.html#sleap_nn.tracking.utils">utils</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Helper functions for Tracker module.</p>
+                <p>Data structure for tracked instances.</p>
               </div>
             </td>
           </tr>
       </tbody>
     </table>
-
-
 
 
 
@@ -2093,6 +2132,229 @@
 
 
 
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="doc doc-heading">
+            <code>TrackInstanceLocalQueue</code>
+
+
+<a href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+        <p>Data structure for instances in tracker queue for Local Queue method.</p>
+
+
+
+
+
+
+
+
+
+
+
+              <details class="quote">
+                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-21">21</a></span>
+<span class="normal"><a href="#__codelineno-0-22">22</a></span>
+<span class="normal"><a href="#__codelineno-0-23">23</a></span>
+<span class="normal"><a href="#__codelineno-0-24">24</a></span>
+<span class="normal"><a href="#__codelineno-0-25">25</a></span>
+<span class="normal"><a href="#__codelineno-0-26">26</a></span>
+<span class="normal"><a href="#__codelineno-0-27">27</a></span>
+<span class="normal"><a href="#__codelineno-0-28">28</a></span>
+<span class="normal"><a href="#__codelineno-0-29">29</a></span>
+<span class="normal"><a href="#__codelineno-0-30">30</a></span>
+<span class="normal"><a href="#__codelineno-0-31">31</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackInstanceLocalQueue</span><span class="p">:</span>
+</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for instances in tracker queue for Local Queue method.&quot;&quot;&quot;</span>
+</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a>
+</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a>    <span class="n">src_instance</span><span class="p">:</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a>    <span class="n">src_instance_idx</span><span class="p">:</span> <span class="nb">int</span>
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a>    <span class="n">feature</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span>
+</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a>    <span class="n">track_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>    <span class="n">tracking_score</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span></code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="sleap_nn.tracking.track_instance.TrackInstances" class="doc doc-heading">
+            <code>TrackInstances</code>
+
+
+<a href="#sleap_nn.tracking.track_instance.TrackInstances" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+        <p>Data structure for instances in tracker queue for fixed window method.</p>
+
+
+
+
+
+
+
+
+
+
+
+              <details class="quote">
+                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-0-10">10</a></span>
+<span class="normal"><a href="#__codelineno-0-11">11</a></span>
+<span class="normal"><a href="#__codelineno-0-12">12</a></span>
+<span class="normal"><a href="#__codelineno-0-13">13</a></span>
+<span class="normal"><a href="#__codelineno-0-14">14</a></span>
+<span class="normal"><a href="#__codelineno-0-15">15</a></span>
+<span class="normal"><a href="#__codelineno-0-16">16</a></span>
+<span class="normal"><a href="#__codelineno-0-17">17</a></span>
+<span class="normal"><a href="#__codelineno-0-18">18</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackInstances</span><span class="p">:</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for instances in tracker queue for fixed window method.&quot;&quot;&quot;</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12"></a>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13"></a>    <span class="n">src_instances</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span><span class="p">]</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14"></a>    <span class="n">features</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a>    <span class="n">track_ids</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a>    <span class="n">tracking_scores</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span></code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h3 id="sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="doc doc-heading">
+            <code>TrackedInstanceFeature</code>
+
+
+<a href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+
+        <p>Data structure for tracked instances.</p>
+<p>This data structure is used for updating the previous tracked instances and get the
+features of the tracked instances. <code>shifted_keypoints</code> is used only for the <code>FlowShiftTracker</code>
+to store the optical flow shifted instances.</p>
+
+
+
+
+
+
+
+
+
+
+
+              <details class="quote">
+                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
+                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-34">34</a></span>
+<span class="normal"><a href="#__codelineno-0-35">35</a></span>
+<span class="normal"><a href="#__codelineno-0-36">36</a></span>
+<span class="normal"><a href="#__codelineno-0-37">37</a></span>
+<span class="normal"><a href="#__codelineno-0-38">38</a></span>
+<span class="normal"><a href="#__codelineno-0-39">39</a></span>
+<span class="normal"><a href="#__codelineno-0-40">40</a></span>
+<span class="normal"><a href="#__codelineno-0-41">41</a></span>
+<span class="normal"><a href="#__codelineno-0-42">42</a></span>
+<span class="normal"><a href="#__codelineno-0-43">43</a></span>
+<span class="normal"><a href="#__codelineno-0-44">44</a></span>
+<span class="normal"><a href="#__codelineno-0-45">45</a></span>
+<span class="normal"><a href="#__codelineno-0-46">46</a></span>
+<span class="normal"><a href="#__codelineno-0-47">47</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
+</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackedInstanceFeature</span><span class="p">:</span>
+</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for tracked instances.</span>
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>
+</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">    This data structure is used for updating the previous tracked instances and get the</span>
+</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">    features of the tracked instances. `shifted_keypoints` is used only for the `FlowShiftTracker`</span>
+</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">    to store the optical flow shifted instances.</span>
+</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">    &quot;&quot;&quot;</span>
+</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a>
+</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a>    <span class="n">feature</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
+</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>    <span class="n">src_predicted_instance</span><span class="p">:</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span>
+</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="nb">int</span>
+</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>    <span class="n">tracking_score</span><span class="p">:</span> <span class="nb">float</span>
+</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>    <span class="n">shifted_keypoints</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="kc">None</span>
+</span></code></pre></div></td></tr></table></div>
+              </details>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
 
 
 
