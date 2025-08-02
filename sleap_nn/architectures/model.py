@@ -148,12 +148,10 @@ class Model(nn.Module):
             if isinstance(head, ClassVectorsHead):
                 in_channels = int(self.backbone.middle_blocks[-1].filters)
             else:
-                in_channels = int(self.backbone.final_dec_channels)
-                if head.output_stride > min_output_stride:
-                    in_channels *= self.backbone.filters_rate * (
-                        np.log2(head.output_stride) - np.log2(min_output_stride)
-                    )
-            self.head_layers.append(head.make_head(x_in=round(in_channels)))
+                in_channels = self.backbone.decoder_stride_to_filters[
+                    head.output_stride
+                ]
+            self.head_layers.append(head.make_head(x_in=in_channels))
 
     @classmethod
     def from_config(
