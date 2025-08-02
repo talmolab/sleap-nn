@@ -1912,7 +1912,7 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
-        len_dataloader=train_steps_per_epoch,
+        len_dataloader=round(train_steps_per_epoch / trainer_devices),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
             if train_sampler is None
@@ -1945,7 +1945,7 @@ def get_train_val_dataloaders(
         dataset=val_dataset,
         shuffle=False if val_sampler is None else None,
         sampler=val_sampler,
-        len_dataloader=val_steps_per_epoch,
+        len_dataloader=round(val_steps_per_epoch / trainer_devices),
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,
         pin_memory=pin_memory,

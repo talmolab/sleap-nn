@@ -273,7 +273,7 @@ class SwinTWrapper(nn.Module):
                 pool_before_convs=False,
                 pooling_stride=2,
                 num_convs=convs_per_block - 1,
-                filters=int(last_block_filters * filters_rate),
+                filters=round(last_block_filters * filters_rate),
                 kernel_size=kernel_size,
                 use_bias=True,
                 batch_norm=False,
@@ -288,10 +288,10 @@ class SwinTWrapper(nn.Module):
             block_filters = int(last_block_filters)
         else:
             # Keep the block output filters the same
-            block_filters = int(last_block_filters * filters_rate)
+            block_filters = round(last_block_filters * filters_rate)
 
         middle_contract = SimpleConvBlock(
-            in_channels=int(last_block_filters * filters_rate),
+            in_channels=round(last_block_filters * filters_rate),
             pool=False,
             pool_before_convs=False,
             pooling_stride=2,
