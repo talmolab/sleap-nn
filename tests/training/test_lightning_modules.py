@@ -76,9 +76,6 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
 
     # convnext with pretrained weights
-    OmegaConf.update(
-        config, "model_config.pre_trained_weights", "ConvNeXt_Tiny_Weights"
-    )
     OmegaConf.update(config, "data_config.preprocessing.ensure_rgb", True)
     OmegaConf.update(config, "model_config.backbone_config.unet", None)
     OmegaConf.update(
@@ -97,6 +94,11 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
             "output_stride": 2,
             "max_stride": 32,
         },
+    )
+    OmegaConf.update(
+        config,
+        "model_config.backbone_config.convnext.pre_trained_weights",
+        "ConvNeXt_Tiny_Weights",
     )
     model = TopDownCenteredInstanceLightningModule(
         config=config,

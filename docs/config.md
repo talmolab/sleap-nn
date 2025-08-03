@@ -81,7 +81,6 @@ The model configuration section defines the neural network architecture, includi
 
 ### Model Initialization
 - `init_weights`: (str) Model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. **Default**: `"default"`
-- `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]. **Default**: `None`
 - `pretrained_backbone_weights`: (str) Path of the `ckpt` file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
 - `pretrained_head_weights`: (str) Path of the `ckpt` file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
 
@@ -104,6 +103,7 @@ The model configuration section defines the neural network architecture, includi
 
 #### ConvNeXt Backbone
 - `backbone_config.convnext`:
+  - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. **Default**: `None`
   - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
     - `depths`: (List[int]) Number of layers in each block. **Default**: `[3, 3, 9, 3]`
     - `channels`: (List[int]) Number of channels in each block. **Default**: `[96, 192, 384, 768]`
@@ -120,6 +120,7 @@ The model configuration section defines the neural network architecture, includi
 
 #### Swin Transformer Backbone
 - `backbone_config.swint`:
+  - `pre_trained_weights`: (str) Pretrained weights file name supported only for SwinT backbones. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]. **Default**: `None`
   - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. **Default**: `"tiny"`
   - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. **Default**: `None`
   - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
@@ -347,7 +348,6 @@ data_config:
 
 model_config:
   init_weights: default
-  pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
   backbone_config:
