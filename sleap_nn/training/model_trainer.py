@@ -318,6 +318,26 @@ class ModelTrainer:
                     self.config.trainer_config.save_ckpt_path
                 )
 
+        # check in channels, verify with img channels / ensure_rgb/ ensure_grayscale
+        if self.train_labels[0] is not None:
+            img_channels = self.train_labels[0][0].image.shape[-1]
+            if self.config.data_config.preprocessing.ensure_rgb:
+                img_channels = 3
+            if self.config.data_config.preprocessing.ensure_grayscale:
+                img_channels = 1
+            if (
+                self.config.model_config.backbone_config[
+                    f"{self.backbone_type}"
+                ].in_channels
+                != img_channels
+            ):
+                self.config.model_config.backbone_config[
+                    f"{self.backbone_type}"
+                ].in_channels = img_channels
+                logger.info(
+                    f"Updating backbone in_channels from {self.config.model_config.backbone_config[f'{self.backbone_type}'].in_channels} to {img_channels}"
+                )
+
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder."""
         ckpt_path = self.config.trainer_config.save_ckpt_path
