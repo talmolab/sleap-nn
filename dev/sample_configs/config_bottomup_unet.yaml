@@ -26,12 +26,12 @@ data_config:
       gaussian_noise_mean: 5.0
       gaussian_noise_std: 1.0
       gaussian_noise_p: 0.0
-      contrast_min: 0.5
-      contrast_max: 2.0
+      contrast_min: 0.9
+      contrast_max: 1.1
       contrast_p: 0.0
       brightness:
-      - 0.0
-      - 10.0
+      - 0.9
+      - 1.1
       brightness_p: 0.0
     geometric:
       rotation: 15.0
