@@ -75,8 +75,8 @@ class IntensityConfig:
         gaussian_noise_mean: (float) The mean of the gaussian noise distribution. *Default*: `0.0`.
         gaussian_noise_std: (float) The standard deviation of the gaussian noise distribution. *Default*: `1.0`.
         gaussian_noise_p: (float) Probability of applying random gaussian noise. *Default*: `0.0`.
-        contrast_min: (float) Minimum contrast factor to apply. *Default*: `0.5`.
-        contrast_max: (float) Maximum contrast factor to apply. *Default*: `2.0`.
+        contrast_min: (float) Minimum contrast factor to apply. *Default*: `0.9`.
+        contrast_max: (float) Maximum contrast factor to apply. *Default*: `1.1`.
         contrast_p: (float) Probability of applying random contrast. *Default*: `0.0`.
         brightness: (list) The brightness factor to apply. *Default*: `(1.0, 1.0)`.
         brightness_p: (float) Probability of applying random brightness. *Default*: `0.0`.
@@ -88,8 +88,8 @@ class IntensityConfig:
     gaussian_noise_mean: float = 0.0
     gaussian_noise_std: float = 1.0
     gaussian_noise_p: float = field(default=0.0, validator=validate_proportion)
-    contrast_min: float = field(default=0.5, validator=validators.ge(0))
-    contrast_max: float = field(default=2.0, validator=validators.ge(0))
+    contrast_min: float = field(default=0.9, validator=validators.ge(0))
+    contrast_max: float = field(default=1.1, validator=validators.ge(0))
     contrast_p: float = field(default=0.0, validator=validate_proportion)
     brightness: Tuple[float, float] = (1.0, 1.0)
     brightness_p: float = field(default=0.0, validator=validate_proportion)

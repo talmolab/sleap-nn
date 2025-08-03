@@ -328,6 +328,8 @@ class SwinTWrapper(nn.Module):
         else:
             self.final_dec_channels = block_filters
 
+        self.decoder_stride_to_filters = self.dec.stride_to_filters
+
     @property
     def max_channels(self):
         """Returns the maximum channels of the SwinT (last layer of the encoder)."""

@@ -597,11 +597,14 @@ class Decoder(nn.Module):
         self.kernel_size = kernel_size
         self.block_contraction = block_contraction
         self.prefix = prefix
+        self.stride_to_filters = {}
 
         self.current_strides = []
         self.residuals = 0
 
         self.decoder_stack = nn.ModuleList([])
+
+        self.stride_to_filters[current_stride] = x_in_shape
 
         for block in range(up_blocks):
             prev_block_filters = -1 if block == 0 else block_filters_out
@@ -658,6 +661,8 @@ class Decoder(nn.Module):
                         prefix=f"{self.prefix}{block}_s{current_stride}_to_s{next_stride}",
                     )
                 )
+
+            self.stride_to_filters[next_stride] = block_filters_out
 
             self.current_strides.append(next_stride)
             current_stride = next_stride
