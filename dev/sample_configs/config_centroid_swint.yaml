@@ -53,13 +53,13 @@ data_config:
   skeletons: null
 model_config:
   init_weights: xavier
-  pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
   backbone_config:
     unet:
     convnext: null
     swint:
+      pre_trained_weights: null
       in_channels: 1
       model_type: tiny
       arch: 
