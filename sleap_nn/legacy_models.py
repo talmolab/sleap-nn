@@ -17,6 +17,75 @@ from sleap_nn.architectures.model import Model
 from sleap_nn.config.training_job_config import TrainingJobConfig
 
 
+def get_keras_first_layer_channels(h5_path: str) -> Optional[int]:
+    """Extract the number of input channels from the first layer of a Keras model.
+
+    Args:
+        h5_path: Path to the .h5 model file
+
+    Returns:
+        Number of input channels in the first layer, or None if not found
+    """
+    try:
+        with h5py.File(h5_path, "r") as f:
+            # Look for the first convolutional layer weights
+            kernel_weights = []
+
+            def collect_kernel_weights(name, obj):
+                if isinstance(obj, h5py.Dataset) and name.startswith("model_weights/"):
+                    # Skip optimizer weights
+                    if "optimizer_weights" in name:
+                        return
+
+                    # Look for kernel weights (not bias)
+                    if "kernel" in name and obj.ndim == 4:
+                        kernel_weights.append((name, obj.shape))
+
+            # Visit all items to collect kernel weights
+            f.visititems(collect_kernel_weights)
+
+            if not kernel_weights:
+                return None
+
+            # Look for the known first layer patterns (stem0_conv0 or stack0_enc0_conv0)
+            for name, shape in kernel_weights:
+                input_channels = shape[2]
+                layer_name = name.split("/")[1] if len(name.split("/")) > 1 else name
+
+                # Check for the known first layer patterns
+                if "stem0_conv0" in layer_name or "stack0_enc0_conv0" in layer_name:
+                    logger.info(
+                        f"Found first layer '{name}' with {input_channels} input channels"
+                    )
+                    return input_channels
+
+            # If no known first layer patterns are found, return None
+            logger.warning(
+                f"No known first layer patterns (stem0_conv0 or stack0_enc0_conv0) found in {h5_path}"
+            )
+            return None
+
+    except Exception as e:
+        logger.warning(f"Could not extract first layer channels from {h5_path}: {e}")
+        return None
+
+
+def update_backbone_in_channels(backbone_config, keras_in_channels: int):
+    """Update the backbone configuration's in_channels if it's different from the Keras model.
+
+    Args:
+        backbone_config: The backbone configuration object
+        keras_in_channels: Number of input channels from the Keras model
+    """
+    if backbone_config.in_channels != keras_in_channels:
+        logger.info(
+            f"Updating backbone in_channels from {backbone_config.in_channels} to {keras_in_channels}"
+        )
+        backbone_config.in_channels = keras_in_channels
+
+    return backbone_config
+
+
 def convert_keras_to_pytorch_conv2d(keras_weight: np.ndarray) -> torch.Tensor:
     """Convert Keras Conv2D weights to PyTorch format.
 
@@ -379,6 +448,17 @@ def create_model_from_legacy_config(config_path: str) -> Model:
 
     # Get backbone config (should be under the unet key for legacy models)
     backbone_config = config.model_config.backbone_config.unet
+
+    # Check if there's a corresponding .h5 file to extract input channels
+    model_dir = config_path.parent
+    h5_path = model_dir / "best_model.h5"
+
+    if h5_path.exists():
+        keras_in_channels = get_keras_first_layer_channels(str(h5_path))
+        if keras_in_channels is not None and keras_in_channels != 1:
+            backbone_config = update_backbone_in_channels(
+                backbone_config, keras_in_channels
+            )
 
     # Determine model type from head configs
     head_configs = config.model_config.head_configs
