@@ -377,7 +377,6 @@ def get_data_config(
 
 def get_model_config(
     init_weight: str = "default",
-    pre_trained_weights: Optional[str] = None,
     pretrained_backbone_weights: Optional[str] = None,
     pretrained_head_weights: Optional[str] = None,
     backbone_config: Union[str, Dict[str, Any]] = "unet",
@@ -391,10 +390,6 @@ def get_model_config(
     Args:
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
-        pre_trained_weights: Pretrained weights file name supported only for ConvNext and
-            SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights",
-            "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights",
-            "Swin_S_Weights", "Swin_B_Weights"]. Default: None.
         pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is
             initialized. If `None`, random init is used. Default: None.
         pretrained_head_weights: Path of the `ckpt` file with which the head layers are
@@ -450,7 +445,6 @@ def get_model_config(
     head_configs = get_head_configs(head_cfg=head_configs)
     model_config = ModelConfig(
         init_weights=init_weight,
-        pre_trained_weights=pre_trained_weights,
         pretrained_backbone_weights=pretrained_backbone_weights,
         pretrained_head_weights=pretrained_head_weights,
         backbone_config=backbone_config,
@@ -776,7 +770,6 @@ def train(
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     init_weight: str = "default",
-    pre_trained_weights: Optional[str] = None,
     pretrained_backbone_weights: Optional[str] = None,
     pretrained_head_weights: Optional[str] = None,
     backbone_config: Union[str, Dict[str, Any]] = "unet",
@@ -882,10 +875,6 @@ def train(
                     }
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
-        pre_trained_weights: Pretrained weights file name supported only for ConvNext and
-            SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights",
-            "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights",
-            "Swin_S_Weights", "Swin_B_Weights"]. Default: None.
         pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is
             initialized. If `None`, random init is used. Default: None.
         pretrained_head_weights: Path of the `ckpt` file with which the head layers are
@@ -1047,7 +1036,6 @@ def train(
 
     model_config = get_model_config(
         init_weight=init_weight,
-        pre_trained_weights=pre_trained_weights,
         pretrained_backbone_weights=pretrained_backbone_weights,
         pretrained_head_weights=pretrained_head_weights,
         backbone_config=backbone_config,

@@ -50,7 +50,6 @@ def default_config():
     """Fixture for a default ModelConfig instance."""
     return ModelConfig(
         init_weights="default",
-        pre_trained_weights=None,
         backbone_config=BackboneConfig(),
         head_configs=HeadConfig(),
     )
@@ -59,29 +58,28 @@ def default_config():
 def test_default_initialization(default_config):
     """Test default initialization of ModelConfig."""
     assert default_config.init_weights == "default"
-    assert default_config.pre_trained_weights == None
 
 
 def test_invalid_pre_trained_weights(caplog):
     """Test validation failure with an invalid pre_trained_weights."""
-    with pytest.raises(ValueError):
-        ModelConfig(
-            pre_trained_weights="here",
-            backbone_config=BackboneConfig(unet=UNetConfig()),
-        )
-    assert "UNet" in caplog.text
 
     with pytest.raises(ValueError):
         ModelConfig(
-            pre_trained_weights="here",
-            backbone_config=BackboneConfig(convnext=ConvNextConfig()),
+            backbone_config=BackboneConfig(
+                convnext=ConvNextConfig(
+                    pre_trained_weights="here",
+                )
+            ),
         )
     assert "Invalid pre-trained" in caplog.text
 
     with pytest.raises(ValueError):
         ModelConfig(
-            pre_trained_weights="here",
-            backbone_config=BackboneConfig(swint=SwinTConfig()),
+            backbone_config=BackboneConfig(
+                swint=SwinTConfig(
+                    pre_trained_weights="here",
+                )
+            ),
         )
     assert "Invalid pre-trained" in caplog.text
 
@@ -91,7 +89,6 @@ def test_update_config(default_config):
     config = OmegaConf.structured(
         ModelConfig(
             init_weights="default",
-            pre_trained_weights=None,
             backbone_config=BackboneConfig(unet=UNetConfig()),
             head_configs=HeadConfig(),
         )

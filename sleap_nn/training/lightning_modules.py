@@ -100,18 +100,27 @@ class LightningModel(L.LightningModule):
             "in_channels"
         ]
         self.input_expand_channels = self.in_channels
-        if self.model_config.pre_trained_weights:  # only for swint and convnext
-            ckpt = MODEL_WEIGHTS[
-                self.model_config.pre_trained_weights
-            ].DEFAULT.get_state_dict(progress=True, check_hash=True)
-            input_channels = ckpt["features.0.0.weight"].shape[-3]
-            if self.in_channels != input_channels:  # TODO: not working!
-                self.input_expand_channels = input_channels
-                OmegaConf.update(
-                    self.model_config,
-                    f"backbone_config.{self.backbone_type}.in_channels",
-                    input_channels,
-                )
+
+        if self.backbone_type == "convnext" or self.backbone_type == "swint":
+            if (
+                self.model_config.backbone_config[f"{self.backbone_type}"][
+                    "pre_trained_weights"
+                ]
+                is not None
+            ):
+                ckpt = MODEL_WEIGHTS[
+                    self.model_config.backbone_config[f"{self.backbone_type}"][
+                        "pre_trained_weights"
+                    ]
+                ].DEFAULT.get_state_dict(progress=True, check_hash=True)
+                input_channels = ckpt["features.0.0.weight"].shape[-3]
+                if self.in_channels != input_channels:  # TODO: not working!
+                    self.input_expand_channels = input_channels
+                    OmegaConf.update(
+                        self.model_config,
+                        f"backbone_config.{self.backbone_type}.in_channels",
+                        input_channels,
+                    )
 
         self.model = Model(
             backbone_type=self.backbone_type,
@@ -140,8 +149,14 @@ class LightningModel(L.LightningModule):
             self.model.apply(xavier_init_weights)
 
         # Pre-trained weights for the encoder stack - only for swint and convnext
-        if self.model_config.pre_trained_weights:
-            self.model.backbone.enc.load_state_dict(ckpt, strict=False)
+        if self.backbone_type == "convnext" or self.backbone_type == "swint":
+            if (
+                self.model_config.backbone_config[f"{self.backbone_type}"][
+                    "pre_trained_weights"
+                ]
+                is not None
+            ):
+                self.model.backbone.enc.load_state_dict(ckpt, strict=False)
 
         # TODO: Handling different input channels
         # Initializing backbone (encoder + decoder) with trained ckpts

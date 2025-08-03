@@ -44,7 +44,6 @@ def sample_cfg(minimal_instance, tmp_path):
             },
             "model_config": {
                 "init_weights": "default",
-                "pre_trained_weights": None,
                 "pretrained_backbone_weights": None,
                 "pretrained_head_weights": None,
                 "backbone_config": {

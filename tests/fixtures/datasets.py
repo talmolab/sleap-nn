@@ -77,7 +77,6 @@ def config(sleap_nn_data_dir):
             },
             "model_config": {
                 "init_weights": "default",
-                "pre_trained_weights": None,
                 "pretrained_backbone_weights": None,
                 "pretrained_head_weights": None,
                 "backbone_config": {

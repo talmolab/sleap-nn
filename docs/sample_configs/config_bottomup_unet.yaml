@@ -53,7 +53,6 @@ data_config:
   skeletons: null
 model_config:
   init_weights: xavier
-  pre_trained_weights: null #   pre_trained_weights: ConvNeXt_Tiny_Weights (for convnext)
   pretrained_backbone_weights: null
   pretrained_head_weights: null
   backbone_config:
