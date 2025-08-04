@@ -422,6 +422,24 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#backbone-architectures" class="md-nav__link">
+    <span class="md-ellipsis">
+      Backbone Architectures
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-configure-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      How to configure models?
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2056,6 +2074,24 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#backbone-architectures" class="md-nav__link">
+    <span class="md-ellipsis">
+      Backbone Architectures
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-configure-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      How to configure models?
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2094,23 +2130,42 @@
 <h4 id="bottom-up">🔹 Bottom-Up<a class="headerlink" href="#bottom-up" title="Permanent link">&para;</a></h4>
 <ul>
 <li>Predicts all body part locations (keypoints) and their pairwise associations (Part Affinity Fields, PAFs) for all animals in the frame simultaneously.</li>
+<li>PAFs encode the direction and strength of connections between body parts, enabling the model to group keypoints into individual animals even when they overlap or are occluded.</li>
 <li>Assembles detected keypoints into individual animal instances by solving a global assignment problem based on the predicted PAFs.</li>
 <li>Effective for challenging scenarios with frequent occlusions, close physical contact, or overlapping animals.</li>
 </ul>
-<h4 id="top-down-multi-class">🔹 Top-Down Multi-Class<a class="headerlink" href="#top-down-multi-class" title="Permanent link">&para;</a></h4>
+<h4 id="top-down-id-model">🔹 Top-Down ID model<a class="headerlink" href="#top-down-id-model" title="Permanent link">&para;</a></h4>
 <ul>
 <li><strong>Stage 1: Centroid detection</strong> – The model predicts the centroid of each animal instance (same as standard top-down, without classification).</li>
-<li><strong>Stage 2: Centered instance pose estimation with classification</strong> – For each detected centroid, a second model predicts the pose and classifies the instance into predefined classes (e.g., different species, individuals, or behavioral states).</li>
-<li>Enables accurate pose estimation and classification in scenarios with multiple animal classes.</li>
+<li><strong>Stage 2: Centered instance pose estimation with classification</strong> – For each detected centroid, a second model predicts the pose of the animal using the image cropped around the centroid and also classifies the instance into predefined classes using supervised learning with ground truth track IDs from the training data.</li>
 <li><strong>Training Requirement</strong>: Multi-class models require ground truth track IDs during training and are used to assign persistent IDs to animals across frames.</li>
 </ul>
-<h4 id="bottom-up-multi-class">🔹 Bottom-Up Multi-Class<a class="headerlink" href="#bottom-up-multi-class" title="Permanent link">&para;</a></h4>
+<h4 id="bottom-up-id-model">🔹 Bottom-Up ID model<a class="headerlink" href="#bottom-up-id-model" title="Permanent link">&para;</a></h4>
 <ul>
 <li>Predicts all body part locations (keypoints) and their class labels for all animals simultaneously.</li>
 <li>Directly classifies keypoints and groups them into instances with class assignments.</li>
 <li>Assembles detected keypoints into individual animal instances by solving a global assignment problem, while maintaining class-specific groupings.</li>
 <li><strong>Training Requirement</strong>: Multi-class models require ground truth track IDs during training and are used to assign persistent IDs to animals across frames.</li>
 </ul>
+<h2 id="backbone-architectures">Backbone Architectures<a class="headerlink" href="#backbone-architectures" title="Permanent link">&para;</a></h2>
+<p>SLEAP-NN supports three different backbone architectures for feature extraction, each offering unique advantages for pose estimation tasks.</p>
+<h4 id="unet">UNet<a class="headerlink" href="#unet" title="Permanent link">&para;</a></h4>
+<p>UNet is based on the original U-Net architecture from Ronneberger et al. (2015), which was made modular and adapted for pose estimation in Pereira et al. (2019). It uses an encoder-decoder structure with skip connections to capture both fine-grained details and high-level features. UNet offers the highest flexibility with configurable depth and filters. It supports stem blocks for initial downsampling, middle blocks for additional processing, and variable convolution layers per block, making it ideal for custom architectures.</p>
+<h4 id="swin-transformer-swint">Swin Transformer (SwinT)<a class="headerlink" href="#swin-transformer-swint" title="Permanent link">&para;</a></h4>
+<p>Swin Transformer (SwinT) is based on Liu et al. (2021) "Swin Transformer: Hierarchical Vision Transformer using Shifted Windows" and uses a hierarchical vision transformer with shifted windows to efficiently process images at multiple scales while maintaining the benefits of self-attention mechanisms. SwinT is also a large model that divides images into non-overlapping windows and applies self-attention within each window, with shifted window mechanisms allowing information flow between windows. It's available in Tiny, Small, and Base configurations and is particularly effective for capturing complex spatial relationships and global context understanding, though it requires significant computational resources. Pretrained ImageNet weights are available for all Tiny, Small, and Base configurations, enabling transfer learning for improved performance.</p>
+<h4 id="convnext">ConvNeXt<a class="headerlink" href="#convnext" title="Permanent link">&para;</a></h4>
+<p>ConvNeXt is based on Liu et al. (2022) "A ConvNet for the 2020s" and modernizes traditional convolutional networks by incorporating design principles from vision transformers while maintaining CNN efficiency. It uses a hierarchical structure with depth-wise convolutions, layer normalization, and modern activation functions. ConvNeXt is a large model that supports ImageNet pre-trained weights for transfer learning and is available in Tiny, Small, Base, and Large configurations, making it ideal for high-performance applications with standard image sizes. Pretrained ImageNet weights are available for all Tiny, Small, Base, and Large configurations, allowing easy initialization for transfer learning.</p>
+<h2 id="how-to-configure-models">How to configure models?<a class="headerlink" href="#how-to-configure-models" title="Permanent link">&para;</a></h2>
+<p>To train or use a specific model type, you must set the corresponding <code>head_configs</code> in the <code>model_config</code> section of your configuration file. Different model types require different head configurations:</p>
+<ul>
+<li><strong>Single Instance models</strong> use one head (<code>single_instance</code>)</li>
+<li><strong>Top-Down models</strong> each model (centroid and centered-instance) use one head (<code>con</code>)</li>
+<li><strong>Bottom-Up models</strong> use two heads (<code>bottomup</code> with both <code>confmaps</code> and <code>pafs</code>)</li>
+<li><strong>ID models</strong> use two heads (e.g., <code>multi_class_bottomup</code> with both <code>confmaps</code> and <code>class_maps</code>/ <code>class_vectors</code>)</li>
+</ul>
+<p>The choice and configuration of these heads determine the model's outputs and behavior, so it's important to set them carefully according to your task.</p>
+<p>For backbone configuration, you can specify the architecture type and parameters in the <code>backbone_config</code> section. Each backbone type (UNet, ConvNeXt, SwinT) has its own configuration options that control the network architecture, such as filter counts, depths, and other architectural parameters.</p>
+<p>For a detailed explanation of all <code>model_config</code>, <code>head_configs</code>, and <code>backbone_config</code> options—including how to specify multiple heads and the meaning of each parameter—see the <a href="../config/#backbone-configuration">head_configs section</a> and <a href="../config/#head-configuration">backbone_config section</a>.</p>
 
 
 

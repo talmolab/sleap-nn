@@ -2303,7 +2303,7 @@
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
 </span></code></pre></div></p>
 <blockquote>
-<p>More options on running inference and tracking workflows are available in the <a href="inference/">Inference Guide</a>.</p>
+<p>More options for running inference and tracking workflows are available in the <a href="inference/">Inference Guide</a>.</p>
 </blockquote>
 <hr />
 <h2 id="core-components">🛠️ Core Components<a class="headerlink" href="#core-components" title="Permanent link">&para;</a></h2>
@@ -2316,18 +2316,20 @@
 </ul>
 <h3 id="model-system"><strong>Model System</strong><a class="headerlink" href="#model-system" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>Backbone Networks</strong>: UNet, ConvNeXt, Swin Transformer</li>
-<li><strong>Model Types</strong>: Single Instance, Top-Down, Bottom-Up, Multi-Class (Supervised ID models) variants</li>
 <li><strong>Pluggable Design</strong>: Easy to add new backbones/ head modules</li>
+<li><strong>Backbone Networks</strong>: UNet, ConvNeXt, Swin Transformer  <ul>
+<li>See <a href="models/#backbone-architectures">Backbone Architectures</a> for more details.</li>
+</ul>
+</li>
+<li><strong>Model Types</strong>: Single Instance, Top-Down, Bottom-Up, Multi-Class (Supervised ID models) variants</li>
 </ul>
 <blockquote>
-<p>Model Types</p>
 <ul>
 <li>
 <p><strong>Single Instance</strong>: Direct pose prediction for single animals</p>
 </li>
 <li>
-<p><strong>Top-Down</strong>: Two-stage (centroid → pose) for multi-animal scenes</p>
+<p><strong>Top-Down</strong>: Two-stage (centroid → centered-instance) for multi-animal scenarios</p>
 </li>
 <li>
 <p><strong>Bottom-Up</strong>: Simultaneous keypoint detection and association using Part Affinity Fields (PAFs).</p>
@@ -2336,13 +2338,13 @@
 <p><strong>Supervised ID or Multi-Class</strong>: Pose estimation + ID assignment for multi-instance scenarios</p>
 </li>
 </ul>
-<p>Explore detailed descriptions and comparisons of all supported architectures in the <a href="models/">Model Types Guide</a>.</p>
+<p>Explore detailed descriptions of all supported architectures in the <a href="models/">Model Types Guide</a>.</p>
 </blockquote>
 <h3 id="training-engine"><strong>Training Engine</strong><a class="headerlink" href="#training-engine" title="Permanent link">&para;</a></h3>
 <ul>
 <li>PyTorch Lightning integration with custom callbacks</li>
 <li>In-built multi-GPU and distributed training support</li>
-<li>Experiment tracking with wandb</li>
+<li>Experiment tracking with visualizers and WandB</li>
 </ul>
 <h3 id="inference-pipeline"><strong>Inference Pipeline</strong><a class="headerlink" href="#inference-pipeline" title="Permanent link">&para;</a></h3>
 <ul>
