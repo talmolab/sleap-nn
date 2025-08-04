@@ -4,7 +4,8 @@
 
   SLEAP-NN leverages a flexible, configuration-driven training workflow built on Hydra and OmegaConf. This guide will walk you through the essential steps for training pose estimation models using SLEAP-NN, whether you prefer the command-line interface or Python APIs.
 
-  **Note:** Training is only supported with SLEAP label files with ground truth annotations in `.slp` or `.pkg.slp` format.  
+!!! note
+    Training is only supported with SLEAP label files with ground truth annotations in `.slp` or `.pkg.slp` format.
 
 ## Training with Config
 
@@ -14,31 +15,23 @@ This section explains how to train a model using an existing configuration file.
 
 To train a model using CLI, 
 ```bash
-python -m sleap_nn.train --config-name config "data_config.train_labels_path=[labels.pkg.slp]"
-```
-
-To train on a list of `.slp` files, 
-```bash
-python -m sleap_nn.train --config-name config "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
-```
-
-If the config file is not in the working directory:
-
-```bash
-python -m sleap_nn.train --config-name config --config-path path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp]"
+python -m sleap_nn.train --config-name config --config-path path/to/config_dir
 ```
 
 Override any configuration from command line:
 
 ```bash
+# Train on list of .slp files
+python -m sleap_nn.train --config-name config --config-path path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
+
 # Change batch size
-python -m sleap_nn.train --config-name config data_config.batch_size=32 "data_config.train_labels_path=[labels.pkg.slp]"
+python -m sleap_nn.train --config-name config --config-path path/to/config_dir data_config.batch_size=32 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Use different GPU
-python -m sleap_nn.train --config-name config trainer_config.devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
+python -m sleap_nn.train --config-name config --config-path path/to/config_dir trainer_config.devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Change learning rate
-python -m sleap_nn.train --config-name config trainer_config.learning_rate=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
+python -m sleap_nn.train --config-name config --config-path path/to/config_dir trainer_config.learning_rate=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
 !!! note
@@ -143,13 +136,15 @@ To resume training from a previous checkpoint,
 ```bash
 python -m sleap_nn.train \
     --config-name config \
+    --config-path path/to/config_dir \ 
     trainer_config.ckpt_path=/path/to/checkpoint.ckpt \
+    trainer_config.resume_ckpt_path=/path/to/prv_trained/checkpoint.ckpt \
     "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
 ### Multi-GPU Training
 
-To automatically configure the accleerator and number of devices, set:
+To automatically configure the accelerator and number of devices, set:
 ```yaml
 trainer_config:
   trainer_accelerator: "auto"

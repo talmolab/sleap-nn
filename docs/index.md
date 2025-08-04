@@ -60,7 +60,7 @@ To run inference:
 ```bash
 python -m sleap_nn.predict --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
-> More options on running inference and tracking workflows are available in the [Inference Guide](inference.md).
+> More options for running inference and tracking workflows are available in the [Inference Guide](inference.md).
 
 ---
 
@@ -77,27 +77,26 @@ SLEAP-NN provides a modular, PyTorch-based architecture:
 
 ### **Model System**
 
-- **Backbone Networks**: UNet, ConvNeXt, Swin Transformer
-- **Model Types**: Single Instance, Top-Down, Bottom-Up, Multi-Class (Supervised ID models) variants
 - **Pluggable Design**: Easy to add new backbones/ head modules
-
-> Model Types
+- **Backbone Networks**: UNet, ConvNeXt, Swin Transformer  
+    - See [Backbone Architectures](models.md#backbone-architectures) for more details.
+- **Model Types**: Single Instance, Top-Down, Bottom-Up, Multi-Class (Supervised ID models) variants
 
 > - **Single Instance**: Direct pose prediction for single animals
 
-> - **Top-Down**: Two-stage (centroid → pose) for multi-animal scenes
+> - **Top-Down**: Two-stage (centroid → centered-instance) for multi-animal scenarios
 
 > - **Bottom-Up**: Simultaneous keypoint detection and association using Part Affinity Fields (PAFs).
 
 > - **Supervised ID or Multi-Class**: Pose estimation + ID assignment for multi-instance scenarios
 
-> Explore detailed descriptions and comparisons of all supported architectures in the [Model Types Guide](models.md).
+> Explore detailed descriptions of all supported architectures in the [Model Types Guide](models.md).
 
 ### **Training Engine**
 
 - PyTorch Lightning integration with custom callbacks
 - In-built multi-GPU and distributed training support
-- Experiment tracking with wandb
+- Experiment tracking with visualizers and WandB
 
 ### **Inference Pipeline**
 

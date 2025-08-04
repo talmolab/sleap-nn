@@ -3,23 +3,23 @@
 ## Prerequisites
 
 - Python 3.11
-- [Miniforge](https://github.com/conda-forge/miniforge) (recommended for isolated Python environments with fast dependency resolution)
-- [Mamba](https://mamba.readthedocs.io/) (included with Miniforge, recommended for faster dependency resolution)
+- [Miniforge](https://github.com/conda-forge/miniforge) (optional, recommended for isolated Python environments with fast dependency resolution)
+- [Mamba](https://mamba.readthedocs.io/) (optional, included with Miniforge, recommended for faster dependency resolution)
 
 ## Install sleap-nn
 
-### 1. Install Miniforge
+### 1. (Optional) Install Miniforge and create environment
 
-We recommend using [Miniforge](https://github.com/conda-forge/miniforge) for an isolated Python environment with fast dependency resolution.
+We recommend using [Miniforge](https://github.com/conda-forge/miniforge) for an isolated Python environment with fast dependency resolution. (You may skip this step if you already have a suitable Python environment.)
 
-### 2. Create and Activate Development Environment
+To create and activate development environment
 
 ```bash
 mamba create -n sleap-nn-dev python=3.11
 mamba activate sleap-nn-dev
 ```
 
-### 3. Install `uv` and Development Dependencies
+### 2. Install `uv` and Development Dependencies
 
 [`uv`](https://github.com/astral-sh/uv) is a fast and modern package manager for `pyproject.toml`-based projects.
 
@@ -28,7 +28,7 @@ pip install uv
 uv pip install -e ".[dev]"
 ```
 
-### 4. Install PyTorch
+### 3. Install PyTorch
 
 You can either:
 
@@ -67,7 +67,7 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 You can find the correct wheel for your system at:
 👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
 
-### 5. Verify Installation
+### 4. Verify Installation
 
 Test your installation:
 
@@ -80,15 +80,13 @@ black --check sleap_nn tests
 ruff check sleap_nn/
 ```
 
-## ⚙️ GPU Support Strategy
+## GPU Support
 
-We intentionally **do not include GPU-specific `torch` or `torchvision` builds** in `pyproject.toml`. Instead, we recommend installing them manually based on your platform.
+We recommend installing the torch dependencies manually based on your platform and intentionally **do not include GPU-specific `torch` or `torchvision` builds** in `pyproject.toml` for the below reasons:
 
-### ✅ Why this strategy works
-
-- **Portability**: No CUDA version or hardware is assumed. This avoids broken installs on unsupported platforms.
-- **Flexibility**: You can use the appropriate PyTorch build for your system.
-- **Reliability**: All other dependencies are managed cleanly with `uv`.
+- **No CUDA/hardware assumptions**—avoids install issues.
+- **Flexible to choose your own PyTorch build (CPU or GPU).**
+- **All other dependencies managed by `uv`.**-also faster!
 
 > 💡 This makes `sleap-nn` compatible with both GPU-accelerated and CPU-only environments.
 

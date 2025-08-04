@@ -1,17 +1,11 @@
 # Running Inference
 
-SLEAP-NN provides powerful inference capabilities for pose estimation with support for multiple model types, tracking, and legacy SLEAP model compatibility.
-
-## Overview
-
-SLEAP-NN supports inference on:
+SLEAP-NN provides powerful inference capabilities for pose estimation with support for multiple model types, tracking, and legacy SLEAP model compatibility. SLEAP-NN supports inference on:
 
 - **Videos**: Any format supported by OpenCV
 - **SLEAP Labels**: `.slp` files
 
-## How to run inference?
-
-### With CLI
+## Run Inference with CLI
 
 ```bash
 python -m sleap_nn.predict \
@@ -19,8 +13,24 @@ python -m sleap_nn.predict \
     --model_paths models/ckpt_folder/
 ```
 
-!!! note 
-    For two-stage models (topdown and multiclass topdown), we can provide both the centroid and centered-instance model ckpts as given below:
+To run inference on video files with specific frames
+```bash
+python -m sleap_nn.predict \
+    --data_path video.mp4 \
+    --frames "1-100,200-300" \
+    --model_paths models/ckpt_folder/
+```
+
+To run inference with different backbone weights than the one in `models/ckpt_folder/`
+```bash
+python -m sleap_nn.predict \
+    --data_path video.mp4 \
+    --frames "1-100,200-300" \
+    --model_paths models/ckpt_folder/ \
+    --backbone_ckpt_path models/backbone.ckpt
+```
+
+For two-stage models (topdown and multiclass topdown), both the centroid and centered-instance model ckpts should be provided as given below:
 ```bash
 python -m sleap_nn.predict \
     --data_path video.mp4 \
@@ -28,6 +38,7 @@ python -m sleap_nn.predict \
     --model_paths models/centered_instance_unet/
 ```
 
+### Arguments for CLI
 
 #### Essential Parameters
 
@@ -100,15 +111,7 @@ python -m sleap_nn.predict \
 | `--post_connect_single_breaks` | If True and `max_tracks` is not None with local queues candidate method, connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame | `False` |
 
 
-#### Video Files with specific frames
-```bash
-python -m sleap_nn.predict \
-    --data_path video.mp4 \
-    --frames "1-100,200-300" \
-    --model_paths models/unet/
-```
-
-### With API
+## Run inference with API
 
 To return predictions as list of dictionaries, 
 
