@@ -63,7 +63,6 @@ data_config:
       symmetries: []
 model_config:
   init_weights: default
-  pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
   backbone_config:

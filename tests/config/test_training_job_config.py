@@ -66,7 +66,6 @@ def sample_config():
         ),
         "model_config": ModelConfig(
             init_weights="default",
-            pre_trained_weights=None,
             backbone_config="unet",
         ),
         "trainer_config": TrainerConfig(early_stopping=EarlyStoppingConfig()),

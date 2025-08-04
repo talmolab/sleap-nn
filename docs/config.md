@@ -47,8 +47,8 @@ The data configuration section controls how training and validation data is load
     - `gaussian_noise_mean`: (float) The mean of the gaussian noise distribution. **Default**: `0.0`
     - `gaussian_noise_std`: (float) The standard deviation of the gaussian noise distribution. **Default**: `1.0`
     - `gaussian_noise_p`: (float) Probability of applying random gaussian noise. **Default**: `0.0`
-    - `contrast_min`: (float) Minimum contrast factor to apply. **Default**: `0.5`
-    - `contrast_max`: (float) Maximum contrast factor to apply. **Default**: `2.0`
+    - `contrast_min`: (float) Minimum contrast factor to apply. **Default**: `0.9`
+    - `contrast_max`: (float) Maximum contrast factor to apply. **Default**: `1.1`
     - `contrast_p`: (float) Probability of applying random contrast. **Default**: `0.0`
     - `brightness`: (list) The brightness factor to apply. **Default**: `(1.0, 1.0)`
     - `brightness_p`: (float) Probability of applying random brightness. **Default**: `0.0`
@@ -74,7 +74,6 @@ The model configuration section defines the neural network architecture, includi
 
 ### Model Initialization
 - `init_weights`: (str) Model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. **Default**: `"default"`
-- `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]. **Default**: `None`
 - `pretrained_backbone_weights`: (str) Path of the `ckpt` file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
 - `pretrained_head_weights`: (str) Path of the `ckpt` file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
 
@@ -97,34 +96,36 @@ The model configuration section defines the neural network architecture, includi
 
 #### ConvNeXt Backbone
 - `backbone_config.convnext`:
-    - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
-        - `depths`: (List[int]) Number of layers in each block. **Default**: `[3, 3, 9, 3]`
-        - `channels`: (List[int]) Number of channels in each block. **Default**: `[96, 192, 384, 768]`
-    - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. **Default**: `"tiny"`
-    - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
-    - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. **Default**: `4`
-    - `stem_patch_stride`: (int) Convolutional stride in the stem layer. **Default**: `2`
-    - `in_channels`: (int) Number of input channels. **Default**: `1`
-    - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
-    - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
-    - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
-    - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
-    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
+  - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. **Default**: `None`
+  - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
+    - `depths`: (List[int]) Number of layers in each block. **Default**: `[3, 3, 9, 3]`
+    - `channels`: (List[int]) Number of channels in each block. **Default**: `[96, 192, 384, 768]`
+  - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. **Default**: `"tiny"`
+  - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
+  - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. **Default**: `4`
+  - `stem_patch_stride`: (int) Convolutional stride in the stem layer. **Default**: `2`
+  - `in_channels`: (int) Number of input channels. **Default**: `1`
+  - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
+  - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
+  - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
+  - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
+  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
 
 #### Swin Transformer Backbone
 - `backbone_config.swint`:
-    - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. **Default**: `"tiny"`
-    - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. **Default**: `None`
-    - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
-    - `patch_size`: (int) Patch size for the stem layer of SwinT. **Default**: `4`
-    - `stem_patch_stride`: (int) Stride for the patch. **Default**: `2`
-    - `window_size`: (int) Window size. **Default**: `7`
-    - `in_channels`: (int) Number of input channels. **Default**: `1`
-    - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
-    - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
-    - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
-    - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
-    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
+  - `pre_trained_weights`: (str) Pretrained weights file name supported only for SwinT backbones. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]. **Default**: `None`
+  - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. **Default**: `"tiny"`
+  - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. **Default**: `None`
+  - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
+  - `patch_size`: (int) Patch size for the stem layer of SwinT. **Default**: `4`
+  - `stem_patch_stride`: (int) Stride for the patch. **Default**: `2`
+  - `window_size`: (int) Window size. **Default**: `7`
+  - `in_channels`: (int) Number of input channels. **Default**: `1`
+  - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
+  - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
+  - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
+  - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
+  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
 
 ### Head Configuration
 **Note**: Configs should be provided only for the model to train and others should be `None`.
@@ -316,7 +317,6 @@ data_config:
 
 model_config:
   init_weights: default
-  pre_trained_weights: null
   pretrained_backbone_weights: null
   pretrained_head_weights: null
   backbone_config:

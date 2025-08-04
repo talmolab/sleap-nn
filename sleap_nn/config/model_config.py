@@ -109,6 +109,9 @@ class ConvNextConfig:
     """Convnext configuration for backbone.
 
     Attributes:
+        pre_trained_weights: (str) Pretrained weights file name supported only for
+            ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"].
         arch: (Default is Tiny architecture config. No need to provide if model_type is provided)
             depths: (List[int]) Number of layers in each block. *Default*: `[3, 3, 9, 3]`.
             channels: (List[int]) Number of channels in each block. *Default*: `[96, 192, 384, 768]`.
@@ -124,6 +127,12 @@ class ConvNextConfig:
         max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures. *Default*: `32`.
     """
 
+    pre_trained_weights: Optional[str] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
+    )
     model_type: str = "tiny"  # Options: tiny, small, base, large
     arch: Optional[dict] = None
     stem_patch_kernel: int = 4
@@ -136,12 +145,42 @@ class ConvNextConfig:
     output_stride: int = 1
     max_stride: int = 32
 
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
+        convnext_weights are one of
+        (
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        )
+        """
+        if value is None:
+            return
+
+        convnext_weights = [
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        ]
+
+        if value not in convnext_weights:
+            message = f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
+            logger.error(message)
+            raise ValueError(message)
+
 
 @define
 class ConvNextSmallConfig:
     """Convnext configuration for backbone.
 
     Attributes:
+        pre_trained_weights: (str) Pretrained weights file name supported only for
+            ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"].
         arch: (Default is Tiny architecture config. No need to provide if model_type
             is provided)
             depths: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
@@ -170,6 +209,12 @@ class ConvNextSmallConfig:
             This is always `32` for all convnext architectures.
     """
 
+    pre_trained_weights: Optional[str] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
+    )
     model_type: str = "small"  # Options: tiny, small, base, large
     arch: Optional[dict] = None
     stem_patch_kernel: int = 4
@@ -182,12 +227,42 @@ class ConvNextSmallConfig:
     output_stride: int = 1
     max_stride: int = 32
 
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
+        convnext_weights are one of
+        (
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        )
+        """
+        if value is None:
+            return
+
+        convnext_weights = [
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        ]
+
+        if value not in convnext_weights:
+            message = f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
+            logger.error(message)
+            raise ValueError(message)
+
 
 @define
 class ConvNextBaseConfig:
     """Convnext configuration for backbone.
 
     Attributes:
+        pre_trained_weights: (str) Pretrained weights file name supported only for
+            ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"].
         arch: (Default is Tiny architecture config. No need to provide if model_type
             is provided)
             depths: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
@@ -216,6 +291,12 @@ class ConvNextBaseConfig:
             This is always `32` for all convnext architectures.
     """
 
+    pre_trained_weights: Optional[str] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
+    )
     model_type: str = "base"  # Options: tiny, small, base, large
     arch: Optional[dict] = None
     stem_patch_kernel: int = 4
@@ -228,12 +309,42 @@ class ConvNextBaseConfig:
     output_stride: int = 1
     max_stride: int = 32
 
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
+        convnext_weights are one of
+        (
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        )
+        """
+        if value is None:
+            return
+
+        convnext_weights = [
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        ]
+
+        if value not in convnext_weights:
+            message = f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
+            logger.error(message)
+            raise ValueError(message)
+
 
 @define
 class ConvNextLargeConfig:
     """Convnext configuration for backbone.
 
     Attributes:
+        pre_trained_weights: (str) Pretrained weights file name supported only for
+            ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"].
         arch: (Default is Tiny architecture config. No need to provide if model_type
             is provided)
             depths: (List(int)) Number of layers in each block. Default: [3, 3, 9, 3].
@@ -262,6 +373,12 @@ class ConvNextLargeConfig:
             This is always `32` for all convnext architectures.
     """
 
+    pre_trained_weights: Optional[str] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
+    )
     model_type: str = "large"  # Options: tiny, small, base, large
     arch: Optional[dict] = None
     stem_patch_kernel: int = 4
@@ -274,12 +391,41 @@ class ConvNextLargeConfig:
     output_stride: int = 1
     max_stride: int = 32
 
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
+        convnext_weights are one of
+        (
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        )
+        """
+        if value is None:
+            return
+
+        convnext_weights = [
+            "ConvNeXt_Base_Weights",
+            "ConvNeXt_Tiny_Weights",
+            "ConvNeXt_Small_Weights",
+            "ConvNeXt_Large_Weights",
+        ]
+
+        if value not in convnext_weights:
+            message = f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
+            logger.error(message)
+            raise ValueError(message)
+
 
 @define
 class SwinTConfig:
     """SwinT configuration (tiny) for backbone.
 
     Attributes:
+        pre_trained_weights: (str) Pretrained weights file name supported only for
+            SwinT backbones. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
         model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"tiny"`.
         arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
         max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
@@ -294,6 +440,12 @@ class SwinTConfig:
         output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
     """
 
+    pre_trained_weights: Optional[str] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
+    )
     model_type: str = field(
         default="tiny",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
@@ -321,12 +473,37 @@ class SwinTConfig:
             logger.error(message)
             raise ValueError(message)
 
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
+        swint_weights are one of
+        (
+            "Swin_T_Weights",
+            "Swin_S_Weights",
+            "Swin_B_Weights"
+        )
+        """
+        if value is None:
+            return
+
+        swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
+
+        if value not in swint_weights:
+            message = (
+                f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
+            )
+            logger.error(message)
+            raise ValueError(message)
+
 
 @define
 class SwinTSmallConfig:
     """SwinT configuration (small) for backbone.
 
     Attributes:
+        pre_trained_weights: (str) Pretrained weights file name supported only for
+            SwinT backbones. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
         model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"small"`.
         arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
         max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
@@ -341,6 +518,12 @@ class SwinTSmallConfig:
         output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
     """
 
+    pre_trained_weights: Optional[str] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
+    )
     model_type: str = field(
         default="small",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
@@ -368,12 +551,37 @@ class SwinTSmallConfig:
             logger.error(message)
             raise ValueError(message)
 
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
+        swint_weights are one of
+        (
+            "Swin_T_Weights",
+            "Swin_S_Weights",
+            "Swin_B_Weights"
+        )
+        """
+        if value is None:
+            return
+
+        swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
+
+        if value not in swint_weights:
+            message = (
+                f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
+            )
+            logger.error(message)
+            raise ValueError(message)
+
 
 @define
 class SwinTBaseConfig:
     """SwinT configuration for backbone.
 
     Attributes:
+        pre_trained_weights: (str) Pretrained weights file name supported only for
+            SwinT backbones. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
         model_type: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. *Default*: `"base"`.
         arch: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. *Default*: `None`.
         max_stride: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures. *Default*: `32`.
@@ -389,6 +597,12 @@ class SwinTBaseConfig:
 
     """
 
+    pre_trained_weights: Optional[str] = field(
+        default=None,
+        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
+            value
+        ),
+    )
     model_type: str = field(
         default="base",
         validator=lambda instance, attr, value: instance.validate_model_type(value),
@@ -413,6 +627,29 @@ class SwinTBaseConfig:
         valid_types = ["tiny", "small", "base"]
         if value not in valid_types:
             message = f"Invalid model_type. Must be one of {valid_types}"
+            logger.error(message)
+            raise ValueError(message)
+
+    def validate_pre_trained_weights(self, value):
+        """Validate pre_trained_weights.
+
+        Check:
+        swint_weights are one of
+        (
+            "Swin_T_Weights",
+            "Swin_S_Weights",
+            "Swin_B_Weights"
+        )
+        """
+        if value is None:
+            return
+
+        swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
+
+        if value not in swint_weights:
+            message = (
+                f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
+            )
             logger.error(message)
             raise ValueError(message)
 
@@ -730,10 +967,6 @@ class ModelConfig:
     Attributes:
         init_weights: (str) model weights initialization method. "default" uses kaiming
             uniform initialization and "xavier" uses Xavier initialization method.
-        pre_trained_weights: (str) Pretrained weights file name supported only for
-            ConvNext and SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights",
-            "ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"].
-            For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"].
         pretrained_backbone_weights: Path of the `ckpt` file with which the backbone
             is initialized. If `None`, random init is used.
         pretrained_head_weights: Path of the `ckpt` file with which the head layers
@@ -748,62 +981,11 @@ class ModelConfig:
     """
 
     init_weights: str = "default"
-    pre_trained_weights: Optional[str] = field(
-        default=None,
-        validator=lambda instance, attr, value: instance.validate_pre_trained_weights(
-            value
-        ),
-    )
     pretrained_backbone_weights: Optional[str] = None
     pretrained_head_weights: Optional[str] = None
     backbone_config: BackboneConfig = field(factory=BackboneConfig)
     head_configs: HeadConfig = field(factory=HeadConfig)
     total_params: Optional[int] = None
-
-    def validate_pre_trained_weights(self, value):
-        """Validate pre_trained_weights.
-
-        Check:
-        convnext_weights are one of
-        (
-            "ConvNeXt_Base_Weights",
-            "ConvNeXt_Tiny_Weights",
-            "ConvNeXt_Small_Weights",
-            "ConvNeXt_Large_Weights",
-        )
-        swint_weights are one of
-        (
-            "Swin_T_Weights",
-            "Swin_S_Weights",
-            "Swin_B_Weights"
-        )
-        unet weights is None
-        """
-        if value is None:
-            return
-
-        convnext_weights = [
-            "ConvNeXt_Base_Weights",
-            "ConvNeXt_Tiny_Weights",
-            "ConvNeXt_Small_Weights",
-            "ConvNeXt_Large_Weights",
-        ]
-        swint_weights = ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]
-
-        if self.backbone_config.convnext is not None:
-            if value not in convnext_weights:
-                message = f"Invalid pre-trained weights for ConvNext. Must be one of {convnext_weights}"
-                logger.error(message)
-                raise ValueError(message)
-        elif self.backbone_config.swint is not None:
-            if value not in swint_weights:
-                message = f"Invalid pre-trained weights for SwinT. Must be one of {swint_weights}"
-                logger.error(message)
-                raise ValueError(message)
-        elif self.backbone_config.unet is not None:
-            message = "UNet does not support pre-trained weights."
-            logger.error(message)
-            raise ValueError(message)
 
 
 def model_mapper(legacy_config: dict) -> ModelConfig:

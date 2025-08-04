@@ -1756,7 +1756,6 @@ def test_legacy_single_instance_predictor(
         data_path=small_robot_minimal.as_posix(),
         make_labels=True,
         integral_refinement="integral",
-        ensure_grayscale=True,
     )
     gt_labels = sio.load_slp(small_robot_minimal)
 

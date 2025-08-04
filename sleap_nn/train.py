@@ -377,7 +377,6 @@ def get_data_config(
 
 def get_model_config(
     init_weight: str = "default",
-    pre_trained_weights: Optional[str] = None,
     pretrained_backbone_weights: Optional[str] = None,
     pretrained_head_weights: Optional[str] = None,
     backbone_config: Union[str, Dict[str, Any]] = "unet",
@@ -391,10 +390,6 @@ def get_model_config(
     Args:
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
-        pre_trained_weights: Pretrained weights file name supported only for ConvNext and
-            SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights",
-            "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights",
-            "Swin_S_Weights", "Swin_B_Weights"]. Default: None.
         pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is
             initialized. If `None`, random init is used. Default: None.
         pretrained_head_weights: Path of the `ckpt` file with which the head layers are
@@ -450,7 +445,6 @@ def get_model_config(
     head_configs = get_head_configs(head_cfg=head_configs)
     model_config = ModelConfig(
         init_weights=init_weight,
-        pre_trained_weights=pre_trained_weights,
         pretrained_backbone_weights=pretrained_backbone_weights,
         pretrained_head_weights=pretrained_head_weights,
         backbone_config=backbone_config,
@@ -694,63 +688,64 @@ def run_training(config: DictConfig):
     logger.info("Finished training at:", finish_timestamp)
     logger.info(f"Total training time: {total_elapsed} secs")
 
-    # run inference on val dataset
-    if config.trainer_config.save_ckpt:
-        data_paths = {}
-        for index, path in enumerate(trainer.config.data_config.train_labels_path):
-            data_paths[f"train_{index}"] = (
-                Path(config.trainer_config.save_ckpt_path)
-                / f"labels_train_gt_{index}.slp"
-            ).as_posix()
-            data_paths[f"val_{index}"] = (
-                Path(config.trainer_config.save_ckpt_path)
-                / f"labels_val_gt_{index}.slp"
-            ).as_posix()
-
-        if (
-            OmegaConf.select(config, "data_config.test_file_path", default=None)
-            is not None
-        ):
-            data_paths["test"] = config.data_config.test_file_path
-
-        for d_name, path in data_paths.items():
-            labels = sio.load_slp(path)
-
-            pred_labels = predict(
-                data_path=path,
-                model_paths=[config.trainer_config.save_ckpt_path],
-                peak_threshold=0.2,
-                make_labels=True,
-                device=trainer.trainer.strategy.root_device,
-                output_path=Path(config.trainer_config.save_ckpt_path)
-                / f"pred_{d_name}.slp",
-                ensure_rgb=config.data_config.preprocessing.ensure_rgb,
-                ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
-            )
-
-            if not len(pred_labels):
-                logger.info(
-                    f"Skipping eval on `{d_name}` dataset as there are no labeled frames..."
-                )
-                continue  # skip if there are no labeled frames
-
-            evaluator = Evaluator(
-                ground_truth_instances=labels, predicted_instances=pred_labels
-            )
-            metrics = evaluator.evaluate()
-            np.savez(
-                (
+    if trainer.trainer.global_rank == 0:
+        # run inference on val dataset
+        if config.trainer_config.save_ckpt:
+            data_paths = {}
+            for index, path in enumerate(trainer.config.data_config.train_labels_path):
+                data_paths[f"train_{index}"] = (
                     Path(config.trainer_config.save_ckpt_path)
-                    / f"{d_name}_pred_metrics.npz"
-                ).as_posix(),
-                **metrics,
-            )
+                    / f"labels_train_gt_{index}.slp"
+                ).as_posix()
+                data_paths[f"val_{index}"] = (
+                    Path(config.trainer_config.save_ckpt_path)
+                    / f"labels_val_gt_{index}.slp"
+                ).as_posix()
 
-            logger.info(f"---------Evaluation on `{d_name}` dataset---------")
-            logger.info(f"OKS mAP: {metrics['voc_metrics']['oks_voc.mAP']}")
-            logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
-            logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
-            logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
+            if (
+                OmegaConf.select(config, "data_config.test_file_path", default=None)
+                is not None
+            ):
+                data_paths["test"] = config.data_config.test_file_path
+
+            for d_name, path in data_paths.items():
+                labels = sio.load_slp(path)
+
+                pred_labels = predict(
+                    data_path=path,
+                    model_paths=[config.trainer_config.save_ckpt_path],
+                    peak_threshold=0.2,
+                    make_labels=True,
+                    device=trainer.trainer.strategy.root_device,
+                    output_path=Path(config.trainer_config.save_ckpt_path)
+                    / f"pred_{d_name}.slp",
+                    ensure_rgb=config.data_config.preprocessing.ensure_rgb,
+                    ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
+                )
+
+                if not len(pred_labels):
+                    logger.info(
+                        f"Skipping eval on `{d_name}` dataset as there are no labeled frames..."
+                    )
+                    continue  # skip if there are no labeled frames
+
+                evaluator = Evaluator(
+                    ground_truth_instances=labels, predicted_instances=pred_labels
+                )
+                metrics = evaluator.evaluate()
+                np.savez(
+                    (
+                        Path(config.trainer_config.save_ckpt_path)
+                        / f"{d_name}_pred_metrics.npz"
+                    ).as_posix(),
+                    **metrics,
+                )
+
+                logger.info(f"---------Evaluation on `{d_name}` dataset---------")
+                logger.info(f"OKS mAP: {metrics['voc_metrics']['oks_voc.mAP']}")
+                logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
+                logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
+                logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
 
 
 def train(
@@ -775,7 +770,6 @@ def train(
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     init_weight: str = "default",
-    pre_trained_weights: Optional[str] = None,
     pretrained_backbone_weights: Optional[str] = None,
     pretrained_head_weights: Optional[str] = None,
     backbone_config: Union[str, Dict[str, Any]] = "unet",
@@ -881,10 +875,6 @@ def train(
                     }
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
-        pre_trained_weights: Pretrained weights file name supported only for ConvNext and
-            SwinT backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights",
-            "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. For SwinT, one of ["Swin_T_Weights",
-            "Swin_S_Weights", "Swin_B_Weights"]. Default: None.
         pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is
             initialized. If `None`, random init is used. Default: None.
         pretrained_head_weights: Path of the `ckpt` file with which the head layers are
@@ -1046,7 +1036,6 @@ def train(
 
     model_config = get_model_config(
         init_weight=init_weight,
-        pre_trained_weights=pre_trained_weights,
         pretrained_backbone_weights=pretrained_backbone_weights,
         pretrained_head_weights=pretrained_head_weights,
         backbone_config=backbone_config,

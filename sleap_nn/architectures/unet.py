@@ -220,6 +220,8 @@ class UNet(nn.Module):
                 last_block_filters if not self.middle_block else block_filters
             )
 
+        self.decoder_stride_to_filters = self.decoders[-1].stride_to_filters
+
     @classmethod
     def from_config(cls, config: OmegaConf):
         """Create UNet from a config."""

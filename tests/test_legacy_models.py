@@ -19,6 +19,8 @@ from sleap_nn.legacy_models import (
     load_legacy_model_weights,
     map_legacy_to_pytorch_layers,
     load_legacy_model,
+    get_keras_first_layer_channels,
+    update_backbone_in_channels,
 )
 
 
@@ -252,7 +254,7 @@ class TestModelCreation:
         # This is a known limitation where the legacy config conversion
         # doesn't perfectly align head and backbone strides
         try:
-            x = torch.randn(1, 1, 192, 192)
+            x = torch.randn(1, 3, 192, 192)
             outputs = model(x)
             assert len(outputs) > 0
         except ValueError:
