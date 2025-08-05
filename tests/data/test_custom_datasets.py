@@ -611,6 +611,8 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         crop_hw=(100, 100),
         labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_topdown_data_config.use_augmentations_train,
+        intensity_aug=base_topdown_data_config.augmentation_config.intensity,
+        geometric_aug=base_topdown_data_config.augmentation_config.geometric,
     )
 
     gt_sample_keys = [
@@ -839,6 +841,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         crop_hw=(100, 100),
         labels=[tracked_labels],
         apply_aug=base_topdown_data_config.use_augmentations_train,
+        intensity_aug=["uniform_noise", "gaussian_noise"],
     )
 
     sample = next(iter(dataset))
@@ -984,6 +987,8 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=[sio.load_slp(minimal_instance)],
+        intensity_aug=base_centroid_data_config.augmentation_config.intensity,
+        geometric_aug=base_centroid_data_config.augmentation_config.geometric,
     )
 
     gt_sample_keys = [
@@ -1146,6 +1151,8 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         confmap_head_config=confmap_head,
         labels=[labels],
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
+        intensity_aug="uniform_noise",
+        geometric_aug="rotation",
     )
 
     sample = next(iter(dataset))

@@ -140,7 +140,7 @@ class LightningModel(L.LightningModule):
         self.backbone_type = backbone_type
         if not isinstance(backbone_config, DictConfig):
             backbone_cfg = get_backbone_config(backbone_config)
-            config = OmegaConf.structured(BackboneConfig(**backbone_cfg))
+            config = OmegaConf.structured(backbone_cfg)
             OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
         else:
             config = backbone_config

@@ -52,8 +52,8 @@ from sleap_nn.config.trainer_config import (
 
 
 def get_aug_config(
-    intensity_aug: Union[str, List[str], Dict[str, Any]],
-    geometric_aug: Union[str, List[str], Dict[str, Any]],
+    intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
+    geometric_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
 ):
     """Create an augmentation configuration for training data.
 
