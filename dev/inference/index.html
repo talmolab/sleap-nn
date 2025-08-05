@@ -8,13 +8,13 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/installation/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/inference/">
       
       
-        <link rel="prev" href="../inference/">
+        <link rel="prev" href="../config/">
       
       
-        <link rel="next" href="../models/">
+        <link rel="next" href="../installation/">
       
       
       <link rel="icon" href="../assets/favicon.ico">
@@ -22,7 +22,7 @@
     
     
       
-        <title>Installation - sleap-nn documentation</title>
+        <title>Running Inference - sleap-nn documentation</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#installation" class="md-skip">
+        <a href="#running-inference" class="md-skip">
           Skip to content
         </a>
       
@@ -111,7 +111,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Installation
+              Running Inference
             
           </span>
         </div>
@@ -321,28 +321,6 @@
       
   
   
-  
-  
-    <li class="md-nav__item">
-      <a href="../inference/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    Running Inference
-    
-  </span>
-  
-
-      </a>
-    </li>
-  
-
-    
-      
-      
-  
-  
     
   
   
@@ -360,7 +338,7 @@
   
   
   <span class="md-ellipsis">
-    Installation
+    Running Inference
     
   </span>
   
@@ -373,7 +351,7 @@
   
   
   <span class="md-ellipsis">
-    Installation
+    Running Inference
     
   </span>
   
@@ -396,55 +374,19 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#run-inference-with-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      Prerequisites
+      Run Inference with CLI
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install-sleap-nn" class="md-nav__link">
-    <span class="md-ellipsis">
-      Install sleap-nn
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Install sleap-nn">
+    <nav class="md-nav" aria-label="Run Inference with CLI">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-optional-install-miniforge-and-create-environment" class="md-nav__link">
+  <a href="#arguments-for-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      1. (Optional) Install Miniforge and create environment
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-install-uv-and-development-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Install uv and Development Dependencies
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-install-pytorch" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Install PyTorch
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-verify-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Verify Installation
+      Arguments for CLI
     </span>
   </a>
   
@@ -456,9 +398,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#gpu-support" class="md-nav__link">
+  <a href="#run-inference-with-api" class="md-nav__link">
     <span class="md-ellipsis">
-      GPU Support
+      Run inference with API
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tracking
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tracking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tracking-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tracking Methods
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#track-only-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Track-only workflow
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legacy-sleap-model-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      Legacy SLEAP Model Support
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Evaluation Metrics
     </span>
   </a>
   
@@ -475,18 +468,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#import-errors" class="md-nav__link">
+  <a href="#common-issues" class="md-nav__link">
     <span class="md-ellipsis">
-      Import Errors
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cuda-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      CUDA Issues
+      Common Issues
     </span>
   </a>
   
@@ -510,6 +494,28 @@
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
     </li>
   
 
@@ -2156,55 +2162,19 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#prerequisites" class="md-nav__link">
+  <a href="#run-inference-with-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      Prerequisites
+      Run Inference with CLI
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#install-sleap-nn" class="md-nav__link">
-    <span class="md-ellipsis">
-      Install sleap-nn
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Install sleap-nn">
+    <nav class="md-nav" aria-label="Run Inference with CLI">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#1-optional-install-miniforge-and-create-environment" class="md-nav__link">
+  <a href="#arguments-for-cli" class="md-nav__link">
     <span class="md-ellipsis">
-      1. (Optional) Install Miniforge and create environment
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#2-install-uv-and-development-dependencies" class="md-nav__link">
-    <span class="md-ellipsis">
-      2. Install uv and Development Dependencies
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#3-install-pytorch" class="md-nav__link">
-    <span class="md-ellipsis">
-      3. Install PyTorch
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#4-verify-installation" class="md-nav__link">
-    <span class="md-ellipsis">
-      4. Verify Installation
+      Arguments for CLI
     </span>
   </a>
   
@@ -2216,9 +2186,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#gpu-support" class="md-nav__link">
+  <a href="#run-inference-with-api" class="md-nav__link">
     <span class="md-ellipsis">
-      GPU Support
+      Run inference with API
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tracking" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tracking
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tracking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tracking-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      Tracking Methods
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#track-only-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      Track-only workflow
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legacy-sleap-model-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      Legacy SLEAP Model Support
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#evaluation-metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      Evaluation Metrics
     </span>
   </a>
   
@@ -2235,18 +2256,9 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#import-errors" class="md-nav__link">
+  <a href="#common-issues" class="md-nav__link">
     <span class="md-ellipsis">
-      Import Errors
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#cuda-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      CUDA Issues
+      Common Issues
     </span>
   </a>
   
@@ -2285,93 +2297,420 @@
   
 
 
-<h1 id="installation">Installation<a class="headerlink" href="#installation" title="Permanent link">&para;</a></h1>
-<h2 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h2>
+<h1 id="running-inference">Running Inference<a class="headerlink" href="#running-inference" title="Permanent link">&para;</a></h1>
+<p>SLEAP-NN provides powerful inference capabilities for pose estimation with support for multiple model types, tracking, and legacy SLEAP model compatibility. SLEAP-NN supports inference on:</p>
 <ul>
-<li>Python 3.11</li>
-<li><a href="https://github.com/conda-forge/miniforge">Miniforge</a> (optional, recommended for isolated Python environments with fast dependency resolution)</li>
-<li><a href="https://mamba.readthedocs.io/">Mamba</a> (optional, included with Miniforge, recommended for faster dependency resolution)</li>
+<li><strong>Videos</strong>: Any format supported by OpenCV</li>
+<li><strong>SLEAP Labels</strong>: <code>.slp</code> files</li>
 </ul>
-<h2 id="install-sleap-nn">Install sleap-nn<a class="headerlink" href="#install-sleap-nn" title="Permanent link">&para;</a></h2>
-<h3 id="1-optional-install-miniforge-and-create-environment">1. (Optional) Install Miniforge and create environment<a class="headerlink" href="#1-optional-install-miniforge-and-create-environment" title="Permanent link">&para;</a></h3>
-<p>We recommend using <a href="https://github.com/conda-forge/miniforge">Miniforge</a> for an isolated Python environment with fast dependency resolution. (You may skip this step if you already have a suitable Python environment.)</p>
-<p>To create and activate development environment</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>mamba<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>sleap-nn-dev<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.11
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mamba<span class="w"> </span>activate<span class="w"> </span>sleap-nn-dev
+<h2 id="run-inference-with-cli">Run Inference with CLI<a class="headerlink" href="#run-inference-with-cli" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/ckpt_folder/
 </span></code></pre></div>
-<h3 id="2-install-uv-and-development-dependencies">2. Install <code>uv</code> and Development Dependencies<a class="headerlink" href="#2-install-uv-and-development-dependencies" title="Permanent link">&para;</a></h3>
-<p><a href="https://github.com/astral-sh/uv"><code>uv</code></a> is a fast and modern package manager for <code>pyproject.toml</code>-based projects.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>pip<span class="w"> </span>install<span class="w"> </span>uv
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
-</span></code></pre></div>
-<h3 id="3-install-pytorch">3. Install PyTorch<a class="headerlink" href="#3-install-pytorch" title="Permanent link">&para;</a></h3>
-<p>You can either:</p>
-<h4 id="option-a-install-with-optional-dependencies-recommended">Option A: Install with Optional Dependencies (Recommended)<a class="headerlink" href="#option-a-install-with-optional-dependencies-recommended" title="Permanent link">&para;</a></h4>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[torch]&quot;</span>
-</span></code></pre></div>
-<p>This installs the default builds of <code>torch</code> and <code>torchvision</code> via PyPI for your OS. By default, this means:</p>
-<ul>
-<li>
-<p><strong>Windows:</strong> CPU-only build.</p>
-</li>
-<li>
-<p><strong>Linux:</strong> CUDA-enabled (GPU) build (if a compatible NVIDIA GPU is detected).</p>
-</li>
-<li>
-<p><strong>macOS:</strong> CPU-only build (with Metal backend support for Apple Silicon in recent versions)
-If you need a different build (e.g., GPU support on Windows, or CPU-only on Linux), see the manual installation options below.</p>
-</li>
-</ul>
-<h4 id="option-b-manual-installation-for-specific-platforms">Option B: Manual Installation for Specific Platforms<a class="headerlink" href="#option-b-manual-installation-for-specific-platforms" title="Permanent link">&para;</a></h4>
-<p>Install the correct wheel for your system using PyTorch's index URL:</p>
-<p><strong>Windows/Linux with NVIDIA GPU (CUDA 11.8):</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>torchvision<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cu118
+<p>To run inference on video files with specific frames
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>--frames<span class="w"> </span><span class="s2">&quot;1-100,200-300&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/ckpt_folder/
 </span></code></pre></div></p>
-<p><strong>macOS with Apple Silicon (M1, M2, M3, M4):</strong>
-You don't need to do anything if you used the <code>[torch]</code> optional dependency or default PyPI install—the default wheels now include Metal backend support for Apple GPUs.</p>
-<p><strong>CPU-only (no GPU or unsupported GPU):</strong>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>pip<span class="w"> </span>install<span class="w"> </span>torch<span class="w"> </span>torchvision<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
+<p>To run inference with different backbone weights than the one in <code>models/ckpt_folder/</code>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>--frames<span class="w"> </span><span class="s2">&quot;1-100,200-300&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/ckpt_folder/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span>--backbone_ckpt_path<span class="w"> </span>models/backbone.ckpt
 </span></code></pre></div></p>
-<p>You can find the correct wheel for your system at:
-👉 <a href="https://pytorch.org/get-started/locally">https://pytorch.org/get-started/locally</a></p>
-<h3 id="4-verify-installation">4. Verify Installation<a class="headerlink" href="#4-verify-installation" title="Permanent link">&para;</a></h3>
-<p>Test your installation:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Run tests</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>pytest<span class="w"> </span>tests
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Optional: Lint and format code</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
+<p>For two-stage models (topdown and multiclass topdown), both the centroid and centered-instance model ckpts should be provided as given below:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/centroid_unet/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/centered_instance_unet/
+</span></code></pre></div></p>
+<h3 id="arguments-for-cli">Arguments for CLI<a class="headerlink" href="#arguments-for-cli" title="Permanent link">&para;</a></h3>
+<h4 id="essential-parameters">Essential Parameters<a class="headerlink" href="#essential-parameters" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--data_path</code></td>
+<td>Path to <code>.slp</code> file or <code>.mp4</code> to run inference on</td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>--model_paths</code></td>
+<td>List of paths to the directory where the best.ckpt and training_config.yaml are saved</td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>--output_path</code></td>
+<td>The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp'</td>
+<td><code>[input].slp</code></td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td>Device on which torch.Tensor will be allocated. One of ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen)</td>
+<td><code>auto</code></td>
+</tr>
+<tr>
+<td><code>--batch_size</code></td>
+<td>Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory</td>
+<td><code>4</code></td>
+</tr>
+<tr>
+<td><code>--peak_threshold</code></td>
+<td>Minimum confidence map value to consider a peak as valid</td>
+<td><code>0.2</code></td>
+</tr>
+<tr>
+<td><code>--integral_refinement</code></td>
+<td>If <code>None</code>, returns the grid-aligned peaks with no refinement. If <code>'integral'</code>, peaks will be refined with integral regression. Default: 'integral'.</td>
+<td><code>integral</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="model-configuration">Model Configuration<a class="headerlink" href="#model-configuration" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--backbone_ckpt_path</code></td>
+<td>To run inference on any <code>.ckpt</code> other than <code>best.ckpt</code> from the <code>model_paths</code> dir, the path to the <code>.ckpt</code> file should be passed here</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--head_ckpt_path</code></td>
+<td>Path to <code>.ckpt</code> file if a different set of head layer weights are to be used. If <code>None</code>, the <code>best.ckpt</code> from <code>model_paths</code> dir is used (or the ckpt from <code>backbone_ckpt_path</code> if provided)</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--max_instances</code></td>
+<td>Limit maximum number of instances in multi-instance models. Not available for ID models</td>
+<td><code>None</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="image-pre-processing">Image Pre-processing<a class="headerlink" href="#image-pre-processing" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--max_height</code></td>
+<td>Maximum height the image should be padded to. If not provided, the values from the training config are used. Default: None.</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--max_width</code></td>
+<td>Maximum width the image should be padded to. If not provided, the values from the training config are used. Default: None.</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--input_scale</code></td>
+<td>Scale factor to apply to the input image. If not provided, the values from the training config are used. Default: None.</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--ensure_rgb</code></td>
+<td>True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to <code>True</code>, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. If not provided, the values from the training config are used. Default: <code>None</code>.</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--ensure_grayscale</code></td>
+<td>True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. If not provided, the values from the training config are used. Default: <code>None</code>.</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--crop_size</code></td>
+<td>Crop size. If not provided, the crop size from training_config.yaml is used</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--anchor_part</code></td>
+<td>The node name to use as the anchor for the centroid. If not provided, the anchor part in the <code>training_config.yaml</code> is used. Default: <code>None</code>.</td>
+<td><code>None</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="data-selection">Data Selection<a class="headerlink" href="#data-selection" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--only_labeled_frames</code></td>
+<td><code>True</code> if inference should be run only on user-labeled frames</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--only_suggested_frames</code></td>
+<td><code>True</code> if inference should be run only on unlabeled suggested frames</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--video_index</code></td>
+<td>Integer index of video in .slp file to predict on. To be used with an .slp path as an alternative to specifying the video path</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--video_dataset</code></td>
+<td>The dataset for HDF5 videos</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--video_input_format</code></td>
+<td>The input_format for HDF5 videos</td>
+<td><code>channels_last</code></td>
+</tr>
+<tr>
+<td><code>--frames</code></td>
+<td>List of frames indices. If <code>None</code>, all frames in the video are used</td>
+<td>All frames</td>
+</tr>
+</tbody>
+</table>
+<h4 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--queue_maxsize</code></td>
+<td>Maximum size of the frame buffer queue</td>
+<td><code>8</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="tracking-parameters">Tracking Parameters<a class="headerlink" href="#tracking-parameters" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--tracking</code></td>
+<td>If True, runs tracking on the predicted instances</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--tracking_window_size</code></td>
+<td>Number of frames to look for in the candidate instances to match with the current detections</td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>--min_new_track_points</code></td>
+<td>We won't spawn a new track for an instance with fewer than this many points</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--candidates_method</code></td>
+<td>Either of <code>fixed_window</code> or <code>local_queues</code>. In fixed window method, candidates from the last <code>window_size</code> frames. In local queues, last <code>window_size</code> instances for each track ID is considered for matching against the current detection</td>
+<td><code>fixed_window</code></td>
+</tr>
+<tr>
+<td><code>--min_match_points</code></td>
+<td>Minimum non-NaN points for match candidates</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--features</code></td>
+<td>Feature representation for the candidates to update current detections. One of [<code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code>]</td>
+<td><code>keypoints</code></td>
+</tr>
+<tr>
+<td><code>--scoring_method</code></td>
+<td>Method to compute association score between features from the current frame and the previous tracks. One of [<code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>euclidean_dist</code>]</td>
+<td><code>oks</code></td>
+</tr>
+<tr>
+<td><code>--scoring_reduction</code></td>
+<td>Method to aggregate and reduce multiple scores if there are several detections associated with the same track. One of [<code>mean</code>, <code>max</code>, <code>robust_quantile</code>]</td>
+<td><code>mean</code></td>
+</tr>
+<tr>
+<td><code>--robust_best_instance</code></td>
+<td>If the value is between 0 and 1 (excluded), use a robust quantile similarity score for the track. If the value is 1, use the max similarity (non-robust). For selecting a robust score, 0.95 is a good value</td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>--track_matching_method</code></td>
+<td>Track matching algorithm. One of <code>hungarian</code>, <code>greedy</code></td>
+<td><code>hungarian</code></td>
+</tr>
+<tr>
+<td><code>--max_tracks</code></td>
+<td>Maximum number of new tracks to be created to avoid redundant tracks (only for local queues candidate)</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--use_flow</code></td>
+<td>If True, <code>FlowShiftTracker</code> is used, where the poses are matched using optical flow shifts</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--of_img_scale</code></td>
+<td>Factor to scale the images by when computing optical flow. Decrease this to increase performance at the cost of finer accuracy. Sometimes decreasing the image scale can improve performance with fast movements (only if <code>use_flow</code> is True)</td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>--of_window_size</code></td>
+<td>Optical flow window size to consider at each pyramid scale level (only if <code>use_flow</code> is True)</td>
+<td><code>21</code></td>
+</tr>
+<tr>
+<td><code>--of_max_levels</code></td>
+<td>Number of pyramid scale levels to consider. This is different from the scale parameter, which determines the initial image scaling (only if <code>use_flow</code> is True)</td>
+<td><code>3</code></td>
+</tr>
+<tr>
+<td><code>--post_connect_single_breaks</code></td>
+<td>If True and <code>max_tracks</code> is not None with local queues candidate method, connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h2 id="run-inference-with-api">Run inference with API<a class="headerlink" href="#run-inference-with-api" title="Permanent link">&para;</a></h2>
+<p>To return predictions as list of dictionaries, </p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.predictors</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_inference</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="c1"># Run inference</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">run_inference</span><span class="p">(</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>    <span class="n">model_paths</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;models/unet/&quot;</span><span class="p">],</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a>    <span class="n">make_labels</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>    <span class="n">return_confmaps</span><span class="o">=</span><span class="kc">True</span>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="p">)</span>
 </span></code></pre></div>
-<h2 id="gpu-support">GPU Support<a class="headerlink" href="#gpu-support" title="Permanent link">&para;</a></h2>
-<p>We recommend installing the torch dependencies manually based on your platform and intentionally <strong>do not include GPU-specific <code>torch</code> or <code>torchvision</code> builds</strong> in <code>pyproject.toml</code> for the below reasons:</p>
-<ul>
-<li><strong>No CUDA/hardware assumptions</strong>—avoids install issues.</li>
-<li><strong>Flexible to choose your own PyTorch build (CPU or GPU).</strong></li>
-<li><strong>All other dependencies managed by <code>uv</code>.</strong>-also faster!</li>
-</ul>
-<blockquote>
-<p>💡 This makes <code>sleap-nn</code> compatible with both GPU-accelerated and CPU-only environments.</p>
-</blockquote>
+<p>To return predictions as a <code>sleap_io.Labels</code> object, </p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.inference.predictors</span><span class="w"> </span><span class="kn">import</span> <span class="n">run_inference</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># Run inference</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">run_inference</span><span class="p">(</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">data_path</span><span class="o">=</span><span class="s2">&quot;video.mp4&quot;</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">model_paths</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;models/unet/&quot;</span><span class="p">],</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">output_path</span><span class="o">=</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">,</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>    <span class="n">make_labels</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="p">)</span>
+</span></code></pre></div>
+<p>For a detailed explanation of all available parameters for <code>run_inference</code>, see the API docs for <a href="../api/inference/predictors/#sleap_nn.inference.predictors.run_inference">run_inference()</a>.</p>
+<h2 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h2>
+<p>SLEAP-NN includes sophisticated tracking capabilities for multi-instance scenarios. The output labels object (or <code>.slp</code> file) will have track IDs associated to the predicted instances (or user-labeled instances).</p>
+<h3 id="tracking-methods">Tracking Methods<a class="headerlink" href="#tracking-methods" title="Permanent link">&para;</a></h3>
+<h4 id="fixed-window-tracking">Fixed Window Tracking<a class="headerlink" href="#fixed-window-tracking" title="Permanent link">&para;</a></h4>
+<p>This method maintains a fixed-size window of the last N frames and uses all instances from those frames as candidates for matching.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/bottomup_unet/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span>--tracking<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span>--candidates_method<span class="w"> </span>fixed_window<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span>
+</span></code></pre></div>
+<h4 id="local-queues-tracking">Local Queues Tracking<a class="headerlink" href="#local-queues-tracking" title="Permanent link">&para;</a></h4>
+<p>This method maintains separate queues for each track ID, keeping the last N instances per track. It's more robust to track breaks but requires more memory and computation.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/bottomup_unet/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span>--tracking<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">5</span>
+</span></code></pre></div>
+<h4 id="optical-flow-tracking">Optical Flow Tracking<a class="headerlink" href="#optical-flow-tracking" title="Permanent link">&para;</a></h4>
+<p>This method uses optical flow to shift the candidates onto the frame to be tracked and then associates the untracked instances to the shifted instances.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>--model_paths<span class="w"> </span>models/bottomup_unet/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span>--tracking<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span>--use_flow
+</span></code></pre></div>
+<h3 id="track-only-workflow">Track-only workflow<a class="headerlink" href="#track-only-workflow" title="Permanent link">&para;</a></h3>
+<p>You can perform tracking on existing user-labeled instances—without running inference to get new predictions—by enabling tracking (<code>--tracking</code>) and omitting the <code>--model-paths</code> argument. This will associate tracks using only the provided labels.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.predict<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>--tracking<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>--candidates_method<span class="w"> </span>fixed_window<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span>
+</span></code></pre></div>
+<h2 id="legacy-sleap-model-support">Legacy SLEAP Model Support<a class="headerlink" href="#legacy-sleap-model-support" title="Permanent link">&para;</a></h2>
+<p>SLEAP-NN supporting running inference with models trained using the original SLEAP TensorFlow/Keras backend (sleap &lt;= 1.4), <strong>but only for UNet backbone models</strong>.
+To run inference with legacy SLEAP models (trained with TensorFlow/Keras, sleap ≤ 1.4), simply use the same CLI or API workflows described above in the <a href="#with-cli">With CLI</a> and <a href="#with-api">With API</a> sections. </p>
+<p>Just provide the path to the directory containing both <code>best_model.h5</code> and <code>training_config.json</code> from your SLEAP training run as your <code>--model-paths</code> (CLI) or <code>model_paths</code> (API) argument. SLEAP-NN will automatically detect and load these legacy models for inference.</p>
+<h2 id="evaluation-metrics">Evaluation Metrics<a class="headerlink" href="#evaluation-metrics" title="Permanent link">&para;</a></h2>
+<p>SLEAP-NN provides comprehensive evaluation capabilities to assess model performance against ground truth labels.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">Evaluator</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Load ground truth and predictions</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="n">gt_labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;ground_truth.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="n">pred_labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="c1"># Create evaluator and compute metrics</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="n">evaluator</span> <span class="o">=</span> <span class="n">Evaluator</span><span class="p">(</span><span class="n">gt_labels</span><span class="p">,</span> <span class="n">pred_labels</span><span class="p">)</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="c1"># Print results</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OKS mAP: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAP&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mOKS: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;mOKS&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dist. error @90th percentile: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;p90&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span></code></pre></div>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
-<h3 id="import-errors">Import Errors<a class="headerlink" href="#import-errors" title="Permanent link">&para;</a></h3>
-<p>If you get import errors:</p>
-<ol>
-<li>Ensure you've activated the conda environment: <code>mamba activate sleap-nn-dev</code></li>
-<li>Verify PyTorch is installed: <code>python -c "import torch; print(torch.__version__)"</code></li>
-<li>Try reinstalling with torch extras: <code>uv pip install -e ".[torch]"</code></li>
-</ol>
-<h3 id="cuda-issues">CUDA Issues<a class="headerlink" href="#cuda-issues" title="Permanent link">&para;</a></h3>
-<p>If you encounter CUDA-related errors:</p>
-<ol>
-<li>Verify your NVIDIA drivers are up to date</li>
-<li>Check CUDA compatibility with PyTorch version</li>
-<li>Try the CPU-only installation as a fallback</li>
-</ol>
+<h3 id="common-issues">Common Issues<a class="headerlink" href="#common-issues" title="Permanent link">&para;</a></h3>
+<h4 id="out-of-memory">Out of Memory<a class="headerlink" href="#out-of-memory" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Reduce <code>--batch_size</code></li>
+<li>Use <code>--device cpu</code> for CPU-only inference</li>
+</ul>
+<h4 id="slow-inference">Slow Inference<a class="headerlink" href="#slow-inference" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Increase <code>--batch_size</code> (if memory allows)</li>
+<li>Use <code>--device cuda</code> for GPU acceleration</li>
+</ul>
+<h4 id="poor-predictions">Poor Predictions<a class="headerlink" href="#poor-predictions" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Adjust <code>--peak_threshold</code></li>
+<li>Check model compatibility</li>
+<li>Verify input preprocessing matches training</li>
+</ul>
+<h4 id="tracking-issues">Tracking Issues<a class="headerlink" href="#tracking-issues" title="Permanent link">&para;</a></h4>
+<ul>
+<li>Adjust <code>--tracking_window_size</code></li>
+<li>Try different feature representation and scoring method.</li>
+</ul>
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../training/">Training Your First Model</a></li>
+<li><a href="../training/">Training Models</a></li>
 <li><a href="../config/">Configuration Guide</a></li>
+<li><a href="../models/">Model Architectures</a></li>
 <li><a href="../api/">API Reference</a></li>
 </ul>
 
