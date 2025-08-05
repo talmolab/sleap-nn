@@ -336,7 +336,6 @@ class LightningModel(L.LightningModule):
         elif self.optimizer == "AdamW":
             optim = torch.optim.AdamW
 
-
         optimizer = optim(
             self.parameters(),
             lr=self.lr,
@@ -1054,7 +1053,6 @@ class BottomUpLightningModule(LightningModel):
             learning_rate=learning_rate,
             amsgrad=amsgrad,
         )
-
 
         paf_scorer = PAFScorer(
             part_names=self.head_configs.bottomup.confmaps.part_names,

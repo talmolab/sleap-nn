@@ -239,7 +239,8 @@ def test_single_instance_model(config, tmp_path: str):
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
-    model = SingleInstanceLightningModule(model_type="single_instance",
+    model = SingleInstanceLightningModule(
+        model_type="single_instance",
         backbone_config="unet_medium_rf",
         backbone_type="unet",
         head_configs=config.model_config.head_configs,
