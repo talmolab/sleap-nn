@@ -43,7 +43,7 @@ class UNetConfig:
 
 
 @define
-class UNetLargeRFConfig:
+class UNetLargeRFConfig(UNetConfig):
     """UNet config for backbone with large receptive field.
 
     Attributes:
@@ -57,7 +57,7 @@ class UNetLargeRFConfig:
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
         stacks: (int) Number of upsampling blocks in the decoder. *Default*: `1`.
         convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
-        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `4`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
     """
 
     in_channels: int = 1
@@ -70,11 +70,11 @@ class UNetLargeRFConfig:
     up_interpolate: bool = True
     stacks: int = 1
     convs_per_block: int = 2
-    output_stride: int = 4
+    output_stride: int = 1
 
 
 @define
-class UNetMediumRFConfig:
+class UNetMediumRFConfig(UNetConfig):
     """UNet config for backbone with medium receptive field.
 
     Attributes:
@@ -88,7 +88,7 @@ class UNetMediumRFConfig:
         up_interpolate: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. *Default*: `True`.
         stacks: (int) Number of upsampling blocks in the decoder. *Default*: `1`.
         convs_per_block: (int) Number of convolutional layers per block. *Default*: `2`.
-        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `4`.
+        output_stride: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. *Default*: `1`.
     """
 
     in_channels: int = 1
@@ -101,7 +101,7 @@ class UNetMediumRFConfig:
     up_interpolate: bool = True
     stacks: int = 1
     convs_per_block: int = 2
-    output_stride: int = 4
+    output_stride: int = 1
 
 
 @define
@@ -174,7 +174,7 @@ class ConvNextConfig:
 
 
 @define
-class ConvNextSmallConfig:
+class ConvNextSmallConfig(ConvNextConfig):
     """Convnext configuration for backbone.
 
     Attributes:
@@ -256,7 +256,7 @@ class ConvNextSmallConfig:
 
 
 @define
-class ConvNextBaseConfig:
+class ConvNextBaseConfig(ConvNextConfig):
     """Convnext configuration for backbone.
 
     Attributes:
@@ -338,7 +338,7 @@ class ConvNextBaseConfig:
 
 
 @define
-class ConvNextLargeConfig:
+class ConvNextLargeConfig(ConvNextConfig):
     """Convnext configuration for backbone.
 
     Attributes:
@@ -498,7 +498,7 @@ class SwinTConfig:
 
 
 @define
-class SwinTSmallConfig:
+class SwinTSmallConfig(SwinTConfig):
     """SwinT configuration (small) for backbone.
 
     Attributes:
@@ -576,7 +576,7 @@ class SwinTSmallConfig:
 
 
 @define
-class SwinTBaseConfig:
+class SwinTBaseConfig(SwinTConfig):
     """SwinT configuration for backbone.
 
     Attributes:

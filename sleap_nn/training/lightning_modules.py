@@ -142,10 +142,10 @@ class LightningModel(L.LightningModule):
             backbone_cfg = get_backbone_config(backbone_config)
             config = OmegaConf.structured(backbone_cfg)
             OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+            config = DictConfig(config)
         else:
             config = backbone_config
         self.backbone_config = config
-        self.backbone_config = backbone_config
         self.head_configs = head_configs
         self.pretrained_backbone_weights = pretrained_backbone_weights
         self.pretrained_head_weights = pretrained_head_weights
@@ -336,10 +336,6 @@ class LightningModel(L.LightningModule):
         elif self.optimizer == "AdamW":
             optim = torch.optim.AdamW
 
-        print("--------------------------------")
-        print(f"optimizer: {self.optimizer}")
-        print(f"learning rate: {self.lr}")
-        print(f"amsgrad: {self.amsgrad}")
 
         optimizer = optim(
             self.parameters(),
@@ -1059,9 +1055,6 @@ class BottomUpLightningModule(LightningModel):
             amsgrad=amsgrad,
         )
 
-        print(f"part  names: {self.head_configs.bottomup.confmaps.part_names}")
-        print(f"edges: {self.head_configs.bottomup.pafs.edges}")
-        print(f"pafs stride: {self.head_configs.bottomup.pafs.output_stride}")
 
         paf_scorer = PAFScorer(
             part_names=self.head_configs.bottomup.confmaps.part_names,

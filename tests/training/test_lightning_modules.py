@@ -41,7 +41,17 @@ def caplog(caplog: LogCaptureFixture):
 def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # unet
-    model = LightningModel.get_lightning_model_from_config(config=config)
+    model = TopDownCenteredInstanceLightningModule(
+        model_type="centered_instance",
+        backbone_config=config.model_config.backbone_config,
+        backbone_type="unet",
+        head_configs=config.model_config.head_configs,
+        pretrained_backbone_weights=config.model_config.pretrained_backbone_weights,
+        pretrained_head_weights=config.model_config.pretrained_head_weights,
+        init_weights=config.model_config.init_weights,
+        lr_scheduler=config.trainer_config.lr_scheduler,
+        optimizer="AdamW",
+    )
     OmegaConf.update(
         config,
         "trainer_config.save_ckpt_path",
@@ -138,7 +148,12 @@ def test_centroid_model(config, tmp_path: str):
     del config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centroid["confmaps"].part_names
 
-    model = LightningModel.get_lightning_model_from_config(config=config)
+    model = CentroidLightningModule(
+        model_type="centroid",
+        backbone_config="unet_medium_rf",
+        backbone_type="unet",
+        head_configs=config.model_config.head_configs,
+    )
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_centroid_model_1/"
@@ -224,7 +239,12 @@ def test_single_instance_model(config, tmp_path: str):
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
-    model = LightningModel.get_lightning_model_from_config(config=config)
+    model = SingleInstanceLightningModule(model_type="single_instance",
+        backbone_config="unet_medium_rf",
+        backbone_type="unet",
+        head_configs=config.model_config.head_configs,
+        lr_scheduler=None,
+    )
 
     img = input_["image"]
     img_shape = img.shape[-2:]

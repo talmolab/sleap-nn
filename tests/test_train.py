@@ -481,6 +481,16 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert config.model_config.head_configs.centered_instance is not None
     assert config.model_config.head_configs.centroid is None
 
+    ## invalid scheduler
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
+            max_epochs=1,
+            trainer_accelerator="cpu",
+            lr_scheduler="invalid_scheduler",
+        )
+
     ## pass dict for scheduler
     train(
         train_labels_path=[minimal_instance],

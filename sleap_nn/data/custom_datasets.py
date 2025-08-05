@@ -105,7 +105,7 @@ class BaseDataset(Dataset):
                 intensity_aug = get_aug_config(intensity_aug=intensity_aug)
                 config = OmegaConf.structured(intensity_aug)
                 OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-                intensity_aug = config.intensity
+                intensity_aug = DictConfig(config.intensity)
         self.intensity_aug = intensity_aug
 
         # Handle geometric augmentation
@@ -114,7 +114,7 @@ class BaseDataset(Dataset):
                 geometric_aug = get_aug_config(geometric_aug=geometric_aug)
                 config = OmegaConf.structured(geometric_aug)
                 OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
-                geometric_aug = config.geometric
+                geometric_aug = DictConfig(config.geometric)
         self.geometric_aug = geometric_aug
         self.curr_idx = 0
         self.max_stride = max_stride
