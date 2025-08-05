@@ -2117,7 +2117,7 @@
       </thead>
       <tbody>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;get_aug_config&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;intensity_aug&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;geometric_aug&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.config.get_config.get_aug_config&lt;/code&gt;)" href="#sleap_nn.config.get_config.get_aug_config">get_aug_config</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;get_aug_config&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;intensity_aug&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;geometric_aug&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.config.get_config.get_aug_config&lt;/code&gt;)" href="#sleap_nn.config.get_config.get_aug_config">get_aug_config</a></code></td>
               <td>
                 <div class="doc-md-description">
                   <p>Create an augmentation configuration for training data.</p>
@@ -2185,7 +2185,7 @@
 
 
 <h3 id="sleap_nn.config.get_config.get_aug_config" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">get_aug_config</span><span class="p">(</span><span class="n">intensity_aug</span><span class="p">,</span> <span class="n">geometric_aug</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">get_aug_config</span><span class="p">(</span><span class="n">intensity_aug</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">geometric_aug</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
 
 <a href="#sleap_nn.config.get_config.get_aug_config" class="headerlink" title="Permanent link">&para;</a></h3>
 
@@ -2214,7 +2214,7 @@ preset configurations and custom dictionary-based configurations.</p>
                 <code>intensity_aug</code>
             </td>
             <td>
-                  <code><span title="typing.Union">Union</span>[<span title="str">str</span>, <span title="typing.List">List</span>[<span title="str">str</span>], <span title="typing.Dict">Dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]]</code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Union">Union</span>[<span title="str">str</span>, <span title="typing.List">List</span>[<span title="str">str</span>], <span title="typing.Dict">Dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]]]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -2226,7 +2226,7 @@ preset configurations and custom dictionary-based configurations.</p>
               </div>
             </td>
             <td>
-                <em>required</em>
+                  <code>None</code>
             </td>
           </tr>
           <tr class="doc-section-item">
@@ -2234,7 +2234,7 @@ preset configurations and custom dictionary-based configurations.</p>
                 <code>geometric_aug</code>
             </td>
             <td>
-                  <code><span title="typing.Union">Union</span>[<span title="str">str</span>, <span title="typing.List">List</span>[<span title="str">str</span>], <span title="typing.Dict">Dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]]</code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Union">Union</span>[<span title="str">str</span>, <span title="typing.List">List</span>[<span title="str">str</span>], <span title="typing.Dict">Dict</span>[<span title="str">str</span>, <span title="typing.Any">Any</span>]]]</code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -2246,7 +2246,7 @@ preset configurations and custom dictionary-based configurations.</p>
               </div>
             </td>
             <td>
-                <em>required</em>
+                  <code>None</code>
             </td>
           </tr>
       </tbody>
@@ -2428,8 +2428,8 @@ aug_config = get_aug_config(intensity_dict, geometric_dict)</p>
 <span class="normal"><a href="#__codelineno-0-159">159</a></span>
 <span class="normal"><a href="#__codelineno-0-160">160</a></span>
 <span class="normal"><a href="#__codelineno-0-161">161</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-54"><a id="__codelineno-0-54" name="__codelineno-0-54"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_aug_config</span><span class="p">(</span>
-</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>    <span class="n">intensity_aug</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
-</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a>    <span class="n">geometric_aug</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]],</span>
+</span><span id="__span-0-55"><a id="__codelineno-0-55" name="__codelineno-0-55"></a>    <span class="n">intensity_aug</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-56"><a id="__codelineno-0-56" name="__codelineno-0-56"></a>    <span class="n">geometric_aug</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 </span><span id="__span-0-57"><a id="__codelineno-0-57" name="__codelineno-0-57"></a><span class="p">):</span>
 </span><span id="__span-0-58"><a id="__codelineno-0-58" name="__codelineno-0-58"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Create an augmentation configuration for training data.</span>
 </span><span id="__span-0-59"><a id="__codelineno-0-59" name="__codelineno-0-59"></a>
