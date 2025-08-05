@@ -41,11 +41,7 @@ def caplog(caplog: LogCaptureFixture):
 def test_topdown_centered_instance_model(config, tmp_path: str):
 
     # unet
-    model = TopDownCenteredInstanceLightningModule(
-        config=config,
-        model_type="centered_instance",
-        backbone_type="unet",
-    )
+    model = LightningModel.get_lightning_model_from_config(config=config)
     OmegaConf.update(
         config,
         "trainer_config.save_ckpt_path",
@@ -100,11 +96,7 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         "model_config.backbone_config.convnext.pre_trained_weights",
         "ConvNeXt_Tiny_Weights",
     )
-    model = TopDownCenteredInstanceLightningModule(
-        config=config,
-        model_type="centered_instance",
-        backbone_type="convnext",
-    )
+    model = LightningModel.get_lightning_model_from_config(config=config)
     OmegaConf.update(
         config,
         "trainer_config.save_ckpt_path",
@@ -146,9 +138,7 @@ def test_centroid_model(config, tmp_path: str):
     del config.model_config.head_configs.centered_instance
     del config.model_config.head_configs.centroid["confmaps"].part_names
 
-    model = CentroidLightningModule(
-        config=config, model_type="centroid", backbone_type="unet"
-    )
+    model = LightningModel.get_lightning_model_from_config(config=config)
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_centroid_model_1/"
@@ -177,9 +167,7 @@ def test_centroid_model(config, tmp_path: str):
     assert abs(loss - mse_loss(preds, input_cm.squeeze(dim=1))) < 1e-3
 
     # torch dataset
-    model = CentroidLightningModule(
-        config=config, backbone_type="unet", model_type="centroid"
-    )
+    model = LightningModel.get_lightning_model_from_config(config=config)
 
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_centroid_model_2/"
@@ -236,11 +224,7 @@ def test_single_instance_model(config, tmp_path: str):
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
-    model = SingleInstanceLightningModule(
-        config=config,
-        backbone_type="unet",
-        model_type="single_instance",
-    )
+    model = LightningModel.get_lightning_model_from_config(config=config)
 
     img = input_["image"]
     img_shape = img.shape[-2:]
@@ -284,11 +268,7 @@ def test_single_instance_model(config, tmp_path: str):
         config=model_trainer.config,
     )
     input_ = next(iter(train_data_loader))
-    model = SingleInstanceLightningModule(
-        config=config,
-        backbone_type="unet",
-        model_type="single_instance",
-    )
+    model = LightningModel.get_lightning_model_from_config(config=config)
 
     img = input_["image"]
     img_shape = img.shape[-2:]
@@ -321,7 +301,7 @@ def test_bottomup_model(config, tmp_path: str):
     head_config = config.model_config.head_configs.centered_instance
     OmegaConf.update(config, "model_config.head_configs.bottomup", head_config)
     paf = {
-        "edges": [("part1", "part2")],
+        "edges": [("A", "B")],
         "sigma": 4,
         "output_stride": 4,
         "loss_weight": 1.0,
@@ -348,9 +328,7 @@ def test_bottomup_model(config, tmp_path: str):
     )
     input_ = next(iter(train_data_loader))
 
-    model = BottomUpLightningModule(
-        config=config, backbone_type="unet", model_type="bottomup"
-    )
+    model = LightningModel.get_lightning_model_from_config(config=config)
 
     preds = model(input_["image"])
 
@@ -392,11 +370,7 @@ def test_bottomup_model(config, tmp_path: str):
     skeletons = model_trainer.skeletons
     input_ = next(iter(train_data_loader))
 
-    model = BottomUpLightningModule(
-        config=model_trainer.config,
-        backbone_type="unet",
-        model_type="bottomup",
-    )
+    model = LightningModel.get_lightning_model_from_config(config=model_trainer.config)
 
     preds = model(input_["image"])
 
@@ -453,11 +427,7 @@ def test_multi_class_bottomup_model(config, tmp_path: str, minimal_instance):
     )
     input_ = next(iter(train_data_loader))
 
-    model = BottomUpMultiClassLightningModule(
-        config=model_trainer.config,
-        backbone_type="unet",
-        model_type="multi_class_bottomup",
-    )
+    model = LightningModel.get_lightning_model_from_config(config=model_trainer.config)
 
     preds = model(input_["image"])
 
@@ -496,11 +466,7 @@ def test_mutli_class_topdown_centered(config, tmp_path: str, minimal_instance):
         config, train_labels=[tracked_labels], val_labels=[tracked_labels]
     )
 
-    model = TopDownCenteredInstanceMultiClassLightningModule(
-        config=model_trainer.config,
-        model_type="multi_class_topdown",
-        backbone_type="unet",
-    )
+    model = LightningModel.get_lightning_model_from_config(config=model_trainer.config)
     OmegaConf.update(
         config,
         "trainer_config.save_ckpt_path",

@@ -46,9 +46,10 @@ def initialize_model(config, minimal_instance, minimal_instance_centered_instanc
     )
     torch_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
         f"{minimal_instance_centered_instance_ckpt}/best.ckpt",
-        config=config,
         model_type="centered_instance",
         backbone_type="unet",
+        backbone_config=config.model_config.backbone_config,
+        head_configs=config.model_config.head_configs,
         map_location="cpu",
     )
 
@@ -80,7 +81,8 @@ def test_centroid_inference_model(
 
     model = CentroidLightningModule.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt",
-        config=config,
+        backbone_config=config.model_config.backbone_config,
+        head_configs=config.model_config.head_configs,
         skeletons=None,
         model_type="centroid",
         backbone_type="unet",
@@ -181,8 +183,8 @@ def test_find_instance_peaks_groundtruth(
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     torch_model = CentroidLightningModule.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt",
-        config=config,
-        skeletons=None,
+        backbone_config=config.model_config.backbone_config,
+        head_configs=config.model_config.head_configs,
         model_type="centroid",
         backbone_type="unet",
         map_location="cpu",
@@ -291,7 +293,8 @@ def test_find_instance_peaks_multiclass(
     )
     torch_model = TopDownCenteredInstanceMultiClassLightningModule.load_from_checkpoint(
         f"{minimal_instance_multi_class_topdown_ckpt}/best.ckpt",
-        config=config,
+        backbone_config=config.model_config.backbone_config,
+        head_configs=config.model_config.head_configs,
         model_type="multi_class_topdown",
         backbone_type="unet",
         map_location="cpu",
@@ -418,8 +421,8 @@ def test_topdown_inference_model(
     config = OmegaConf.load(f"{minimal_instance_centroid_ckpt}/training_config.yaml")
     torch_model = CentroidLightningModule.load_from_checkpoint(
         f"{minimal_instance_centroid_ckpt}/best.ckpt",
-        config=config,
-        skeletons=None,
+        backbone_config=config.model_config.backbone_config,
+        head_configs=config.model_config.head_configs,
         model_type="centroid",
         backbone_type="unet",
         map_location="cpu",
