@@ -146,7 +146,7 @@ Refer to the sample configuration files [here](https://github.com/talmolab/sleap
 
 ---
 
-## Converting SLEAP (≤1.4) `config.json` to SLEAP-NN YAML
+## Converting legacy SLEAP (≤1.4) `config.json` to SLEAP-NN YAML
 
 If you have a SLEAP (v1.4 or earlier) `config.json` file from a previous project, you can easily convert it to a SLEAP-NN-compatible YAML configuration using the following code snippet:
 
