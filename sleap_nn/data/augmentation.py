@@ -21,7 +21,7 @@ def apply_intensity_augmentation(
     contrast_min: Optional[float] = 0.5,
     contrast_max: Optional[float] = 2.0,
     contrast_p: float = 0.0,
-    brightness: Optional[float] = 0.0,
+    brightness: Optional[Tuple[float]] = (1.0, 1.0),
     brightness_p: float = 0.0,
 ) -> Tuple[torch.Tensor]:
     """Apply kornia intensity augmentation on image and instances.
@@ -38,7 +38,7 @@ def apply_intensity_augmentation(
         contrast_min: Minimum contrast factor to apply. Default: 0.5.
         contrast_max: Maximum contrast factor to apply. Default: 2.0.
         contrast_p: Probability of applying random contrast.
-        brightness: The brightness factor to apply Default: 0.0.
+        brightness: The brightness factor to apply Default: (1.0, 1.0).
         brightness_p: Probability of applying random brightness.
 
     Returns:

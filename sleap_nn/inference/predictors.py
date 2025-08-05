@@ -752,10 +752,23 @@ class TopDownPredictor(Predictor):
                 ckpt_path = (Path(centroid_ckpt_path) / "best.ckpt").as_posix()
                 centroid_model = CentroidLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
-                    config=centroid_config,
-                    skeletons=skeletons,
                     model_type="centroid",
                     backbone_type=centroid_backbone_type,
+                    backbone_config=centroid_config.model_config.backbone_config,
+                    head_configs=centroid_config.model_config.head_configs,
+                    pretrained_backbone_weights=centroid_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=centroid_config.model_config.pretrained_head_weights,
+                    init_weights=centroid_config.model_config.init_weights,
+                    trainer_accelerator=centroid_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=centroid_config.trainer_config.lr_scheduler,
+                    online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=centroid_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=centroid_config.trainer_config.optimizer_name,
+                    learning_rate=centroid_config.trainer_config.optimizer.lr,
+                    amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
                 )
             else:
@@ -764,9 +777,23 @@ class TopDownPredictor(Predictor):
                     model_dir=f"{centroid_ckpt_path}"
                 )
                 centroid_model = CentroidLightningModule(
-                    config=centroid_config,
                     backbone_type=centroid_backbone_type,
                     model_type="centroid",
+                    backbone_config=centroid_config.model_config.backbone_config,
+                    head_configs=centroid_config.model_config.head_configs,
+                    pretrained_backbone_weights=centroid_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=centroid_config.model_config.pretrained_head_weights,
+                    init_weights=centroid_config.model_config.init_weights,
+                    trainer_accelerator=centroid_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=centroid_config.trainer_config.lr_scheduler,
+                    online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=centroid_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=centroid_config.trainer_config.optimizer_name,
+                    learning_rate=centroid_config.trainer_config.optimizer.lr,
+                    amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                 )
 
                 centroid_model.eval()
@@ -841,14 +868,26 @@ class TopDownPredictor(Predictor):
 
             if not is_sleap_ckpt:
                 ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
-                confmap_model = (
-                    TopDownCenteredInstanceLightningModule.load_from_checkpoint(
-                        checkpoint_path=ckpt_path,
-                        config=confmap_config,
-                        model_type="centered_instance",
-                        backbone_type=centered_instance_backbone_type,
-                        map_location=device,
-                    )
+                confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
+                    checkpoint_path=ckpt_path,
+                    model_type="centered_instance",
+                    backbone_config=confmap_config.model_config.backbone_config,
+                    head_configs=confmap_config.model_config.head_configs,
+                    pretrained_backbone_weights=confmap_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=confmap_config.model_config.pretrained_head_weights,
+                    init_weights=confmap_config.model_config.init_weights,
+                    trainer_accelerator=confmap_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                    online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=confmap_config.trainer_config.optimizer_name,
+                    learning_rate=confmap_config.trainer_config.optimizer.lr,
+                    amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
+                    backbone_type=centered_instance_backbone_type,
+                    map_location=device,
                 )
             else:
                 # Load the converted model
@@ -858,9 +897,23 @@ class TopDownPredictor(Predictor):
 
                 # Create a new LightningModule with the converted model
                 confmap_model = TopDownCenteredInstanceLightningModule(
-                    config=confmap_config,
                     backbone_type=centered_instance_backbone_type,
                     model_type="centered_instance",
+                    backbone_config=confmap_config.model_config.backbone_config,
+                    head_configs=confmap_config.model_config.head_configs,
+                    pretrained_backbone_weights=confmap_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=confmap_config.model_config.pretrained_head_weights,
+                    init_weights=confmap_config.model_config.init_weights,
+                    trainer_accelerator=confmap_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                    online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=confmap_config.trainer_config.optimizer_name,
+                    learning_rate=confmap_config.trainer_config.optimizer.lr,
+                    amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                 )
 
                 confmap_model.eval()
@@ -1292,9 +1345,23 @@ class SingleInstancePredictor(Predictor):
             ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
             confmap_model = SingleInstanceLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
-                config=confmap_config,
                 model_type="single_instance",
+                backbone_config=confmap_config.model_config.backbone_config,
+                head_configs=confmap_config.model_config.head_configs,
+                pretrained_backbone_weights=confmap_config.model_config.pretrained_backbone_weights,
+                pretrained_head_weights=confmap_config.model_config.pretrained_head_weights,
+                init_weights=confmap_config.model_config.init_weights,
+                trainer_accelerator=confmap_config.trainer_config.trainer_accelerator,
+                lr_scheduler=confmap_config.trainer_config.lr_scheduler,
                 backbone_type=backbone_type,
+                online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                optimizer=confmap_config.trainer_config.optimizer_name,
+                learning_rate=confmap_config.trainer_config.optimizer.lr,
+                amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                 map_location=device,
             )
         else:
@@ -1302,8 +1369,22 @@ class SingleInstancePredictor(Predictor):
                 model_dir=f"{confmap_ckpt_path}"
             )
             confmap_model = SingleInstanceLightningModule(
-                config=confmap_config,
                 backbone_type=backbone_type,
+                backbone_config=confmap_config.model_config.backbone_config,
+                head_configs=confmap_config.model_config.head_configs,
+                pretrained_backbone_weights=confmap_config.model_config.pretrained_backbone_weights,
+                pretrained_head_weights=confmap_config.model_config.pretrained_head_weights,
+                init_weights=confmap_config.model_config.init_weights,
+                trainer_accelerator=confmap_config.trainer_config.trainer_accelerator,
+                lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                optimizer=confmap_config.trainer_config.optimizer_name,
+                learning_rate=confmap_config.trainer_config.optimizer.lr,
+                amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                 model_type="single_instance",
             )
             confmap_model.eval()
@@ -1691,7 +1772,21 @@ class BottomUpPredictor(Predictor):
 
             bottomup_model = BottomUpLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
-                config=bottomup_config,
+                backbone_config=bottomup_config.model_config.backbone_config,
+                head_configs=bottomup_config.model_config.head_configs,
+                pretrained_backbone_weights=bottomup_config.model_config.pretrained_backbone_weights,
+                pretrained_head_weights=bottomup_config.model_config.pretrained_head_weights,
+                init_weights=bottomup_config.model_config.init_weights,
+                trainer_accelerator=bottomup_config.trainer_config.trainer_accelerator,
+                lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
+                online_mining=bottomup_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                hard_to_easy_ratio=bottomup_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                min_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                max_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                loss_scale=bottomup_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                optimizer=bottomup_config.trainer_config.optimizer_name,
+                learning_rate=bottomup_config.trainer_config.optimizer.lr,
+                amsgrad=bottomup_config.trainer_config.optimizer.amsgrad,
                 backbone_type=backbone_type,
                 model_type="bottomup",
                 map_location=device,
@@ -1701,9 +1796,23 @@ class BottomUpPredictor(Predictor):
                 model_dir=f"{bottomup_ckpt_path}"
             )
             bottomup_model = BottomUpLightningModule(
-                config=bottomup_config,
+                backbone_config=bottomup_config.model_config.backbone_config,
+                head_configs=bottomup_config.model_config.head_configs,
+                pretrained_backbone_weights=bottomup_config.model_config.pretrained_backbone_weights,
+                pretrained_head_weights=bottomup_config.model_config.pretrained_head_weights,
+                init_weights=bottomup_config.model_config.init_weights,
+                trainer_accelerator=bottomup_config.trainer_config.trainer_accelerator,
+                lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
                 backbone_type=backbone_type,
                 model_type="bottomup",
+                online_mining=bottomup_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                hard_to_easy_ratio=bottomup_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                min_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                max_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                loss_scale=bottomup_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                optimizer=bottomup_config.trainer_config.optimizer_name,
+                learning_rate=bottomup_config.trainer_config.optimizer.lr,
+                amsgrad=bottomup_config.trainer_config.optimizer.amsgrad,
             )
             bottomup_model.eval()
             bottomup_model.model = bottomup_converted_model
@@ -2076,19 +2185,47 @@ class BottomUpMultiClassPredictor(Predictor):
 
             bottomup_model = BottomUpMultiClassLightningModule.load_from_checkpoint(
                 checkpoint_path=ckpt_path,
-                config=bottomup_config,
                 backbone_type=backbone_type,
                 model_type="multi_class_bottomup",
                 map_location=device,
+                backbone_config=bottomup_config.model_config.backbone_config,
+                head_configs=bottomup_config.model_config.head_configs,
+                pretrained_backbone_weights=bottomup_config.model_config.pretrained_backbone_weights,
+                pretrained_head_weights=bottomup_config.model_config.pretrained_head_weights,
+                init_weights=bottomup_config.model_config.init_weights,
+                trainer_accelerator=bottomup_config.trainer_config.trainer_accelerator,
+                lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
+                online_mining=bottomup_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                hard_to_easy_ratio=bottomup_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                min_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                max_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                loss_scale=bottomup_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                optimizer=bottomup_config.trainer_config.optimizer_name,
+                learning_rate=bottomup_config.trainer_config.optimizer.lr,
+                amsgrad=bottomup_config.trainer_config.optimizer.amsgrad,
             )
         else:
             bottomup_converted_model = load_legacy_model(
                 model_dir=f"{bottomup_ckpt_path}"
             )
             bottomup_model = BottomUpMultiClassLightningModule(
-                config=bottomup_config,
                 backbone_type=backbone_type,
                 model_type="multi_class_bottomup",
+                backbone_config=bottomup_config.model_config.backbone_config,
+                head_configs=bottomup_config.model_config.head_configs,
+                pretrained_backbone_weights=bottomup_config.model_config.pretrained_backbone_weights,
+                pretrained_head_weights=bottomup_config.model_config.pretrained_head_weights,
+                init_weights=bottomup_config.model_config.init_weights,
+                trainer_accelerator=bottomup_config.trainer_config.trainer_accelerator,
+                lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
+                online_mining=bottomup_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                hard_to_easy_ratio=bottomup_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                min_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                max_hard_keypoints=bottomup_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                loss_scale=bottomup_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                optimizer=bottomup_config.trainer_config.optimizer_name,
+                learning_rate=bottomup_config.trainer_config.optimizer.lr,
+                amsgrad=bottomup_config.trainer_config.optimizer.amsgrad,
             )
             bottomup_model.eval()
             bottomup_model.model = bottomup_converted_model
@@ -2575,9 +2712,23 @@ class TopDownMultiClassPredictor(Predictor):
 
                 centroid_model = CentroidLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
-                    config=centroid_config,
                     model_type="centroid",
                     backbone_type=centroid_backbone_type,
+                    backbone_config=centroid_config.model_config.backbone_config,
+                    head_configs=centroid_config.model_config.head_configs,
+                    pretrained_backbone_weights=centroid_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=centroid_config.model_config.pretrained_head_weights,
+                    init_weights=centroid_config.model_config.init_weights,
+                    trainer_accelerator=centroid_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=centroid_config.trainer_config.lr_scheduler,
+                    online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=centroid_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=centroid_config.trainer_config.optimizer_name,
+                    learning_rate=centroid_config.trainer_config.optimizer.lr,
+                    amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
                 )
 
@@ -2586,9 +2737,23 @@ class TopDownMultiClassPredictor(Predictor):
                     model_dir=f"{centroid_ckpt_path}"
                 )
                 centroid_model = CentroidLightningModule(
-                    config=centroid_config,
                     model_type="centroid",
                     backbone_type=centroid_backbone_type,
+                    backbone_config=centroid_config.model_config.backbone_config,
+                    head_configs=centroid_config.model_config.head_configs,
+                    pretrained_backbone_weights=centroid_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=centroid_config.model_config.pretrained_head_weights,
+                    init_weights=centroid_config.model_config.init_weights,
+                    trainer_accelerator=centroid_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=centroid_config.trainer_config.lr_scheduler,
+                    online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=centroid_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=centroid_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=centroid_config.trainer_config.optimizer_name,
+                    learning_rate=centroid_config.trainer_config.optimizer.lr,
+                    amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                 )
                 centroid_model.eval()
                 centroid_model.model = centroid_converted_model
@@ -2673,9 +2838,23 @@ class TopDownMultiClassPredictor(Predictor):
 
                 confmap_model = TopDownCenteredInstanceMultiClassLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
-                    config=confmap_config,
                     model_type="multi_class_topdown",
                     backbone_type=centered_instance_backbone_type,
+                    backbone_config=confmap_config.model_config.backbone_config,
+                    head_configs=confmap_config.model_config.head_configs,
+                    pretrained_backbone_weights=confmap_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=confmap_config.model_config.pretrained_head_weights,
+                    init_weights=confmap_config.model_config.init_weights,
+                    trainer_accelerator=confmap_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                    online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=confmap_config.trainer_config.optimizer_name,
+                    learning_rate=confmap_config.trainer_config.optimizer.lr,
+                    amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
                 )
             else:
@@ -2683,9 +2862,23 @@ class TopDownMultiClassPredictor(Predictor):
                     model_dir=f"{confmap_ckpt_path}"
                 )
                 confmap_model = TopDownCenteredInstanceMultiClassLightningModule(
-                    config=confmap_config,
                     model_type="multi_class_topdown",
                     backbone_type=centered_instance_backbone_type,
+                    backbone_config=confmap_config.model_config.backbone_config,
+                    head_configs=confmap_config.model_config.head_configs,
+                    pretrained_backbone_weights=confmap_config.model_config.pretrained_backbone_weights,
+                    pretrained_head_weights=confmap_config.model_config.pretrained_head_weights,
+                    init_weights=confmap_config.model_config.init_weights,
+                    trainer_accelerator=confmap_config.trainer_config.trainer_accelerator,
+                    lr_scheduler=confmap_config.trainer_config.lr_scheduler,
+                    online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
+                    hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+                    min_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+                    max_hard_keypoints=confmap_config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+                    loss_scale=confmap_config.trainer_config.online_hard_keypoint_mining.loss_scale,
+                    optimizer=confmap_config.trainer_config.optimizer_name,
+                    learning_rate=confmap_config.trainer_config.optimizer.lr,
+                    amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                 )
                 confmap_model.eval()
                 confmap_model.model = confmap_converted_model
