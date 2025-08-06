@@ -21,7 +21,8 @@ def apply_intensity_augmentation(
     contrast_min: Optional[float] = 0.5,
     contrast_max: Optional[float] = 2.0,
     contrast_p: float = 0.0,
-    brightness: Optional[Tuple[float]] = (1.0, 1.0),
+    brightness_min: Optional[float] = 1.0,
+    brightness_max: Optional[float] = 1.0,
     brightness_p: float = 0.0,
 ) -> Tuple[torch.Tensor]:
     """Apply kornia intensity augmentation on image and instances.
@@ -38,7 +39,8 @@ def apply_intensity_augmentation(
         contrast_min: Minimum contrast factor to apply. Default: 0.5.
         contrast_max: Maximum contrast factor to apply. Default: 2.0.
         contrast_p: Probability of applying random contrast.
-        brightness: The brightness factor to apply Default: (1.0, 1.0).
+        brightness_min: Minimum brightness factor to apply. Default: 1.0.
+        brightness_max: Maximum brightness factor to apply. Default: 1.0.
         brightness_p: Probability of applying random brightness.
 
     Returns:
@@ -76,7 +78,7 @@ def apply_intensity_augmentation(
     if brightness_p > 0:
         aug_stack.append(
             K.augmentation.RandomBrightness(
-                brightness=brightness,
+                brightness=(brightness_min, brightness_max),
                 p=brightness_p,
                 keepdim=True,
                 same_on_batch=True,
@@ -108,8 +110,10 @@ def apply_intensity_augmentation(
 def apply_geometric_augmentation(
     image: torch.Tensor,
     instances: torch.Tensor,
-    rotation: Optional[float] = 15.0,
-    scale: Union[Tuple[float, float], Tuple[float, float, float, float]] = None,
+    rotation_min: Optional[float] = -15.0,
+    rotation_max: Optional[float] = 15.0,
+    scale_min: Optional[float] = 0.9,
+    scale_max: Optional[float] = 1.1,
     translate_width: Optional[float] = 0.02,
     translate_height: Optional[float] = 0.02,
     affine_p: float = 0.0,
@@ -118,7 +122,8 @@ def apply_geometric_augmentation(
     erase_ratio_min: Optional[float] = 1,
     erase_ratio_max: Optional[float] = 1,
     erase_p: float = 0.0,
-    mixup_lambda: Union[Optional[float], Tuple[float, float], None] = None,
+    mixup_lambda_min: Optional[float] = 0.01,
+    mixup_lambda_max: Optional[float] = 0.05,
     mixup_p: float = 0.0,
 ) -> Tuple[torch.Tensor]:
     """Apply kornia geometric augmentation on image and instances.
@@ -126,28 +131,21 @@ def apply_geometric_augmentation(
     Args:
         image: Input image. Shape: (n_samples, C, H, W)
         instances: Input keypoints. (n_samples, n_instances, n_nodes, 2) or (n_samples, n_nodes, 2)
-        rotation: Angles in degrees as a scalar float of the amount of rotation. A
-            random angle in `(-rotation, rotation)` will be sampled and applied to both
-            images and keypoints. Set to 0 to disable rotation augmentation.
-        scale: scaling factor interval. If (a, b) represents isotropic scaling, the scale
-            is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale
-            is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d.
-            Default: None.
-        translate_width: Maximum absolute fraction for horizontal translation. For example,
-            if translate_width=a, then horizontal shift is randomly sampled in the range
-            -img_width * a < dx < img_width * a. Will not translate by default.
-        translate_height: Maximum absolute fraction for vertical translation. For example,
-            if translate_height=a, then vertical shift is randomly sampled in the range
-            -img_height * a < dy < img_height * a. Will not translate by default.
-        affine_p: Probability of applying random affine transformations.
+        rotation_min: Minimum rotation angle in degrees. Default: -15.0.
+        rotation_max: Maximum rotation angle in degrees. Default: 15.0.
+        scale_min: Minimum scaling factor for isotropic scaling. Default: 0.9.
+        scale_max: Maximum scaling factor for isotropic scaling. Default: 1.1.
+        translate_width: Maximum absolute fraction for horizontal translation. Default: 0.02.
+        translate_height: Maximum absolute fraction for vertical translation. Default: 0.02.
+        affine_p: Probability of applying random affine transformations. Default: 0.0.
         erase_scale_min: Minimum value of range of proportion of erased area against input image. Default: 0.0001.
         erase_scale_max: Maximum value of range of proportion of erased area against input image. Default: 0.01.
         erase_ratio_min: Minimum value of range of aspect ratio of erased area. Default: 1.
         erase_ratio_max: Maximum value of range of aspect ratio of erased area. Default: 1.
-        erase_p: Probability of applying random erase.
-        mixup_lambda: min-max value of mixup strength. Default is 0-1. Default: `None`.
-        mixup_p: Probability of applying random mixup v2.
-
+        erase_p: Probability of applying random erase. Default: 0.0.
+        mixup_lambda_min: Minimum mixup strength value. Default: 0.01.
+        mixup_lambda_max: Maximum mixup strength value. Default: 0.05.
+        mixup_p: Probability of applying random mixup v2. Default: 0.0.
 
     Returns:
         Returns tuple: (image, instances) with augmentation applied.
@@ -156,9 +154,9 @@ def apply_geometric_augmentation(
     if affine_p > 0:
         aug_stack.append(
             K.augmentation.RandomAffine(
-                degrees=rotation,
+                degrees=(rotation_min, rotation_max),
                 translate=(translate_width, translate_height),
-                scale=scale,
+                scale=(scale_min, scale_max),
                 p=affine_p,
                 keepdim=True,
                 same_on_batch=True,
@@ -178,7 +176,7 @@ def apply_geometric_augmentation(
     if mixup_p > 0:
         aug_stack.append(
             K.augmentation.RandomMixUpV2(
-                lambda_val=mixup_lambda,
+                lambda_val=(mixup_lambda_min, mixup_lambda_max),
                 p=mixup_p,
                 keepdim=True,
                 same_on_batch=True,
