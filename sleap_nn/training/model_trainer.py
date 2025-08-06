@@ -235,9 +235,7 @@ class ModelTrainer:
             ]
 
         # save skeleton to config
-        skeleton_yaml = yaml.safe_load(
-            SkeletonYAMLEncoder().encode(self.skeletons)
-        )
+        skeleton_yaml = yaml.safe_load(SkeletonYAMLEncoder().encode(self.skeletons))
         skeleton_names = skeleton_yaml.keys()
         self.config["data_config"]["skeletons"] = []
         for skeleton_name in skeleton_names:
