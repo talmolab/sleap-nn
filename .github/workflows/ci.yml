@@ -36,7 +36,8 @@ jobs:
           enable-cache: false
 
       - name: Install dev dependencies and torch
-        run: uv pip install -e ".[dev, torch]"
+        run: uv sync --extra dev --extra torch-cpu --extra ml
+        # run: uv pip install -e ".[dev, torch]"
 
       - name: Run Black
         run: black --check sleap_nn tests
