@@ -11,7 +11,7 @@ on:
 
 defaults:
   run:
-    shell: bash -l {0}  # Enable conda environment
+    shell: bash -l {0} # Enable conda environment
 
 jobs:
   lint:
@@ -36,7 +36,7 @@ jobs:
           enable-cache: false
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra dev --extra torch-cpu --extra ml
+        run: uv sync --extra dev --extra torch
         # run: uv pip install -e ".[dev, torch]"
 
       - name: Run Black
@@ -74,7 +74,8 @@ jobs:
           enable-cache: false
 
       - name: Install dev dependencies and torch
-        run: uv pip install -e ".[dev, torch]"
+        run: uv sync --extra dev --extra torch
+        # run: uv pip install -e ".[dev, torch]"
 
       - name: Print environment info
         run: |
