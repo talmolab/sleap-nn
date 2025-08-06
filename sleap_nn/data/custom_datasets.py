@@ -1882,10 +1882,7 @@ def get_train_val_datasets(
         )
 
     elif model_type == "centroid":
-        skeleton_name = list(config.data_config.skeletons.keys())[0]
-        nodes = [
-            x["name"] for x in config.data_config.skeletons[f"{skeleton_name}"]["nodes"]
-        ]
+        nodes = [x["name"] for x in config.data_config.skeletons[0]["nodes"]]
         anchor_part = config.model_config.head_configs.centroid.confmaps.anchor_part
         anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
         train_dataset = CentroidDataset(
