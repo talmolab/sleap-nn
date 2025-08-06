@@ -52,16 +52,16 @@ data_config:
       - 0.05
       mixup_p: 0.0
   skeletons:
-    Skeleton-0:
-      nodes:
-      - name: A
-      - name: B
-      edges:
-      - source:
-          name: A
-        destination:
-          name: B
-      symmetries: []
+  - nodes:
+    - name: A
+    - name: B
+    edges:
+    - source:
+        name: A
+      destination:
+        name: B
+    symmetries: []
+    name: Skeleton-0
 model_config:
   init_weights: default
   pretrained_backbone_weights: null

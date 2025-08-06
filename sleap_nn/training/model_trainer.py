@@ -235,9 +235,15 @@ class ModelTrainer:
             ]
 
         # save skeleton to config
-        self.config["data_config"]["skeletons"] = yaml.safe_load(
+        skeleton_yaml = yaml.safe_load(
             SkeletonYAMLEncoder().encode(self.skeletons)
         )
+        skeleton_names = skeleton_yaml.keys()
+        self.config["data_config"]["skeletons"] = []
+        for skeleton_name in skeleton_names:
+            skl = skeleton_yaml[skeleton_name]
+            skl["name"] = skeleton_name
+            self.config["data_config"]["skeletons"].append(skl)
 
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]

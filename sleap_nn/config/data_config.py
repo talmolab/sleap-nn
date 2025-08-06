@@ -175,7 +175,7 @@ class DataConfig:
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
     use_augmentations_train: bool = False
     augmentation_config: Optional[AugmentationConfig] = None
-    skeletons: Optional[dict] = None
+    skeletons: Optional[list] = None
 
 
 def data_mapper(legacy_config: dict) -> DataConfig:
@@ -198,10 +198,15 @@ def data_mapper(legacy_config: dict) -> DataConfig:
 
     # get skeleton(s)
     json_skeletons = legacy_config_data.get("labels", {}).get("skeletons", None)
-    skeletons_dict = None
+    skeletons_list = None
     if json_skeletons is not None:
+        skeletons_list = []
         skeletons = SkeletonDecoder().decode(json_skeletons)
-        skeletons_dict = yaml.safe_load(SkeletonYAMLEncoder().encode(skeletons))
+        skeletons = yaml.safe_load(SkeletonYAMLEncoder().encode(skeletons))
+        for skl_name in skeletons.keys():
+            skl = skeletons[skl_name]
+            skl["name"] = skl_name
+            skeletons_list.append(skl)
 
     data_cfg_args = {}
     preprocessing_args = {}
@@ -433,7 +438,7 @@ def data_mapper(legacy_config: dict) -> DataConfig:
     data_cfg_args["use_augmentations_train"] = (
         True if any(intensity_args.values()) or any(geometric_args.values()) else False
     )
-    data_cfg_args["skeletons"] = skeletons_dict
+    data_cfg_args["skeletons"] = skeletons_list
 
     return DataConfig(**data_cfg_args)
 
