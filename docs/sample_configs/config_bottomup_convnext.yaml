@@ -29,15 +29,14 @@ data_config:
       contrast_min: 0.9
       contrast_max: 1.1
       contrast_p: 0.0
-      brightness:
-      - 0.9
-      - 1.1
+      brightness_min: 0.9
+      brightness_max: 1.1
       brightness_p: 0.0
     geometric:
-      rotation: 15.0
-      scale:
-      - 1.0
-      - 1.0
+      rotation_min: -15.0
+      rotation_max: 15.0
+      scale_min: 1.0
+      scale_max: 1.0
       translate_width: 0.0
       translate_height: 0.0
       affine_p: 1.0
@@ -46,9 +45,8 @@ data_config:
       erase_ratio_min: 1.0
       erase_ratio_max: 1.0
       erase_p: 0.0
-      mixup_lambda:
-      - 0.01
-      - 0.05
+      mixup_lambda_min: 0.01
+      mixup_lambda_max: 0.05
       mixup_p: 0.0
   skeletons: null
 model_config:

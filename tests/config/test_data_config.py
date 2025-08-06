@@ -104,9 +104,16 @@ def test_geometric_config_validation(caplog):
 
 def test_geometric_config_initialization():
     """Test GeometricConfig with valid values."""
-    config = GeometricConfig(rotation=30.0, scale=(0.8, 1.2, 0.8, 1.2))
-    assert config.rotation == 30.0
-    assert config.scale == (0.8, 1.2, 0.8, 1.2)
+    config = GeometricConfig(
+        rotation_max=30.0,
+        rotation_min=-30.0,
+        scale_min=0.8,
+        scale_max=1.2,
+    )
+    assert config.rotation_max == 30.0
+    assert config.rotation_min == -30.0
+    assert config.scale_min == 0.8
+    assert config.scale_max == 1.2
 
 
 def test_validate_proportion(caplog):
@@ -152,6 +159,7 @@ def test_data_mapper():
                 "brightness_min_val": 0.8,
                 "brightness_max_val": 1.2,
                 "brightness": 0.6,
+                "rotation_min_angle": -90.0,
                 "rotation_max_angle": 90.0,
                 "rotation": True,
                 "scale_min": 0.8,
@@ -187,13 +195,16 @@ def test_data_mapper():
     assert intensity.contrast_min == 0.6
     assert intensity.contrast_max == 1.8
     assert intensity.contrast_p == 0.9
-    assert intensity.brightness == (0.8, 1.2)
+    assert intensity.brightness_min == 0.8
+    assert intensity.brightness_max == 1.2
     assert intensity.brightness_p == 0.6
 
     # Test geometric config
     geometric = config.augmentation_config.geometric
-    assert geometric.rotation == 90.0
-    assert geometric.scale == (0.8, 1.2)
+    assert geometric.rotation_min == -90.0
+    assert geometric.rotation_max == 90.0
+    assert geometric.scale_min == 0.8
+    assert geometric.scale_max == 1.2
 
     # Test skeletons
     assert config.skeletons == None

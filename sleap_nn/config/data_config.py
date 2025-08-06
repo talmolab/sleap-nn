@@ -78,7 +78,8 @@ class IntensityConfig:
         contrast_min: (float) Minimum contrast factor to apply. *Default*: `0.9`.
         contrast_max: (float) Maximum contrast factor to apply. *Default*: `1.1`.
         contrast_p: (float) Probability of applying random contrast. *Default*: `0.0`.
-        brightness: (list) The brightness factor to apply. *Default*: `(1.0, 1.0)`.
+        brightness_min: (float) Minimum brightness factor to apply. *Default*: `1.0`.
+        brightness_max: (float) Maximum brightness factor to apply. *Default*: `1.0`.
         brightness_p: (float) Probability of applying random brightness. *Default*: `0.0`.
     """
 
@@ -91,7 +92,8 @@ class IntensityConfig:
     contrast_min: float = field(default=0.9, validator=validators.ge(0))
     contrast_max: float = field(default=1.1, validator=validators.ge(0))
     contrast_p: float = field(default=0.0, validator=validate_proportion)
-    brightness: Tuple[float, float] = (1.0, 1.0)
+    brightness_min: float = field(default=1.0, validator=validators.ge(0))
+    brightness_max: float = field(default=1.0, validator=validators.le(2))
     brightness_p: float = field(default=0.0, validator=validate_proportion)
 
 
@@ -100,8 +102,10 @@ class GeometricConfig:
     """Configuration of Geometric (Optional).
 
     Attributes:
-        rotation: (float) Angles in degrees as a scalar float of the amount of rotation. A random angle in (-rotation, rotation) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation. *Default*: `15.0`.
-        scale: (List[float]) scaling factor interval. If (a, b) represents isotropic scaling, the scale is randomly sampled from the range a <= scale <= b. If (a, b, c, d), the scale is randomly sampled from the range a <= scale_x <= b, c <= scale_y <= d. *Default*: `(0.9, 1.1)`.
+        rotation_min: (float) Minimum rotation angle in degrees. A random angle in (rotation_min, rotation_max) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation. *Default*: `-15.0`.
+        rotation_max: (float) Maximum rotation angle in degrees. A random angle in (rotation_min, rotation_max) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation. *Default*: `15.0`.
+        scale_min: (float) Minimum scaling factor. If scale_min and scale_max are provided, the scale is randomly sampled from the range scale_min <= scale <= scale_max for isotropic scaling. *Default*: `0.9`.
+        scale_max: (float) Maximum scaling factor. If scale_min and scale_max are provided, the scale is randomly sampled from the range scale_min <= scale <= scale_max for isotropic scaling. *Default*: `1.1`.
         translate_width: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default. *Default*: `0.0`.
         translate_height: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default. *Default*: `0.0`.
         affine_p: (float) Probability of applying random affine transformations. *Default*: `0.0`.
@@ -110,12 +114,15 @@ class GeometricConfig:
         erase_ratio_min: (float) Minimum value of range of aspect ratio of erased area. *Default*: `1.0`.
         erase_ratio_max: (float) Maximum value of range of aspect ratio of erased area. *Default*: `1.0`.
         erase_p: (float) Probability of applying random erase. *Default*: `1.0`.
-        mixup_lambda: (list) min-max value of mixup strength. *Default*: `[0.01, 0.05]`.
+        mixup_lambda_min: (float) Minimum mixup strength value. *Default*: `0.01`.
+        mixup_lambda_max: (float) Maximum mixup strength value. *Default*: `0.05`.
         mixup_p: (float) Probability of applying random mixup v2. *Default*: `0.0`.
     """
 
-    rotation: float = 15.0
-    scale: Optional[List[float]] = [0.9, 1.1]
+    rotation_min: float = field(default=-15.0, validator=validators.ge(-180))
+    rotation_max: float = field(default=15.0, validator=validators.le(180))
+    scale_min: float = field(default=0.9, validator=validators.ge(0))
+    scale_max: float = field(default=1.1, validator=validators.ge(0))
     translate_width: float = 0.0
     translate_height: float = 0.0
     affine_p: float = field(default=0.0, validator=validate_proportion)
@@ -124,7 +131,8 @@ class GeometricConfig:
     erase_ratio_min: float = 1.0
     erase_ratio_max: float = 1.0
     erase_p: float = field(default=0.0, validator=validate_proportion)
-    mixup_lambda: List[float] = [0.01, 0.05]
+    mixup_lambda_min: float = field(default=0.01, validator=validators.ge(0))
+    mixup_lambda_max: float = field(default=0.05, validator=validators.le(1))
     mixup_p: float = field(default=0.0, validator=validate_proportion)
 
 
@@ -363,10 +371,19 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         )
         is not None
     ):
-        intensity_args["brightness"] = (
-            legacy_config_optimization["augmentation_config"]["brightness_min_val"],
-            legacy_config_optimization["augmentation_config"]["brightness_max_val"],
+        intensity_args["brightness_min"] = min(
+            legacy_config_optimization["augmentation_config"]["brightness_min_val"], 2.0
         )
+
+    if (
+        legacy_config_optimization.get("augmentation_config", {}).get(
+            "brightness_max_val", None
+        )
+        is not None
+    ):
+        intensity_args["brightness_max"] = min(
+            legacy_config_optimization["augmentation_config"]["brightness_max_val"], 2.0
+        )  # kornia brightness_max can only be 2.0
 
     if (
         legacy_config_optimization.get("augmentation_config", {}).get(
@@ -380,38 +397,49 @@ def data_mapper(legacy_config: dict) -> DataConfig:
 
     if (
         legacy_config_optimization.get("augmentation_config", {}).get(
+            "rotation_min_angle", None
+        )
+        is not None
+    ):
+        geometric_args["rotation_min"] = legacy_config_optimization[
+            "augmentation_config"
+        ]["rotation_min_angle"]
+
+    if (
+        legacy_config_optimization.get("augmentation_config", {}).get(
             "rotation_max_angle", None
         )
         is not None
     ):
-        geometric_args["rotation"] = legacy_config_optimization["augmentation_config"][
-            "rotation_max_angle"
-        ]
+        geometric_args["rotation_max"] = legacy_config_optimization[
+            "augmentation_config"
+        ]["rotation_max_angle"]
 
     if (
         legacy_config_optimization.get("augmentation_config", {}).get("scale_min", None)
         is not None
     ):
-        geometric_args["scale"] = (
-            legacy_config_optimization["augmentation_config"]["scale_min"],
-            legacy_config_optimization["augmentation_config"]["scale_max"],
-        )
+        geometric_args["scale_min"] = legacy_config_optimization["augmentation_config"][
+            "scale_min"
+        ]
+
+    if (
+        legacy_config_optimization.get("augmentation_config", {}).get("scale_max", None)
+        is not None
+    ):
+        geometric_args["scale_max"] = legacy_config_optimization["augmentation_config"][
+            "scale_max"
+        ]
 
     if (
         legacy_config_optimization.get("augmentation_config", {}).get("scale", None)
         is not None
     ):
-        geometric_args["scale"] = (
-            legacy_config_optimization["augmentation_config"]["scale_min"],
-            legacy_config_optimization["augmentation_config"]["scale_max"],
-        )
-
-    if (
-        legacy_config_optimization.get("augmentation_config", {}).get("rotate", None)
-        is not None
-    ):
-        geometric_args["rotation"] = legacy_config_optimization["augmentation_config"][
-            "rotation_max_angle"
+        geometric_args["scale_min"] = legacy_config_optimization["augmentation_config"][
+            "scale_min"
+        ]
+        geometric_args["scale_max"] = legacy_config_optimization["augmentation_config"][
+            "scale_max"
         ]
 
     geometric_args["affine_p"] = (
@@ -441,138 +469,3 @@ def data_mapper(legacy_config: dict) -> DataConfig:
     data_cfg_args["skeletons"] = skeletons_list
 
     return DataConfig(**data_cfg_args)
-
-    # return DataConfig(
-    #     train_labels_path=[train_labels_path] if train_labels_path is not None else [],
-    #     val_labels_path=[val_labels_path] if val_labels_path is not None else [],
-    #     validation_fraction=legacy_config_data.get("labels", {}).get(
-    #         "validation_fraction", None
-    #     ),
-    #     test_file_path=legacy_config_data.get("labels", {}).get("test_labels", None),
-    #     preprocessing=PreprocessingConfig(
-    #         ensure_rgb=legacy_config_data.get("preprocessing", {}).get(
-    #             "ensure_rgb", False
-    #         ),
-    #         ensure_grayscale=legacy_config_data.get("preprocessing", {}).get(
-    #             "ensure_grayscale", False
-    #         ),
-    #         max_height=legacy_config_data.get("preprocessing", {}).get(
-    #             "target_height", None
-    #         ),
-    #         max_width=legacy_config_data.get("preprocessing", {}).get(
-    #             "target_width", None
-    #         ),
-    #         scale=legacy_config_data.get("preprocessing", {}).get("input_scaling", 1.0),
-    #         crop_hw=(
-    #             (
-    #                 legacy_config_data.get("instance_cropping", {}).get(
-    #                     "crop_size", None
-    #                 ),
-    #                 legacy_config_data.get("instance_cropping", {}).get(
-    #                     "crop_size", None
-    #                 ),
-    #             )
-    #             if legacy_config_data.get("instance_cropping", {}).get(
-    #                 "crop_size", None
-    #             )
-    #             is not None
-    #             else None
-    #         ),
-    #     ),
-    #     augmentation_config=(
-    #         AugmentationConfig(
-    #             intensity=IntensityConfig(
-    #                 uniform_noise_min=legacy_config_optimization.get(
-    #                     "augmentation_config", {}
-    #                 ).get("uniform_noise_min_val", 0.0),
-    #                 uniform_noise_max=min(
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "uniform_noise_max_val", 1.0
-    #                     ),
-    #                     1.0,
-    #                 ),
-    #                 uniform_noise_p=float(
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "uniform_noise", 1.0
-    #                     )
-    #                 ),
-    #                 gaussian_noise_mean=legacy_config_optimization.get(
-    #                     "augmentation_config", {}
-    #                 ).get("gaussian_noise_mean", 0.0),
-    #                 gaussian_noise_std=legacy_config_optimization.get(
-    #                     "augmentation_config", {}
-    #                 ).get("gaussian_noise_stddev", 1.0),
-    #                 gaussian_noise_p=float(
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "gaussian_noise", 1.0
-    #                     )
-    #                 ),
-    #                 contrast_min=legacy_config_optimization.get(
-    #                     "augmentation_config", {}
-    #                 ).get("contrast_min_gamma", 0.5),
-    #                 contrast_max=legacy_config_optimization.get(
-    #                     "augmentation_config", {}
-    #                 ).get("contrast_max_gamma", 2.0),
-    #                 contrast_p=float(
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "contrast", 1.0
-    #                     )
-    #                 ),
-    #                 brightness=(
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "brightness_min_val", 1.0
-    #                     ),
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "brightness_max_val", 1.0
-    #                     ),
-    #                 ),
-    #                 brightness_p=float(
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "brightness", 1.0
-    #                     )
-    #                 ),
-    #             ),
-    #             geometric=GeometricConfig(
-    #                 rotation=(
-    #                     legacy_config_optimization.get("augmentation_config", {}).get(
-    #                         "rotation_max_angle", 15.0
-    #                     )
-    #                     if legacy_config_optimization.get(
-    #                         "augmentation_config", {}
-    #                     ).get("rotate", True)
-    #                     else 0
-    #                 ),
-    #                 scale=(
-    #                     (
-    #                         legacy_config_optimization.get(
-    #                             "augmentation_config", {}
-    #                         ).get("scale_min", 0.9),
-    #                         legacy_config_optimization.get(
-    #                             "augmentation_config", {}
-    #                         ).get("scale_max", 1.1),
-    #                     )
-    #                     if legacy_config_optimization.get(
-    #                         "augmentation_config", {}
-    #                     ).get("scale", False)
-    #                     else (1.0, 1.0)
-    #                 ),
-    #                 affine_p=(
-    #                     1.0
-    #                     if any(
-    #                         [
-    #                             legacy_config_optimization.get(
-    #                                 "augmentation_config", {}
-    #                             ).get("rotate", True),
-    #                             legacy_config_optimization.get(
-    #                                 "augmentation_config", {}
-    #                             ).get("scale", False),
-    #                         ]
-    #                     )
-    #                     else 0.0
-    #                 ),
-    #             ),
-    #         )
-    #     ),
-    #     use_augmentations_train=True,
-    #     skeletons=skeletons_dict,
-    # )

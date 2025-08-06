@@ -131,21 +131,26 @@ def get_aug_config(
         for g in geometric_aug:
             if g == "rotation":
                 aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.scale = (1.0, 1.0)
+                aug_config.geometric.scale_min = 1.0
+                aug_config.geometric.scale_max = 1.0
                 aug_config.geometric.translate_height = 0
                 aug_config.geometric.translate_width = 0
             elif g == "scale":
-                aug_config.geometric.scale = (0.9, 1.1)
+                aug_config.geometric.scale_min = 0.9
+                aug_config.geometric.scale_max = 1.1
                 aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.rotation = 0
+                aug_config.geometric.rotation_min = 0
+                aug_config.geometric.rotation_max = 0
                 aug_config.geometric.translate_height = 0
                 aug_config.geometric.translate_width = 0
             elif g == "translate":
                 aug_config.geometric.translate_height = 0.2
                 aug_config.geometric.translate_width = 0.2
                 aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.rotation = 0
-                aug_config.geometric.scale = (1.0, 1.0)
+                aug_config.geometric.rotation_min = 0
+                aug_config.geometric.rotation_max = 0
+                aug_config.geometric.scale_min = 1.0
+                aug_config.geometric.scale_max = 1.0
             elif g == "erase_scale":
                 aug_config.geometric.erase_p = 1.0
             elif g == "mixup":
