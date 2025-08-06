@@ -81,6 +81,13 @@ jobs:
         run: |
           which python
           python --version
+          echo "=== UV Environment ==="
+          uv run python --version
+          uv run python -c "import sys; print('Python executable:', sys.executable)"
+          echo "=== NumPy Check ==="
+          uv run python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)"
+          echo "=== Import Test ==="
+          uv run python -c "import torch; import lightning; import kornia; print('All imports successful')"
           uv run pip freeze
 
       - name: Run pytest

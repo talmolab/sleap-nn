@@ -48,7 +48,7 @@ readme = {file = ["README.md"]}
 ml = [
     "lightning",
     "kornia", 
-    "numpy"  # Constrain numpy when ML deps are installed
+    "numpy>=1.21.0,<2.0"  # Constrain numpy for Windows compatibility
 ]
 torch = [
     "torch",
