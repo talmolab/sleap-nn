@@ -36,14 +36,14 @@ jobs:
           enable-cache: false
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra dev --extra torch
+        run: uv sync --extra dev --extra torch --extra ml
         # run: uv pip install -e ".[dev, torch]"
 
       - name: Run Black
-        run: black --check sleap_nn tests
+        run: uv run black --check sleap_nn tests
 
       - name: Run Ruff
-        run: ruff check sleap_nn/
+        run: uv run ruff check sleap_nn/
 
   tests:
     strategy:
@@ -74,17 +74,17 @@ jobs:
           enable-cache: false
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra dev --extra torch
+        run: uv sync --extra dev --extra torch --extra ml
         # run: uv pip install -e ".[dev, torch]"
 
       - name: Print environment info
         run: |
           which python
           python --version
-          pip freeze
+          uv run pip freeze
 
       - name: Run pytest
-        run: pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+        run: uv run pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
