@@ -20,15 +20,13 @@ classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
 dependencies = [
-    # "lightning",
     "sleap-io>=0.2.0",
-    "numpy",
+    "numpy",  # Keep flexible for users who install their own torch
     "jsonpickle",
     "scipy",
     "attrs",
     "omegaconf",
     "wandb",
-    # "kornia",
     "matplotlib",
     "seaborn",
     "rich",
@@ -49,7 +47,8 @@ readme = {file = ["README.md"]}
 [project.optional-dependencies]
 ml = [
     "lightning",
-    "kornia"
+    "kornia", 
+    "numpy"  # Constrain numpy when ML deps are installed
 ]
 torch = [
     "torch",
