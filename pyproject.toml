@@ -20,7 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
 dependencies = [
-    "lightning",
+    # "lightning",
     "sleap-io>=0.2.0",
     "numpy",
     "jsonpickle",
@@ -28,7 +28,7 @@ dependencies = [
     "attrs",
     "omegaconf",
     "wandb",
-    "kornia",
+    # "kornia",
     "matplotlib",
     "seaborn",
     "rich",
@@ -47,9 +47,17 @@ version = {attr = "sleap_nn.__version__"}
 readme = {file = ["README.md"]}
 
 [project.optional-dependencies]
+ml = [
+    "lightning",
+    "kornia"
+]
 torch = [
     "torch",
     "torchvision"
+]
+torch-cpu = [
+    "torch==2.3.0",
+    "torchvision==0.18.0",
 ]
 dev = [
     "pytest",
@@ -80,6 +88,19 @@ biogtr = "sleap_nn.cli:cli"
 [project.urls]
 Homepage = "https://sleap.ai"
 Repository = "https://github.com/talmolab/sleap-nn"
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "torch-cpu" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "torch-cpu" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.black]
 line-length = 88
