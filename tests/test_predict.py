@@ -999,3 +999,35 @@ def test_legacy_multiclass_topdown_predictor(
         max_instances=2,
     )
     gt_labels = sio.load_slp(minimal_instance)
+
+
+def test_predict_main(
+    centered_instance_video,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
+    tmp_path,
+):
+    import subprocess
+
+    cmd = [
+        "python",
+        "-m",
+        "sleap_nn.predict",
+        "--model_paths",
+        minimal_instance_centroid_ckpt,
+        "--model_paths",
+        minimal_instance_centered_instance_ckpt,
+        "--data_path",
+        centered_instance_video.as_posix(),
+        "--max_instances",
+        "6",
+        "--output_path",
+        f"{tmp_path}/test.slp",
+        "--frames",
+        "0-99",
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert Path(f"{tmp_path}/test.slp").exists()
+
+    labels = sio.load_slp(f"{tmp_path}/test.slp")
+    assert len(labels) == 100
