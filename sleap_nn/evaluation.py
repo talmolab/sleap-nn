@@ -5,6 +5,8 @@ import numpy as np
 import attrs
 import sleap_io as sio
 from loguru import logger
+import click
+from pathlib import Path
 
 
 @attrs.define(auto_attribs=True, slots=True)
@@ -673,3 +675,118 @@ class Evaluator:
         metrics["visibility_metrics"] = self.visibility_metrics()
 
         return metrics
+
+
+@click.command()
+@click.option(
+    "--ground_truth_path",
+    type=str,
+    required=True,
+    help="Path to ground truth labels file (.slp)",
+)
+@click.option(
+    "--predicted_path",
+    type=str,
+    required=True,
+    help="Path to predicted labels file (.slp)",
+)
+@click.option(
+    "--oks_stddev",
+    type=float,
+    default=0.025,
+    help="Standard deviation for OKS computation. Default: 0.025",
+)
+@click.option(
+    "--oks_scale",
+    type=float,
+    default=None,
+    help="Scale for OKS computation. If None, bounding box area will be used. Default: None",
+)
+@click.option(
+    "--match_threshold",
+    type=float,
+    default=0.0,
+    help="Threshold for OKS scores when determining instance matches. Default: 0.0",
+)
+@click.option(
+    "--user_labels_only",
+    is_flag=True,
+    default=True,
+    help="If True, only user-labeled frames in ground truth are considered. Default: True",
+)
+@click.option(
+    "--save_metrics",
+    type=str,
+    default=None,
+    help="Path to save metrics as .npz file. If not provided, metrics will not be saved.",
+)
+def main(
+    ground_truth_path: str,
+    predicted_path: str,
+    oks_stddev: float,
+    oks_scale: Optional[float],
+    match_threshold: float,
+    user_labels_only: bool,
+    save_metrics: Optional[str],
+):
+    """Evaluate SLEAP-NN model predictions against ground truth labels."""
+    logger.info("Loading ground truth labels...")
+    ground_truth_instances = sio.load_slp(ground_truth_path)
+
+    logger.info("Loading predicted labels...")
+    predicted_instances = sio.load_slp(predicted_path)
+
+    logger.info("Creating evaluator...")
+    evaluator = Evaluator(
+        ground_truth_instances=ground_truth_instances,
+        predicted_instances=predicted_instances,
+        oks_stddev=oks_stddev,
+        oks_scale=oks_scale,
+        match_threshold=match_threshold,
+        user_labels_only=user_labels_only,
+    )
+
+    logger.info("Computing evaluation metrics...")
+    metrics = evaluator.evaluate()
+
+    # Print key metrics
+    logger.info("Evaluation Results:")
+    logger.info(f"mOKS: {metrics['mOKS']['mOKS']:.4f}")
+    logger.info(f"mAP (OKS VOC): {metrics['voc_metrics']['oks_voc.mAP']:.4f}")
+    logger.info(f"mAR (OKS VOC): {metrics['voc_metrics']['oks_voc.mAR']:.4f}")
+    logger.info(f"Average Distance: {metrics['distance_metrics']['avg']:.4f}")
+    logger.info(f"mPCK: {metrics['pck_metrics']['mPCK']:.4f}")
+    logger.info(
+        f"Visibility Precision: {metrics['visibility_metrics']['precision']:.4f}"
+    )
+    logger.info(f"Visibility Recall: {metrics['visibility_metrics']['recall']:.4f}")
+
+    # Save metrics if path provided
+    if save_metrics:
+        logger.info(f"Saving metrics to {save_metrics}...")
+        save_path = Path(save_metrics)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert metrics to numpy arrays for saving
+        np.savez(
+            save_path,
+            mOKS=metrics["mOKS"]["mOKS"],
+            mAP=metrics["voc_metrics"]["oks_voc.mAP"],
+            mAR=metrics["voc_metrics"]["oks_voc.mAR"],
+            avg_distance=metrics["distance_metrics"]["avg"],
+            mPCK=metrics["pck_metrics"]["mPCK"],
+            visibility_precision=metrics["visibility_metrics"]["precision"],
+            visibility_recall=metrics["visibility_metrics"]["recall"],
+            # Save full metrics dict as well
+            voc_metrics=metrics["voc_metrics"],
+            distance_metrics=metrics["distance_metrics"],
+            pck_metrics=metrics["pck_metrics"],
+            visibility_metrics=metrics["visibility_metrics"],
+        )
+        logger.info(f"Metrics saved successfully to {save_path}")
+
+    return metrics
+
+
+if __name__ == "__main__":
+    main()
