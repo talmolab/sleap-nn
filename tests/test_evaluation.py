@@ -2,12 +2,14 @@ import numpy as np
 from typing import List, Tuple
 import sleap_io as sio
 import pytest
+from pathlib import Path
 import copy
+from sleap_nn.predict import run_inference
 from sleap_nn.evaluation import (
     compute_instance_area,
     compute_oks,
 )
-from sleap_nn.evaluation import Evaluator
+from sleap_nn.evaluation import Evaluator, main
 from loguru import logger
 import sys
 
@@ -487,6 +489,39 @@ def test_evaluator_metrics(minimal_instance):
     # test mOKS which should be the average of the oks values for each positive pairs
     meanOKS_calc = (0.33308048 + 0.067590989) // 2
     assert int(eval.mOKS()["mOKS"]) == meanOKS_calc
+
+
+def test_evaluator_main(
+    minimal_instance,
+    tmp_path,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
+):
+    output = run_inference(
+        model_paths=[minimal_instance_centered_instance_ckpt],
+        data_path=minimal_instance.as_posix(),
+        make_labels=True,
+        max_instances=6,
+        output_path=f"{tmp_path}/test.slp",
+    )
+
+    import subprocess
+
+    # Build the command to run sleap-nn-eval with the required arguments
+    cmd = [
+        "python",
+        "-m",
+        "sleap_nn.evaluation",
+        "--ground_truth_path",
+        minimal_instance.as_posix(),
+        "--predicted_path",
+        f"{tmp_path}/test.slp",
+        "--save_metrics",
+        f"{tmp_path}/metrics_test.npz",
+    ]
+    # Run the command and check for errors
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert Path(f"{tmp_path}/metrics_test.npz").exists()
 
 
 # def test_evaluator_logging_empty_frame_pairs(capsys, minimal_instance):
