@@ -36,7 +36,7 @@ jobs:
           enable-cache: false
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra dev --extra torch --extra ml
+        run: uv sync --extra dev --extra torch-cpu --extra ml
         # run: uv pip install -e ".[dev, torch]"
 
       - name: Run Black
