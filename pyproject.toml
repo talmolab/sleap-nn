@@ -21,7 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "sleap-io>=0.2.0",
-    "numpy",  # Keep flexible for users who install their own torch
+    "numpy",
     "jsonpickle",
     "scipy",
     "attrs",
@@ -47,20 +47,19 @@ readme = {file = ["README.md"]}
 [project.optional-dependencies]
 ml = [
     "lightning",
-    "kornia", 
-    "numpy>=1.21.0,<2.0"  # Constrain numpy for Windows compatibility
+    "kornia",
 ]
 torch = [
     "torch",
     "torchvision"
 ]
 torch-cpu = [
-    "torch==2.3.0",
-    "torchvision==0.18.0",
+    "torch>=2.7.0",
+    "torchvision>=0.22.0",
 ]
 torch-cuda118 = [
-  "torch==2.3.0+cu118",
-  "torchvision==0.18.0+cu118",
+    "torch>=2.7.0",
+    "torchvision>=0.22.0",
 ]
 dev = [
     "pytest",
