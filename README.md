@@ -14,6 +14,7 @@ Neural network backend for training and inference for animal pose estimation.
 
 3. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
    `uv` is a fast and modern package manager for `pyproject.toml`-based projects.
+   **Note:** If syncing dependencies with `uv sync`, no need to do `uv pip install -e ".[dev]"`.
    ```bash
    pip install uv
    uv pip install -e ".[dev]"
@@ -29,6 +30,18 @@ Neural network backend for training and inference for animal pose estimation.
      ```
 
      This installs the default builds of `torch` and `torchvision` via PyPI for your OS.
+
+   - Or sync all dependencies based on your correct wheel using `uv sync`:
+     - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+
+      ```bash
+      uv sync --extra dev --extra torch-cu118 --extra ml
+      ```
+     
+     - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+     ```bash
+      uv sync --extra dev --extra torch-cpu --extra ml
+      ```
 
    - Or manually install the correct wheel for your system using PyTorch's index URL:
 

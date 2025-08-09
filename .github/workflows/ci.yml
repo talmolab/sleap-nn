@@ -9,10 +9,6 @@ on:
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
 
-defaults:
-  run:
-    shell: bash -l {0}  # Enable conda environment
-
 jobs:
   lint:
     name: Lint
@@ -21,28 +17,23 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          activate-environment: sleap-nn-dev
-          python-version: 3.11
-          miniforge-variant: Miniforge3
-          use-mamba: true
-          auto-activate-base: false
-
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: false
 
+      - name: Set up Python
+        run: uv python install 3.11
+
       - name: Install dev dependencies and torch
-        run: uv pip install -e ".[dev, torch]"
+        run: uv sync --extra dev --extra torch-cpu --extra ml
+        # run: uv pip install -e ".[dev, torch]"
 
       - name: Run Black
-        run: black --check sleap_nn tests
+        run: uv run black --check sleap_nn tests
 
       - name: Run Ruff
-        run: ruff check sleap_nn/
+        run: uv run ruff check sleap_nn/
 
   tests:
     strategy:
@@ -58,31 +49,37 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          activate-environment: sleap-nn-dev
-          python-version: ${{ matrix.python }}
-          miniforge-variant: Miniforge3
-          use-mamba: true
-          auto-activate-base: false
-
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: false
 
+      - name: Set up Python
+        run: uv python install ${{ matrix.python }}
+
       - name: Install dev dependencies and torch
-        run: uv pip install -e ".[dev, torch]"
+        run: uv sync --extra dev --extra torch-cpu --extra ml
+        # run: uv pip install -e ".[dev, torch]"
 
       - name: Print environment info
         run: |
+          echo "=== System Python ==="
           which python
           python --version
-          pip freeze
+          echo "=== UV Environment ==="
+          uv run python --version
+          uv run python -c "import sys; print('Python executable:', sys.executable)"
+          echo "=== UV Environment NumPy Check ==="
+          uv run python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
+          echo "=== UV pip list ==="
+          uv run pip list | grep -i numpy || echo "No numpy in uv pip list"
+          echo "=== Import Test ==="
+          uv run python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
+          echo "=== Full uv pip freeze ==="
+          uv run pip freeze
 
       - name: Run pytest
-        run: pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+        run: uv run pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
