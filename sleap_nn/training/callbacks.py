@@ -4,7 +4,6 @@ import zmq
 import jsonpickle
 from typing import Callable, Optional
 from lightning.pytorch.callbacks import Callback
-from lightning.pytorch.utilities import rank_zero_only
 from loguru import logger
 import matplotlib
 import matplotlib.pyplot as plt
@@ -12,6 +11,7 @@ from PIL import Image
 from pathlib import Path
 import wandb
 import csv
+from sleap_nn import GLOBAL_RANK
 
 
 class CSVLoggerCallback(Callback):
@@ -35,29 +35,34 @@ class CSVLoggerCallback(Callback):
 
     def _init_file(self):
         """Create the .csv file."""
-        self.filepath.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.filepath, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=self.keys)
-            writer.writeheader()
+        if GLOBAL_RANK in [0, -1]:  # Global rank 0 or -1 (non-distributed)
+            self.filepath.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.filepath, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=self.keys)
+                writer.writeheader()
         self.initialized = True
 
     def on_validation_epoch_end(self, trainer, pl_module):
         """Log metrics to csv at the end of validation epoch."""
-        if not self.initialized:
-            self._init_file()
+        if trainer.is_global_zero:
+            if not self.initialized:
+                self._init_file()
 
-        metrics = trainer.callback_metrics
-        log_data = {}
-        for key in self.keys:
-            if key == "epoch":
-                log_data["epoch"] = trainer.current_epoch
-            else:
-                value = metrics.get(key, None)
-                log_data[key] = value.item() if value is not None else None
+            metrics = trainer.callback_metrics
+            log_data = {}
+            for key in self.keys:
+                if key == "epoch":
+                    log_data["epoch"] = trainer.current_epoch
+                else:
+                    value = metrics.get(key, None)
+                    log_data[key] = value.item() if value is not None else None
 
-        with open(self.filepath, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=self.keys)
-            writer.writerow(log_data)
+            with open(self.filepath, "a", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=self.keys)
+                writer.writerow(log_data)
+
+        # Sync all processes after file I/O
+        trainer.strategy.barrier()
 
 
 class WandBPredImageLogger(Callback):
@@ -84,53 +89,62 @@ class WandBPredImageLogger(Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         """Called at the end of each epoch."""
-        epoch_num = trainer.current_epoch
-        train_img_path = (
-            Path(self.viz_folder) / f"train.{epoch_num:04d}.png"
-        ).as_posix()
-        val_img_path = (
-            Path(self.viz_folder) / f"validation.{epoch_num:04d}.png"
-        ).as_posix()
-        train_img = Image.open(train_img_path)
-        val_img = Image.open(val_img_path)
+        if trainer.is_global_zero:
+            epoch_num = trainer.current_epoch
+            train_img_path = (
+                Path(self.viz_folder) / f"train.{epoch_num:04d}.png"
+            ).as_posix()
+            val_img_path = (
+                Path(self.viz_folder) / f"validation.{epoch_num:04d}.png"
+            ).as_posix()
+            train_img = Image.open(train_img_path)
+            val_img = Image.open(val_img_path)
 
-        column_names = ["Run name", "Epoch", "Preds on train", "Preds on validation"]
-        data = [
-            [
-                f"{self.wandb_run_name}",
-                f"{epoch_num}",
-                wandb.Image(train_img),
-                wandb.Image(val_img),
+            column_names = [
+                "Run name",
+                "Epoch",
+                "Preds on train",
+                "Preds on validation",
             ]
-        ]
-        if self.is_bottomup:
-            column_names.extend(["Pafs Preds on train", "Pafs Preds on validation"])
             data = [
                 [
                     f"{self.wandb_run_name}",
                     f"{epoch_num}",
                     wandb.Image(train_img),
                     wandb.Image(val_img),
-                    wandb.Image(
-                        Image.open(
-                            (
-                                Path(self.viz_folder)
-                                / f"train.pafs_magnitude.{epoch_num:04d}.png"
-                            ).as_posix()
-                        )
-                    ),
-                    wandb.Image(
-                        Image.open(
-                            (
-                                Path(self.viz_folder)
-                                / f"validation.pafs_magnitude.{epoch_num:04d}.png"
-                            ).as_posix()
-                        )
-                    ),
                 ]
             ]
-        table = wandb.Table(columns=column_names, data=data)
-        wandb.log({f"{self.wandb_run_name}": table})
+            if self.is_bottomup:
+                column_names.extend(["Pafs Preds on train", "Pafs Preds on validation"])
+                data = [
+                    [
+                        f"{self.wandb_run_name}",
+                        f"{epoch_num}",
+                        wandb.Image(train_img),
+                        wandb.Image(val_img),
+                        wandb.Image(
+                            Image.open(
+                                (
+                                    Path(self.viz_folder)
+                                    / f"train.pafs_magnitude.{epoch_num:04d}.png"
+                                ).as_posix()
+                            )
+                        ),
+                        wandb.Image(
+                            Image.open(
+                                (
+                                    Path(self.viz_folder)
+                                    / f"validation.pafs_magnitude.{epoch_num:04d}.png"
+                                ).as_posix()
+                            )
+                        ),
+                    ]
+                ]
+            table = wandb.Table(columns=column_names, data=data)
+            wandb.log({f"{self.wandb_run_name}": table})
+
+        # Sync all processes after wandb logging
+        trainer.strategy.barrier()
 
 
 class MatplotlibSaver(Callback):
@@ -167,20 +181,24 @@ class MatplotlibSaver(Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         """Save figure at the end of each epoch."""
-        # Call plotting function.
-        figure = self.plot_fn()
+        if trainer.is_global_zero:
+            # Call plotting function.
+            figure = self.plot_fn()
 
-        # Build filename.
-        prefix = ""
-        if self.prefix is not None:
-            prefix = self.prefix + "."
-        figure_path = (
-            Path(self.save_folder) / f"{prefix}{trainer.current_epoch:04d}.png"
-        ).as_posix()
+            # Build filename.
+            prefix = ""
+            if self.prefix is not None:
+                prefix = self.prefix + "."
+            figure_path = (
+                Path(self.save_folder) / f"{prefix}{trainer.current_epoch:04d}.png"
+            ).as_posix()
 
-        # Save rendered figure.
-        figure.savefig(figure_path, format="png", pad_inches=0)
-        plt.close(figure)
+            # Save rendered figure.
+            figure.savefig(figure_path, format="png", pad_inches=0)
+            plt.close(figure)
+
+        # Sync all processes after file I/O
+        trainer.strategy.barrier()
 
 
 class TrainingControllerZMQ(Callback):
@@ -217,16 +235,19 @@ class TrainingControllerZMQ(Callback):
         self.socket.close()
         self.context.term()
 
-    @rank_zero_only
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         """Called at the end of each training batch."""
-        if self.socket.poll(self.timeout, zmq.POLLIN):
-            msg = jsonpickle.decode(self.socket.recv_string())
-            logger.info(f"Received control message: {msg}")
+        if trainer.is_global_zero:
+            if self.socket.poll(self.timeout, zmq.POLLIN):
+                msg = jsonpickle.decode(self.socket.recv_string())
+                logger.info(f"Received control message: {msg}")
 
-            # Stop training
-            if msg.get("command") == "stop":
-                trainer.should_stop = True
+                # Stop training
+                if msg.get("command") == "stop":
+                    trainer.should_stop = True
+
+        # Sync all processes after ZMQ operations
+        trainer.strategy.barrier()
 
     #         # Adjust learning rate # TODO: check if we need lr
     #         elif msg.get("command") == "set_lr":
@@ -281,36 +302,48 @@ class ProgressReporterZMQ(Callback):
 
     def on_train_start(self, trainer, pl_module):
         """Called at the beginning of training process."""
-        self.send("train_begin")
+        if trainer.is_global_zero:
+            self.send("train_begin")
+        trainer.strategy.barrier()
 
     def on_train_end(self, trainer, pl_module):
         """Called at the end of training process."""
-        self.send("train_end")
+        if trainer.is_global_zero:
+            self.send("train_end")
+        trainer.strategy.barrier()
 
     def on_train_epoch_start(self, trainer, pl_module):
         """Called at the beginning of each epoch."""
-        self.send("epoch_begin", epoch=trainer.current_epoch)
+        if trainer.is_global_zero:
+            self.send("epoch_begin", epoch=trainer.current_epoch)
+        trainer.strategy.barrier()
 
     def on_train_epoch_end(self, trainer, pl_module):
         """Called at the end of each epoch."""
-        logs = trainer.callback_metrics
-        self.send(
-            "epoch_end", epoch=trainer.current_epoch, logs=self._sanitize_logs(logs)
-        )
+        if trainer.is_global_zero:
+            logs = trainer.callback_metrics
+            self.send(
+                "epoch_end", epoch=trainer.current_epoch, logs=self._sanitize_logs(logs)
+            )
+        trainer.strategy.barrier()
 
     def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
         """Called at the beginning of each training batch."""
-        self.send("batch_start", batch=batch_idx)
+        if trainer.is_global_zero:
+            self.send("batch_start", batch=batch_idx)
+        trainer.strategy.barrier()
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         """Called at the end of each training batch."""
-        logs = trainer.callback_metrics
-        self.send(
-            "batch_end",
-            epoch=trainer.current_epoch,
-            batch=batch_idx,
-            logs=self._sanitize_logs(logs),
-        )
+        if trainer.is_global_zero:
+            logs = trainer.callback_metrics
+            self.send(
+                "batch_end",
+                epoch=trainer.current_epoch,
+                batch=batch_idx,
+                logs=self._sanitize_logs(logs),
+            )
+        trainer.strategy.barrier()
 
     def _sanitize_logs(self, logs):
         """Convert any torch tensors to Python floats for serialization."""
