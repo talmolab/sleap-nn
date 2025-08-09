@@ -303,6 +303,7 @@ class LightningModel(L.LightningModule):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
     def on_validation_epoch_start(self):
@@ -319,6 +320,7 @@ class LightningModel(L.LightningModule):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
     def training_step(self, batch, batch_idx):
@@ -554,9 +556,16 @@ class SingleInstanceLightningModule(LightningModel):
                     on_step=True,
                     on_epoch=True,
                     logger=True,
+                    sync_dist=True,
                 )
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -586,6 +595,7 @@ class SingleInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -594,6 +604,7 @@ class SingleInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -758,10 +769,17 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                     on_step=True,
                     on_epoch=True,
                     logger=True,
+                    sync_dist=True,
                 )
 
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -791,6 +809,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -799,6 +818,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -937,7 +957,13 @@ class CentroidLightningModule(LightningModel):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -957,6 +983,7 @@ class CentroidLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -965,6 +992,7 @@ class CentroidLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -1171,7 +1199,13 @@ class BottomUpLightningModule(LightningModel):
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -1222,6 +1256,7 @@ class BottomUpLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -1230,6 +1265,7 @@ class BottomUpLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -1421,7 +1457,13 @@ class BottomUpMultiClassLightningModule(LightningModel):
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -1463,6 +1505,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -1471,6 +1514,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -1647,10 +1691,17 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                     on_step=True,
                     on_epoch=True,
                     logger=True,
+                    sync_dist=True,
                 )
 
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -1691,6 +1742,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -1699,4 +1751,5 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )

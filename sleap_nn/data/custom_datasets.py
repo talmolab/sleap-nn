@@ -33,6 +33,7 @@ from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.training.utils import is_distributed_initialized
 from sleap_nn.config.get_config import get_aug_config
+from sleap_nn import WORLD_SIZE
 
 
 class BaseDataset(Dataset):
@@ -152,8 +153,14 @@ class BaseDataset(Dataset):
             if self.cache_img == "memory":
                 self._fill_cache()
             elif self.cache_img == "disk" and not self.use_existing_imgs:
-                if self.rank is None or self.rank == 0:
+                if self.rank is None or self.rank == -1:
                     self._fill_cache()
+                elif self.rank == 0:
+                    if not Path(self.cache_img_path).is_dir() or not any(
+                        Path(self.cache_img_path).iterdir()
+                    ):  # this ensures disk caching happens only in the rank-0 process and only when the cache directory is empty
+                        self._fill_cache()
+                # Synchronize all ranks after cache creation
                 if is_distributed_initialized():
                     dist.barrier()
 
@@ -2050,31 +2057,21 @@ def get_train_val_dataloaders(
             batch_size=config.trainer_config.val_data_loader.batch_size,
         )
 
-    trainer_devices = config.trainer_config.trainer_devices
-    trainer_devices = (
-        trainer_devices
-        if isinstance(trainer_devices, int)
-        else torch.cuda.device_count()
-    )
     train_sampler = (
         DistributedSampler(
             dataset=train_dataset,
             shuffle=config.trainer_config.train_data_loader.shuffle,
             rank=rank if rank is not None else 0,
-            num_replicas=trainer_devices,
+            num_replicas=WORLD_SIZE,
         )
-        if trainer_devices > 1
+        if WORLD_SIZE > 1
         else None
     )
 
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
-        len_dataloader=(
-            round(train_steps_per_epoch / trainer_devices)
-            if trainer_devices >= 1
-            else None
-        ),
+        len_dataloader=(round(train_steps_per_epoch / WORLD_SIZE)),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
             if train_sampler is None
@@ -2098,9 +2095,9 @@ def get_train_val_dataloaders(
             dataset=val_dataset,
             shuffle=False,
             rank=rank if rank is not None else 0,
-            num_replicas=trainer_devices,
+            num_replicas=WORLD_SIZE,
         )
-        if trainer_devices > 1
+        if WORLD_SIZE > 1
         else None
     )
     val_data_loader = InfiniteDataLoader(
@@ -2108,9 +2105,7 @@ def get_train_val_dataloaders(
         shuffle=False if val_sampler is None else None,
         sampler=val_sampler,
         len_dataloader=(
-            round(val_steps_per_epoch / trainer_devices)
-            if trainer_devices >= 1
-            else None
+            round(val_steps_per_epoch / WORLD_SIZE) if WORLD_SIZE > 1 else None
         ),
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,

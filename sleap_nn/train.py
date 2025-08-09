@@ -18,6 +18,7 @@ from sleap_nn.config.get_config import (
     get_model_config,
     get_data_config,
 )
+from sleap_nn import GLOBAL_RANK
 
 
 def run_training(config: DictConfig):
@@ -34,7 +35,7 @@ def run_training(config: DictConfig):
     logger.info("Finished training at:", finish_timestamp)
     logger.info(f"Total training time: {total_elapsed} secs")
 
-    if trainer.trainer.global_rank == 0:
+    if GLOBAL_RANK in [0, -1]:
         # run inference on val dataset
         if config.trainer_config.save_ckpt:
             data_paths = {}
