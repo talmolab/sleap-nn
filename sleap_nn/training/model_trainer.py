@@ -618,11 +618,11 @@ class ModelTrainer:
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
         self.config.model_config.total_params = total_params
 
-        # create the train and val datasets for vizualization.
+        # create the train and val datasets for visualization.
         viz_train_dataset = None
         viz_val_dataset = None
         if self.config.trainer_config.visualize_preds_during_training:
-            logger.info(f"Setting up vizualization train and val datasets...")
+            logger.info(f"Setting up visualization train and val datasets...")
             viz_train_dataset, viz_val_dataset = self._setup_viz_datasets()
 
         # setup loggers and callbacks for Trainer.

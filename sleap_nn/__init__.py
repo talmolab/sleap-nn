@@ -15,7 +15,7 @@ def _should_log(record):
     if record["level"].no >= logger.level("ERROR").no:
         return True
 
-    # Log infor only on rank 0
+    # Log info only on rank 0
     if GLOBAL_RANK in [0, -1] and record["level"].no >= logger.level("INFO").no:
         return True
 
