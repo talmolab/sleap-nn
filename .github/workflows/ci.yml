@@ -71,15 +71,25 @@ jobs:
           uv run python -c "import sys; print('Python executable:', sys.executable)"
           echo "=== UV Environment NumPy Check ==="
           uv run python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
-          echo "=== UV pip list ==="
-          uv run pip list | grep -i numpy || echo "No numpy in uv pip list"
+          echo "=== PIP EXECUTABLE COMPARISON ==="
+          uv run python -c "import subprocess; print('pip from uv run python:', subprocess.check_output(['pip', '--version']).decode().strip())" || echo "pip not found from python"
+          uv run pip --version || echo "uv run pip failed"
+          echo "=== UV pip list vs python -m pip list ==="
+          echo "--- uv run pip list ---"
+          uv run pip list | head -20
+          echo "--- uv run python -m pip list ---"
+          uv run python -m pip list | head -20
+          echo "=== UV ENVIRONMENT CHECK ==="
+          uv run python -c "import os; print('VIRTUAL_ENV:', os.environ.get('VIRTUAL_ENV', 'Not set'))"
           echo "=== Import Test ==="
           uv run python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
-          echo "=== Full uv pip freeze ==="
-          uv run pip freeze
 
       - name: Run pytest
-        run: uv run pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+        run: |
+          echo "=== Final environment check before tests ==="
+          uv run python -c "import numpy, torch, lightning, kornia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
+          echo "=== Running pytest ==="
+          uv run pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
