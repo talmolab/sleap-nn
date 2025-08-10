@@ -26,8 +26,7 @@ jobs:
         run: uv python install 3.11
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra dev --extra torch-cpu --extra ml
-        # run: uv pip install -e ".[dev, torch]"
+        run: uv sync --group default --extra dev --extra torch-cpu --extra ml
 
       - name: Run Black
         run: uv run black --check sleap_nn tests
@@ -58,8 +57,7 @@ jobs:
         run: uv python install ${{ matrix.python }}
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra dev --extra torch-cpu --extra ml
-        # run: uv pip install -e ".[dev, torch]"
+        run: uv sync --group default --extra dev --extra torch-cpu --extra ml
 
       - name: Print environment info
         run: |

@@ -19,7 +19,11 @@ license = {text = "BSD-3-Clause"}
 classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
-dependencies = [
+dependencies = []
+dynamic = ["version", "readme"]
+
+[dependency-groups]
+default = [
     "sleap-io>=0.2.0",
     "numpy",
     "jsonpickle",
@@ -35,7 +39,6 @@ dependencies = [
     "opencv-python",
     "hydra-core"
 ]
-dynamic = ["version", "readme"]
 
 [tool.setuptools]
 packages = ["sleap_nn"]
