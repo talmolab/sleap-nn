@@ -29,15 +29,14 @@ data_config:
       contrast_min: 0.5
       contrast_max: 2.0
       contrast_p: 0.0
-      brightness:
-      - 0.0
-      - 10.0
+      brightness_min: 0.0
+      brightness_max: 2.0
       brightness_p: 0.0
     geometric:
-      rotation: 180.0
-      scale:
-      - 0.9
-      - 1.1
+      rotation_min: -180.0
+      rotation_max: 180.0
+      scale_min: 0.9
+      scale_max: 1.1
       translate_width: 0.0
       translate_height: 0.0
       affine_p: 0.0
@@ -46,21 +45,20 @@ data_config:
       erase_ratio_min: 1.0
       erase_ratio_max: 1.0
       erase_p: 0.0
-      mixup_lambda:
-      - 0.01
-      - 0.05
+      mixup_lambda_min: 0.01
+      mixup_lambda_max: 0.05
       mixup_p: 0.0
   skeletons:
-    Skeleton-0:
-      nodes:
-      - name: A
-      - name: B
-      edges:
-      - source:
-          name: A
-        destination:
-          name: B
-      symmetries: []
+  - nodes:
+    - name: A
+    - name: B
+    edges:
+    - source:
+        name: A
+      destination:
+        name: B
+    symmetries: []
+    name: Skeleton-0
 model_config:
   init_weights: default
   pretrained_backbone_weights: null

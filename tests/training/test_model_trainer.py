@@ -345,11 +345,6 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     )
     assert checkpoint["epoch"] == 1
 
-    # check if skeleton is saved in ckpt file
-    assert checkpoint["config"]
-    assert checkpoint["config"]["trainer_config"]["wandb"]["api_key"] == ""
-    assert len(checkpoint["config"]["data_config"]["skeletons"].keys()) == 1
-
     # check for training metrics csv
     path = Path(model_trainer.config.trainer_config.save_ckpt_path)
     assert path.joinpath("training_log.csv").exists()

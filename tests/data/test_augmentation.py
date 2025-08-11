@@ -42,7 +42,8 @@ def test_apply_geometric_augmentation(minimal_instance):
     img, pts = apply_geometric_augmentation(
         ex["image"],
         ex["instances"],
-        scale=(0.5, 0.5),
+        scale_min=0.5,
+        scale_max=0.5,
         affine_p=1.0,
         erase_p=1.0,
         mixup_p=1.0,

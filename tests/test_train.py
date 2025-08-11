@@ -34,8 +34,10 @@ def sample_cfg(minimal_instance, tmp_path):
                         "contrast_p": 1.0,
                     },
                     "geometric": {
-                        "rotation": 180.0,
-                        "scale": None,
+                        "rotation_max": 180.0,
+                        "rotation_min": -180.0,
+                        "scale_min": 1.0,
+                        "scale_max": 1.0,
                         "translate_width": 0,
                         "translate_height": 0,
                         "affine_p": 0.5,
@@ -334,7 +336,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             "uniform_noise_max": 1.0,
             "uniform_noise_p": 1.0,
         },
-        geometry_aug={"rotation": 180.0, "affine_p": 1.0},
+        geometry_aug={"rotation_max": 180.0, "rotation_min": -180.0, "affine_p": 1.0},
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_aug",
         min_train_steps_per_epoch=1,
@@ -343,7 +345,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
     assert config.data_config.augmentation_config.intensity.uniform_noise_p == 1.0
     assert config.data_config.augmentation_config.geometric.affine_p == 1.0
-    assert config.data_config.augmentation_config.geometric.rotation == 180.0
+    assert config.data_config.augmentation_config.geometric.rotation_max == 180.0
 
     # backbone configs #TODO
     with pytest.raises(ValueError):
@@ -480,6 +482,16 @@ def test_train_method(minimal_instance, tmp_path: str):
     config = OmegaConf.load(f"{tmp_path}/test_custom_head/training_config.yaml")
     assert config.model_config.head_configs.centered_instance is not None
     assert config.model_config.head_configs.centroid is None
+
+    ## invalid scheduler
+    with pytest.raises(ValueError):
+        train(
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
+            max_epochs=1,
+            trainer_accelerator="cpu",
+            lr_scheduler="invalid_scheduler",
+        )
 
     ## pass dict for scheduler
     train(

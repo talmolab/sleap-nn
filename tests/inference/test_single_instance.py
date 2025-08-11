@@ -23,7 +23,8 @@ def test_single_instance_inference_model(
 
     torch_model = SingleInstanceLightningModule.load_from_checkpoint(
         f"{minimal_instance_single_instance_ckpt}/best.ckpt",
-        config=training_config,
+        backbone_config=training_config.model_config.backbone_config,
+        head_configs=training_config.model_config.head_configs,
         model_type="single_instance",
         backbone_type="unet",
         map_location="cpu",

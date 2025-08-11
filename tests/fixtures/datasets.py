@@ -67,8 +67,10 @@ def config(sleap_nn_data_dir):
                         "contrast_p": 1.0,
                     },
                     "geometric": {
-                        "rotation": 180.0,
-                        "scale": None,
+                        "rotation_min": -180.0,
+                        "rotation_max": 180.0,
+                        "scale_min": 1.0,
+                        "scale_max": 1.0,
                         "translate_width": 0,
                         "translate_height": 0,
                         "affine_p": 0.5,
