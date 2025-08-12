@@ -50,7 +50,7 @@ Create a `config.yaml` file for your experiment.
 #### 3. Train a model
 
 ```bash
-python -m sleap_nn.train --config-name config.yaml --config-path configs/ "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config.yaml --config-path configs/ "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 > For detailed information on training workflows, configuration options, and advanced usage, please refer to the [Training Guide](training.md).
 
@@ -58,7 +58,7 @@ python -m sleap_nn.train --config-name config.yaml --config-path configs/ "data_
 
 To run inference:
 ```bash
-python -m sleap_nn.predict --data-path video.mp4 --model-paths model_ckpt_dir/
+sleap-nn-track --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
 > More options for running inference and tracking workflows are available in the [Inference Guide](inference.md).
 

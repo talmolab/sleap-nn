@@ -15,23 +15,23 @@ This section explains how to train a model using an existing configuration file.
 
 To train a model using CLI, 
 ```bash
-python -m sleap_nn.train --config-name config --config-path path/to/config_dir
+sleap-nn-train --config-name config --config-path path/to/config_dir
 ```
 
 Override any configuration from command line:
 
 ```bash
 # Train on list of .slp files
-python -m sleap_nn.train --config-name config --config-path path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
+sleap-nn-train --config-name config --config-path path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
 
 # Change batch size
-python -m sleap_nn.train --config-name config --config-path path/to/config_dir data_config.batch_size=32 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-path path/to/config_dir data_config.batch_size=32 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Use different GPU
-python -m sleap_nn.train --config-name config --config-path path/to/config_dir trainer_config.devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-path path/to/config_dir trainer_config.devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Change learning rate
-python -m sleap_nn.train --config-name config --config-path path/to/config_dir trainer_config.learning_rate=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-path path/to/config_dir trainer_config.learning_rate=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
 !!! note
@@ -39,13 +39,13 @@ python -m sleap_nn.train --config-name config --config-path path/to/config_dir t
 
 ```bash
 # Train centroid model
-python -m sleap_nn.train \
+sleap-nn-train \
     --config-path configs \
     --config-name centroid_unet \
     "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Train centered instance model
-python -m sleap_nn.train \
+sleap-nn-train \
     --config-path configs \
     --config-name centered_instance_unet \ 
     "data_config.train_labels_path=[labels.pkg.slp]"
@@ -134,7 +134,7 @@ train(
 To resume training from a previous checkpoint, 
 
 ```bash
-python -m sleap_nn.train \
+sleap-nn-train \
     --config-name config \
     --config-path path/to/config_dir \ 
     trainer_config.ckpt_path=/path/to/checkpoint.ckpt \
@@ -159,6 +159,11 @@ trainer_config:
   trainer_devices: 4
   trainer_strategy: "ddp"
 ```
+
+!!! note
+    In a multi-gpu training setup, the effective steps during training would be the given `config.trainer_config.trainer_steps_per_epoch` / `config.trainer_config.trainer_devices`. 
+!!! note
+    Multi-node trainings have not been validated and should be considered experimental.
 
 ## Best Practices
 

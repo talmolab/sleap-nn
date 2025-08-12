@@ -64,4 +64,4 @@ The choice and configuration of these heads determine the model's outputs and be
 
 For backbone configuration, you can specify the architecture type and parameters in the `backbone_config` section. Each backbone type (UNet, ConvNeXt, SwinT) has its own configuration options that control the network architecture, such as filter counts, depths, and other architectural parameters.
 
-For a detailed explanation of all `model_config`, `head_configs`, and `backbone_config` options—including how to specify multiple heads and the meaning of each parameter—see the [head_configs section](config.md#backbone-configuration) and [backbone_config section](config.md#head-configuration).
+For a detailed explanation of all `model_config`, `head_configs`, and `backbone_config` options—including how to specify multiple heads and the meaning of each parameter—see the [backbone_config section](config.md#backbone-configuration) and [head_configs section](config.md#head-configuration).

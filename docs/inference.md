@@ -8,14 +8,14 @@ SLEAP-NN provides powerful inference capabilities for pose estimation with suppo
 ## Run Inference with CLI
 
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --model_paths models/ckpt_folder/
 ```
 
 To run inference on video files with specific frames
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --frames "1-100,200-300" \
     --model_paths models/ckpt_folder/
@@ -23,7 +23,7 @@ python -m sleap_nn.predict \
 
 To run inference with different backbone weights than the one in `models/ckpt_folder/`
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --frames "1-100,200-300" \
     --model_paths models/ckpt_folder/ \
@@ -32,7 +32,7 @@ python -m sleap_nn.predict \
 
 For two-stage models (topdown and multiclass topdown), both the centroid and centered-instance model ckpts should be provided as given below:
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --model_paths models/centroid_unet/ \
     --model_paths models/centered_instance_unet/
@@ -116,7 +116,7 @@ python -m sleap_nn.predict \
 To return predictions as list of dictionaries, 
 
 ```python
-from sleap_nn.inference.predictors import run_inference
+from sleap_nn.predict import run_inference
 
 # Run inference
 labels = run_inference(
@@ -130,7 +130,7 @@ labels = run_inference(
 To return predictions as a `sleap_io.Labels` object, 
 
 ```python
-from sleap_nn.inference.predictors import run_inference
+from sleap_nn.predict import run_inference
 
 # Run inference
 labels = run_inference(
@@ -154,7 +154,7 @@ SLEAP-NN includes sophisticated tracking capabilities for multi-instance scenari
 This method maintains a fixed-size window of the last N frames and uses all instances from those frames as candidates for matching.
 
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --model_paths models/bottomup_unet/ \
     --tracking \
@@ -167,7 +167,7 @@ python -m sleap_nn.predict \
 This method maintains separate queues for each track ID, keeping the last N instances per track. It's more robust to track breaks but requires more memory and computation.
 
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --model_paths models/bottomup_unet/ \
     --tracking \
@@ -180,7 +180,7 @@ python -m sleap_nn.predict \
 This method uses optical flow to shift the candidates onto the frame to be tracked and then associates the untracked instances to the shifted instances.
 
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --model_paths models/bottomup_unet/ \
     --tracking \
@@ -191,7 +191,7 @@ python -m sleap_nn.predict \
 You can perform tracking on existing user-labeled instances—without running inference to get new predictions—by enabling tracking (`--tracking`) and omitting the `--model-paths` argument. This will associate tracks using only the provided labels.
 
 ```bash
-python -m sleap_nn.predict \
+sleap-nn-track \
     --data_path video.mp4 \
     --tracking \
     --candidates_method fixed_window \
@@ -210,13 +210,22 @@ Just provide the path to the directory containing both `best_model.h5` and `trai
 
 SLEAP-NN provides comprehensive evaluation capabilities to assess model performance against ground truth labels.
 
+Using CLI:
+```bash
+sleap-nn-eval \
+    --ground_truth_path gt_labels.slp \
+    --predicted_path pred_labels.slp \
+    --save_metrics pred_metrics.npz \
+```
+
+Using `Evaluator` API:
 ```python
 import sleap_io as sio
 from sleap_nn.evaluation import Evaluator
 
 # Load ground truth and predictions
-gt_labels = sio.load_slp("ground_truth.slp")
-pred_labels = sio.load_slp("predictions.slp")
+gt_labels = sio.load_slp("gt_labels.slp")
+pred_labels = sio.load_slp("pred_labels.slp")
 
 # Create evaluator and compute metrics
 evaluator = Evaluator(gt_labels, pred_labels)
