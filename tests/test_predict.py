@@ -1010,9 +1010,10 @@ def test_predict_main(
     import subprocess
 
     cmd = [
-        "python",
-        "-m",
-        "sleap_nn.predict",
+        # "python",
+        # "-m",
+        # "sleap_nn.predict",
+        "sleap-nn-eval"
         "--model_paths",
         minimal_instance_centroid_ckpt,
         "--model_paths",

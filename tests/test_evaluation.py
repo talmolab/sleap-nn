@@ -509,9 +509,10 @@ def test_evaluator_main(
 
     # Build the command to run sleap-nn-eval with the required arguments
     cmd = [
-        "python",
-        "-m",
-        "sleap_nn.evaluation",
+        # "python",
+        # "-m",
+        # "sleap_nn.evaluation",
+        "sleap-nn-eval",
         "--ground_truth_path",
         minimal_instance.as_posix(),
         "--predicted_path",
