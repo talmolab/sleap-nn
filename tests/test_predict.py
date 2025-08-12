@@ -1015,7 +1015,7 @@ def test_predict_main(
         "python",
         "-m",
         "sleap_nn.predict",
-        "sleap-nn-eval"
+        "sleap-nn-eval",
         "--model_paths",
         minimal_instance_centroid_ckpt,
         "--model_paths",
