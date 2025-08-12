@@ -231,8 +231,9 @@ def test_load_centered_instance_training_config_from_file(
     ]
     assert config.model_config.head_configs.centered_instance.confmaps.sigma == 1.5
 
-    assert len(config.data_config.skeletons["Skeleton-0"]["nodes"]) == 2
-    assert len(config.data_config.skeletons["Skeleton-0"]["edges"]) == 1
+    assert len(config.data_config.skeletons[0]["nodes"]) == 2
+    assert len(config.data_config.skeletons[0]["edges"]) == 1
+    assert config.data_config.skeletons[0]["name"] == "Skeleton-0"
 
 
 def test_load_centered_instance_with_scaling_config_from_file(
@@ -291,8 +292,9 @@ def test_load_single_instance_training_config_from_file(
     assert single.confmaps.part_names == ["A", "B"]
     assert single.confmaps.sigma == 5.0
     assert single.confmaps.output_stride == 4
-    assert len(config.data_config.skeletons["Skeleton-0"]["nodes"]) == 2
-    assert len(config.data_config.skeletons["Skeleton-0"]["edges"]) == 1
+    assert len(config.data_config.skeletons[0]["nodes"]) == 2
+    assert len(config.data_config.skeletons[0]["edges"]) == 1
+    assert config.data_config.skeletons[0]["name"] == "Skeleton-0"
 
 
 def test_load_topdown_training_config_from_file(topdown_training_config_path):

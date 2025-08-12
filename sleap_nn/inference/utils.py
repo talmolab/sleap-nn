@@ -17,9 +17,11 @@ def get_skeleton_from_config(skeleton_config: OmegaConf):
 
     """
     skeletons = []
-    for name, skel_cfg in skeleton_config.items():
+    for skel_cfg in skeleton_config:
 
-        skel = sio.Skeleton(nodes=[n["name"] for n in skel_cfg.nodes], name=name)
+        skel = sio.Skeleton(
+            nodes=[n["name"] for n in skel_cfg.nodes], name=skel_cfg.name
+        )
         skel.add_edges(
             [(e["source"]["name"], e["destination"]["name"]) for e in skel_cfg.edges]
         )

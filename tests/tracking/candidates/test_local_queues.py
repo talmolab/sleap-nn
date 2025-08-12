@@ -1,7 +1,7 @@
 from typing import DefaultDict, Deque
 import numpy as np
 
-from sleap_nn.inference.predictors import run_inference
+from sleap_nn.predict import run_inference
 from sleap_nn.tracking.candidates.local_queues import LocalQueueCandidates
 from sleap_nn.tracking.tracker import Tracker
 

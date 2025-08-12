@@ -1,6 +1,7 @@
 """This module has the LightningModule classes for all model types."""
 
-from typing import Optional, List
+from turtle import back
+from typing import Optional, List, Union, Dict, Any
 import time
 from torch import nn
 import numpy as np
@@ -47,7 +48,14 @@ from sleap_nn.training.utils import (
     plot_peaks,
 )
 import matplotlib.pyplot as plt
+from sleap_nn.config.model_config import BackboneConfig
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
+from sleap_nn.config.trainer_config import (
+    LRSchedulerConfig,
+    ReduceLROnPlateauConfig,
+    StepLRConfig,
+)
+from sleap_nn.config.get_config import get_backbone_config
 
 MODEL_WEIGHTS = {
     "Swin_T_Weights": Swin_T_Weights,
@@ -69,75 +77,119 @@ class LightningModel(L.LightningModule):
     This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
 
     Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                a pipeline class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
         backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
     """
 
     def __init__(
         self,
-        config: OmegaConf,
         model_type: str,
         backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        trainer_accelerator: Optional[str] = "cpu",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
     ):
         """Initialise the configs and the model."""
         super().__init__()
-        self.config = config
-        self.model_config = self.config.model_config
-        self.trainer_config = self.config.trainer_config
-        self.data_config = self.config.data_config
         self.model_type = model_type
         self.backbone_type = backbone_type
-        self.pretrained_backbone_weights = (
-            self.config.model_config.pretrained_backbone_weights
-        )
-        self.pretrained_head_weights = self.config.model_config.pretrained_head_weights
-        self.in_channels = self.model_config.backbone_config[f"{self.backbone_type}"][
-            "in_channels"
-        ]
+        if not isinstance(backbone_config, DictConfig):
+            backbone_cfg = get_backbone_config(backbone_config)
+            config = OmegaConf.structured(backbone_cfg)
+            OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+            config = DictConfig(config)
+        else:
+            config = backbone_config
+        self.backbone_config = config
+        self.head_configs = head_configs
+        self.pretrained_backbone_weights = pretrained_backbone_weights
+        self.pretrained_head_weights = pretrained_head_weights
+        self.in_channels = self.backbone_config[f"{self.backbone_type}"]["in_channels"]
         self.input_expand_channels = self.in_channels
+        self.init_weights = init_weights
+        self.trainer_accelerator = trainer_accelerator
+        self.lr_scheduler = lr_scheduler
+        self.online_mining = online_mining
+        self.hard_to_easy_ratio = hard_to_easy_ratio
+        self.min_hard_keypoints = min_hard_keypoints
+        self.max_hard_keypoints = max_hard_keypoints
+        self.loss_scale = loss_scale
+        self.optimizer = optimizer
+        self.lr = learning_rate
+        self.amsgrad = amsgrad
 
         if self.backbone_type == "convnext" or self.backbone_type == "swint":
             if (
-                self.model_config.backbone_config[f"{self.backbone_type}"][
-                    "pre_trained_weights"
-                ]
+                self.backbone_config[f"{self.backbone_type}"]["pre_trained_weights"]
                 is not None
             ):
                 ckpt = MODEL_WEIGHTS[
-                    self.model_config.backbone_config[f"{self.backbone_type}"][
-                        "pre_trained_weights"
-                    ]
+                    self.backbone_config[f"{self.backbone_type}"]["pre_trained_weights"]
                 ].DEFAULT.get_state_dict(progress=True, check_hash=True)
                 input_channels = ckpt["features.0.0.weight"].shape[-3]
                 if self.in_channels != input_channels:  # TODO: not working!
                     self.input_expand_channels = input_channels
-                    OmegaConf.update(
-                        self.model_config,
-                        f"backbone_config.{self.backbone_type}.in_channels",
-                        input_channels,
-                    )
 
         self.model = Model(
             backbone_type=self.backbone_type,
-            backbone_config=self.model_config.backbone_config[f"{self.backbone_type}"],
-            head_configs=self.model_config.head_configs[self.model_type],
+            backbone_config=self.backbone_config[f"{self.backbone_type}"],
+            head_configs=self.head_configs[self.model_type],
             model_type=self.model_type,
         )
 
-        if len(self.model_config.head_configs[self.model_type]) > 1:
+        if len(self.head_configs[self.model_type]) > 1:
             self.loss_weights = [
                 (
-                    self.model_config.head_configs[self.model_type][x].loss_weight
-                    if self.model_config.head_configs[self.model_type][x].loss_weight
-                    is not None
+                    self.head_configs[self.model_type][x].loss_weight
+                    if self.head_configs[self.model_type][x].loss_weight is not None
                     else 1.0
                 )
-                for x in self.model_config.head_configs[self.model_type]
+                for x in self.head_configs[self.model_type]
             ]
 
         self.training_loss = {}
@@ -145,15 +197,13 @@ class LightningModel(L.LightningModule):
         self.learning_rate = {}
 
         # Initialization for encoder and decoder stacks.
-        if self.model_config.init_weights == "xavier":
+        if self.init_weights == "xavier":
             self.model.apply(xavier_init_weights)
 
         # Pre-trained weights for the encoder stack - only for swint and convnext
         if self.backbone_type == "convnext" or self.backbone_type == "swint":
             if (
-                self.model_config.backbone_config[f"{self.backbone_type}"][
-                    "pre_trained_weights"
-                ]
+                self.backbone_config[f"{self.backbone_type}"]["pre_trained_weights"]
                 is not None
             ):
                 self.model.backbone.enc.load_state_dict(ckpt, strict=False)
@@ -166,7 +216,7 @@ class LightningModel(L.LightningModule):
             )
             ckpt = torch.load(
                 self.pretrained_backbone_weights,
-                map_location=self.config.trainer_config.trainer_accelerator,
+                map_location=self.trainer_accelerator,
                 weights_only=False,
             )
             ckpt["state_dict"] = {
@@ -183,7 +233,7 @@ class LightningModel(L.LightningModule):
             )
             ckpt = torch.load(
                 self.pretrained_head_weights,
-                map_location=self.config.trainer_config.trainer_accelerator,
+                map_location=self.trainer_accelerator,
                 weights_only=False,
             )
             ckpt["state_dict"] = {
@@ -214,9 +264,23 @@ class LightningModel(L.LightningModule):
             raise ValueError(message)
 
         lightning_model = lightning_models[model_type](
-            config=config,
             model_type=model_type,
             backbone_type=backbone_type,
+            backbone_config=config.model_config.backbone_config,
+            head_configs=config.model_config.head_configs,
+            pretrained_backbone_weights=config.model_config.pretrained_backbone_weights,
+            pretrained_head_weights=config.model_config.pretrained_head_weights,
+            init_weights=config.model_config.init_weights,
+            trainer_accelerator=config.trainer_config.trainer_accelerator,
+            lr_scheduler=config.trainer_config.lr_scheduler,
+            online_mining=config.trainer_config.online_hard_keypoint_mining.online_mining,
+            hard_to_easy_ratio=config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+            min_hard_keypoints=config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+            max_hard_keypoints=config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+            loss_scale=config.trainer_config.online_hard_keypoint_mining.loss_scale,
+            optimizer=config.trainer_config.optimizer_name,
+            learning_rate=config.trainer_config.optimizer.lr,
+            amsgrad=config.trainer_config.optimizer.amsgrad,
         )
 
         return lightning_model
@@ -224,11 +288,6 @@ class LightningModel(L.LightningModule):
     def forward(self, img):
         """Forward pass of the model."""
         pass
-
-    def on_save_checkpoint(self, checkpoint):
-        """Configure checkpoint to save parameters."""
-        # save the config to the checkpoint file
-        checkpoint["config"] = self.config
 
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
@@ -244,6 +303,7 @@ class LightningModel(L.LightningModule):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
     def on_validation_epoch_start(self):
@@ -260,6 +320,7 @@ class LightningModel(L.LightningModule):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
     def training_step(self, batch, batch_idx):
@@ -272,40 +333,54 @@ class LightningModel(L.LightningModule):
 
     def configure_optimizers(self):
         """Configure optimiser and learning rate scheduler."""
-        if self.trainer_config.optimizer_name == "Adam":
+        if self.optimizer == "Adam":
             optim = torch.optim.Adam
-        elif self.trainer_config.optimizer_name == "AdamW":
+        elif self.optimizer == "AdamW":
             optim = torch.optim.AdamW
 
         optimizer = optim(
             self.parameters(),
-            lr=self.trainer_config.optimizer.lr,
-            amsgrad=self.trainer_config.optimizer.amsgrad,
+            lr=self.lr,
+            amsgrad=self.amsgrad,
         )
 
+        lr_scheduler_cfg = LRSchedulerConfig()
+        if self.lr_scheduler is None:
+            return {
+                "optimizer": optimizer,
+            }
+
         scheduler = None
-        for k, v in self.trainer_config.lr_scheduler.items():
+        if isinstance(self.lr_scheduler, str):
+            if self.lr_scheduler == "step_lr":
+                lr_scheduler_cfg.step_lr = StepLRConfig()
+            elif self.lr_scheduler == "reduce_lr_on_plateau":
+                lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
+
+        elif isinstance(self.lr_scheduler, dict):
+            lr_scheduler_cfg = self.lr_scheduler
+
+        for k, v in self.lr_scheduler.items():
             if v is not None:
                 if k == "step_lr":
                     scheduler = torch.optim.lr_scheduler.StepLR(
                         optimizer=optimizer,
-                        step_size=self.trainer_config.lr_scheduler.step_lr.step_size,
-                        gamma=self.trainer_config.lr_scheduler.step_lr.gamma,
+                        step_size=self.lr_scheduler.step_lr.step_size,
+                        gamma=self.lr_scheduler.step_lr.gamma,
                     )
                     break
                 elif k == "reduce_lr_on_plateau":
                     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                         optimizer,
                         mode="min",
-                        threshold=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold,
-                        threshold_mode=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
-                        cooldown=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.cooldown,
-                        patience=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.patience,
-                        factor=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.factor,
-                        min_lr=self.trainer_config.lr_scheduler.reduce_lr_on_plateau.min_lr,
+                        threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
+                        threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+                        cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
+                        patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
+                        factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
+                        min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
                     )
                     break
-
         if scheduler is None:
             return {
                 "optimizer": optimizer,
@@ -324,47 +399,96 @@ class SingleInstanceLightningModule(LightningModel):
     """Lightning Module for SingleInstance Model.
 
     This is a subclass of the `LightningModel` to configure the training/ validation steps and
-    forward pass specific to Single Instance model.
+    forward pass specific to Single Instance model. Single Instance models predict keypoint locations
+    directly from the input image without requiring a separate detection step.
 
     Args:
-        config: OmegaConf dictionary which has the following:
-            (i) data_config: data loading pre-processing configs to be passed to
-            `TopdownConfmapsPipeline` class.
-            (ii) model_config: backbone and head configs to be passed to `Model` class.
-            (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
-
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
     """
 
     def __init__(
         self,
-        config: OmegaConf,
-        backbone_type: str,
         model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        trainer_accelerator: Optional[str] = "cpu",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config=config,
             model_type=model_type,
             backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            trainer_accelerator=trainer_accelerator,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
         )
-        if OmegaConf.select(
-            self.config, "trainer_config.visualize_preds_during_training", default=False
-        ):
-            self.single_instance_inf_layer = SingleInstanceInferenceModel(
-                torch_model=self.forward,
-                peak_threshold=0.2,
-                input_scale=1.0,
-                return_confmaps=True,
-                output_stride=self.config.model_config.head_configs.single_instance.confmaps.output_stride,
-            )
-        self.ohkm_cfg = OmegaConf.select(
-            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+
+        self.single_instance_inf_layer = SingleInstanceInferenceModel(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            input_scale=1.0,
+            return_confmaps=True,
+            output_stride=self.head_configs.single_instance.confmaps.output_stride,
         )
-        self.node_names = (
-            self.config.model_config.head_configs.single_instance.confmaps.part_names
-        )
+        self.node_names = self.head_configs.single_instance.confmaps.part_names
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -408,14 +532,14 @@ class SingleInstanceLightningModule(LightningModel):
 
         loss = nn.MSELoss()(y_preds, y)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
                 y_pr=y_preds,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             loss = loss + ohkm_loss
 
@@ -432,9 +556,16 @@ class SingleInstanceLightningModule(LightningModel):
                     on_step=True,
                     on_epoch=True,
                     logger=True,
+                    sync_dist=True,
                 )
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -446,14 +577,14 @@ class SingleInstanceLightningModule(LightningModel):
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
                 y_pr=y_preds,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             val_loss = val_loss + ohkm_loss
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
@@ -464,6 +595,7 @@ class SingleInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -472,6 +604,7 @@ class SingleInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -479,47 +612,96 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
     """Lightning Module for TopDownCenteredInstance Model.
 
     This is a subclass of the `LightningModel` to configure the training/ validation steps
-    and forward pass specific to TopDown Centered instance model.
+    and forward pass specific to TopDown Centered instance model. Top-Down models use a two-stage
+    approach: first detecting centroids, then predicting keypoints for each detected centroid.
 
     Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `TopdownConfmapsPipeline` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
-
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
     """
 
     def __init__(
         self,
-        config: OmegaConf,
-        backbone_type: str,
         model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        trainer_accelerator: Optional[str] = "cpu",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config=config,
-            backbone_type=backbone_type,
             model_type=model_type,
-        )
-        if OmegaConf.select(
-            self.config, "trainer_config.visualize_preds_during_training", default=False
-        ):
-            self.instance_peaks_inf_layer = FindInstancePeaks(
-                torch_model=self.forward,
-                peak_threshold=0.2,
-                return_confmaps=True,
-                output_stride=self.config.model_config.head_configs.centered_instance.confmaps.output_stride,
-            )
-        self.ohkm_cfg = OmegaConf.select(
-            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            trainer_accelerator=trainer_accelerator,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
         )
 
-        self.node_names = (
-            self.config.model_config.head_configs.centered_instance.confmaps.part_names
+        self.instance_peaks_inf_layer = FindInstancePeaks(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            output_stride=self.head_configs.centered_instance.confmaps.output_stride,
         )
+
+        self.node_names = self.head_configs.centered_instance.confmaps.part_names
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -563,14 +745,14 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
         loss = nn.MSELoss()(y_preds, y)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
                 y_pr=y_preds,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             loss = loss + ohkm_loss
 
@@ -587,10 +769,17 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                     on_step=True,
                     on_epoch=True,
                     logger=True,
+                    sync_dist=True,
                 )
 
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -602,14 +791,14 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             ohkm_loss = compute_ohkm_loss(
                 y_gt=y,
                 y_pr=y_preds,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             val_loss = val_loss + ohkm_loss
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
@@ -620,6 +809,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -628,6 +818,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -635,41 +826,95 @@ class CentroidLightningModule(LightningModel):
     """Lightning Module for Centroid Model.
 
     This is a subclass of the `LightningModel` to configure the training/ validation steps
-    and forward pass specific to centroid model.
+    and forward pass specific to centroid model. Centroid models detect the center points
+    of animals in the image, which are then used by Top-Down models for keypoint prediction.
 
     Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `CentroidConfmapsPipeline` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
-
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
     """
 
     def __init__(
         self,
-        config: OmegaConf,
-        backbone_type: str,
         model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        trainer_accelerator: Optional[str] = "cpu",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config=config,
-            backbone_type=backbone_type,
             model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            trainer_accelerator=trainer_accelerator,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
         )
-        if OmegaConf.select(
-            self.config, "trainer_config.visualize_preds_during_training", default=False
-        ):
-            self.centroid_inf_layer = CentroidCrop(
-                torch_model=self.forward,
-                peak_threshold=0.2,
-                return_confmaps=True,
-                output_stride=self.config.model_config.head_configs.centroid.confmaps.output_stride,
-                input_scale=1.0,
-            )
+
+        self.centroid_inf_layer = CentroidCrop(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            output_stride=self.head_configs.centroid.confmaps.output_stride,
+            input_scale=1.0,
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -712,7 +957,13 @@ class CentroidLightningModule(LightningModel):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -732,6 +983,7 @@ class CentroidLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -740,6 +992,7 @@ class CentroidLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -747,52 +1000,102 @@ class BottomUpLightningModule(LightningModel):
     """Lightning Module for BottomUp Model.
 
     This is a subclass of the `LightningModel` to configure the training/ validation steps
-    and forward pass specific to BottomUp model.
+    and forward pass specific to BottomUp model. Bottom-Up models predict all keypoints
+    simultaneously and use Part Affinity Fields (PAFs) to group keypoints into individual animals.
 
     Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `BottomUpPipeline` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
-
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
     """
 
     def __init__(
         self,
-        config: OmegaConf,
-        backbone_type: str,
         model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        trainer_accelerator: Optional[str] = "cpu",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config=config,
-            backbone_type=backbone_type,
             model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            trainer_accelerator=trainer_accelerator,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
         )
 
-        if OmegaConf.select(
-            self.config, "trainer_config.visualize_preds_during_training", default=False
-        ):
-            paf_scorer = PAFScorer(
-                part_names=self.config.model_config.head_configs.bottomup.confmaps.part_names,
-                edges=self.config.model_config.head_configs.bottomup.pafs.edges,
-                pafs_stride=self.config.model_config.head_configs.bottomup.pafs.output_stride,
-            )
-            self.bottomup_inf_layer = BottomUpInferenceModel(
-                torch_model=self.forward,
-                paf_scorer=paf_scorer,
-                peak_threshold=0.2,
-                input_scale=1.0,
-                return_confmaps=True,
-                return_pafs=True,
-                cms_output_stride=self.config.model_config.head_configs.bottomup.confmaps.output_stride,
-                pafs_output_stride=self.config.model_config.head_configs.bottomup.pafs.output_stride,
-            )
-        self.ohkm_cfg = OmegaConf.select(
-            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+        paf_scorer = PAFScorer(
+            part_names=self.head_configs.bottomup.confmaps.part_names,
+            edges=self.head_configs.bottomup.pafs.edges,
+            pafs_stride=self.head_configs.bottomup.pafs.output_stride,
+        )
+        self.bottomup_inf_layer = BottomUpInferenceModel(
+            torch_model=self.forward,
+            paf_scorer=paf_scorer,
+            peak_threshold=0.2,
+            input_scale=1.0,
+            return_confmaps=True,
+            return_pafs=True,
+            cms_output_stride=self.head_configs.bottomup.confmaps.output_stride,
+            pafs_output_stride=self.head_configs.bottomup.pafs.output_stride,
         )
 
     def visualize_example(self, sample):
@@ -870,22 +1173,22 @@ class BottomUpLightningModule(LightningModel):
         confmap_loss = nn.MSELoss()(confmaps, y_confmap)
         pafs_loss = nn.MSELoss()(pafs, y_paf)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_confmap,
                 y_pr=confmaps,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             pafs_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_paf,
                 y_pr=pafs,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             confmap_loss += confmap_ohkm_loss
             pafs_loss += pafs_ohkm_loss
@@ -896,7 +1199,13 @@ class BottomUpLightningModule(LightningModel):
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -913,22 +1222,22 @@ class BottomUpLightningModule(LightningModel):
         confmap_loss = nn.MSELoss()(confmaps, y_confmap)
         pafs_loss = nn.MSELoss()(pafs, y_paf)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_confmap,
                 y_pr=confmaps,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             pafs_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_paf,
                 y_pr=pafs,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             confmap_loss += confmap_ohkm_loss
             pafs_loss += pafs_ohkm_loss
@@ -947,6 +1256,7 @@ class BottomUpLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -955,6 +1265,7 @@ class BottomUpLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -962,45 +1273,96 @@ class BottomUpMultiClassLightningModule(LightningModel):
     """Lightning Module for BottomUp ID Model.
 
     This is a subclass of the `LightningModel` to configure the training/ validation steps
-    and forward pass specific to BottomUp ID model.
+    and forward pass specific to BottomUp ID model. Multi-Class Bottom-Up models predict
+    all keypoints simultaneously and classify instances using class maps to identify
+    individual animals across frames.
 
     Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `BottomUpMultiClassDataset` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
-
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
     """
 
     def __init__(
         self,
-        config: OmegaConf,
-        backbone_type: str,
         model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        trainer_accelerator: Optional[str] = "cpu",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config=config,
-            backbone_type=backbone_type,
             model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            trainer_accelerator=trainer_accelerator,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
         )
-        if OmegaConf.select(
-            self.config, "trainer_config.visualize_preds_during_training", default=False
-        ):
-            self.bottomup_inf_layer = BottomUpMultiClassInferenceModel(
-                torch_model=self.forward,
-                peak_threshold=0.2,
-                input_scale=1.0,
-                return_confmaps=True,
-                return_class_maps=True,
-                cms_output_stride=self.config.model_config.head_configs.multi_class_bottomup.confmaps.output_stride,
-                class_maps_output_stride=self.config.model_config.head_configs.multi_class_bottomup.class_maps.output_stride,
-            )
-        self.ohkm_cfg = OmegaConf.select(
-            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+        self.bottomup_inf_layer = BottomUpMultiClassInferenceModel(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            input_scale=1.0,
+            return_confmaps=True,
+            return_class_maps=True,
+            cms_output_stride=self.head_configs.multi_class_bottomup.confmaps.output_stride,
+            class_maps_output_stride=self.head_configs.multi_class_bottomup.class_maps.output_stride,
         )
 
     def visualize_example(self, sample):
@@ -1078,14 +1440,14 @@ class BottomUpMultiClassLightningModule(LightningModel):
         confmap_loss = nn.MSELoss()(confmaps, y_confmap)
         classmaps_loss = nn.MSELoss()(classmaps, y_classmap)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_confmap,
                 y_pr=confmaps,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             confmap_loss += confmap_ohkm_loss
 
@@ -1095,7 +1457,13 @@ class BottomUpMultiClassLightningModule(LightningModel):
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -1112,14 +1480,14 @@ class BottomUpMultiClassLightningModule(LightningModel):
         confmap_loss = nn.MSELoss()(confmaps, y_confmap)
         classmaps_loss = nn.MSELoss()(classmaps, y_classmap)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_confmap,
                 y_pr=confmaps,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             confmap_loss += confmap_ohkm_loss
 
@@ -1137,6 +1505,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -1145,6 +1514,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
 
 
@@ -1152,47 +1522,96 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
     """Lightning Module for TopDownCenteredInstance ID Model.
 
     This is a subclass of the `LightningModel` to configure the training/ validation steps
-    and forward pass specific to TopDown Centered instance model.
+    and forward pass specific to TopDown Centered instance model. Multi-Class Top-Down models
+    use a two-stage approach: first detecting centroids, then predicting keypoints and
+    classifying instances using supervised learning with ground truth track IDs.
 
     Args:
-        config: OmegaConf dictionary which has the following:
-                (i) data_config: data loading pre-processing configs to be passed to
-                `TopDownCenteredInstanceMultiClassDataset` class.
-                (ii) model_config: backbone and head configs to be passed to `Model` class.
-                (iii) trainer_config: trainer configs like accelerator, optimiser params.
-        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
         model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
-
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
     """
 
     def __init__(
         self,
-        config: OmegaConf,
-        backbone_type: str,
         model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        trainer_accelerator: Optional[str] = "cpu",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
     ):
         """Initialise the configs and the model."""
         super().__init__(
-            config=config,
-            backbone_type=backbone_type,
             model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            trainer_accelerator=trainer_accelerator,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
         )
-        if OmegaConf.select(
-            self.config, "trainer_config.visualize_preds_during_training", default=False
-        ):
-            self.instance_peaks_inf_layer = TopDownMultiClassFindInstancePeaks(
-                torch_model=self.forward,
-                peak_threshold=0.2,
-                return_confmaps=True,
-                output_stride=self.config.model_config.head_configs.multi_class_topdown.confmaps.output_stride,
-            )
-        self.ohkm_cfg = OmegaConf.select(
-            self.config, "trainer_config.online_hard_keypoint_mining", default=None
+        self.instance_peaks_inf_layer = TopDownMultiClassFindInstancePeaks(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            output_stride=self.head_configs.multi_class_topdown.confmaps.output_stride,
         )
 
-        self.node_names = (
-            self.config.model_config.head_configs.multi_class_topdown.confmaps.part_names
-        )
+        self.node_names = self.head_configs.multi_class_topdown.confmaps.part_names
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
@@ -1242,14 +1661,14 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         confmap_loss = nn.MSELoss()(confmaps, y_confmap)
         classvector_loss = nn.CrossEntropyLoss()(classvector, y_classvector)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_confmap,
                 y_pr=confmaps,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             confmap_loss += confmap_ohkm_loss
 
@@ -1272,10 +1691,17 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                     on_step=True,
                     on_epoch=True,
                     logger=True,
+                    sync_dist=True,
                 )
 
         self.log(
-            "train_loss", loss, prog_bar=True, on_step=True, on_epoch=True, logger=True
+            "train_loss",
+            loss,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
         )
         return loss
 
@@ -1291,14 +1717,14 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         confmap_loss = nn.MSELoss()(confmaps, y_confmap)
         classvector_loss = nn.CrossEntropyLoss()(classvector, y_classvector)
 
-        if self.ohkm_cfg is not None and self.ohkm_cfg.online_mining:
+        if self.online_mining is not None and self.online_mining:
             confmap_ohkm_loss = compute_ohkm_loss(
                 y_gt=y_confmap,
                 y_pr=confmaps,
-                hard_to_easy_ratio=self.ohkm_cfg.hard_to_easy_ratio,
-                min_hard_keypoints=self.ohkm_cfg.min_hard_keypoints,
-                max_hard_keypoints=self.ohkm_cfg.max_hard_keypoints,
-                loss_scale=self.ohkm_cfg.loss_scale,
+                hard_to_easy_ratio=self.hard_to_easy_ratio,
+                min_hard_keypoints=self.min_hard_keypoints,
+                max_hard_keypoints=self.max_hard_keypoints,
+                loss_scale=self.loss_scale,
             )
             confmap_loss += confmap_ohkm_loss
 
@@ -1316,6 +1742,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )
         self.log(
             "val_loss",
@@ -1324,4 +1751,5 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             on_step=True,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
         )

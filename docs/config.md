@@ -38,8 +38,10 @@ data_config:
       contrast_p: 0.0
       brightness_p: 0.0
     geometric:
-      rotation: 15.0
-      scale: [0.9, 1.1]
+      rotation_min: -15.0
+      rotation_max: 15.0
+      scale_min: 0.9
+      scale_max: 1.1
       affine_p: 1.0
 
 model_config:

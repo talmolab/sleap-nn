@@ -45,7 +45,8 @@ def test_bottomup_inference_model(
 
     torch_model = BottomUpLightningModule.load_from_checkpoint(
         f"{minimal_instance_bottomup_ckpt}/best.ckpt",
-        config=train_config,
+        backbone_config=train_config.model_config.backbone_config,
+        head_configs=train_config.model_config.head_configs,
         model_type="bottomup",
         backbone_type="unet",
         map_location="cpu",
@@ -137,9 +138,10 @@ def test_multiclass_bottomup_inference_model(
 
     torch_model = BottomUpMultiClassLightningModule.load_from_checkpoint(
         f"{minimal_instance_multi_class_bottomup_ckpt}/best.ckpt",
-        config=train_config,
         model_type="multi_class_bottomup",
         backbone_type="unet",
+        backbone_config=train_config.model_config.backbone_config,
+        head_configs=train_config.model_config.head_configs,
         map_location="cpu",
     )
 
