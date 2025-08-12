@@ -4592,7 +4592,7 @@ of Torch <code>Trainer</code>. Default: 200.</p>
               <div class="doc-md-description">
                 <p>Number of minibatches (steps) to train for in an epoch. If set to <code>None</code>,
 this is set to the number of batches in the training data or <code>min_train_steps_per_epoch</code>,
-whichever is largest. Default: <code>None</code>.</p>
+whichever is largest. Default: <code>None</code>. <strong>Note</strong>: In a multi-gpu training setup, the effective steps during training would be the <code>trainer_steps_per_epoch</code> / <code>trainer_devices</code>.</p>
               </div>
             </td>
             <td>
@@ -5407,7 +5407,7 @@ should wait to receive a response and should be set to a small value to minimize
 </span><span id="__span-0-718"><a id="__codelineno-0-718" name="__codelineno-0-718"></a><span class="sd">            of Torch `Trainer`. Default: 200.</span>
 </span><span id="__span-0-719"><a id="__codelineno-0-719" name="__codelineno-0-719"></a><span class="sd">        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,</span>
 </span><span id="__span-0-720"><a id="__codelineno-0-720" name="__codelineno-0-720"></a><span class="sd">            this is set to the number of batches in the training data or `min_train_steps_per_epoch`,</span>
-</span><span id="__span-0-721"><a id="__codelineno-0-721" name="__codelineno-0-721"></a><span class="sd">            whichever is largest. Default: `None`.</span>
+</span><span id="__span-0-721"><a id="__codelineno-0-721" name="__codelineno-0-721"></a><span class="sd">            whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.</span>
 </span><span id="__span-0-722"><a id="__codelineno-0-722" name="__codelineno-0-722"></a><span class="sd">        visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)</span>
 </span><span id="__span-0-723"><a id="__codelineno-0-723" name="__codelineno-0-723"></a><span class="sd">            are saved to `viz` folder in the ckpt dir and in wandb table.</span>
 </span><span id="__span-0-724"><a id="__codelineno-0-724" name="__codelineno-0-724"></a><span class="sd">        keep_viz: If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder</span>
