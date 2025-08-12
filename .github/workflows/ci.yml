@@ -29,10 +29,10 @@ jobs:
         run: uv sync --group default --extra dev --extra torch-cpu --extra ml
 
       - name: Run Black
-        run: uv run black --check sleap_nn tests
+        run: black --check sleap_nn tests
 
       - name: Run Ruff
-        run: uv run ruff check sleap_nn/
+        run: ruff check sleap_nn/
 
   tests:
     strategy:
