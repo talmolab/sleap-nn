@@ -33,7 +33,6 @@ from sleap_nn.data.edge_maps import generate_pafs
 from sleap_nn.data.instance_cropping import make_centered_bboxes
 from sleap_nn.training.utils import is_distributed_initialized
 from sleap_nn.config.get_config import get_aug_config
-from sleap_nn import WORLD_SIZE
 
 
 class BaseDataset(Dataset):
@@ -153,13 +152,8 @@ class BaseDataset(Dataset):
             if self.cache_img == "memory":
                 self._fill_cache()
             elif self.cache_img == "disk" and not self.use_existing_imgs:
-                if self.rank is None or self.rank == -1:
+                if self.rank is None or self.rank == -1 or self.rank == 0:
                     self._fill_cache()
-                elif self.rank == 0:
-                    if not Path(self.cache_img_path).is_dir() or not any(
-                        Path(self.cache_img_path).iterdir()
-                    ):  # this ensures disk caching happens only in the rank-0 process and only when the cache directory is empty
-                        self._fill_cache()
                 # Synchronize all ranks after cache creation
                 if is_distributed_initialized():
                     dist.barrier()
@@ -2021,6 +2015,7 @@ def get_train_val_dataloaders(
     train_steps_per_epoch: Optional[int] = None,
     val_steps_per_epoch: Optional[int] = None,
     rank: Optional[int] = None,
+    trainer_devices: int = 1,
 ):
     """Return the train and val dataloaders.
 
@@ -2028,10 +2023,11 @@ def get_train_val_dataloaders(
         train_dataset: Train dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset, BottomUpMultiClassDataset, TopDownCenteredInstanceMultiClassDataset].
         val_dataset: Val dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset, BottomUpMultiClassDataset, TopDownCenteredInstanceMultiClassDataset].
         config: Sleap-nn config.
-        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         val_steps_per_epoch: Number of minibatches (steps) to run validation for in an epoch. If set to `None`, this is set to the number of batches in the val data.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        trainer_devices: Number of devices to use for training.
 
     Returns:
         A tuple (train_dataloader, val_dataloader).
@@ -2062,16 +2058,16 @@ def get_train_val_dataloaders(
             dataset=train_dataset,
             shuffle=config.trainer_config.train_data_loader.shuffle,
             rank=rank if rank is not None else 0,
-            num_replicas=WORLD_SIZE,
+            num_replicas=trainer_devices,
         )
-        if WORLD_SIZE > 1
+        if trainer_devices > 1
         else None
     )
 
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
-        len_dataloader=(round(train_steps_per_epoch / WORLD_SIZE)),
+        len_dataloader=(round(train_steps_per_epoch / trainer_devices)),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
             if train_sampler is None
@@ -2095,9 +2091,9 @@ def get_train_val_dataloaders(
             dataset=val_dataset,
             shuffle=False,
             rank=rank if rank is not None else 0,
-            num_replicas=WORLD_SIZE,
+            num_replicas=trainer_devices,
         )
-        if WORLD_SIZE > 1
+        if trainer_devices > 1
         else None
     )
     val_data_loader = InfiniteDataLoader(
@@ -2105,7 +2101,9 @@ def get_train_val_dataloaders(
         shuffle=False if val_sampler is None else None,
         sampler=val_sampler,
         len_dataloader=(
-            round(val_steps_per_epoch / WORLD_SIZE) if WORLD_SIZE > 1 else None
+            round(val_steps_per_epoch / trainer_devices)
+            if trainer_devices > 1
+            else None
         ),
         batch_size=config.trainer_config.val_data_loader.batch_size,
         num_workers=config.trainer_config.val_data_loader.num_workers,

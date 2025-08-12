@@ -4,8 +4,7 @@ import os
 from loguru import logger
 
 # Get RANK for distributed training
-GLOBAL_RANK = int(os.environ.get("RANK", -1))
-WORLD_SIZE = int(os.environ.get("WORLD_SIZE", 1))
+RANK = int(os.environ.get("LOCAL_RANK", -1))
 
 
 # Configure loguru for distributed training
@@ -16,7 +15,7 @@ def _should_log(record):
         return True
 
     # Log info only on rank 0
-    if GLOBAL_RANK in [0, -1] and record["level"].no >= logger.level("INFO").no:
+    if RANK in [0, -1] and record["level"].no >= logger.level("INFO").no:
         return True
 
     return False

@@ -718,7 +718,7 @@ def get_trainer_config(
             of Torch `Trainer`. Default: 200.
         train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
             this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
-            whichever is largest. Default: `None`.
+            whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
         keep_viz: If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder

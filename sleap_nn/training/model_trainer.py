@@ -48,7 +48,7 @@ from sleap_nn.training.callbacks import (
     WandBPredImageLogger,
     CSVLoggerCallback,
 )
-from sleap_nn import GLOBAL_RANK, WORLD_SIZE
+from sleap_nn import RANK
 
 
 @attrs.define
@@ -184,6 +184,35 @@ class ModelTrainer:
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
         logger.info(f"# Val Labeled frames: {total_val_lfs}")
 
+    def _setup_devices(self):
+        """Setup devices with cross-platform support."""
+        num_devices = self.config.trainer_config.trainer_devices
+        device = self.config.trainer_config.trainer_accelerator
+
+        if device == "auto" or device is None:
+            if torch.cuda.is_available():
+                device = "cuda"
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                device = "mps"
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                device = "xpu"
+            else:
+                device = "cpu"
+
+        if num_devices == "auto" or num_devices is None:
+            # Auto-detect best available device
+            if torch.cuda.is_available():
+                num_devices = torch.cuda.device_count()
+            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                num_devices = 1
+            elif hasattr(torch, "xpu") and torch.xpu.is_available():
+                num_devices = torch.xpu.device_count()
+            else:
+                num_devices = 1
+
+        logger.info(f"Using {device} with {num_devices} device(s)")
+        return num_devices, device
+
     def _setup_config(self):
         """Compute preprocessing parameters."""
         # Verify config structure.
@@ -307,10 +336,15 @@ class ModelTrainer:
         # set output stride for backbone from head config and verify max stride
         self.config = check_output_strides(self.config)
 
+        # set number of devices
+        num_gpus, device_type = self._setup_devices()
+        self.config.trainer_config.trainer_devices = num_gpus
+        self.config.trainer_config.trainer_accelerator = device_type
+
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path
         if ckpt_path is None:
-            if WORLD_SIZE > 1:
+            if num_gpus > 1:
                 ckpt_path = f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
             else:
                 ckpt_path = (
@@ -360,6 +394,17 @@ class ModelTrainer:
                 logger.error(message)
                 raise OSError(message)
 
+        if RANK in [0, -1]:
+            for idx, (train, val) in enumerate(zip(self.train_labels, self.val_labels)):
+                train.save(
+                    Path(ckpt_path) / f"labels_train_gt_{idx}.slp",
+                    restore_original_videos=False,
+                )
+                val.save(
+                    Path(ckpt_path) / f"labels_val_gt_{idx}.slp",
+                    restore_original_videos=False,
+                )
+
     def _setup_viz_datasets(self):
         """Setup dataloaders."""
         data_viz_config = self.config.copy()
@@ -405,7 +450,7 @@ class ModelTrainer:
             train_labels=self.train_labels,
             val_labels=self.val_labels,
             config=self.config,
-            rank=GLOBAL_RANK,
+            rank=self.trainer.global_rank,
         )
 
     def _setup_loggers_callbacks(self, viz_train_dataset, viz_val_dataset):
@@ -466,7 +511,7 @@ class ModelTrainer:
             if wandb_config.wandb_mode == "offline":
                 os.environ["WANDB_MODE"] = "offline"
             else:
-                if GLOBAL_RANK in [0, -1]:
+                if RANK in [0, -1]:
                     wandb.login(key=self.config.trainer_config.wandb.api_key)
             wandb_logger = WandbLogger(
                 entity=wandb_config.entity,
@@ -500,7 +545,7 @@ class ModelTrainer:
 
             viz_dir = Path(self.config.trainer_config.save_ckpt_path) / "viz"
             if not Path(viz_dir).exists():
-                if GLOBAL_RANK in [0, -1]:
+                if RANK in [0, -1]:
                     Path(viz_dir).mkdir(parents=True, exist_ok=True)
 
             callbacks.append(
@@ -657,7 +702,7 @@ class ModelTrainer:
             strategy=strategy,
             profiler=profiler,
             log_every_n_steps=1,
-        )  # TODO check any other methods to use rank in dataset creations!
+        )
 
         self.trainer.strategy.barrier()
 
@@ -680,8 +725,6 @@ class ModelTrainer:
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
         )
 
-        self.trainer.limit_train_batches = train_steps_per_epoch
-
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
         train_dataloader, val_dataloader = get_train_val_dataloaders(
@@ -691,6 +734,7 @@ class ModelTrainer:
             rank=self.trainer.global_rank,
             train_steps_per_epoch=self.config.trainer_config.train_steps_per_epoch,
             val_steps_per_epoch=val_steps_per_epoch,
+            trainer_devices=self.config.trainer_config.trainer_devices,
         )
 
         if self.trainer.global_rank == 0:  # save config only in rank 0 process
@@ -699,15 +743,6 @@ class ModelTrainer:
                 self._initial_config,
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
             )
-            for idx, (train, val) in enumerate(zip(self.train_labels, self.val_labels)):
-                train.save(
-                    Path(ckpt_path) / f"labels_train_gt_{idx}.slp",
-                    restore_original_videos=False,
-                )
-                val.save(
-                    Path(ckpt_path) / f"labels_val_gt_{idx}.slp",
-                    restore_original_videos=False,
-                )
 
             if self.config.trainer_config.use_wandb:
                 if wandb.run is None:

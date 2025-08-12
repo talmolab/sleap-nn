@@ -11,7 +11,7 @@ from PIL import Image
 from pathlib import Path
 import wandb
 import csv
-from sleap_nn import GLOBAL_RANK
+from sleap_nn import RANK
 
 
 class CSVLoggerCallback(Callback):
@@ -35,7 +35,7 @@ class CSVLoggerCallback(Callback):
 
     def _init_file(self):
         """Create the .csv file."""
-        if GLOBAL_RANK in [0, -1]:  # Global rank 0 or -1 (non-distributed)
+        if RANK in [0, -1]:  # Global rank 0 or -1 (non-distributed)
             self.filepath.parent.mkdir(parents=True, exist_ok=True)
             with open(self.filepath, "w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=self.keys)

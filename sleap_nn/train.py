@@ -18,7 +18,6 @@ from sleap_nn.config.get_config import (
     get_model_config,
     get_data_config,
 )
-from sleap_nn import GLOBAL_RANK
 
 
 def run_training(config: DictConfig):
@@ -35,7 +34,9 @@ def run_training(config: DictConfig):
     logger.info("Finished training at:", finish_timestamp)
     logger.info(f"Total training time: {total_elapsed} secs")
 
-    if GLOBAL_RANK in [0, -1]:
+    rank = trainer.trainer.global_rank if trainer.trainer is not None else -1
+
+    if rank in [0, -1]:
         # run inference on val dataset
         if config.trainer_config.save_ckpt:
             data_paths = {}
@@ -296,7 +297,7 @@ def train(
             of Torch `Trainer`. Default: 200.
         train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
             this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
-            whichever is largest. Default: `None`.
+            whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
         keep_viz: If set to `True`, the `viz` folder containing training visualizations will be kept after training completes. If `False`, the folder will be deleted. This parameter only has an effect when `visualize_preds_during_training` is `True`. Default: `False`.
