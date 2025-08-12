@@ -514,7 +514,6 @@ def test_evaluator_main(
         "python",
         "-m",
         "sleap_nn.evaluation",
-        "sleap-nn-eval",
         "--ground_truth_path",
         str(minimal_instance.as_posix()),
         "--predicted_path",
