@@ -49,7 +49,7 @@ jobs:
       fail-fast: false
       matrix:
         # os: ["self-hosted-gpu"]
-        os: ["ubuntu", "windows", "macos", "self-hosted-gpu"]
+        os: ["ubuntu", "windows", "mac", "self-hosted-gpu"]
         include:
           - os: ubuntu
             runs-on: ubuntu-latest
