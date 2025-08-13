@@ -48,7 +48,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # os: ["self-hosted-gpu"]
         os: ["ubuntu", "windows", "mac", "self-hosted-gpu"]
         include:
           - os: ubuntu
@@ -62,9 +61,7 @@ jobs:
         python: [3.11]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
-    # runs-on: ${{ matrix.os }}
     runs-on: ${{ matrix.runs-on }}
-    # runs-on: [self-hosted, puma, gpu, 2xgpu]
 
     steps:
       - name: Checkout repo
