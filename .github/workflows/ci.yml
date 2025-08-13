@@ -48,7 +48,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-latest", "windows-latest", "macos-14"]
+        os: ["ubuntu-latest", "windows-latest", "macos-14", "self-hosted-gpu"]
+        include:
+          - os: self-hosted-gpu
+            runs-on: [self-hosted, puma, gpu, 2xgpu]
         python: [3.11]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
