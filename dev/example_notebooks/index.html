@@ -8,28 +8,28 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/cli/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/example_notebooks/">
       
       
-        <link rel="prev" href="../architectures/utils/">
+        <link rel="prev" href="../config/">
       
       
-        <link rel="next" href="../config/">
+        <link rel="next" href="../inference/">
       
       
-      <link rel="icon" href="../../assets/favicon.ico">
+      <link rel="icon" href="../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.16">
     
     
       
-        <title>cli - sleap-nn documentation</title>
+        <title>Example Notebooks - sleap-nn documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../assets/stylesheets/main.7e37652d.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.7e37652d.min.css">
       
         
-        <link rel="stylesheet" href="../../assets/stylesheets/palette.06af60db.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
       
       
 
@@ -48,9 +48,9 @@
       
     
     
-      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.cli" class="md-skip">
+        <a href="#example-notebooks" class="md-skip">
           Skip to content
         </a>
       
@@ -92,9 +92,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href=".." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -111,7 +111,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              cli
+              Example Notebooks
             
           </span>
         </div>
@@ -229,9 +229,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href=".." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     sleap-nn documentation
@@ -258,7 +258,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -280,7 +280,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../CHANGELOG/" class="md-nav__link">
+      <a href="../CHANGELOG/" class="md-nav__link">
         
   
   
@@ -302,7 +302,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/" class="md-nav__link">
+      <a href="../config/" class="md-nav__link">
         
   
   
@@ -321,10 +321,32 @@
       
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../example_notebooks/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Example Notebooks
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -335,6 +357,83 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#accessing-example-notebooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      Accessing Example Notebooks
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Accessing Example Notebooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#getting-started-with-marimo" class="md-nav__link">
+    <span class="md-ellipsis">
+      Getting Started with Marimo
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-tutorials" class="md-nav__link">
+    <span class="md-ellipsis">
+      📖 Available Tutorials
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📖 Available Tutorials">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-training-demo-notebook" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Training Demo Notebook
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-augmentation-guide-notebook" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Augmentation Guide Notebook
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -346,7 +445,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/" class="md-nav__link">
+      <a href="../inference/" class="md-nav__link">
         
   
   
@@ -368,7 +467,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../installation/" class="md-nav__link">
+      <a href="../installation/" class="md-nav__link">
         
   
   
@@ -390,7 +489,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../models/" class="md-nav__link">
+      <a href="../models/" class="md-nav__link">
         
   
   
@@ -412,7 +511,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/" class="md-nav__link">
+      <a href="../training/" class="md-nav__link">
         
   
   
@@ -431,8 +530,6 @@
       
   
   
-    
-  
   
   
     
@@ -445,11 +542,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
         
           
           <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="">
@@ -465,7 +562,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_9">
             <span class="md-nav__icon md-icon"></span>
             Api
@@ -476,8 +573,6 @@
                 
   
   
-    
-  
   
   
     
@@ -487,15 +582,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_1" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9_1" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../api/" class="md-nav__link ">
               
   
   
@@ -514,7 +609,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_9_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_9_1">
             <span class="md-nav__icon md-icon"></span>
             sleap_nn
@@ -542,7 +637,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../architectures/" class="md-nav__link ">
+            <a href="../api/architectures/" class="md-nav__link ">
               
   
   
@@ -575,7 +670,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/common/" class="md-nav__link">
+      <a href="../api/architectures/common/" class="md-nav__link">
         
   
   
@@ -598,7 +693,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/convnext/" class="md-nav__link">
+      <a href="../api/architectures/convnext/" class="md-nav__link">
         
   
   
@@ -621,7 +716,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/encoder_decoder/" class="md-nav__link">
+      <a href="../api/architectures/encoder_decoder/" class="md-nav__link">
         
   
   
@@ -644,7 +739,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/heads/" class="md-nav__link">
+      <a href="../api/architectures/heads/" class="md-nav__link">
         
   
   
@@ -667,7 +762,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/model/" class="md-nav__link">
+      <a href="../api/architectures/model/" class="md-nav__link">
         
   
   
@@ -690,7 +785,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/swint/" class="md-nav__link">
+      <a href="../api/architectures/swint/" class="md-nav__link">
         
   
   
@@ -713,7 +808,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/unet/" class="md-nav__link">
+      <a href="../api/architectures/unet/" class="md-nav__link">
         
   
   
@@ -736,7 +831,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../architectures/utils/" class="md-nav__link">
+      <a href="../api/architectures/utils/" class="md-nav__link">
         
   
   
@@ -764,30 +859,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    cli
-    
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../api/cli/" class="md-nav__link">
         
   
   
@@ -798,48 +873,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#sleap_nn.cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      cli
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="cli">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.cli.cli" class="md-nav__link">
-    <span class="md-ellipsis">
-      cli
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -866,7 +899,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../config/" class="md-nav__link ">
+            <a href="../api/config/" class="md-nav__link ">
               
   
   
@@ -899,7 +932,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/data_config/" class="md-nav__link">
+      <a href="../api/config/data_config/" class="md-nav__link">
         
   
   
@@ -922,7 +955,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/get_config/" class="md-nav__link">
+      <a href="../api/config/get_config/" class="md-nav__link">
         
   
   
@@ -945,7 +978,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/model_config/" class="md-nav__link">
+      <a href="../api/config/model_config/" class="md-nav__link">
         
   
   
@@ -968,7 +1001,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/trainer_config/" class="md-nav__link">
+      <a href="../api/config/trainer_config/" class="md-nav__link">
         
   
   
@@ -991,7 +1024,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/training_job_config/" class="md-nav__link">
+      <a href="../api/config/training_job_config/" class="md-nav__link">
         
   
   
@@ -1014,7 +1047,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../config/utils/" class="md-nav__link">
+      <a href="../api/config/utils/" class="md-nav__link">
         
   
   
@@ -1059,7 +1092,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../data/" class="md-nav__link ">
+            <a href="../api/data/" class="md-nav__link ">
               
   
   
@@ -1092,7 +1125,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/augmentation/" class="md-nav__link">
+      <a href="../api/data/augmentation/" class="md-nav__link">
         
   
   
@@ -1115,7 +1148,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/confidence_maps/" class="md-nav__link">
+      <a href="../api/data/confidence_maps/" class="md-nav__link">
         
   
   
@@ -1138,7 +1171,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/custom_datasets/" class="md-nav__link">
+      <a href="../api/data/custom_datasets/" class="md-nav__link">
         
   
   
@@ -1161,7 +1194,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/edge_maps/" class="md-nav__link">
+      <a href="../api/data/edge_maps/" class="md-nav__link">
         
   
   
@@ -1184,7 +1217,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/identity/" class="md-nav__link">
+      <a href="../api/data/identity/" class="md-nav__link">
         
   
   
@@ -1207,7 +1240,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/instance_centroids/" class="md-nav__link">
+      <a href="../api/data/instance_centroids/" class="md-nav__link">
         
   
   
@@ -1230,7 +1263,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/instance_cropping/" class="md-nav__link">
+      <a href="../api/data/instance_cropping/" class="md-nav__link">
         
   
   
@@ -1253,7 +1286,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/normalization/" class="md-nav__link">
+      <a href="../api/data/normalization/" class="md-nav__link">
         
   
   
@@ -1276,7 +1309,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/providers/" class="md-nav__link">
+      <a href="../api/data/providers/" class="md-nav__link">
         
   
   
@@ -1299,7 +1332,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/resizing/" class="md-nav__link">
+      <a href="../api/data/resizing/" class="md-nav__link">
         
   
   
@@ -1322,7 +1355,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../data/utils/" class="md-nav__link">
+      <a href="../api/data/utils/" class="md-nav__link">
         
   
   
@@ -1353,7 +1386,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../evaluation/" class="md-nav__link">
+      <a href="../api/evaluation/" class="md-nav__link">
         
   
   
@@ -1390,7 +1423,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../inference/" class="md-nav__link ">
+            <a href="../api/inference/" class="md-nav__link ">
               
   
   
@@ -1423,7 +1456,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/bottomup/" class="md-nav__link">
+      <a href="../api/inference/bottomup/" class="md-nav__link">
         
   
   
@@ -1446,7 +1479,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/identity/" class="md-nav__link">
+      <a href="../api/inference/identity/" class="md-nav__link">
         
   
   
@@ -1469,7 +1502,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/paf_grouping/" class="md-nav__link">
+      <a href="../api/inference/paf_grouping/" class="md-nav__link">
         
   
   
@@ -1492,7 +1525,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/peak_finding/" class="md-nav__link">
+      <a href="../api/inference/peak_finding/" class="md-nav__link">
         
   
   
@@ -1515,7 +1548,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/predictors/" class="md-nav__link">
+      <a href="../api/inference/predictors/" class="md-nav__link">
         
   
   
@@ -1538,7 +1571,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/single_instance/" class="md-nav__link">
+      <a href="../api/inference/single_instance/" class="md-nav__link">
         
   
   
@@ -1561,7 +1594,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/topdown/" class="md-nav__link">
+      <a href="../api/inference/topdown/" class="md-nav__link">
         
   
   
@@ -1584,7 +1617,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../inference/utils/" class="md-nav__link">
+      <a href="../api/inference/utils/" class="md-nav__link">
         
   
   
@@ -1615,7 +1648,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../legacy_models/" class="md-nav__link">
+      <a href="../api/legacy_models/" class="md-nav__link">
         
   
   
@@ -1638,7 +1671,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../predict/" class="md-nav__link">
+      <a href="../api/predict/" class="md-nav__link">
         
   
   
@@ -1675,7 +1708,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../tracking/" class="md-nav__link ">
+            <a href="../api/tracking/" class="md-nav__link ">
               
   
   
@@ -1722,7 +1755,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../tracking/candidates/" class="md-nav__link ">
+            <a href="../api/tracking/candidates/" class="md-nav__link ">
               
   
   
@@ -1755,7 +1788,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracking/candidates/fixed_window/" class="md-nav__link">
+      <a href="../api/tracking/candidates/fixed_window/" class="md-nav__link">
         
   
   
@@ -1778,7 +1811,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracking/candidates/local_queues/" class="md-nav__link">
+      <a href="../api/tracking/candidates/local_queues/" class="md-nav__link">
         
   
   
@@ -1809,7 +1842,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracking/track_instance/" class="md-nav__link">
+      <a href="../api/tracking/track_instance/" class="md-nav__link">
         
   
   
@@ -1832,7 +1865,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracking/tracker/" class="md-nav__link">
+      <a href="../api/tracking/tracker/" class="md-nav__link">
         
   
   
@@ -1855,7 +1888,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracking/utils/" class="md-nav__link">
+      <a href="../api/tracking/utils/" class="md-nav__link">
         
   
   
@@ -1886,7 +1919,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../train/" class="md-nav__link">
+      <a href="../api/train/" class="md-nav__link">
         
   
   
@@ -1923,7 +1956,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../training/" class="md-nav__link ">
+            <a href="../api/training/" class="md-nav__link ">
               
   
   
@@ -1956,7 +1989,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/callbacks/" class="md-nav__link">
+      <a href="../api/training/callbacks/" class="md-nav__link">
         
   
   
@@ -1979,7 +2012,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/lightning_modules/" class="md-nav__link">
+      <a href="../api/training/lightning_modules/" class="md-nav__link">
         
   
   
@@ -2002,7 +2035,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/losses/" class="md-nav__link">
+      <a href="../api/training/losses/" class="md-nav__link">
         
   
   
@@ -2025,7 +2058,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/model_trainer/" class="md-nav__link">
+      <a href="../api/training/model_trainer/" class="md-nav__link">
         
   
   
@@ -2048,7 +2081,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../training/utils/" class="md-nav__link">
+      <a href="../api/training/utils/" class="md-nav__link">
         
   
   
@@ -2104,6 +2137,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -2112,19 +2147,52 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.cli" class="md-nav__link">
+  <a href="#accessing-example-notebooks" class="md-nav__link">
     <span class="md-ellipsis">
-      cli
+      Accessing Example Notebooks
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="cli">
+    <nav class="md-nav" aria-label="Accessing Example Notebooks">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.cli.cli" class="md-nav__link">
+  <a href="#getting-started-with-marimo" class="md-nav__link">
     <span class="md-ellipsis">
-      cli
+      Getting Started with Marimo
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#available-tutorials" class="md-nav__link">
+    <span class="md-ellipsis">
+      📖 Available Tutorials
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📖 Available Tutorials">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-training-demo-notebook" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Training Demo Notebook
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-augmentation-guide-notebook" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Augmentation Guide Notebook
     </span>
   </a>
   
@@ -2154,99 +2222,52 @@
   
 
 
-  <h1>cli</h1>
-
-<div class="doc doc-object doc-module">
-
-
-
-<h2 id="sleap_nn.cli" class="doc doc-heading">
-            <code>sleap_nn.cli</code>
-
-
-<a href="#sleap_nn.cli" class="headerlink" title="Permanent link">&para;</a></h2>
-
-    <div class="doc doc-contents first">
-
-        <p>Command line interface for sleap-nn.</p>
-
-
-
-
-
-
-
-
-
-
-<p><span class="doc-section-title">Functions:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-            <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;cli&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;()&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.cli.cli&lt;/code&gt;)" href="#sleap_nn.cli.cli">cli</a></code></td>
-              <td>
-                <div class="doc-md-description">
-                  <p>Command line interface for sleap-nn.</p>
-                </div>
-              </td>
-            </tr>
-      </tbody>
-    </table>
-
-
-
-
-
-  <div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-<div class="doc doc-object doc-function">
-
-
-<h3 id="sleap_nn.cli.cli" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">cli</span><span class="p">()</span></code>
-
-<a href="#sleap_nn.cli.cli" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-
-        <p>Command line interface for sleap-nn.</p>
-
-
-            <details class="quote">
-              <summary>Source code in <code>sleap_nn/cli.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-4">4</a></span>
-<span class="normal"><a href="#__codelineno-0-5">5</a></span>
-<span class="normal"><a href="#__codelineno-0-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="k">def</span><span class="w"> </span><span class="nf">cli</span><span class="p">():</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Command line interface for sleap-nn.&quot;&quot;&quot;</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Hello world!&quot;</span><span class="p">)</span>
-</span></code></pre></div></td></tr></table></div>
-            </details>
-    </div>
-
-</div>
-
-
-
-  </div>
-
-    </div>
-
-</div>
+<h1 id="example-notebooks">Example Notebooks<a class="headerlink" href="#example-notebooks" title="Permanent link">&para;</a></h1>
+<p>This page provides information on how to access and use the example notebooks from the sleap-nn GitHub repository.</p>
+<h2 id="accessing-example-notebooks">Accessing Example Notebooks<a class="headerlink" href="#accessing-example-notebooks" title="Permanent link">&para;</a></h2>
+<p>The example notebooks are available in the <a href="https://github.com/talmolab/sleap-nn">sleap-nn GitHub repository</a> in the <code>example_notebooks/</code> folder. These notebooks are created with <a href="https://github.com/marimo-team/marimo">marimo</a> and provide interactive tutorials for various sleap-nn workflows.</p>
+<h3 id="getting-started-with-marimo">Getting Started with Marimo<a class="headerlink" href="#getting-started-with-marimo" title="Permanent link">&para;</a></h3>
+<p>The example notebooks use marimo, which provides a <strong>sandboxed environment</strong> that automatically handles all dependencies. You don't need to create a separate sleap-nn environment.</p>
+<h4 id="prerequisites">Prerequisites<a class="headerlink" href="#prerequisites" title="Permanent link">&para;</a></h4>
+<ol>
+<li>
+<p><strong>Install <a href="https://github.com/astral-sh/uv">uv</a></strong>: 
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>pip<span class="w"> </span>install<span class="w"> </span>uv
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Create a new folder and initialize uv</strong>:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>init
+</span></code></pre></div></p>
+</li>
+</ol>
+<h4 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h4>
+<ol>
+<li>
+<p><strong>Add <a href="https://github.com/marimo-team/marimo">marimo</a> to your project</strong>:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>add<span class="w"> </span>marimo
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Run a marimo notebook</strong>:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span>&lt;filename.py&gt;
+</span></code></pre></div></p>
+</li>
+</ol>
+<p>For example:
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span><span class="s2">&quot;notebook.py&quot;</span>
+</span></code></pre></div></p>
+<h2 id="available-tutorials">📖 Available Tutorials<a class="headerlink" href="#available-tutorials" title="Permanent link">&para;</a></h2>
+<h3 id="1-training-demo-notebook">1. Training Demo Notebook<a class="headerlink" href="#1-training-demo-notebook" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>File</strong>: <a href="https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py">training_demo.py</a></li>
+<li><strong>Description</strong>: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.</li>
+</ul>
+<h3 id="2-augmentation-guide-notebook">2. Augmentation Guide Notebook<a class="headerlink" href="#2-augmentation-guide-notebook" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>File</strong>: <a href="https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py">augmentation_guide.py</a></li>
+<li><strong>Description</strong>: Visualize the different data augmentation techniques available in sleap-nn.</li>
+</ul>
 
 
 
@@ -2301,10 +2322,10 @@
     
     
       
-      <script id="__config" type="application/json">{"base": "../..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../assets/javascripts/workers/search.d50fe291.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="../../assets/javascripts/bundle.50899def.min.js"></script>
+      <script src="../assets/javascripts/bundle.50899def.min.js"></script>
       
     
   </body>
