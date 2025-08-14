@@ -24,14 +24,14 @@ def run_training(config: DictConfig):
     """Create ModelTrainer instance and start training."""
     start_train_time = time()
     start_timestamp = str(datetime.now())
-    logger.info("Started training at:", start_timestamp)
+    logger.info(f"Started training at: {start_timestamp}")
 
     trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
 
     finish_timestamp = str(datetime.now())
     total_elapsed = time() - start_train_time
-    logger.info("Finished training at:", finish_timestamp)
+    logger.info(f"Finished training at: {finish_timestamp}")
     logger.info(f"Total training time: {total_elapsed} secs")
 
     rank = trainer.trainer.global_rank if trainer.trainer is not None else -1
