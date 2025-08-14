@@ -147,6 +147,7 @@ sleap-nn-train \
 To automatically configure the accelerator and number of devices, set:
 ```yaml
 trainer_config:
+  save_ckpt_path: multi_gpu_training
   trainer_accelerator: "auto"
   trainer_devices: "auto"
   trainer_strategy: "auto"
@@ -155,13 +156,14 @@ trainer_config:
 To set the number of gpus to be used and the accelerator:
 ```yaml
 trainer_config:
+  save_ckpt_path: multi_gpu_training
   trainer_accelerator: "gpu"
   trainer_devices: 4
   trainer_strategy: "ddp"
 ```
 
 !!! note
-    In a multi-gpu training setup, the effective steps during training would be the given `config.trainer_config.trainer_steps_per_epoch` / `config.trainer_config.trainer_devices`. 
+    In a multi-gpu training setup, the effective steps during training would be `config.trainer_config.trainer_steps_per_epoch` / `config.trainer_config.trainer_devices`. 
 !!! note
     Multi-node trainings have not been validated and should be considered experimental.
 

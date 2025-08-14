@@ -118,11 +118,11 @@ class ModelTrainer:
                 if model_trainer.config.data_config.val_labels_path is not None
                 else None
             )
-            model_trainer.setup_train_val_labels(
+            model_trainer._setup_train_val_labels(
                 labels=train_labels, val_labels=val_labels
             )
         else:
-            model_trainer.setup_train_val_labels(
+            model_trainer._setup_train_val_labels(
                 labels=train_labels, val_labels=val_labels
             )
 
@@ -132,7 +132,7 @@ class ModelTrainer:
 
         return model_trainer
 
-    def setup_train_val_labels(
+    def _setup_train_val_labels(
         self,
         labels: Optional[List[sio.Labels]] = None,
         val_labels: Optional[List[sio.Labels]] = None,
@@ -183,35 +183,6 @@ class ModelTrainer:
 
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
         logger.info(f"# Val Labeled frames: {total_val_lfs}")
-
-    def _setup_devices(self):
-        """Setup devices with cross-platform support."""
-        num_devices = self.config.trainer_config.trainer_devices
-        device = self.config.trainer_config.trainer_accelerator
-
-        if device == "auto" or device is None:
-            if torch.cuda.is_available():
-                device = "cuda"
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                device = "mps"
-            elif hasattr(torch, "xpu") and torch.xpu.is_available():
-                device = "xpu"
-            else:
-                device = "cpu"
-
-        if num_devices == "auto" or num_devices is None:
-            # Auto-detect best available device
-            if torch.cuda.is_available():
-                num_devices = torch.cuda.device_count()
-            elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-                num_devices = 1
-            elif hasattr(torch, "xpu") and torch.xpu.is_available():
-                num_devices = torch.xpu.device_count()
-            else:
-                num_devices = 1
-
-        logger.info(f"Using {device} with {num_devices} device(s)")
-        return num_devices, device
 
     def _setup_config(self):
         """Compute preprocessing parameters."""
@@ -336,16 +307,27 @@ class ModelTrainer:
         # set output stride for backbone from head config and verify max stride
         self.config = check_output_strides(self.config)
 
-        # set number of devices
-        num_gpus, device_type = self._setup_devices()
-        self.config.trainer_config.trainer_devices = num_gpus
-        self.config.trainer_config.trainer_accelerator = device_type
-
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path
         if ckpt_path is None:
-            if num_gpus > 1:
-                ckpt_path = f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
+            trainer_devices = (
+                self.config.trainer_config.trainer_devices
+                if self.config.trainer_config.trainer_devices is not None
+                else "auto"
+            )
+            if trainer_devices == "auto":
+                if torch.cuda.is_available():
+                    trainer_devices = torch.cuda.device_count()
+                elif torch.backends.mps.is_available():
+                    trainer_devices = 1
+                elif torch.xpu.is_available():
+                    trainer_devices = torch.xpu.device_count()
+                else:
+                    trainer_devices = 1
+            if trainer_devices > 1:
+                ckpt_path = (
+                    f"{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
+                )
             else:
                 ckpt_path = (
                     datetime.now().strftime("%y%m%d_%H%M%S")
@@ -649,7 +631,7 @@ class ModelTrainer:
 
         # initialize the labels object and update config.
         if not len(self.train_labels) or not len(self.val_labels):
-            self.setup_train_val_labels(self.config)
+            self._setup_train_val_labels(self.config)
             self._setup_config()
 
         # create the ckpt dir.
@@ -724,6 +706,20 @@ class ModelTrainer:
             dataset=val_dataset,
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
         )
+
+        # set devices and accelrator
+        if (
+            self.config.trainer_config.trainer_devices is None
+            or self.config.trainer_config.trainer_accelerator == "auto"
+        ):
+            self.config.trainer_config.trainer_devices = self.trainer.num_devices
+        if (
+            self.config.trainer_config.trainer_accelerator is None
+            or self.config.trainer_config.trainer_accelerator == "auto"
+        ):
+            self.config.trainer_config.trainer_accelerator = (
+                self.trainer.strategy.root_device
+            )
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank

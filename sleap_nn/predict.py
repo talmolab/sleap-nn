@@ -246,7 +246,7 @@ def run_inference(
         else:
             start_inf_time = time()
             start_timestamp = str(datetime.now())
-            logger.info("Started tracking at:", start_timestamp)
+            logger.info(f"Started tracking at: {start_timestamp}")
 
             labels = sio.load_slp(data_path)
             frames = sorted(labels.labeled_frames, key=lambda lf: lf.frame_idx)
@@ -276,7 +276,7 @@ def run_inference(
 
             finish_timestamp = str(datetime.now())
             total_elapsed = time() - start_inf_time
-            logger.info("Finished tracking at:", finish_timestamp)
+            logger.info(f"Finished tracking at: {finish_timestamp}")
             logger.info(f"Total runtime: {total_elapsed} secs")
 
             output = sio.Labels(
@@ -288,7 +288,7 @@ def run_inference(
     else:
         start_inf_time = time()
         start_timestamp = str(datetime.now())
-        logger.info("Started inference at:", start_timestamp)
+        logger.info(f"Started inference at: {start_timestamp}")
 
         if device == "auto":
             device = (
@@ -398,7 +398,7 @@ def run_inference(
             start_final_pass_time = time()
             start_fp_timestamp = str(datetime.now())
             logger.info(
-                "Started final-pass (connecting single breaks) at:", start_fp_timestamp
+                f"Started final-pass (connecting single breaks) at: {start_fp_timestamp}"
             )
             corrected_lfs = connect_single_breaks(
                 lfs=[x for x in output], max_instances=max_tracks
@@ -406,8 +406,7 @@ def run_inference(
             finish_fp_timestamp = str(datetime.now())
             total_fp_elapsed = time() - start_final_pass_time
             logger.info(
-                "Finished final-pass (connecting single breaks) at:",
-                finish_fp_timestamp,
+                f"Finished final-pass (connecting single breaks) at: {finish_fp_timestamp}"
             )
             logger.info(f"Total runtime: {total_fp_elapsed} secs")
 
@@ -419,7 +418,7 @@ def run_inference(
 
         finish_timestamp = str(datetime.now())
         total_elapsed = time() - start_inf_time
-        logger.info("Finished inference at:", finish_timestamp)
+        logger.info(f"Finished inference at: {finish_timestamp}")
         logger.info(
             f"Total runtime: {total_elapsed} secs"
         )  # TODO: add number of predicted frames
@@ -430,7 +429,7 @@ def run_inference(
         output.save(Path(output_path).as_posix(), restore_original_videos=False)
     finish_timestamp = str(datetime.now())
     logger.info(f"Predictions output path: {output_path}")
-    logger.info("Saved file at:", finish_timestamp)
+    logger.info(f"Saved file at: {finish_timestamp}")
 
     return output
 

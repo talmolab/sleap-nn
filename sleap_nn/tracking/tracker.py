@@ -799,13 +799,13 @@ def run_tracker(
         start_final_pass_time = time()
         start_fp_timestamp = str(datetime.now())
         logger.info(
-            "Started final-pass (connecting single breaks) at:", start_fp_timestamp
+            f"Started final-pass (connecting single breaks) at: {start_fp_timestamp}"
         )
         tracked_lfs = connect_single_breaks(tracked_lfs, max_instances=max_tracks)
         finish_fp_timestamp = str(datetime.now())
         total_fp_elapsed = time() - start_final_pass_time
         logger.info(
-            "Finished final-pass (connecting single breaks) at:", finish_fp_timestamp
+            f"Finished final-pass (connecting single breaks) at: {finish_fp_timestamp}"
         )
         logger.info(f"Total runtime: {total_fp_elapsed} secs")
 

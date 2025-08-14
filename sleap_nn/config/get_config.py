@@ -157,7 +157,7 @@ def get_aug_config(
                 aug_config.geometric.mixup_p = 1.0
             else:
                 raise ValueError(
-                    f"`{intensity_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
+                    f"`{geometric_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
                 )
 
     elif isinstance(geometric_aug, dict):
