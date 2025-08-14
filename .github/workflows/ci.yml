@@ -82,6 +82,24 @@ jobs:
           echo "=== Import Test ==="
           uv run python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
 
+      - name: Check MPS backend (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          echo "=== macOS MPS Backend Check ==="
+          uv run python -c "
+          import torch
+          print(f'PyTorch version: {torch.__version__}')
+          print(f'MPS available: {torch.backends.mps.is_available()}')
+          print(f'MPS built: {torch.backends.mps.is_built()}')
+          if torch.backends.mps.is_available():
+              print('MPS backend is available and ready to use!')
+              device = torch.device('mps')
+              test_tensor = torch.randn(3, 3).to(device)
+              print(f'Test tensor on MPS: {test_tensor.device}')
+          else:
+              print('MPS backend is not available on this macOS system')
+          "
+
       - name: Run pytest
         run: |
           echo "=== Final environment check before tests ==="
