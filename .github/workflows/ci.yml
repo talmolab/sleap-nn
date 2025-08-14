@@ -48,11 +48,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-latest", "windows-latest", "macos-14"]
+        os: ["ubuntu", "windows", "mac", "self-hosted-gpu"]
+        include:
+          - os: ubuntu
+            runs-on: ubuntu-latest
+          - os: windows
+            runs-on: windows-latest
+          - os: mac
+            runs-on: macos-14
+          - os: self-hosted-gpu
+            runs-on: [self-hosted, puma, gpu, 2xgpu]
         python: [3.11]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runs-on }}
 
     steps:
       - name: Checkout repo
