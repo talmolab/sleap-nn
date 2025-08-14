@@ -19,11 +19,7 @@ license = {text = "BSD-3-Clause"}
 classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
-dependencies = []
-dynamic = ["version", "readme"]
-
-[dependency-groups]
-default = [
+dependencies = [
     "sleap-io>=0.2.0",
     "numpy",
     "lightning",
@@ -41,6 +37,7 @@ default = [
     "opencv-python",
     "hydra-core"
 ]
+dynamic = ["version", "readme"]
 
 [tool.setuptools]
 packages = ["sleap_nn"]
@@ -50,14 +47,6 @@ version = {attr = "sleap_nn.__version__"}
 readme = {file = ["README.md"]}
 
 [project.optional-dependencies]
-ml = [
-    "lightning",
-    "kornia",
-]
-torch = [
-    "torch",
-    "torchvision"
-]
 torch-cpu = [
     "torch",
     "torchvision",
