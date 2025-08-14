@@ -26,6 +26,8 @@ dynamic = ["version", "readme"]
 default = [
     "sleap-io>=0.2.0",
     "numpy",
+    "lightning",
+    "kornia",
     "jsonpickle",
     "scipy",
     "attrs",
