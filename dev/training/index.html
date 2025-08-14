@@ -11,7 +11,7 @@
         <link rel="canonical" href="https://nn.sleap.ai/dev/training/">
       
       
-        <link rel="prev" href="../installation/">
+        <link rel="prev" href="../models/">
       
       
         <link rel="next" href="../api/">
@@ -263,7 +263,7 @@
   
   
   <span class="md-ellipsis">
-    sleap-nn
+    SLEAP-NN
     
   </span>
   
@@ -307,7 +307,7 @@
   
   
   <span class="md-ellipsis">
-    SLEAP-NN Configuration Guide
+    Configuration Guide
     
   </span>
   
@@ -324,12 +324,12 @@
   
   
     <li class="md-nav__item">
-      <a href="../configuration/" class="md-nav__link">
+      <a href="../inference/" class="md-nav__link">
         
   
   
   <span class="md-ellipsis">
-    Configuration Reference
+    Running Inference
     
   </span>
   
@@ -352,6 +352,28 @@
   
   <span class="md-ellipsis">
     Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Models
     
   </span>
   
@@ -427,27 +449,42 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#basic-training-command" class="md-nav__link">
+  <a href="#training-with-config" class="md-nav__link">
     <span class="md-ellipsis">
-      Basic Training Command
+      Training with Config
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training with Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#using-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using CLI
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#model-types" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#using-modeltrainer-api" class="md-nav__link">
     <span class="md-ellipsis">
-      Model Types
+      Using ModelTrainer API
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#configuration-options" class="md-nav__link">
+  <a href="#training-without-config" class="md-nav__link">
     <span class="md-ellipsis">
-      Configuration Options
+      Training without Config
     </span>
   </a>
   
@@ -460,6 +497,39 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Monitoring Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#weights-biases-wandb-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Weights &amp; Biases (WandB) Integration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkpointing-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Checkpointing &amp; Artifacts
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#training-visualization" class="md-nav__link">
+    <span class="md-ellipsis">
+      Training Visualization
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -468,6 +538,30 @@
       Advanced Options
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Advanced Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resume-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resume Training
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-gpu-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multi-GPU Training
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -486,6 +580,39 @@
       Troubleshooting
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#out-of-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      Out of Memory
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slow-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Slow Training
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#poor-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Poor Performance
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -526,10 +653,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
         
           
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="">
             
   
   
@@ -542,8 +669,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             Api
           </label>
@@ -566,7 +693,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -583,14 +710,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1" id="__nav_7_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1" id="__nav_8_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_7_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_8_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1">
             <span class="md-nav__icon md-icon"></span>
             sleap_nn
           </label>
@@ -613,7 +740,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -630,14 +757,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1_1" id="__nav_7_1_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_1" id="__nav_8_1_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1_1">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_1">
             <span class="md-nav__icon md-icon"></span>
             architectures
           </label>
@@ -875,7 +1002,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_3" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -892,14 +1019,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1_3" id="__nav_7_1_3_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_3" id="__nav_8_1_3_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_3_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1_3">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_3">
             <span class="md-nav__icon md-icon"></span>
             config
           </label>
@@ -1068,7 +1195,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_4" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1085,14 +1212,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1_4" id="__nav_7_1_4_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_4" id="__nav_8_1_4_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1_4">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_4">
             <span class="md-nav__icon md-icon"></span>
             data
           </label>
@@ -1399,7 +1526,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_6" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1416,14 +1543,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1_6" id="__nav_7_1_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_6" id="__nav_8_1_6_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1_6">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_6">
             <span class="md-nav__icon md-icon"></span>
             inference
           </label>
@@ -1684,7 +1811,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_9" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_9" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1701,14 +1828,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1_9" id="__nav_7_1_9_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_9" id="__nav_8_1_9_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_9_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1_9">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_9">
             <span class="md-nav__icon md-icon"></span>
             tracking
           </label>
@@ -1731,7 +1858,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_9_1" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_9_1" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1748,14 +1875,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1_9_1" id="__nav_7_1_9_1_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_9_1" id="__nav_8_1_9_1_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_7_1_9_1_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1_9_1">
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_8_1_9_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_9_1">
             <span class="md-nav__icon md-icon"></span>
             candidates
           </label>
@@ -1932,7 +2059,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7_1_11" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8_1_11" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1949,14 +2076,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_7_1_11" id="__nav_7_1_11_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_8_1_11" id="__nav_8_1_11_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_7_1_11_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7_1_11">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_8_1_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8_1_11">
             <span class="md-nav__icon md-icon"></span>
             training
           </label>
@@ -2136,27 +2263,42 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#basic-training-command" class="md-nav__link">
+  <a href="#training-with-config" class="md-nav__link">
     <span class="md-ellipsis">
-      Basic Training Command
+      Training with Config
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training with Config">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#using-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      Using CLI
     </span>
   </a>
   
 </li>
-      
-        <li class="md-nav__item">
-  <a href="#model-types" class="md-nav__link">
+        
+          <li class="md-nav__item">
+  <a href="#using-modeltrainer-api" class="md-nav__link">
     <span class="md-ellipsis">
-      Model Types
+      Using ModelTrainer API
     </span>
   </a>
   
 </li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
-  <a href="#configuration-options" class="md-nav__link">
+  <a href="#training-without-config" class="md-nav__link">
     <span class="md-ellipsis">
-      Configuration Options
+      Training without Config
     </span>
   </a>
   
@@ -2169,6 +2311,39 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Monitoring Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#weights-biases-wandb-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Weights &amp; Biases (WandB) Integration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checkpointing-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      Checkpointing &amp; Artifacts
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#training-visualization" class="md-nav__link">
+    <span class="md-ellipsis">
+      Training Visualization
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2177,6 +2352,30 @@
       Advanced Options
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Advanced Options">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resume-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Resume Training
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-gpu-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Multi-GPU Training
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2195,6 +2394,39 @@
       Troubleshooting
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#out-of-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      Out of Memory
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#slow-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Slow Training
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#poor-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      Poor Performance
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -2228,100 +2460,147 @@
 
 <h1 id="training-models">Training Models<a class="headerlink" href="#training-models" title="Permanent link">&para;</a></h1>
 <h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
-<p>sleap-nn uses a configuration-based training system powered by Hydra and PyTorch Lightning. This guide covers the basics of training different model types.</p>
-<h2 id="basic-training-command">Basic Training Command<a class="headerlink" href="#basic-training-command" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.train<span class="w"> </span>--config-name<span class="w"> </span>config
+<p>SLEAP-NN leverages a flexible, configuration-driven training workflow built on Hydra and OmegaConf. This guide will walk you through the essential steps for training pose estimation models using SLEAP-NN, whether you prefer the command-line interface or Python APIs.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Training is only supported with SLEAP label files with ground truth annotations in <code>.slp</code> or <code>.pkg.slp</code> format.</p>
+</div>
+<h2 id="training-with-config">Training with Config<a class="headerlink" href="#training-with-config" title="Permanent link">&para;</a></h2>
+<p>This section explains how to train a model using an existing configuration file. If you need help creating or editing a config, see the <a href="../config/">configuration guide</a>. </p>
+<h3 id="using-cli">Using CLI<a class="headerlink" href="#using-cli" title="Permanent link">&para;</a></h3>
+<p>To train a model using CLI, 
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sleap-nn-train<span class="w"> </span>--config-name<span class="w"> </span>config<span class="w"> </span>--config-path<span class="w"> </span>path/to/config_dir
+</span></code></pre></div></p>
+<p>Override any configuration from command line:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Train on list of .slp files</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleap-nn-train<span class="w"> </span>--config-name<span class="w"> </span>config<span class="w"> </span>--config-path<span class="w"> </span>path/to/config_dir<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]&quot;</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Change batch size</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>sleap-nn-train<span class="w"> </span>--config-name<span class="w"> </span>config<span class="w"> </span>--config-path<span class="w"> </span>path/to/config_dir<span class="w"> </span>data_config.batch_size<span class="o">=</span><span class="m">32</span><span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Use different GPU</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>sleap-nn-train<span class="w"> </span>--config-name<span class="w"> </span>config<span class="w"> </span>--config-path<span class="w"> </span>path/to/config_dir<span class="w"> </span>trainer_config.devices<span class="o">=</span><span class="m">1</span><span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># Change learning rate</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>sleap-nn-train<span class="w"> </span>--config-name<span class="w"> </span>config<span class="w"> </span>--config-path<span class="w"> </span>path/to/config_dir<span class="w"> </span>trainer_config.learning_rate<span class="o">=</span>5e-4<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
 </span></code></pre></div>
-<h2 id="model-types">Model Types<a class="headerlink" href="#model-types" title="Permanent link">&para;</a></h2>
-<h3 id="single-instance">Single Instance<a class="headerlink" href="#single-instance" title="Permanent link">&para;</a></h3>
-<p>For videos with exactly one animal:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.train<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span>--config-path<span class="w"> </span>configs<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span>--config-name<span class="w"> </span>single_instance_unet
-</span></code></pre></div>
-<h3 id="top-down">Top-Down<a class="headerlink" href="#top-down" title="Permanent link">&para;</a></h3>
-<p>Two-stage approach (centroid → instance):</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>For topdown, we need to train two models (centroid → instance):</p>
+</div>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Train centroid model</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.train<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>sleap-nn-train<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>--config-path<span class="w"> </span>configs<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--config-name<span class="w"> </span>centroid_unet
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># Train centered instance model</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.train<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span>--config-path<span class="w"> </span>configs<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span>--config-name<span class="w"> </span>centered_instance_unet
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--config-name<span class="w"> </span>centroid_unet<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="c1"># Train centered instance model</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>sleap-nn-train<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span>--config-path<span class="w"> </span>configs<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span>--config-name<span class="w"> </span>centered_instance_unet<span class="w"> </span><span class="se">\ </span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
 </span></code></pre></div>
-<h3 id="bottom-up">Bottom-Up<a class="headerlink" href="#bottom-up" title="Permanent link">&para;</a></h3>
-<p>Direct multi-instance with PAFs:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.train<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span>--config-path<span class="w"> </span>configs<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span>--config-name<span class="w"> </span>bottomup_unet
+<h3 id="using-modeltrainer-api">Using <code>ModelTrainer</code> API<a class="headerlink" href="#using-modeltrainer-api" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">omegaconf</span><span class="w"> </span><span class="kn">import</span> <span class="n">OmegaConf</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.training.model_trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelTrainer</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="n">config</span> <span class="o">=</span> <span class="n">OmegaConf</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="n">trainer</span> <span class="o">=</span> <span class="n">ModelTrainer</span><span class="o">.</span><span class="n">get_model_trainer_from_config</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">)</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
 </span></code></pre></div>
-<h2 id="configuration-options">Configuration Options<a class="headerlink" href="#configuration-options" title="Permanent link">&para;</a></h2>
-<h3 id="data-configuration">Data Configuration<a class="headerlink" href="#data-configuration" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">data_config</span><span class="p">:</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">data_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/labels.slp</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">video_backend</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;pyav&quot;</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">batch_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">num_workers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
-</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">augmentation</span><span class="p">:</span>
-</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">rotate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">    </span><span class="nt">translate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<p>If you have a cutsom labels object which is not in a slp file:
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">omegaconf</span><span class="w"> </span><span class="kn">import</span> <span class="n">OmegaConf</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.training.model_trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">ModelTrainer</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="n">config</span> <span class="o">=</span> <span class="n">OmegaConf</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="s2">&quot;config.yaml&quot;</span><span class="p">)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">trainer</span> <span class="o">=</span> <span class="n">ModelTrainer</span><span class="o">.</span><span class="n">get_model_trainer_from_config</span><span class="p">(</span><span class="n">config</span><span class="o">=</span><span class="n">config</span><span class="p">,</span> <span class="n">train_labels</span><span class="o">=</span><span class="p">[</span><span class="n">train_labels</span><span class="p">],</span> <span class="n">val_labels</span><span class="o">=</span><span class="p">[</span><span class="n">val_labels</span><span class="p">])</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="n">trainer</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+</span></code></pre></div></p>
+<h2 id="training-without-config">Training without Config<a class="headerlink" href="#training-without-config" title="Permanent link">&para;</a></h2>
+<p>If you prefer not to create a large custom config file, you can quickly train a model by calling the <code>train()</code> function directly and passing your desired parameters as arguments.</p>
+<p>This approach is much simpler than manually specifying every parameter for each model component. For example, instead of defining all the details for a UNet backbone, you can just set <code>backbone_config="unet_medium_rf"</code> or <code>"unet_large_rf"</code>, and the appropriate preset values will be used automatically. The same applies to head configurations—just specify the desired preset (e.g., <code>"bottomup"</code>), and the defaults are handled for you. To look into the preset values for each of the backbones and heads, refer the <a href="../api/config/model_config/#sleap_nn.config.model_config">model configs</a>.</p>
+<p>For a full list of available arguments and their descriptions, see the <a href="../api/train/#sleap_nn.train.train"><code>train()</code> API reference</a> in the documentation.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">train</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">train</span><span class="p">(</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">train_labels_path</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;labels.slp&quot;</span><span class="p">],</span> <span class="c1"># or list of labels</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">backbone_config</span><span class="o">=</span><span class="s2">&quot;unet_medium_rf&quot;</span><span class="p">,</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">head_configs</span><span class="o">=</span><span class="s2">&quot;bottomup&quot;</span><span class="p">,</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>    <span class="n">save_ckpt</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="p">)</span>
 </span></code></pre></div>
-<h3 id="model-configuration">Model Configuration<a class="headerlink" href="#model-configuration" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">model_config</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">architecture</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;unet&quot;</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">backbone_config</span><span class="p">:</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">filters</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">32</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">depth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">  </span><span class="nt">head_config</span><span class="p">:</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">    </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="nt">loss_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
-</span></code></pre></div>
-<h3 id="training-configuration">Training Configuration<a class="headerlink" href="#training-configuration" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">max_epochs</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">100</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">learning_rate</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1e-3</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">accelerator</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gpu&quot;</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">devices</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
-</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">  </span><span class="nt">precision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span>
+<p>Applying data augmentation is also much simpler—you can just specify the augmentation names directly (as a string or list), instead of writing out a full configuration.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.train</span><span class="w"> </span><span class="kn">import</span> <span class="n">train</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="n">train</span><span class="p">(</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>    <span class="n">train_labels_path</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;labels.slp&quot;</span><span class="p">],</span> <span class="c1"># or list of labels</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">backbone_config</span><span class="o">=</span><span class="s2">&quot;unet_medium_rf&quot;</span><span class="p">,</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">head_configs</span><span class="o">=</span><span class="s2">&quot;bottomup&quot;</span><span class="p">,</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">save_ckpt</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">use_augmentations_train</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a>    <span class="n">intensity_aug</span><span class="o">=</span><span class="s2">&quot;uniform_noise&quot;</span><span class="p">,</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a>    <span class="n">geometric_aug</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;rotation&quot;</span><span class="p">,</span> <span class="s2">&quot;scale&quot;</span><span class="p">]</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="p">)</span>
 </span></code></pre></div>
 <h2 id="monitoring-training">Monitoring Training<a class="headerlink" href="#monitoring-training" title="Permanent link">&para;</a></h2>
-<h3 id="tensorboard">TensorBoard<a class="headerlink" href="#tensorboard" title="Permanent link">&para;</a></h3>
-<p>Training metrics are logged to TensorBoard:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>tensorboard<span class="w"> </span>--logdir<span class="w"> </span>lightning_logs/
-</span></code></pre></div>
-<h3 id="checkpoints">Checkpoints<a class="headerlink" href="#checkpoints" title="Permanent link">&para;</a></h3>
-<p>Models are saved automatically:
-- Best checkpoint: <code>lightning_logs/version_X/checkpoints/best.ckpt</code>
-- Last checkpoint: <code>lightning_logs/version_X/checkpoints/last.ckpt</code></p>
+<h3 id="weights-biases-wandb-integration">Weights &amp; Biases (WandB) Integration<a class="headerlink" href="#weights-biases-wandb-integration" title="Permanent link">&para;</a></h3>
+<p>If you set <code>trainer_config.use_wandb = True</code> and provide a valid <code>trainer_config.wandb_config</code>, all key training metrics—including losses, training/validation times, and visualizations—are automatically logged to your WandB project. This makes it easy to monitor progress and compare runs.</p>
+<h3 id="checkpointing-artifacts">Checkpointing &amp; Artifacts<a class="headerlink" href="#checkpointing-artifacts" title="Permanent link">&para;</a></h3>
+<p>For every training run, a dedicated checkpoint directory is created. This directory contains:</p>
+<ul>
+<li>The original user-provided config (<code>initial_config.yaml</code>)</li>
+<li>The full training config with computed values (<code>training_config.yaml</code>)</li>
+<li>The best model weights (<code>best.ckpt</code>) when <code>trainer_config.save_ckpt</code> is set to <code>True</code></li>
+<li>The training and validation SLP files used</li>
+<li>A CSV log tracking train/validation loss, times, and learning rate across epochs</li>
+</ul>
+<h3 id="training-visualization">Training Visualization<a class="headerlink" href="#training-visualization" title="Permanent link">&para;</a></h3>
+<p>To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when <code>visualize_preds_during_training</code> is set to <code>True</code>. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting <code>trainer_config.keep_viz</code> to <code>True</code>. If WandB logging is enabled, these visualizations are also uploaded to your WandB dashboard.</p>
 <h2 id="advanced-options">Advanced Options<a class="headerlink" href="#advanced-options" title="Permanent link">&para;</a></h2>
 <h3 id="resume-training">Resume Training<a class="headerlink" href="#resume-training" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>python<span class="w"> </span>-m<span class="w"> </span>sleap_nn.train<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>--config-name<span class="w"> </span>config<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>trainer_config.ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt
+<p>To resume training from a previous checkpoint, </p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn-train<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>--config-name<span class="w"> </span>config<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>--config-path<span class="w"> </span>path/to/config_dir<span class="w"> </span><span class="se">\ </span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span>trainer_config.ckpt_path<span class="o">=</span>/path/to/checkpoint.ckpt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/prv_trained/checkpoint.ckpt<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
 </span></code></pre></div>
 <h3 id="multi-gpu-training">Multi-GPU Training<a class="headerlink" href="#multi-gpu-training" title="Permanent link">&para;</a></h3>
+<p>To automatically configure the accelerator and number of devices, set:
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">save_ckpt_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">multi_gpu_training</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">  </span><span class="nt">trainer_accelerator</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;auto&quot;</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span><span class="nt">trainer_devices</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;auto&quot;</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">  </span><span class="nt">trainer_strategy</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;auto&quot;</span>
+</span></code></pre></div></p>
+<p>To set the number of gpus to be used and the accelerator:
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">accelerator</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gpu&quot;</span>
-</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">devices</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
-</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">strategy</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ddp&quot;</span>
-</span></code></pre></div>
-<h3 id="mixed-precision">Mixed Precision<a class="headerlink" href="#mixed-precision" title="Permanent link">&para;</a></h3>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nt">trainer_config</span><span class="p">:</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span><span class="nt">precision</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span><span class="w">  </span><span class="c1"># or &quot;bf16&quot; for newer GPUs</span>
-</span></code></pre></div>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">save_ckpt_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">multi_gpu_training</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">  </span><span class="nt">trainer_accelerator</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;gpu&quot;</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">  </span><span class="nt">trainer_devices</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">  </span><span class="nt">trainer_strategy</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;ddp&quot;</span>
+</span></code></pre></div></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>In a multi-gpu training setup, the effective steps during training would be <code>config.trainer_config.trainer_steps_per_epoch</code> / <code>config.trainer_config.trainer_devices</code>. </p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Multi-node trainings have not been validated and should be considered experimental.</p>
+</div>
 <h2 id="best-practices">Best Practices<a class="headerlink" href="#best-practices" title="Permanent link">&para;</a></h2>
 <ol>
 <li><strong>Start Simple</strong>: Begin with default configurations</li>
+<li><strong>Cache data</strong>: If you want to get faster training time, consider caching the images on memory (or disk) by setting the relevant <code>data_config.data_pipeline_fw</code>.</li>
 <li><strong>Monitor Overfitting</strong>: Watch validation metrics</li>
 <li><strong>Adjust Learning Rate</strong>: Use learning rate scheduling</li>
-<li><strong>Data Augmentation</strong>: Enable for better generalization</li>
-<li><strong>Early Stopping</strong>: Prevent overfitting with callbacks</li>
+<li><strong>Data Augmentation</strong>: Enable augmentations for better generalization</li>
+<li><strong>Early Stopping</strong>: Prevent overfitting with early stopping callback.</li>
 </ol>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="out-of-memory">Out of Memory<a class="headerlink" href="#out-of-memory" title="Permanent link">&para;</a></h3>
+<p>For large models or datasets:</p>
 <ul>
 <li>Reduce <code>batch_size</code></li>
 <li>Enable gradient accumulation</li>
@@ -2344,9 +2623,9 @@
 </ul>
 <h2 id="next-steps">Next Steps<a class="headerlink" href="#next-steps" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="inference.md">Running Inference</a></li>
-<li><a href="../configuration/">Configuration Reference</a></li>
-<li><a href="architectures.md">Model Architecture Guide</a></li>
+<li><a href="../inference/">Running Inference</a></li>
+<li><a href="../config/">Configuration Guide</a></li>
+<li><a href="../models/">Model Architecture Guide</a></li>
 </ul>
 
 
