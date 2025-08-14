@@ -49,6 +49,8 @@ Create a `config.yaml` file for your experiment.
 
 #### 3. Train a model
 
+> Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
+
 ```bash
 sleap-nn-train --config-name config.yaml --config-path configs/ "data_config.train_labels_path=[labels.pkg.slp]"
 ```
@@ -61,6 +63,9 @@ To run inference:
 sleap-nn-track --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
 > More options for running inference and tracking workflows are available in the [Inference Guide](inference.md).
+
+!!! note
+    **Note:** For tutorials, sample notebooks, and instructions on how to use the interactive notebooks, please see [Example notebooks](example_notebooks.md).
 
 ---
 

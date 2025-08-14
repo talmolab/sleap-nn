@@ -710,7 +710,7 @@ class ModelTrainer:
         # set devices and accelrator
         if (
             self.config.trainer_config.trainer_devices is None
-            or self.config.trainer_config.trainer_accelerator == "auto"
+            or self.config.trainer_config.trainer_devices == "auto"
         ):
             self.config.trainer_config.trainer_devices = self.trainer.num_devices
         if (

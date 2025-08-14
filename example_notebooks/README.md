@@ -35,5 +35,6 @@ This folder contains all tutorial notebooks created with marimo. These notebooks
 
 ## Available Tutorials
 
-- **augmentation_guide.py**: Visualize the different data augmentation techniques in SLEAP-NN
+- **augmentation_guide.py**: Visualize the different data augmentation techniques in sleap-nn.
+- **training_demo.py**: End-to-End demo on creating config file and running training/ inference/ evaluation using sleap-nn APIs.
 
