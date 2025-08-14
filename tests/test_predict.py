@@ -1010,6 +1010,8 @@ def test_predict_main(
     import subprocess
 
     cmd = [
+        "uv",
+        "run",
         "python",
         "-m",
         "sleap_nn.predict",
