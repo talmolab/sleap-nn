@@ -172,7 +172,7 @@ class Model(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
-        if x.shape[-3] != self.backbone_config[f"{self.backbone_type}"].in_channels:
+        if x.shape[-3] != self.backbone_config.in_channels:
             if x.shape[-3] == 1:
                 # convert grayscale to rgb
                 x = x.repeat(1, 3, 1, 1)
