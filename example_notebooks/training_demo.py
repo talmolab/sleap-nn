@@ -91,10 +91,20 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo’s sample_configs and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy funtions and then create an Omegaconf config.""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""First, we set-up the data config using `get_data_config()` function which has a set of defaults, and could be modified if required.""")
+    return
+
+
 @app.cell
 def _(get_data_config, path_to_train_slp_file, path_to_val_slp_file):
-    # setup data config
-
     data_config = get_data_config(
         train_labels_path=[path_to_train_slp_file],
         val_labels_path=[path_to_val_slp_file],
@@ -124,10 +134,14 @@ def _(OmegaConf, data_config):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Next, we set-up the model config using `get_model_config()` function which sets up the parameters for building the model.""")
+    return
+
+
 @app.cell
 def _(get_model_config, model_type):
-    # setup model config
-
     model_config = get_model_config(
         init_weight="xavier", backbone_config="unet", head_configs=f"{model_type.value}"
     )
@@ -145,10 +159,14 @@ def _(OmegaConf, model_config):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Next, we set-up the trainer config using `get_trainer_config()` function which has a set of defaults for setting up the hyperparameters for training, which could be modified if needed.""")
+    return
+
+
 @app.cell
 def _(get_trainer_config, model_type):
-    # setup trainer config
-
     trainer_config = get_trainer_config(
         batch_size=4,
         num_workers=2,
@@ -160,15 +178,35 @@ def _(get_trainer_config, model_type):
         lr_scheduler="reduce_lr_on_plateau",
     )
 
-    trainer_config.max_epochs = 20
+    trainer_config.max_epochs = 10
     return (trainer_config,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
-        r"""**_Note_**: If you’re not using caching (memory/disk; see `data_config.data_pipeline_fw`) and your dataset/transforms aren’t picklable, set num_workers=0 on Windows/macOS (they use `spawn`). On Linux (default `fork`), multiple workers are typically safe."""
+        r"""
+    **_Note_**: If you want to visualize the model training in [WandB](https://wandb.ai), set the following parameters:
+
+    """
     )
+    return
+
+
+@app.cell
+def _():
+    # trainer_config.use_wandb = True
+    # trainer_config.wandb.entity = "<wandb entity name>"
+    # trainer_config.wandb.project = "<wandb project name>"
+    # trainer_config.wandb.name =  "<wandb run name>"
+    # trainer_config.wandb.api_key = "<wandb API key>" # this is required to login to your account
+    # trainer_config.wandb.group = "<wandb run group name>"
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""**_Note_**: If you’re not using caching (memory/disk; see `data_config.data_pipeline_fw`) and your dataset/transforms aren’t picklable, set num_workers=0 on Windows/macOS (they use `spawn`). On Linux (default `fork`), multiple workers are typically safe.""")
     return
 
 
@@ -177,6 +215,12 @@ def _(OmegaConf, trainer_config):
     print("Trainer Config: ")
     print("===========================")
     print(OmegaConf.to_yaml(trainer_config, resolve=True, sort_keys=False))
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Using the above initialized config classes, create a `TrainingJobConfig` instance, which could then be converted to a `OmegaConf` object.""")
     return
 
 
@@ -210,19 +254,21 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Create an instance of the `ModelTrainer` class by passing the config to the `get_model_trainer_from_config` method.""")
+    return
+
+
 @app.cell
 def _(ModelTrainer, sleap_nn_cfg):
-    # create ModelTrainer instance
-
     model_trainer = ModelTrainer.get_model_trainer_from_config(sleap_nn_cfg)
     return (model_trainer,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""The `get_model_trainer_from_config` method does the training setup by calling dataset preparation methods to establish training and validation labels (automatically splitting training data for validation if needed) and then invoking `_setup_config()` to process the loaded labels and automatically populate all configuration fields that were initially `None`. This includes computing `max_height` and `max_width` from actual image dimensions in the `sio.Labels` files, extracting skeletons from the labels data structure, and calculating other derived parameters based on the actual data characteristics. The method essentially transforms a minimal configuration into a complete configuration and ensures all required fields are populated and consistent before training begins, allowing users to start with basic parameters while the system automatically handles the complex configuration details."""
-    )
+    mo.md(r"""The `get_model_trainer_from_config` method does the training setup by calling dataset preparation methods to establish training and validation labels (automatically splitting training data for validation if needed) and then invoking `_setup_config()` to process the loaded labels and automatically populate all configuration fields that were initially `None`. This includes computing `max_height` and `max_width` from actual image dimensions in the `sio.Labels` files, extracting skeletons from the labels data structure, and calculating other derived parameters based on the actual data characteristics. The method essentially transforms a minimal configuration into a complete configuration and ensures all required fields are populated and consistent before training begins, allowing users to start with basic parameters while the system automatically handles the complex configuration details.""")
     return
 
 
@@ -231,6 +277,12 @@ def _(OmegaConf, model_trainer):
     print("Config after `_setup_config()`: ")
     print("===========================")
     print(OmegaConf.to_yaml(model_trainer.config, resolve=True, sort_keys=False))
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Let's create the training and validation dataloaders using `model_trainer.train_labels`, `model_trainer.val_labels`, and `model_trainer.config`. These attributes are initialized when you call `get_model_trainer_from_config()`.""")
     return
 
 
@@ -250,6 +302,17 @@ def _(get_train_val_dataloaders, get_train_val_datasets, model_trainer):
         trainer_devices=model_trainer.config.trainer_config.trainer_devices,
     )
     return (train_dataloader,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    Let's visualize some of the sample images from the training labels!
+
+    """
+    )
+    return
 
 
 @app.cell
@@ -346,6 +409,12 @@ def _(model_type, plt, torch, train_dataloader):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""We can instantiate the `LightningModule` from the config by calling `get_lightning_model_from_config`.""")
+    return
+
+
 @app.cell
 def _(LightningModel, model_trainer):
     # create lightning model from config
@@ -364,17 +433,13 @@ def _(lightning_model):
 
 @app.cell(hide_code=True)
 def _(lightning_model, mo):
-    mo.md(
-        f"""Total number of parameters: {sum(p.numel() for p in lightning_model.parameters())}"""
-    )
+    mo.md(f"""Total number of parameters: {sum(p.numel() for p in lightning_model.parameters())}""")
     return
 
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""The `train()` method internally handles the complete training pipeline by automatically creating and configuring all necessary components, including dataloaders and Lightning modules. After creating a ModelTrainer instance using the `get_model_trainer_from_config` function, directly call this `train` method to initiate the entire training process without needing to manually set up individual components."""
-    )
+    mo.md(r"""Next to start the training process, we call the `train()` method of the `ModelTrainer` class. The `train()` method internally handles the complete training pipeline by automatically creating and configuring all necessary components, including dataloaders and Lightning modules. After creating a ModelTrainer instance using the `get_model_trainer_from_config` function, directly call this `train` method to initiate the entire training process without needing to manually set up individual components.""")
     return
 
 
@@ -403,9 +468,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""Once we have the checkpoints, we can run inference on either a `.slp` file or a `.mp4` with the trained model."""
-    )
+    mo.md(r"""Once we have the checkpoints, we can run inference on either a `.slp` file or a `.mp4` with the trained model.""")
     return
 
 
@@ -419,6 +482,12 @@ def _(model_type, path_to_val_slp_file, run_inference, sleap_nn_cfg):
         output_path=f"predictions_{model_type.value}.slp",
     )
     return (pred_labels,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Evaluate the model against ground truth and compute metrics. (Make sure gt_labels contains ground-truth annotations.)""")
+    return
 
 
 @app.cell
@@ -441,84 +510,91 @@ def _(Evaluator, path_to_val_slp_file, pred_labels, sio):
 
 @app.cell(hide_code=True)
 def _(mo):
+    mo.md(r"""**_Note (for centroid-only inference)_**: The centroid model is essentially the first stage of TopDown model workflow, which only predicts centers, not keypoints. In centroid-only inference, each predicted centroid is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display. Therefore, an OKS mAP of 1.0 just means all instances were detected—it does not reflect pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) rather than centroid-only inference.""")
+    return
+
+
+@app.cell
+def _(mo):
     mo.md(
-        r"""**_Note_**: For the centroid model, only centroids are predicted; keypoints are currently copied from the ground truth because the centroid model is essentially the first stage of a topdown model. (centroid-only inference is still WIP). As a result, an OKS mAP of 1.0 just means all instances were detected and the keypoints came from GT—it does not reflect pose accuracy."""
+        r"""
+    Sample predictions:
+
+    TODO: add video/ few random frames
+    """
     )
     return
 
 
 @app.cell
-def _(gt_labels, plt, pred_labels, random):
-    # Randomly select frames
-    n_frames_to_show = 6  # Number of frames to display
-    total_frames = len(gt_labels)
-    lf_indices = random.sample(range(total_frames), min(n_frames_to_show, total_frames))
+def _(mo):
+    mo.md(r"""To view predictions of a certain frame:""")
+    return
 
-    n_frames = len(lf_indices)
-    _n_cols = min(4, n_frames)
-    _n_rows = (n_frames + _n_cols - 1) // _n_cols  # Ceiling division
 
-    _fig, _axes = plt.subplots(_n_rows, _n_cols, figsize=(5 * _n_cols, 5 * _n_rows))
-    if n_frames == 1:
-        _axes = [_axes]
-    elif _n_rows == 1:
-        _axes = _axes
-    else:
-        _axes = _axes.flatten()
+@app.cell
+def _(mo):
+    lf_index = mo.ui.number(start=0, stop=100, label="LF index")
+    return (lf_index,)
+
+
+@app.cell
+def _(lf_index, mo):
+    mo.hstack([lf_index, mo.md(f"Has value: {lf_index.value}")])
+    return
+
+
+@app.cell
+def _(gt_labels, lf_index, plt, pred_labels):
+    _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
 
     # Plot each frame
-    for plot_idx, lf_idx in enumerate(lf_indices):
-        _ax = _axes[plot_idx]
+    gt_lf = gt_labels[lf_index.value]
+    pred_lf = pred_labels[lf_index.value]
 
-        gt_lf = gt_labels[lf_idx]
-        pred_lf = pred_labels[lf_idx]
+    # Ensure we're plotting keypoints for the same frame
+    assert (
+        gt_lf.frame_idx == pred_lf.frame_idx
+    ), f"Frame mismatch at {lf_index.value}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
 
-        # Ensure we're plotting keypoints for the same frame
-        assert (
-            gt_lf.frame_idx == pred_lf.frame_idx
-        ), f"Frame mismatch at {lf_idx}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
+    _ax.imshow(gt_lf.image, cmap="gray")
+    _ax.set_title(
+        f"Frame {gt_lf.frame_idx} (lf idx: {lf_index.value})",
+        fontsize=12,
+        fontweight="bold",
+    )
 
-        _ax.imshow(gt_lf.image, cmap="gray")
-        _ax.set_title(
-            f"Frame {gt_lf.frame_idx} (lf idx: {lf_idx})",
-            fontsize=12,
-            fontweight="bold",
-        )
+    # Plot ground truth instances
+    for idx, instance in enumerate(gt_lf.instances):
+        if not instance.is_empty:
+            gt_pts = instance.numpy()
+            _ax.plot(
+                gt_pts[:, 0],
+                gt_pts[:, 1],
+                "go",
+                markersize=6,
+                alpha=0.8,
+                label="GT" if idx == 0 else "",
+            )
 
-        # Plot ground truth instances
-        for idx, instance in enumerate(gt_lf.instances):
-            if not instance.is_empty:
-                gt_pts = instance.numpy()
-                _ax.plot(
-                    gt_pts[:, 0],
-                    gt_pts[:, 1],
-                    "go",
-                    markersize=6,
-                    alpha=0.8,
-                    label="GT" if idx == 0 else "",
-                )
+    # Plot predicted instances
+    for idx, instance in enumerate(pred_lf.instances):
+        if not instance.is_empty:
+            pred_pts = instance.numpy()
+            _ax.plot(
+                pred_pts[:, 0],
+                pred_pts[:, 1],
+                "rx",
+                markersize=6,
+                alpha=0.8,
+                label="Pred" if idx == 0 else "",
+            )
 
-        # Plot predicted instances
-        for idx, instance in enumerate(pred_lf.instances):
-            if not instance.is_empty:
-                pred_pts = instance.numpy()
-                _ax.plot(
-                    pred_pts[:, 0],
-                    pred_pts[:, 1],
-                    "rx",
-                    markersize=6,
-                    alpha=0.8,
-                    label="Pred" if idx == 0 else "",
-                )
+    # Add legend
+    _ax.legend(loc="upper right", fontsize=8)
 
-        # Add legend only for first subplot to avoid clutter
-        if plot_idx == 0:
-            _ax.legend(loc="upper right", fontsize=8)
+    _ax.axis("off")
 
-        _ax.axis("off")
-
-    for idx in range(n_frames, len(_axes)):
-        _fig.delaxes(_axes[idx])
 
     plt.suptitle(f"Ground Truth vs Predictions", fontsize=16, fontweight="bold", y=0.98)
 
@@ -578,7 +654,6 @@ def _():
         get_trainer_config,
         mo,
         plt,
-        random,
         run_inference,
         sio,
         torch,
