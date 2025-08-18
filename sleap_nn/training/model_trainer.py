@@ -1,20 +1,21 @@
 """This module is to train a sleap-nn model using Lightning."""
 
-from pathlib import Path
 import os
 import shutil
 import copy
 import attrs
 import torch
 import sleap_io as sio
-from itertools import cycle
-from omegaconf import DictConfig, OmegaConf
+import time
 import lightning as L
 import wandb
 import yaml
+
+from pathlib import Path
 from typing import List, Optional
-import time
 from datetime import datetime
+from itertools import cycle
+from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import WandbLogger
 from sleap_nn.data.utils import check_cache_memory
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
@@ -24,7 +25,6 @@ from lightning.pytorch.profilers import (
     PyTorchProfiler,
     PassThroughProfiler,
 )
-import sleap_io as sio
 from sleap_io.io.skeleton import SkeletonYAMLEncoder
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
