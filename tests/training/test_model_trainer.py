@@ -573,6 +573,11 @@ def test_model_trainer_bottomup(config, tmp_path):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
+    if not torch.cuda.is_available():
+        OmegaConf.update(config, "trainer_config.trainer_accelerator", "cpu")
+    else:
+        OmegaConf.update(config, "trainer_config.trainer_accelerator", "gpu")
+    
     # bottom up model
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
