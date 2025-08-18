@@ -4,7 +4,6 @@ import sleap_io as sio
 import psutil
 import itertools
 
-from cProfile import label
 from types import SimpleNamespace
 
 from sleap_nn.data.utils import (
