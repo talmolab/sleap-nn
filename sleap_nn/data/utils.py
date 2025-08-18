@@ -92,7 +92,7 @@ def gaussian_pdf(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
 def check_memory(
     labels: sio.Labels,
-) -> float:
+) -> int:
     """Return memory required for caching the image samples from a single labels object.
 
     Args:

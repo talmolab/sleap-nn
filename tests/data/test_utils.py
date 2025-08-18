@@ -1,10 +1,16 @@
 import torch
+import pytest
+import sleap_io as sio
+
+from cProfile import label
 
 from sleap_nn.data.utils import (
     ensure_list,
     make_grid_vectors,
     expand_to_rank,
     gaussian_pdf,
+    check_memory,
+    check_cache_memory,
 )
 
 
@@ -50,3 +56,20 @@ def test_gaussian_pdf():
     assert gaussian_pdf(torch.tensor([0]), sigma=1) == 1.0
     assert gaussian_pdf(torch.tensor([1]), sigma=1) == 0.6065306597126334
     assert gaussian_pdf(torch.tensor([1]), sigma=2) == 0.8824969025845955
+
+
+@pytest.mark.parametrize(
+    "labels_path_fixture, expected_memory",
+    [("minimal_instance", 147456), ("small_robot_minimal", 1075200)],
+)
+def test_check_memory(labels_path_fixture, expected_memory, request):
+    """Test memory check for caching image samples."""
+    labels_path = request.getfixturevalue(labels_path_fixture)
+    labels = sio.load_slp(labels_path)
+    assert isinstance(labels, sio.Labels)
+
+    memory_required = check_memory(labels)
+    assert isinstance(memory_required, int)
+    assert memory_required > 0
+    assert memory_required < 1e9
+    assert memory_required == expected_memory
