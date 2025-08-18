@@ -116,13 +116,17 @@ def check_memory(
 
 
 def check_cache_memory(
-    train_labels: List[sio.Labels], val_labels: List[sio.Labels]
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    memory_buffer: float = 0.2,
 ) -> bool:
     """Check memory requirements for in-memory caching dataset pipeline.
 
     Args:
         train_labels: List of `sleap_io.Labels` objects for training data.
         val_labels: List of `sleap_io.Labels` objects for validation data.
+        memory_buffer: Fraction of the total image memory required for caching that
+            should be reserved as a buffer.
 
     Returns:
         bool: True if the total memory required for caching is within available system
@@ -137,7 +141,7 @@ def check_cache_memory(
         val_cache_memory_final += val_cache_memory
 
     total_cache_memory = train_cache_memory_final + val_cache_memory_final
-    total_cache_memory += 0.2 * total_cache_memory  # memory required in bytes
+    total_cache_memory += memory_buffer * total_cache_memory  # memory required in bytes
     available_memory = psutil.virtual_memory().available  # available memory in bytes
 
     if total_cache_memory > available_memory:
