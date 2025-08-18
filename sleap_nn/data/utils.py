@@ -92,23 +92,37 @@ def gaussian_pdf(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
 def check_memory(
     labels: sio.Labels,
-    max_hw: Tuple[int, int],
-    model_type: str,
-    input_scaling: float,
-    crop_size: Optional[int],
-):
-    """Return memory required for caching the image samples from a single labels object."""
-    if model_type == "centered_instance":
-        num_samples = len(labels) * get_max_instances(labels)
-        img = (labels[0].image / 255.0).astype(np.float32)
-        img_mem = (crop_size**2) * img.shape[-1] * img.itemsize * num_samples
+) -> float:
+    """Return memory required for caching the image samples from a single labels object.
 
-        return img_mem
+    Args:
+        labels: A `sleap_io.Labels` object containing the labels for a single dataset.
 
-    num_lfs = len(labels)
-    img = (labels[0].image / 255.0).astype(np.float32)
-    h, w = max_hw[0] * input_scaling, max_hw[1] * input_scaling
-    img_mem = h * w * img.shape[-1] * img.itemsize * num_lfs
+    Returns:
+        Memory in bytes required to cache the image samples from the labels object.
+    """
+    imgs_bytes = []
+    for label in labels:
+        if label.image is not None:
+            img = label.image
+            img_bytes = img.nbytes
+            imgs_bytes.append(img_bytes)
+        else:
+            raise ValueError(
+                "Labels object contains a label with no image data, which is required for training."
+            )
+    img_mem = sum(imgs_bytes)
+    # if model_type == "centered_instance":
+    #     num_samples = len(labels) * get_max_instances(labels)
+    #     img = (labels[0].image / 255.0).astype(np.float32)
+    #     img_mem = (crop_size**2) * img.shape[-1] * img.itemsize * num_samples
+
+    #     return img_mem
+
+    # num_lfs = len(labels)
+    # img = (labels[0].image / 255.0).astype(np.float32)
+    # h, w = max_hw[0] * input_scaling, max_hw[1] * input_scaling
+    # img_mem = h * w * img.shape[-1] * img.itemsize * num_lfs
 
     return img_mem
 
