@@ -905,6 +905,7 @@ def test_backbone_oneof_validation_error(config, caplog):
     with pytest.raises(ValueError):
         ModelTrainer.get_model_trainer_from_config(config_unet_and_convnext)
     assert "Only one attribute" in caplog.text
+    assert "BackboneConfig" in caplog.text
 
 
 def test_head_configs_oneof_validation_error(config, caplog):
@@ -918,3 +919,4 @@ def test_head_configs_oneof_validation_error(config, caplog):
     with pytest.raises(ValueError):
         ModelTrainer.get_model_trainer_from_config(config_two_head_configs)
     assert "Only one attribute" in caplog.text
+    assert "HeadConfig" in caplog.text
