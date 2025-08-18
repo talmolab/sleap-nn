@@ -22,6 +22,7 @@ from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
 )
+from sleap_nn.config.model_config import ConvNextConfig, SingleInstanceConfig
 import sleap_io as sio
 from torch.nn.functional import mse_loss
 import os
@@ -891,3 +892,29 @@ def test_keep_viz_behavior(config, tmp_path, minimal_instance):
     trainer.train()
     viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
     assert not viz_path.exists(), "viz folder should be deleted when keep_viz=False"
+
+
+def test_backbone_oneof_validation_error(config, caplog):
+    # Test that an error is raised when a oneof field is not set
+    config_unet_and_convnext = config.copy()
+    OmegaConf.update(
+        config_unet_and_convnext,
+        "model_config.backbone_config.convnext",
+        ConvNextConfig(),
+    )
+    with pytest.raises(ValueError):
+        ModelTrainer.get_model_trainer_from_config(config_unet_and_convnext)
+    assert "Only one attribute" in caplog.text
+
+
+def test_head_configs_oneof_validation_error(config, caplog):
+    # Test that an error is raised when a oneof field is not set
+    config_two_head_configs = config.copy()
+    OmegaConf.update(
+        config_two_head_configs,
+        "model_config.head_configs.single_instance",
+        SingleInstanceConfig(),
+    )
+    with pytest.raises(ValueError):
+        ModelTrainer.get_model_trainer_from_config(config_two_head_configs)
+    assert "Only one attribute" in caplog.text
