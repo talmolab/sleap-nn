@@ -149,7 +149,7 @@ def check_cache_memory(
         val_cache_memory_final += val_cache_memory
 
     total_cache_memory = train_cache_memory_final + val_cache_memory_final
-    total_cache_memory += 0.1 * total_cache_memory  # memory required in bytes
+    total_cache_memory += 0.2 * total_cache_memory  # memory required in bytes
     available_memory = psutil.virtual_memory().available  # available memory in bytes
 
     if total_cache_memory > available_memory:
