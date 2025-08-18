@@ -362,8 +362,8 @@ The model configuration section defines the neural network architecture, includi
 
 ### Model Initialization
 - `init_weights`: (str) Model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. **Default**: `"default"`
-- `pretrained_backbone_weights`: (str) Path of the `ckpt` file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
-- `pretrained_head_weights`: (str) Path of the `ckpt` file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
+- `pretrained_backbone_weights`: (str) Path of the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
+- `pretrained_head_weights`: (str) Path of the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
 
 ### Backbone Configuration
 **Note**: Configs should be provided only for the model to train and others should be `None`.
@@ -631,7 +631,7 @@ model_config:
     - `num_fc_layers`: (int) Number of fully connected layers after flattening input features. **Default**: `1`
     - `num_fc_units`: (int) Number of units (dimensions) in fully connected layers prior to classification output. **Default**: `64`
     - `global_pool`: (bool) Enable global pooling. **Default**: `True`
-    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. **Default**: `1`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. These should be the same as max stride set in the backbone config as we take the feature maps from the last layer of the encoder. **Default**: `16`
     - `loss_weight`: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. **Default**: `None`
 
 **Example Multi-Class Top-Down configuration:**
@@ -655,7 +655,7 @@ model_config:
         num_fc_layers: 1
         num_fc_units: 64
         global_pool: true
-        output_stride: 1
+        output_stride: 16 # should be same as `max_stride` in `backbone_config`
         loss_weight: 1.0
 ```
 

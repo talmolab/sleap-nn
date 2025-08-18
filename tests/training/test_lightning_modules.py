@@ -23,6 +23,7 @@ import torch
 import pytest
 from _pytest.logging import LogCaptureFixture
 from loguru import logger
+from sleap_nn.config.training_job_config import TrainingJobConfig
 
 
 @pytest.fixture
@@ -82,13 +83,12 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
     assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
 
     # convnext with pretrained weights
-    OmegaConf.update(config, "data_config.preprocessing.ensure_rgb", True)
     OmegaConf.update(config, "model_config.backbone_config.unet", None)
     OmegaConf.update(
         config,
         "model_config.backbone_config.convnext",
         {
-            "in_channels": 3,
+            "in_channels": 1,
             "model_type": "tiny",
             "arch": None,
             "kernel_size": 3,
@@ -106,13 +106,15 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         "model_config.backbone_config.convnext.pre_trained_weights",
         "ConvNeXt_Tiny_Weights",
     )
-    model = LightningModel.get_lightning_model_from_config(config=config)
+    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
+    model = LightningModel.get_lightning_model_from_config(
+        config=model_trainer.config
+    )  # passing model trainer config modifies the in_channels according to the pretrained model weights
     OmegaConf.update(
         config,
         "trainer_config.save_ckpt_path",
         f"{tmp_path}/test_topdown_centered_instance_model_2/",
     )
-    model_trainer = ModelTrainer.get_model_trainer_from_config(config)
     train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
         val_labels=model_trainer.val_labels,
@@ -593,3 +595,57 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance
     )
 
     assert np.all(np.abs(head_layer_ckpt - model_ckpt) < 1e-6)
+
+
+def test_load_trained_keras_weights(
+    sleap_centered_instance_model_path, minimal_instance, caplog
+):
+    """Test loading trained keras (.h5) weights for model initialization."""
+    sleap_nn_config = TrainingJobConfig.load_sleap_config(
+        Path(sleap_centered_instance_model_path) / "training_config.json"
+    )
+    sleap_nn_config.model_config.pretrained_backbone_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+    sleap_nn_config.model_config.pretrained_head_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config=sleap_nn_config,
+        train_labels=[sio.load_slp(minimal_instance)],
+        val_labels=[sio.load_slp(minimal_instance)],
+    )
+
+    lightning_module = LightningModel.get_lightning_model_from_config(
+        config=trainer.config
+    )
+    assert "Loading backbone weights from" in caplog.text
+    assert "Successfully loaded 28/28 weights from legacy model" in caplog.text
+    assert "Loading head weights from" in caplog.text
+    assert "Successfully loaded 2/2 weights from legacy model" in caplog.text
+
+    with pytest.raises(Exception):
+        sleap_nn_config.model_config.pretrained_backbone_weights = (
+            Path(sleap_centered_instance_model_path) / "best_model.pth"
+        )
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            config=sleap_nn_config,
+            train_labels=[sio.load_slp(minimal_instance)],
+            val_labels=[sio.load_slp(minimal_instance)],
+        )
+        _ = LightningModel.get_lightning_model_from_config(config=trainer.config)
+    assert "Unsupported file extension for pretrained backbone weights." in caplog.text
+
+    with pytest.raises(Exception):
+        sleap_nn_config.model_config.pretrained_backbone_weights = None
+        sleap_nn_config.model_config.pretrained_head_weights = (
+            Path(sleap_centered_instance_model_path) / "best_model.pth"
+        )
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            config=sleap_nn_config,
+            train_labels=[sio.load_slp(minimal_instance)],
+            val_labels=[sio.load_slp(minimal_instance)],
+        )
+        _ = LightningModel.get_lightning_model_from_config(config=trainer.config)
+    assert "Unsupported file extension for pretrained head weights." in caplog.text
