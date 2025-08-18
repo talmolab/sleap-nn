@@ -2960,8 +2960,8 @@
 <h3 id="model-initialization">Model Initialization<a class="headerlink" href="#model-initialization" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>init_weights</code>: (str) Model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. <strong>Default</strong>: <code>"default"</code></li>
-<li><code>pretrained_backbone_weights</code>: (str) Path of the <code>ckpt</code> (or <code>.h5</code> file from SLEAP) file with which the backbone is initialized. If <code>None</code>, random init is used. <strong>Default</strong>: <code>None</code></li>
-<li><code>pretrained_head_weights</code>: (str) Path of the <code>ckpt</code> (or <code>.h5</code> file from SLEAP) file with which the head layers are initialized. If <code>None</code>, random init is used. <strong>Default</strong>: <code>None</code></li>
+<li><code>pretrained_backbone_weights</code>: (str) Path of the <code>ckpt</code> file with which the backbone is initialized. If <code>None</code>, random init is used. <strong>Default</strong>: <code>None</code></li>
+<li><code>pretrained_head_weights</code>: (str) Path of the <code>ckpt</code> file with which the head layers are initialized. If <code>None</code>, random init is used. <strong>Default</strong>: <code>None</code></li>
 </ul>
 <h3 id="backbone-configuration">Backbone Configuration<a class="headerlink" href="#backbone-configuration" title="Permanent link">&para;</a></h3>
 <p><strong>Note</strong>: Configs should be provided only for the model to train and others should be <code>None</code>.</p>
@@ -3249,7 +3249,7 @@
 <li><code>num_fc_layers</code>: (int) Number of fully connected layers after flattening input features. <strong>Default</strong>: <code>1</code></li>
 <li><code>num_fc_units</code>: (int) Number of units (dimensions) in fully connected layers prior to classification output. <strong>Default</strong>: <code>64</code></li>
 <li><code>global_pool</code>: (bool) Enable global pooling. <strong>Default</strong>: <code>True</code></li>
-<li><code>output_stride</code>: (int) The stride of the output confidence maps relative to the input image. These should be the same as max stride set in the backbone config as we take the feature maps from the last layer of the encoder. <strong>Default</strong>: <code>16</code></li>
+<li><code>output_stride</code>: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. <strong>Default</strong>: <code>1</code></li>
 <li><code>loss_weight</code>: (float) Scalar float used to weigh the loss term for this head during training. Increase this to encourage the optimization to focus on improving this specific output in multi-head models. <strong>Default</strong>: <code>None</code></li>
 </ul>
 </li>
@@ -3274,7 +3274,7 @@
 </span><span id="__span-20-17"><a id="__codelineno-20-17" name="__codelineno-20-17" href="#__codelineno-20-17"></a><span class="w">        </span><span class="nt">num_fc_layers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 </span><span id="__span-20-18"><a id="__codelineno-20-18" name="__codelineno-20-18" href="#__codelineno-20-18"></a><span class="w">        </span><span class="nt">num_fc_units</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">64</span>
 </span><span id="__span-20-19"><a id="__codelineno-20-19" name="__codelineno-20-19" href="#__codelineno-20-19"></a><span class="w">        </span><span class="nt">global_pool</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-</span><span id="__span-20-20"><a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a><span class="w">        </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">16</span><span class="w"> </span><span class="c1"># should be same as `max_stride` in `backbone_config`</span>
+</span><span id="__span-20-20"><a id="__codelineno-20-20" name="__codelineno-20-20" href="#__codelineno-20-20"></a><span class="w">        </span><span class="nt">output_stride</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
 </span><span id="__span-20-21"><a id="__codelineno-20-21" name="__codelineno-20-21" href="#__codelineno-20-21"></a><span class="w">        </span><span class="nt">loss_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span>
 </span></code></pre></div></p>
 <hr />
