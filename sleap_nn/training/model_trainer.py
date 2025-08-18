@@ -49,10 +49,7 @@ from sleap_nn.training.callbacks import (
     CSVLoggerCallback,
 )
 from sleap_nn import RANK
-from sleap_nn.legacy_models import (
-    load_legacy_model_weights,
-    get_keras_first_layer_channels,
-)
+from sleap_nn.legacy_models import get_keras_first_layer_channels
 
 
 @attrs.define
@@ -265,16 +262,15 @@ class ModelTrainer:
                             [x.name for x in train_label.tracks if x is not None]
                         )
                     classes = list(set(tracks))
-                    self.config.model_config.head_configs[self.model_type][key][
-                        "classes"
-                    ] = classes
-
                     if not len(classes):
                         message = (
                             f"No tracks found. ID models need tracks to be defined."
                         )
                         logger.error(message)
                         raise Exception(message)
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "classes"
+                    ] = classes
 
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""

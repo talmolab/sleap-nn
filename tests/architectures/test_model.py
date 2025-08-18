@@ -163,7 +163,9 @@ def test_unet_model():
     assert model.backbone_config == base_unet_model_config
     assert model.head_configs == base_unet_head_config
 
-    x = torch.rand(1, 1, 192, 192).to(device)
+    x = torch.rand(1, 3, 192, 192).to(
+        device
+    )  # input img channels = 3 and model in channels = 1
     model.eval()
 
     with torch.no_grad():
@@ -177,7 +179,7 @@ def test_unet_model():
     # filter rate = 1.5
     base_unet_model_config = OmegaConf.create(
         {
-            "in_channels": 1,
+            "in_channels": 3,
             "kernel_size": 3,
             "filters": 16,
             "filters_rate": 1.5,
@@ -216,7 +218,7 @@ def test_unet_model():
     model.eval()
 
     with torch.no_grad():
-        z = model(x)
+        z = model(x)  # input img channels = 1 and model in channels = 3
 
     assert type(z) is dict
     assert len(z.keys()) == 1

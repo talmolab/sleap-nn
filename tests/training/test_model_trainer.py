@@ -657,7 +657,7 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance):
+def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, caplog):
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
     OmegaConf.update(
@@ -692,6 +692,14 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance):
         "class_vectors"
     ] = class_vectors
     config.model_config.head_configs.multi_class_topdown.confmaps.loss_weight = 1.0
+
+    with pytest.raises(Exception):
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            config,
+            train_labels=[sio.load_slp(minimal_instance)],
+            val_labels=[sio.load_slp(minimal_instance)],
+        )
+    assert "No tracks found. ID models need tracks to be defined." in caplog.text
 
     tracked_labels = sio.load_slp(minimal_instance)
     tracks = 0
@@ -933,7 +941,7 @@ def test_loading_pretrained_weights(
     assert "Loading head weights from" in caplog.text
     assert "Successfully loaded 2/2 weights from legacy model" in caplog.text
 
-    # loading ckpt
+    # loading `.ckpt`
     sleap_nn_config = TrainingJobConfig.load_sleap_config(
         Path(sleap_centered_instance_model_path) / "initial_config.json"
     )
