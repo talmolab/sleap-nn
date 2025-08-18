@@ -73,3 +73,10 @@ def test_check_memory(labels_path_fixture, expected_memory, request):
     assert memory_required > 0
     assert memory_required < 1e9
     assert memory_required == expected_memory
+
+
+def test_check_memory_no_labels():
+    """Test memory check when no labels are present."""
+    labels = sio.Labels()
+    memory_required = check_memory(labels)
+    assert memory_required == 0
