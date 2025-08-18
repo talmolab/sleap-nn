@@ -116,4 +116,7 @@ def verify_training_cfg(cfg: DictConfig) -> DictConfig:
     schema = OmegaConf.structured(TrainingJobConfig())
     config = OmegaConf.merge(schema, cfg)
     OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+
+    # Verify configs with @oneof class is valid
+    _ = OmegaConf.to_object(config)
     return config
