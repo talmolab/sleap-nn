@@ -196,28 +196,23 @@ class BaseDataset(Dataset):
 
         def process_sample(args):
             labels_idx, lf_idx = args
-            try:
-                img = self.labels[labels_idx][lf_idx].image
-                if img.shape[-1] == 1:
-                    img = np.squeeze(img)
+            img = self.labels[labels_idx][lf_idx].image
+            if img.shape[-1] == 1:
+                img = np.squeeze(img)
 
-                if self.cache_img == "disk":
-                    f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                    Image.fromarray(img).save(f_name, format="JPEG")
-                    return (
-                        labels_idx,
-                        lf_idx,
-                    ), None  # Return key and None for disk cache
+            if self.cache_img == "disk":
+                f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                Image.fromarray(img).save(f_name, format="JPEG")
+                return (
+                    labels_idx,
+                    lf_idx,
+                ), None  # Return key and None for disk cache
 
-                if self.cache_img == "memory":
-                    return (
-                        labels_idx,
-                        lf_idx,
-                    ), img  # Return key and image for memory cache
-
-            except Exception as e:
-                logger.warning(f"Failed to process sample {labels_idx}_{lf_idx}: {e}")
-                return None
+            if self.cache_img == "memory":
+                return (
+                    labels_idx,
+                    lf_idx,
+                ), img  # Return key and image for memory cache
 
         # Use ThreadPoolExecutor for I/O-bound operations
         max_workers = min(len(self.lf_idx_list), (os.cpu_count() or 4) * 4)
