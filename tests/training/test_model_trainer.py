@@ -218,7 +218,8 @@ def test_wandb():
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -368,7 +369,8 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -419,7 +421,8 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -457,7 +460,8 @@ def test_model_trainer_centroid(config, tmp_path):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -505,7 +509,8 @@ def test_zmq_callbacks(config, tmp_path: str):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -568,7 +573,8 @@ def test_model_trainer_bottomup(config, tmp_path):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -577,7 +583,7 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
         OmegaConf.update(config, "trainer_config.trainer_accelerator", "cpu")
     else:
         OmegaConf.update(config, "trainer_config.trainer_accelerator", "gpu")
-    
+
     # bottom up model
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
@@ -658,7 +664,8 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -731,7 +738,8 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, ca
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -774,7 +782,8 @@ def test_resume_training(config):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
@@ -816,7 +825,8 @@ def test_early_stopping(config, tmp_path):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li") and not torch.cuda.is_available(), # self-hosted GPUs have linux os but cuda is available, so will do test
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
