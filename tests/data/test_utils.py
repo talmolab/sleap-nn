@@ -1,8 +1,11 @@
 import torch
 import pytest
 import sleap_io as sio
+import psutil
+import itertools
 
 from cProfile import label
+from types import SimpleNamespace
 
 from sleap_nn.data.utils import (
     ensure_list,
@@ -59,20 +62,37 @@ def test_gaussian_pdf():
 
 
 @pytest.mark.parametrize(
-    "labels_path_fixture, expected_memory",
-    [("minimal_instance", 147456), ("small_robot_minimal", 1075200)],
+    "labels_path_fixture",
+    [("minimal_instance"), ("small_robot_minimal")],
 )
-def test_check_memory(labels_path_fixture, expected_memory, request):
-    """Test memory check for caching image samples."""
+def test_check_memory_ok(labels_path_fixture, request):
     labels_path = request.getfixturevalue(labels_path_fixture)
     labels = sio.load_slp(labels_path)
-    assert isinstance(labels, sio.Labels)
 
-    memory_required = check_memory(labels)
-    assert isinstance(memory_required, int)
-    assert memory_required > 0
-    assert memory_required < 1e9
-    assert memory_required == expected_memory
+    # Compute expected bytes from the real labels
+    expected = sum(lf.image.nbytes for lf in labels if lf.image is not None)
+    # Re-iterate because sleap_io.Labels is iterable; make a fresh iterator
+    labels = sio.load_slp(labels_path)
+
+    assert check_memory(labels) == expected
+
+
+@pytest.mark.parametrize(
+    "labels_path_fixture",
+    [("minimal_instance"), ("small_robot_minimal")],
+)
+def test_check_memory_raises_when_one_label_has_no_image(labels_path_fixture, request):
+    labels_path = request.getfixturevalue(labels_path_fixture)
+    labels = sio.load_slp(labels_path)
+
+    # Build an iterable that yields: one fake with image=None, then all real frames.
+    missing = SimpleNamespace(image=None)
+    adapted = itertools.chain(
+        [missing], (SimpleNamespace(image=lf.image) for lf in labels)
+    )
+
+    with pytest.raises(ValueError, match="no image data"):
+        check_memory(adapted)
 
 
 def test_check_memory_no_labels():
@@ -80,3 +100,24 @@ def test_check_memory_no_labels():
     labels = sio.Labels()
     memory_required = check_memory(labels)
     assert memory_required == 0
+    # check_cache_memory should return True for empty labels
+    assert check_cache_memory([labels], [labels]) == True
+
+
+@pytest.mark.parametrize(
+    "labels_path_fixture",
+    [("minimal_instance"), ("small_robot_minimal")],
+)
+def test_check_cache_memory(labels_path_fixture, request):
+    """Test memory check for caching image samples."""
+    labels_path = request.getfixturevalue(labels_path_fixture)
+    labels = sio.load_slp(labels_path)
+    assert isinstance(labels, sio.Labels)
+    available_memory = psutil.virtual_memory().available
+    memory_required = check_memory(labels)
+    assert isinstance(memory_required, int)
+    assert memory_required > 0
+    if memory_required < available_memory:
+        assert check_cache_memory([labels], [labels]) == True
+    else:
+        assert check_cache_memory([labels], [labels]) == False
