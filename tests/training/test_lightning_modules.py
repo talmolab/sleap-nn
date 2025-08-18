@@ -23,6 +23,7 @@ import torch
 import pytest
 from _pytest.logging import LogCaptureFixture
 from loguru import logger
+from sleap_nn.config.training_job_config import TrainingJobConfig
 
 
 @pytest.fixture
@@ -593,3 +594,32 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance
     )
 
     assert np.all(np.abs(head_layer_ckpt - model_ckpt) < 1e-6)
+
+
+def test_load_trained_keras_weights(
+    sleap_centered_instance_model_path, minimal_instance, caplog
+):
+    """Test loading trained keras (.h5) weights for model initialization."""
+    sleap_nn_config = TrainingJobConfig.load_sleap_config(
+        Path(sleap_centered_instance_model_path) / "training_config.json"
+    )
+    sleap_nn_config.model_config.pretrained_backbone_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+    sleap_nn_config.model_config.pretrained_head_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config=sleap_nn_config,
+        train_labels=[sio.load_slp(minimal_instance)],
+        val_labels=[sio.load_slp(minimal_instance)],
+    )
+
+    lightning_module = LightningModel.get_lightning_model_from_config(
+        config=trainer.config
+    )
+    assert "Loading backbone weights from" in caplog.text
+    assert "Successfully loaded 28/28 weights from legacy model" in caplog.text
+    assert "Loading head weights from" in caplog.text
+    assert "Successfully loaded 2/2 weights from legacy model" in caplog.text

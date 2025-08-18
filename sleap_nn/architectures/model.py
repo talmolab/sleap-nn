@@ -26,6 +26,7 @@ from sleap_nn.architectures.heads import (
 from sleap_nn.architectures.unet import UNet
 from sleap_nn.architectures.convnext import ConvNextWrapper
 from sleap_nn.architectures.swint import SwinTWrapper
+import torchvision.transforms.v2.functional as F
 
 
 def get_backbone(backbone: str, backbone_config: DictConfig) -> nn.Module:
@@ -171,6 +172,14 @@ class Model(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model."""
+        if x.shape[-3] != self.backbone_config[f"{self.backbone_type}"].in_channels:
+            if x.shape[-3] == 1:
+                # convert grayscale to rgb
+                x = x.repeat(1, 3, 1, 1)
+            elif x.shape[-3] == 3:
+                # convert rgb to grayscale
+                x = F.rgb_to_grayscale(x, num_output_channels=1)
+
         backbone_outputs = self.backbone(x)
 
         outputs = {}
