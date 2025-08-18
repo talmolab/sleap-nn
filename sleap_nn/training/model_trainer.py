@@ -352,6 +352,7 @@ class ModelTrainer:
                     f"{self.backbone_type}"
                 ].in_channels = 3
                 self.config.data_config.preprocessing.ensure_rgb = True
+                self.config.data_config.preprocessing.ensure_grayscale = False
                 logger.info(
                     f"Updating backbone in_channels to 3 based on the pretrained model weights."
                 )
@@ -366,9 +367,11 @@ class ModelTrainer:
                     self.config.model_config.pretrained_backbone_weights,
                     weights_only=False,
                 )
-                input_channels = (
-                    pretrained_backbone_ckpt["state_dict"].values()[0].shape[-3]
-                )  # get input channels from first layer
+                input_channels = list(pretrained_backbone_ckpt["state_dict"].values())[
+                    0
+                ].shape[
+                    -3
+                ]  # get input channels from first layer
                 if (
                     self.config.model_config.backbone_config.unet.in_channels
                     != input_channels
@@ -382,11 +385,13 @@ class ModelTrainer:
 
                     if input_channels == 1:
                         self.config.data_config.preprocessing.ensure_grayscale = True
+                        self.config.data_config.preprocessing.ensure_rgb = False
                         logger.info(
                             f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
                         )
                     elif input_channels == 3:
                         self.config.data_config.preprocessing.ensure_rgb = True
+                        self.config.data_config.preprocessing.ensure_grayscale = False
                         logger.info(
                             f"Updating data preprocessing to ensure_rgb to True based on the pretrained model weights."
                         )
@@ -408,11 +413,13 @@ class ModelTrainer:
 
                     if input_channels == 1:
                         self.config.data_config.preprocessing.ensure_grayscale = True
+                        self.config.data_config.preprocessing.ensure_rgb = False
                         logger.info(
                             f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
                         )
                     elif input_channels == 3:
                         self.config.data_config.preprocessing.ensure_rgb = True
+                        self.config.data_config.preprocessing.ensure_grayscale = False
                         logger.info(
                             f"Updating data preprocessing to ensure_rgb to True based on the pretrained model weights."
                         )
@@ -735,14 +742,6 @@ class ModelTrainer:
         # create the ckpt dir.
         self._setup_model_ckpt_dir()
 
-        # initialize the lightning model.
-        logger.info(f"Setting up lightning module for {self.model_type} model...")
-        self.lightning_model = LightningModel.get_lightning_model_from_config(
-            config=self.config
-        )
-        total_params = sum(p.numel() for p in self.lightning_model.parameters())
-        self.config.model_config.total_params = total_params
-
         # create the train and val datasets for visualization.
         viz_train_dataset = None
         viz_val_dataset = None
@@ -818,6 +817,15 @@ class ModelTrainer:
             self.config.trainer_config.trainer_accelerator = (
                 self.trainer.strategy.root_device
             )
+
+        # initialize the lightning model.
+        # need to initialize after Trainer is initialized (for trainer accelerator)
+        logger.info(f"Setting up lightning module for {self.model_type} model...")
+        self.lightning_model = LightningModel.get_lightning_model_from_config(
+            config=self.config
+        )
+        total_params = sum(p.numel() for p in self.lightning_model.parameters())
+        self.config.model_config.total_params = total_params
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank

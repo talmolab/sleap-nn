@@ -34,6 +34,7 @@ from sleap_nn.data.custom_datasets import (
     get_train_val_datasets,
     get_train_val_dataloaders,
 )
+from sleap_nn.config.training_job_config import TrainingJobConfig
 
 
 @pytest.fixture
@@ -891,3 +892,64 @@ def test_keep_viz_behavior(config, tmp_path, minimal_instance):
     trainer.train()
     viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
     assert not viz_path.exists(), "viz folder should be deleted when keep_viz=False"
+
+
+@pytest.mark.skipif(
+    sys.platform.startswith("li"),
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
+# TODO: Revisit this test later (Failing on ubuntu)
+def test_loading_pretrained_weights(
+    config,
+    sleap_centered_instance_model_path,
+    minimal_instance,
+    caplog,
+    minimal_instance_centered_instance_ckpt,
+):
+    """Test loading pretrained weights for model initialization."""
+    # with keras (.h5 weights)
+    sleap_nn_config = TrainingJobConfig.load_sleap_config(
+        Path(sleap_centered_instance_model_path) / "training_config.json"
+    )
+    sleap_nn_config.model_config.pretrained_backbone_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+    sleap_nn_config.model_config.pretrained_head_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+    sleap_nn_config.data_config.preprocessing.ensure_rgb = True
+    sleap_nn_config.trainer_config.max_epochs = 2
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config=sleap_nn_config,
+        train_labels=[sio.load_slp(minimal_instance)],
+        val_labels=[sio.load_slp(minimal_instance)],
+    )
+    trainer.train()
+
+    assert "Loading backbone weights from" in caplog.text
+    assert "Successfully loaded 28/28 weights from legacy model" in caplog.text
+    assert "Loading head weights from" in caplog.text
+    assert "Successfully loaded 2/2 weights from legacy model" in caplog.text
+
+    # loading ckpt
+    sleap_nn_config = TrainingJobConfig.load_sleap_config(
+        Path(sleap_centered_instance_model_path) / "initial_config.json"
+    )
+    sleap_nn_config.model_config.pretrained_backbone_weights = (
+        Path(minimal_instance_centered_instance_ckpt) / "best.ckpt"
+    )
+    sleap_nn_config.model_config.pretrained_head_weights = (
+        Path(minimal_instance_centered_instance_ckpt) / "best.ckpt"
+    )
+    sleap_nn_config.data_config.preprocessing.ensure_rgb = True
+    sleap_nn_config.trainer_config.max_epochs = 2
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config=sleap_nn_config,
+        train_labels=[sio.load_slp(minimal_instance)],
+        val_labels=[sio.load_slp(minimal_instance)],
+    )
+    trainer.train()
+
+    assert "Loading backbone weights from" in caplog.text
+    assert "Loading head weights from" in caplog.text
