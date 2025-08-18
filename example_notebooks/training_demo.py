@@ -93,7 +93,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo’s sample_configs and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy funtions and then create an Omegaconf config.""")
+    mo.md(r"""The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo’s sample_configs and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy functions and then create an Omegaconf config.""")
     return
 
 
