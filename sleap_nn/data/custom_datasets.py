@@ -354,7 +354,7 @@ class BottomUpDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -566,7 +566,7 @@ class BottomUpMultiClassDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -824,7 +824,7 @@ class CenteredInstanceDataset(BaseDataset):
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
-        sample["eff_scale"] = eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # apply augmentation
         if self.apply_aug:
@@ -1083,7 +1083,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
-        sample["eff_scale"] = eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # apply augmentation
         if self.apply_aug:
@@ -1280,7 +1280,7 @@ class CentroidDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -1460,7 +1460,7 @@ class SingleInstanceDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
-        sample["eff_scale"] = eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(

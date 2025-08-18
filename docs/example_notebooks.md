@@ -29,22 +29,18 @@ The example notebooks use marimo, which provides a **sandboxed environment** tha
    uv add marimo
    ```
 
-2. **Run a marimo notebook**:
-   ```bash
-   uvx marimo edit --sandbox <filename.py>
-   ```
+2. **Download and run the marimo notebooks**
 
-   For example:
-   ```bash
-   uvx marimo edit --sandbox "notebook.py"
-   ```
-
-## 📖 Available Tutorials
-
-### 1. Training Demo Notebook
-- **File**: [training_demo.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py)
+### (i) Training Demo Notebook
 - **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
+Download the notebook [training_demo.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py) and run the below command:
+```bash
+   uvx marimo edit --sandbox <filename.py>
+```
 
-### 2. Augmentation Guide Notebook
-- **File**: [augmentation_guide.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py)
+### (ii) Augmentation Guide Notebook
 - **Description**: Visualize the different data augmentation techniques available in sleap-nn.
+Download the notebook: [augmentation_guide.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py) and run the below command:
+```bash
+   uvx marimo edit --sandbox <filename.py>
+```
