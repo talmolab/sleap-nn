@@ -158,7 +158,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     sample = next(iter(train_dataloader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    ## raise exception if no imsg are found when use_existing_imgs = True.
+    ## raise exception if no imgs are found when use_existing_imgs = True.
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
     )
@@ -401,7 +401,7 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
     OmegaConf.update(
         single_instance_config,
         "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer_single_instan e",
+        f"{tmp_path}/test_model_trainer_single_instance",
     )
     OmegaConf.update(
         single_instance_config, "trainer_config.visualize_preds_during_training", True
