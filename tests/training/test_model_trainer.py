@@ -232,7 +232,9 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_trainer"
+    )
     OmegaConf.update(config, "trainer_config.profiler", None)
 
     ## invalid profiler: raise exception
@@ -505,7 +507,9 @@ def test_zmq_callbacks(config, tmp_path: str):
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_zmq_callbacks"
+    )
     OmegaConf.update(
         config, "trainer_config.zmq.publish_address", "tcp://127.0.0.1:9510"
     )
@@ -767,13 +771,15 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, ca
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_resume_training(config):
+def test_resume_training(config, tmp_path):
     if torch.mps.is_available():
         config.trainer_config.trainer_accelerator = "cpu"
     else:
         config.trainer_config.trainer_accelerator = "auto"
     # train a model for 2 epochs:
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_resume_trainer"
+    )
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
@@ -791,7 +797,9 @@ def test_resume_training(config):
     prv_runid = training_config.trainer_config.wandb.current_run_id
     OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
     OmegaConf.update(config_copy, "data_config.data_pipeline_fw", "torch_dataset")
-    OmegaConf.update(config_copy, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config_copy, "trainer_config.save_ckpt_path", f"{tmp_path}/test_resume_trainer"
+    )
     OmegaConf.update(config_copy, "trainer_config.save_ckpt", True)
     trainer = ModelTrainer.get_model_trainer_from_config(config_copy)
     trainer.train()
