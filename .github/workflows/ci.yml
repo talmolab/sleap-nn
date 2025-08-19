@@ -77,9 +77,6 @@ jobs:
 
       - name: Print environment info
         run: |
-          echo "=== System Python ==="
-          which python
-          python --version
           echo "=== UV Environment ==="
           uv run python --version
           uv run python -c "import sys; print('Python executable:', sys.executable)"
