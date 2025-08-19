@@ -49,6 +49,7 @@ from sleap_nn.training.callbacks import (
     CSVLoggerCallback,
 )
 from sleap_nn import RANK
+from sleap_nn.legacy_models import get_keras_first_layer_channels
 
 
 @attrs.define
@@ -128,7 +129,7 @@ class ModelTrainer:
 
         model_trainer._initial_config = model_trainer.config.copy()
         # update config parameters
-        model_trainer._setup_config()
+        model_trainer.setup_config()
 
         return model_trainer
 
@@ -184,12 +185,8 @@ class ModelTrainer:
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
         logger.info(f"# Val Labeled frames: {total_val_lfs}")
 
-    def _setup_config(self):
-        """Compute preprocessing parameters."""
-        # Verify config structure.
-        logger.info("Setting up config...")
-        self.config = verify_training_cfg(self.config)
-
+    def _setup_preprocessing_config(self):
+        """Setup preprocessing config."""
         # compute max_heigt, max_width, and crop_hw (if not provided in the config)
         max_height = self.config.data_config.preprocessing.max_height
         max_width = self.config.data_config.preprocessing.max_width
@@ -236,15 +233,8 @@ class ModelTrainer:
                 max_crop_size,
             ]
 
-        # save skeleton to config
-        skeleton_yaml = yaml.safe_load(SkeletonYAMLEncoder().encode(self.skeletons))
-        skeleton_names = skeleton_yaml.keys()
-        self.config["data_config"]["skeletons"] = []
-        for skeleton_name in skeleton_names:
-            skl = skeleton_yaml[skeleton_name]
-            skl["name"] = skeleton_name
-            self.config["data_config"]["skeletons"].append(skl)
-
+    def _setup_head_config(self):
+        """Setup node, edge and class names in head config."""
         # if edges and part names aren't set in head configs, get it from labels object.
         head_config = self.config.model_config.head_configs[self.model_type]
         for key in head_config:
@@ -272,41 +262,18 @@ class ModelTrainer:
                             [x.name for x in train_label.tracks if x is not None]
                         )
                     classes = list(set(tracks))
-                    self.config.model_config.head_configs[self.model_type][key][
-                        "classes"
-                    ] = classes
-
                     if not len(classes):
                         message = (
                             f"No tracks found. ID models need tracks to be defined."
                         )
                         logger.error(message)
                         raise Exception(message)
+                    self.config.model_config.head_configs[self.model_type][key][
+                        "classes"
+                    ] = classes
 
-        if self.model_type == "multi_class_topdown":
-            self.config.model_config.head_configs.multi_class_topdown.class_vectors.output_stride = self.config.model_config.backbone_config[
-                f"{self.backbone_type}"
-            ][
-                "max_stride"
-            ]
-
-        # set max stride for the backbone: convnext and swint
-        if self.backbone_type == "convnext":
-            self.config.model_config.backbone_config.convnext.max_stride = (
-                self.config.model_config.backbone_config.convnext.stem_patch_stride
-                * (2**3)
-                * 2
-            )
-        elif self.backbone_type == "swint":
-            self.config.model_config.backbone_config.swint.max_stride = (
-                self.config.model_config.backbone_config.swint.stem_patch_stride
-                * (2**3)
-                * 2
-            )
-
-        # set output stride for backbone from head config and verify max stride
-        self.config = check_output_strides(self.config)
-
+    def _setup_ckpt_path(self):
+        """Setup checkpoint path."""
         # if save_ckpt_path is None, assign a new dir name
         ckpt_path = self.config.trainer_config.save_ckpt_path
         if ckpt_path is None:
@@ -343,6 +310,8 @@ class ModelTrainer:
                     self.config.trainer_config.save_ckpt_path
                 )
 
+    def _verify_model_input_channels(self):
+        """Verify input channels in model_config based on input image and pretrained model weights."""
         # check in channels, verify with img channels / ensure_rgb/ ensure_grayscale
         if self.train_labels[0] is not None:
             img_channels = self.train_labels[0][0].image.shape[-1]
@@ -360,8 +329,146 @@ class ModelTrainer:
                     f"{self.backbone_type}"
                 ].in_channels = img_channels
                 logger.info(
-                    f"Updating backbone in_channels from {self.config.model_config.backbone_config[f'{self.backbone_type}'].in_channels} to {img_channels}"
+                    f"Updating backbone in_channels to {img_channels} based on the input image channels."
                 )
+
+        # verify input img channels with pretrained model ckpts (if any)
+        if (
+            self.backbone_type == "convnext" or self.backbone_type == "swint"
+        ) and self.config.model_config.backbone_config[
+            f"{self.backbone_type}"
+        ].pre_trained_weights is not None:
+            if (
+                self.config.model_config.backbone_config[
+                    f"{self.backbone_type}"
+                ].in_channels
+                != 3
+            ):
+                self.config.model_config.backbone_config[
+                    f"{self.backbone_type}"
+                ].in_channels = 3
+                self.config.data_config.preprocessing.ensure_rgb = True
+                self.config.data_config.preprocessing.ensure_grayscale = False
+                logger.info(
+                    f"Updating backbone in_channels to 3 based on the pretrained model weights."
+                )
+
+        elif (
+            self.backbone_type == "unet"
+            and self.config.model_config.pretrained_backbone_weights is not None
+        ):
+
+            if self.config.model_config.pretrained_backbone_weights.endswith(".ckpt"):
+                pretrained_backbone_ckpt = torch.load(
+                    self.config.model_config.pretrained_backbone_weights,
+                    map_location=(
+                        self.config.trainer_config.trainer_accelerator
+                        if self.config.trainer_config.trainer_accelerator is not None
+                        or self.config.trainer_config.trainer_accelerator != "auto"
+                        else "cpu"
+                    ),
+                    weights_only=False,
+                )
+                input_channels = list(pretrained_backbone_ckpt["state_dict"].values())[
+                    0
+                ].shape[
+                    -3
+                ]  # get input channels from first layer
+                if (
+                    self.config.model_config.backbone_config.unet.in_channels
+                    != input_channels
+                ):
+                    self.config.model_config.backbone_config.unet.in_channels = (
+                        input_channels
+                    )
+                    logger.info(
+                        f"Updating backbone in_channels to {input_channels} based on the pretrained model weights."
+                    )
+
+                    if input_channels == 1:
+                        self.config.data_config.preprocessing.ensure_grayscale = True
+                        self.config.data_config.preprocessing.ensure_rgb = False
+                        logger.info(
+                            f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
+                        )
+                    elif input_channels == 3:
+                        self.config.data_config.preprocessing.ensure_rgb = True
+                        self.config.data_config.preprocessing.ensure_grayscale = False
+                        logger.info(
+                            f"Updating data preprocessing to ensure_rgb to True based on the pretrained model weights."
+                        )
+
+            elif self.config.model_config.pretrained_backbone_weights.endswith(".h5"):
+                input_channels = get_keras_first_layer_channels(
+                    self.config.model_config.pretrained_backbone_weights
+                )
+                if (
+                    self.config.model_config.backbone_config.unet.in_channels
+                    != input_channels
+                ):
+                    self.config.model_config.backbone_config.unet.in_channels = (
+                        input_channels
+                    )
+                    logger.info(
+                        f"Updating backbone in_channels to {input_channels} based on the pretrained model weights."
+                    )
+
+                    if input_channels == 1:
+                        self.config.data_config.preprocessing.ensure_grayscale = True
+                        self.config.data_config.preprocessing.ensure_rgb = False
+                        logger.info(
+                            f"Updating data preprocessing to ensure_grayscale to True based on the pretrained model weights."
+                        )
+                    elif input_channels == 3:
+                        self.config.data_config.preprocessing.ensure_rgb = True
+                        self.config.data_config.preprocessing.ensure_grayscale = False
+                        logger.info(
+                            f"Updating data preprocessing to ensure_rgb to True based on the pretrained model weights."
+                        )
+
+    def setup_config(self):
+        """Compute config parameters."""
+        # Verify config structure.
+        logger.info("Setting up config...")
+        self.config = verify_training_cfg(self.config)
+
+        # compute preprocessing parameters from the labels objects and fill in the config
+        self._setup_preprocessing_config()
+
+        # save skeleton to config
+        skeleton_yaml = yaml.safe_load(SkeletonYAMLEncoder().encode(self.skeletons))
+        skeleton_names = skeleton_yaml.keys()
+        self.config["data_config"]["skeletons"] = []
+        for skeleton_name in skeleton_names:
+            skl = skeleton_yaml[skeleton_name]
+            skl["name"] = skeleton_name
+            self.config["data_config"]["skeletons"].append(skl)
+
+        # setup head config - partnames, edges and class names
+        self._setup_head_config()
+
+        # set max stride for the backbone: convnext and swint
+        if self.backbone_type == "convnext":
+            self.config.model_config.backbone_config.convnext.max_stride = (
+                self.config.model_config.backbone_config.convnext.stem_patch_stride
+                * (2**3)
+                * 2
+            )
+        elif self.backbone_type == "swint":
+            self.config.model_config.backbone_config.swint.max_stride = (
+                self.config.model_config.backbone_config.swint.stem_patch_stride
+                * (2**3)
+                * 2
+            )
+
+        # set output stride for backbone from head config and verify max stride
+        self.config = check_output_strides(self.config)
+
+        # setup checkpoint path
+        self._setup_ckpt_path()
+
+        # verify input_channels in model_config based on input image and pretrained model weights
+        self._verify_model_input_channels()
 
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder."""
@@ -632,18 +739,10 @@ class ModelTrainer:
         # initialize the labels object and update config.
         if not len(self.train_labels) or not len(self.val_labels):
             self._setup_train_val_labels(self.config)
-            self._setup_config()
+            self.setup_config()
 
         # create the ckpt dir.
         self._setup_model_ckpt_dir()
-
-        # initialize the lightning model.
-        logger.info(f"Setting up lightning module for {self.model_type} model...")
-        self.lightning_model = LightningModel.get_lightning_model_from_config(
-            config=self.config
-        )
-        total_params = sum(p.numel() for p in self.lightning_model.parameters())
-        self.config.model_config.total_params = total_params
 
         # create the train and val datasets for visualization.
         viz_train_dataset = None
@@ -720,6 +819,15 @@ class ModelTrainer:
             self.config.trainer_config.trainer_accelerator = (
                 self.trainer.strategy.root_device
             )
+
+        # initialize the lightning model.
+        # need to initialize after Trainer is initialized (for trainer accelerator)
+        logger.info(f"Setting up lightning module for {self.model_type} model...")
+        self.lightning_model = LightningModel.get_lightning_model_from_config(
+            config=self.config
+        )
+        total_params = sum(p.numel() for p in self.lightning_model.parameters())
+        self.config.model_config.total_params = total_params
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank

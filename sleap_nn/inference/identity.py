@@ -38,17 +38,23 @@ def group_class_peaks(
             row_ind, col_ind = linear_sum_assignment(cost)
 
             # Get original indices in peak_class_probs
-            masked_indices = torch.nonzero(mask, as_tuple=False).squeeze(1)
+            masked_indices = (
+                torch.nonzero(mask, as_tuple=False)
+                .squeeze(1)
+                .to(peak_sample_inds.device)
+            )
             peak_inds_sc = masked_indices[row_ind]
-            class_inds_sc = torch.tensor(col_ind, dtype=torch.int64)
+            class_inds_sc = torch.tensor(col_ind, dtype=torch.int64).to(
+                peak_sample_inds.device
+            )
 
             peak_inds_list.append(peak_inds_sc)
             class_inds_list.append(class_inds_sc)
 
     if not peak_inds_list:
         return (
-            torch.empty(0, dtype=torch.int64),
-            torch.empty(0, dtype=torch.int64),
+            torch.empty(0, dtype=torch.int64).to(peak_sample_inds.device),
+            torch.empty(0, dtype=torch.int64).to(peak_sample_inds.device),
         )
 
     peak_inds = torch.cat(peak_inds_list, dim=0).to(peak_sample_inds.device)
@@ -57,7 +63,7 @@ def group_class_peaks(
     # Filter to keep only best class per peak
     matched_probs = peak_class_probs[peak_inds, class_inds]
     best_probs = peak_class_probs[peak_inds].max(dim=1).values
-    is_best = (matched_probs == best_probs).cpu()
+    is_best = matched_probs == best_probs
 
     return peak_inds[is_best], class_inds[is_best]
 
