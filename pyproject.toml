@@ -56,6 +56,10 @@ torch-cuda118 = [
     "torch",
     "torchvision",
 ]
+torch-cuda121 = [
+    "torch",
+    "torchvision",
+]
 dev = [
     "pytest",
     "pytest-cov",
@@ -91,7 +95,8 @@ Repository = "https://github.com/talmolab/sleap-nn"
 conflicts = [
     [
         { extra = "torch-cpu" },
-        { extra = "torch-cuda118" }
+        { extra = "torch-cuda118" },
+        { extra = "torch-cuda121" }
     ]
 ]
 
@@ -99,10 +104,12 @@ conflicts = [
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     { index = "pytorch-cu118", extra = "torch-cuda118" },
+    { index = "pytorch-cu121", extra = "torch-cuda121" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     { index = "pytorch-cu118", extra = "torch-cuda118" },
+    { index = "pytorch-cu121", extra = "torch-cuda121" },
 ]
 
 [[tool.uv.index]]
@@ -113,6 +120,11 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu118"
 url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
 explicit = true
 
 [tool.black]

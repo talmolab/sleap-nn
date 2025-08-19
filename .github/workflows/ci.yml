@@ -69,7 +69,7 @@ jobs:
 
       - name: Install dev dependencies and torch (self-hosted GPU)
         if: matrix.os == 'self-hosted-gpu'
-        run: uv sync --extra dev --extra torch-cuda118
+        run: uv sync --extra dev --extra torch-cuda121
 
       - name: Install dev dependencies and torch (non-self-hosted GPU)
         if: matrix.os != 'self-hosted-gpu'
