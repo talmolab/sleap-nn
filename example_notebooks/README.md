@@ -23,18 +23,26 @@ This folder contains all tutorial notebooks created with marimo. These notebooks
    uv add marimo
    ```
 
-2. **Run a marimo notebook**:
-   ```bash
-   uvx marimo edit --sandbox <filename.py>
-   ```
+2. **Download and run the marimo notebooks**
 
-   For example:
-   ```bash
-   uvx marimo edit --sandbox "notebook.py"
-   ```
+(i) Training Demo Notebook
+- **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
+Download the notebook [training_demo.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py) and run the below command:
+```bash
+   uvx marimo edit --sandbox <training_demo.py>
+```
 
-## Available Tutorials
+(ii) Augmentation Guide Notebook
+- **Description**: Visualize the different data augmentation techniques available in sleap-nn.
+Download the notebook: [augmentation_guide.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py) and run the below command:
+```bash
+   uvx marimo edit --sandbox <augmentation_guide.py>
+```
 
-- **augmentation_guide.py**: Visualize the different data augmentation techniques in sleap-nn.
-- **training_demo.py**: End-to-End demo on creating config file and running training/ inference/ evaluation using sleap-nn APIs.
+(iii) Receptive Field Guide Notebook
+- **Description**: Visualize how the receptive field could be set by changing the config parameters.
+Download the notebook: [augmentation_guide.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py) and run the below command:
+```bash
+   uvx marimo edit --sandbox <receptive_field_guide.py>
+```
 

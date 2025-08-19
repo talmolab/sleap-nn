@@ -31,16 +31,23 @@ The example notebooks use marimo, which provides a **sandboxed environment** tha
 
 2. **Download and run the marimo notebooks**
 
-### (i) Training Demo Notebook
+(i) Training Demo Notebook
 - **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
 Download the notebook [training_demo.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py) and run the below command:
 ```bash
-   uvx marimo edit --sandbox <filename.py>
+   uvx marimo edit --sandbox <training_demo.py>
 ```
 
-### (ii) Augmentation Guide Notebook
+(ii) Augmentation Guide Notebook
 - **Description**: Visualize the different data augmentation techniques available in sleap-nn.
 Download the notebook: [augmentation_guide.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py) and run the below command:
 ```bash
-   uvx marimo edit --sandbox <filename.py>
+   uvx marimo edit --sandbox <augmentation_guide.py>
+```
+
+(iii) Receptive Field Guide Notebook
+- **Description**: Visualize how the receptive field could be set by changing the config parameters.
+Download the notebook: [augmentation_guide.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py) and run the below command:
+```bash
+   uvx marimo edit --sandbox <receptive_field_guide.py>
 ```
