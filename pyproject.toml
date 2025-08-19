@@ -35,7 +35,8 @@ dependencies = [
     "loguru",
     "psutil",
     "opencv-python",
-    "hydra-core"
+    "hydra-core",
+    "pyzmq"
 ]
 dynamic = ["version", "readme"]
 
@@ -64,8 +65,7 @@ dev = [
     "twine",
     "build",
     "ipython",
-    "ruff",
-    "pyzmq"
+    "ruff"
 ]
 docs = [
     "mkdocs",
