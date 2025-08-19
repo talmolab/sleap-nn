@@ -51,6 +51,7 @@ def group_class_peaks(
             torch.empty(0, dtype=torch.int64),
         )
 
+
     peak_inds = torch.cat(peak_inds_list, dim=0).to(peak_sample_inds.device)
     class_inds = torch.cat(class_inds_list, dim=0).to(peak_sample_inds.device)
 
@@ -114,9 +115,10 @@ def classify_peaks_from_maps(
         peak_class_probs, peak_sample_inds, peak_channel_inds, n_samples, n_channels
     )
 
+    device = peak_sample_inds.device
     # Assign the results to fixed size tensors.
     subs = torch.stack(
-        [peak_sample_inds[peak_inds], class_inds, peak_channel_inds[peak_inds]], dim=1
+        [peak_sample_inds[peak_inds], class_inds.to(device), peak_channel_inds[peak_inds]], dim=1
     )
 
     points = torch.full(
