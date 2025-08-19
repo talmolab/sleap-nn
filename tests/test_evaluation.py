@@ -513,7 +513,7 @@ def test_evaluator_main(
         "run",
         "sleap-nn-eval",
         "--ground_truth_path",
-        str(minimal_instance.as_posix()),
+        minimal_instance.as_posix(),
         "--predicted_path",
         f"{tmp_path}/test.slp",
         "--save_metrics",
