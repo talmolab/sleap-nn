@@ -35,6 +35,7 @@ from sleap_nn.data.custom_datasets import (
     get_train_val_datasets,
     get_train_val_dataloaders,
 )
+from sleap_nn.config.training_job_config import TrainingJobConfig
 
 
 @pytest.fixture
@@ -218,11 +219,16 @@ def test_wandb():
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
@@ -368,11 +374,16 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     single_instance_config = config.copy()
     head_config = single_instance_config.model_config.head_configs.centered_instance
     del single_instance_config.model_config.head_configs.centered_instance
@@ -419,11 +430,16 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_centroid(config, tmp_path):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     # Centroid model
     centroid_config = config.copy()
     head_config = centroid_config.model_config.head_configs.centered_instance
@@ -457,12 +473,17 @@ def test_model_trainer_centroid(config, tmp_path):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_zmq_callbacks(config, tmp_path: str):
     # Setup ZMQ subscriber
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     context = zmq.Context()
     socket = context.socket(zmq.SUB)
     socket.subscribe("")
@@ -505,11 +526,16 @@ def test_zmq_callbacks(config, tmp_path: str):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_bottomup(config, tmp_path):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     # bottom up model
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
@@ -568,11 +594,16 @@ def test_model_trainer_bottomup(config, tmp_path):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     # bottom up model
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
@@ -653,11 +684,16 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance):
+def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, caplog):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
     OmegaConf.update(
@@ -693,6 +729,14 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance):
     ] = class_vectors
     config.model_config.head_configs.multi_class_topdown.confmaps.loss_weight = 1.0
 
+    with pytest.raises(Exception):
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            config,
+            train_labels=[sio.load_slp(minimal_instance)],
+            val_labels=[sio.load_slp(minimal_instance)],
+        )
+    assert "No tracks found. ID models need tracks to be defined." in caplog.text
+
     tracked_labels = sio.load_slp(minimal_instance)
     tracks = 0
     for lf in tracked_labels:
@@ -718,11 +762,16 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_resume_training(config):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     # train a model for 2 epochs:
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
@@ -761,11 +810,16 @@ def test_resume_training(config):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_early_stopping(config, tmp_path):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     config_early_stopping = config.copy()
     OmegaConf.update(
         config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-1
@@ -803,11 +857,16 @@ def test_early_stopping(config, tmp_path):
 
 
 @pytest.mark.skipif(
-    sys.platform.startswith("li"),
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_reuse_cache_img_files(config, tmp_path: str):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     # Centroid model
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
@@ -857,6 +916,10 @@ def test_reuse_cache_img_files(config, tmp_path: str):
 
 
 def test_keep_viz_behavior(config, tmp_path, minimal_instance):
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     # Test keep_viz = True (viz folder should be kept)
     cfg_keep = config.copy()
     OmegaConf.update(cfg_keep, "trainer_config.save_ckpt", True)
@@ -892,7 +955,6 @@ def test_keep_viz_behavior(config, tmp_path, minimal_instance):
     trainer.train()
     viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
     assert not viz_path.exists(), "viz folder should be deleted when keep_viz=False"
-
 
 def test_backbone_oneof_validation_error(config, caplog):
     # Test that an error is raised when a oneof field is not set
@@ -969,3 +1031,66 @@ def test_head_config_oneof_validation_error_no_head(config, caplog):
     )
     with pytest.raises(ValueError):
         ModelTrainer.get_model_trainer_from_config(config_no_head)
+
+@pytest.mark.skipif(
+    sys.platform.startswith("li")
+    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
+    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
+)
+# TODO: Revisit this test later (Failing on ubuntu)
+def test_loading_pretrained_weights(
+    config,
+    sleap_centered_instance_model_path,
+    minimal_instance,
+    caplog,
+    minimal_instance_centered_instance_ckpt,
+):
+    """Test loading pretrained weights for model initialization."""
+    # with keras (.h5 weights)
+    sleap_nn_config = TrainingJobConfig.load_sleap_config(
+        Path(sleap_centered_instance_model_path) / "training_config.json"
+    )
+    sleap_nn_config.model_config.pretrained_backbone_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+    sleap_nn_config.model_config.pretrained_head_weights = (
+        Path(sleap_centered_instance_model_path) / "best_model.h5"
+    )
+    sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
+    sleap_nn_config.data_config.preprocessing.ensure_rgb = True
+    sleap_nn_config.trainer_config.max_epochs = 2
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config=sleap_nn_config,
+        train_labels=[sio.load_slp(minimal_instance)],
+        val_labels=[sio.load_slp(minimal_instance)],
+    )
+    trainer.train()
+
+    assert "Loading backbone weights from" in caplog.text
+    assert "Successfully loaded 28/28 weights from legacy model" in caplog.text
+    assert "Loading head weights from" in caplog.text
+    assert "Successfully loaded 2/2 weights from legacy model" in caplog.text
+
+    # loading `.ckpt`
+    sleap_nn_config = TrainingJobConfig.load_sleap_config(
+        Path(sleap_centered_instance_model_path) / "initial_config.json"
+    )
+    sleap_nn_config.model_config.pretrained_backbone_weights = (
+        Path(minimal_instance_centered_instance_ckpt) / "best.ckpt"
+    )
+    sleap_nn_config.model_config.pretrained_head_weights = (
+        Path(minimal_instance_centered_instance_ckpt) / "best.ckpt"
+    )
+    sleap_nn_config.data_config.preprocessing.ensure_rgb = True
+    sleap_nn_config.trainer_config.max_epochs = 2
+    sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config=sleap_nn_config,
+        train_labels=[sio.load_slp(minimal_instance)],
+        val_labels=[sio.load_slp(minimal_instance)],
+    )
+    trainer.train()
+
+    assert "Loading backbone weights from" in caplog.text
+    assert "Loading head weights from" in caplog.text

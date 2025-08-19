@@ -39,11 +39,7 @@ def get_output_strides_from_heads(head_configs: DictConfig):
 def check_output_strides(config: OmegaConf) -> OmegaConf:
     """Check max_stride and output_stride in backbone_config with head_config."""
     output_strides = get_output_strides_from_heads(config.model_config.head_configs)
-    # check which backbone architecture
-    for k, v in config.model_config.backbone_config.items():
-        if v is not None:
-            backbone_type = k
-            break
+    backbone_type = get_backbone_type_from_cfg(config)
     if output_strides:
         config.model_config.backbone_config[f"{backbone_type}"]["output_stride"] = min(
             output_strides
@@ -54,6 +50,14 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             config.model_config.backbone_config[f"{backbone_type}"]["max_stride"] = max(
                 output_strides
             )
+
+    model_type = get_model_type_from_cfg(config)
+    if model_type == "multi_class_topdown":
+        config.model_config.head_configs.multi_class_topdown.class_vectors.output_stride = config.model_config.backbone_config[
+            f"{backbone_type}"
+        ][
+            "max_stride"
+        ]
     return config
 
 
