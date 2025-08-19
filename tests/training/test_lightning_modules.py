@@ -539,6 +539,11 @@ def test_incorrect_model_type(config, caplog, tmp_path: str):
 
 def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance_ckpt):
     """Test loading trained weights for backbone and head layers."""
+    if torch.cuda.is_available():
+        OmegaConf.update(config, "trainer_config.trainer_accelerator", "cuda")
+    else:
+        OmegaConf.update(config, "trainer_config.trainer_accelerator", "cpu")
+
     OmegaConf.update(
         config,
         "trainer_config.save_ckpt_path",
@@ -562,7 +567,7 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance
     # check loading trained weights for backbone
     ckpt = torch.load(
         (Path(minimal_instance_centered_instance_ckpt) / "best.ckpt").as_posix(),
-        map_location="cpu",
+        map_location="cuda" if torch.cuda.is_available() else "cpu",
         weights_only=False,
     )
     first_layer_ckpt = (

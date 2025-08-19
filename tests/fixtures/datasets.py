@@ -133,7 +133,7 @@ def config(sleap_nn_data_dir):
                     "patience": 20,
                 },
                 "trainer_devices": 1,
-                "trainer_accelerator": "cpu",
+                "trainer_accelerator": "auto",
                 "enable_progress_bar": False,
                 "min_train_steps_per_epoch": 2,
                 "train_steps_per_epoch": None,
