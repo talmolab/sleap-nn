@@ -956,6 +956,7 @@ def test_keep_viz_behavior(config, tmp_path, minimal_instance):
     viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
     assert not viz_path.exists(), "viz folder should be deleted when keep_viz=False"
 
+
 def test_backbone_oneof_validation_error(config, caplog):
     # Test that an error is raised when a oneof field is not set
     config_unet_and_convnext = config.copy()
@@ -1031,6 +1032,7 @@ def test_head_config_oneof_validation_error_no_head(config, caplog):
     )
     with pytest.raises(ValueError):
         ModelTrainer.get_model_trainer_from_config(config_no_head)
+
 
 @pytest.mark.skipif(
     sys.platform.startswith("li")
