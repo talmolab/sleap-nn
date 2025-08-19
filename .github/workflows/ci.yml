@@ -58,15 +58,27 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Set up Python (self-hosted GPU only)
+        if: matrix.os == 'self-hosted-gpu'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: false
 
-      - name: Set up Python
+      - name: Set up Python (non-self-hosted GPU)
+        if: matrix.os != 'self-hosted-gpu'
         run: uv python install ${{ matrix.python }}
 
-      - name: Install dev dependencies and torch
+      - name: Install dev dependencies and torch (self-hosted GPU)
+        if: matrix.os == 'self-hosted-gpu'
+        run: uv sync --extra dev --extra torch-cuda
+
+      - name: Install dev dependencies and torch (non-self-hosted GPU)
+        if: matrix.os != 'self-hosted-gpu'
         run: uv sync --extra dev --extra torch-cpu
 
       - name: Print environment info
