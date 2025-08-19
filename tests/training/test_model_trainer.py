@@ -1054,6 +1054,7 @@ def test_loading_pretrained_weights(
     minimal_instance,
     caplog,
     minimal_instance_centered_instance_ckpt,
+    tmp_path,
 ):
     """Test loading pretrained weights for model initialization."""
     # with keras (.h5 weights)
@@ -1069,6 +1070,7 @@ def test_loading_pretrained_weights(
     sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
+    sleap_nn_config.trainer_config.save_ckpt_path = f"{tmp_path}/test_loading_weights"
 
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
@@ -1095,6 +1097,7 @@ def test_loading_pretrained_weights(
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
     sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
+    sleap_nn_config.trainer_config.save_ckpt_path = f"{tmp_path}/test_loading_weights"
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
         train_labels=[sio.load_slp(minimal_instance)],
