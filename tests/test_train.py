@@ -148,6 +148,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         test_file_path=minimal_instance,
         max_epochs=1,
+        trainer_devices=1,  # multi-gpu doesn't work well with pytest
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         head_configs="centered_instance",
         save_ckpt=True,
@@ -171,6 +172,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         validation_fraction=0.1,
         test_file_path=minimal_instance,
         max_epochs=1,
+        trainer_devices=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         head_configs="centered_instance",
         save_ckpt=True,
@@ -193,6 +195,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         test_file_path=minimal_instance,
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         backbone_config="convnext",
         head_configs="centered_instance",
         save_ckpt=True,
@@ -213,6 +216,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         test_file_path=minimal_instance,
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         backbone_config="swint",
         head_configs="centered_instance",
         save_ckpt=True,
@@ -233,6 +237,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         test_file_path=minimal_instance,
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         backbone_config="swint",
         head_configs="centered_instance",
         save_ckpt=True,
@@ -258,6 +263,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             val_labels_path=[minimal_instance],
             max_epochs=1,
             trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+            trainer_devices=1,
             head_configs="centered_instance",
             use_augmentations_train=True,
             intensity_aug="intensity",
@@ -273,6 +279,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             val_labels_path=[minimal_instance],
             max_epochs=1,
             trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+            trainer_devices=1,
             head_configs="centered_instance",
             use_augmentations_train=True,
             intensity_aug="uniform_noise",
@@ -287,6 +294,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         head_configs="centered_instance",
         use_augmentations_train=True,
         intensity_aug=["uniform_noise", "gaussian_noise", "contrast"],
@@ -308,6 +316,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         head_configs="centered_instance",
         use_augmentations_train=True,
         intensity_aug="brightness",
@@ -330,6 +339,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         head_configs="centered_instance",
         use_augmentations_train=True,
         intensity_aug={
@@ -356,6 +366,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             max_epochs=1,
             backbone_config="resnet",
             trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+            trainer_devices=1,
             head_configs="centroid",
             save_ckpt=True,
             save_ckpt_path=f"{tmp_path}/test_aug",
@@ -366,6 +377,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
         max_epochs=1,
+        trainer_devices=1,
         backbone_config={
             "unet": {
                 "in_channels": 1,
@@ -398,6 +410,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             max_epochs=1,
             backbone_config="unet",
             trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+            trainer_devices=1,
             head_configs="center",
             save_ckpt=True,
             save_ckpt_path=f"{tmp_path}/test_aug",
@@ -409,6 +422,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=20,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         backbone_config="unet",
         head_configs={
             "single_instance": None,
@@ -437,6 +451,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     #     trainer_accelerator="cpu",
     #     head_configs="single_instance",
     #     save_ckpt=True,
+    #     trainer_devices=1,
     #     save_ckpt_path=f"{tmp_path}/test_single_instabce",
     #     lr_scheduler="reduce_lr_on_plateau",
     # )
@@ -449,6 +464,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         head_configs="bottomup",
         save_ckpt=True,
         save_ckpt_path=f"{tmp_path}/test_bottomup",
@@ -465,6 +481,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         head_configs={
             "centered_instance": {
                 "confmaps": {
@@ -491,6 +508,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             val_labels_path=[minimal_instance],
             max_epochs=1,
             trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+            trainer_devices=1,
             lr_scheduler="invalid_scheduler",
         )
 
@@ -500,6 +518,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         head_configs={
             "centroid": {
                 "confmaps": {"anchor_part": None, "sigma": 2.5, "output_stride": 2}
@@ -521,6 +540,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         val_labels_path=[minimal_instance],
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        trainer_devices=1,
         head_configs={
             "centroid": {
                 "confmaps": {"anchor_part": None, "sigma": 2.5, "output_stride": 2}
@@ -550,6 +570,7 @@ def test_train_method(minimal_instance, tmp_path: str):
             val_labels_path=[minimal_instance],
             max_epochs=1,
             trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+            trainer_devices=1,
             head_configs="centered_instance",
             save_ckpt=False,
             save_ckpt_path=f"{tmp_path}/test_invalid_sch",
