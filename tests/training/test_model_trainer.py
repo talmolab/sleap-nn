@@ -224,10 +224,10 @@ def test_wandb():
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
@@ -379,10 +379,10 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     single_instance_config = config.copy()
     head_config = single_instance_config.model_config.head_configs.centered_instance
     del single_instance_config.model_config.head_configs.centered_instance
@@ -435,10 +435,10 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_centroid(config, tmp_path):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     # Centroid model
     centroid_config = config.copy()
     head_config = centroid_config.model_config.head_configs.centered_instance
@@ -479,10 +479,10 @@ def test_model_trainer_centroid(config, tmp_path):
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_zmq_callbacks(config, tmp_path: str):
     # Setup ZMQ subscriber
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     context = zmq.Context()
     socket = context.socket(zmq.SUB)
     socket.subscribe("")
@@ -531,10 +531,10 @@ def test_zmq_callbacks(config, tmp_path: str):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_bottomup(config, tmp_path):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     # bottom up model
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
@@ -599,10 +599,10 @@ def test_model_trainer_bottomup(config, tmp_path):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     # bottom up model
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
@@ -689,10 +689,10 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, caplog):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
     OmegaConf.update(
@@ -767,10 +767,10 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, ca
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_resume_training(config):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     # train a model for 2 epochs:
     OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
@@ -815,10 +815,10 @@ def test_resume_training(config):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_early_stopping(config, tmp_path):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     config_early_stopping = config.copy()
     OmegaConf.update(
         config_early_stopping, "trainer_config.early_stopping.min_delta", 1e-1
@@ -862,10 +862,10 @@ def test_early_stopping(config, tmp_path):
 )
 # TODO: Revisit this test later (Failing on ubuntu)
 def test_reuse_cache_img_files(config, tmp_path: str):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     # Centroid model
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
@@ -915,10 +915,10 @@ def test_reuse_cache_img_files(config, tmp_path: str):
 
 
 def test_keep_viz_behavior(config, tmp_path, minimal_instance):
-    if torch.mps.is_available():
-        config.trainer_config.trainer_accelerator = "cpu"
-    else:
-        config.trainer_config.trainer_accelerator = "auto"
+    # if torch.mps.is_available():
+    #     config.trainer_config.trainer_accelerator = "cpu"
+    # else:
+    #     config.trainer_config.trainer_accelerator = "auto"
     # Test keep_viz = True (viz folder should be kept)
     cfg_keep = config.copy()
     OmegaConf.update(cfg_keep, "trainer_config.save_ckpt", True)

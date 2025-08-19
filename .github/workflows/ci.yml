@@ -11,7 +11,7 @@ on:
 
 defaults:
   run:
-    shell: bash -l {0}  # Enable conda environment
+    shell: bash -l {0} # Enable conda environment
 
 jobs:
   lint:
@@ -53,16 +53,24 @@ jobs:
         include:
           - os: ubuntu
             runs-on: ubuntu-latest
+            use_mps: false
           - os: windows
             runs-on: windows-latest
+            use_mps: false
           - os: mac
             runs-on: macos-14
+            use_mps: true
           - os: self-hosted-gpu
             runs-on: [self-hosted, puma, gpu, 2xgpu]
+            use_mps: false
         python: [3.11]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.runs-on }}
+    env:
+      CI_USE_MPS: ${{ matrix.use_mps && '1' || '0' }}
+      PYTORCH_ENABLE_MPS_FALLBACK: ${{ matrix.use_mps && '1' || '' }}
+      PYTORCH_MPS_HIGH_WATERMARK_RATIO: ${{ matrix.use_mps && '0.0' || '' }}
 
     steps:
       - name: Checkout repo
@@ -90,7 +98,6 @@ jobs:
           which python
           python --version
           pip freeze
-
       - name: Run pytest
         run: pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
