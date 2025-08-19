@@ -119,4 +119,25 @@ def verify_training_cfg(cfg: DictConfig) -> DictConfig:
 
     # Verify configs with @oneof class is valid
     _ = OmegaConf.to_object(config)
+
+    # Verify required fields are set
+    check_must_be_set(config)
     return config
+
+
+def check_must_be_set(config: DictConfig) -> None:
+    """Check that all required fields are set in the BackboneConfig and HeadConfig."""
+    backbone_config = config.model_config.backbone_config
+    head_config = config.model_config.head_configs
+
+    backbone_attributes = [k for k, v in backbone_config.items() if v is not None]
+
+    head_config_attributes = [k for k, v in head_config.items() if v is not None]
+
+    if len(backbone_attributes) == 0:
+        message = "BackboneConfig: At least one attribute of this class must be set."
+        raise ValueError(message)
+
+    if len(head_config_attributes) == 0:
+        message = "HeadConfig: At least one attribute of this class must be set."
+        raise ValueError(message)
