@@ -95,15 +95,19 @@ def oneof(attrs_cls, must_be_set: bool = False):
             attrib for attrib in attribs if getattr(self, attrib.name) is not None
         ]
 
+        class_name = self.__class__.__name__
+
         if len(attribs_with_value) > 1:
             # Raise error if more than one attribute is set.
-            message = "Only one attribute of this class can be set (not None)."
+            message = (
+                f"{class_name}: Only one attribute of this class can be set (not None)."
+            )
             logger.error(message)
             raise ValueError(message)
 
         if len(attribs_with_value) == 0 and must_be_set:
             # Raise error if none are set.
-            message = "At least one attribute of this class must be set."
+            message = f"{class_name}: At least one attribute of this class must be set."
             logger.error(message)
             raise ValueError(message)
 
@@ -115,17 +119,22 @@ def oneof(attrs_cls, must_be_set: bool = False):
         attribs_with_value = [
             attrib for attrib in attribs if getattr(self, attrib.name) is not None
         ]
+        class_name = self.__class__.__name__
 
         if len(attribs_with_value) > 1:
             # Raise error if more than one attribute is set.
-            message = "Only one attribute of this class can be set (not None)."
+            message = (
+                f"{class_name}: Only one attribute of this class can be set (not None)."
+            )
             logger.error(message)
             raise ValueError(message)
 
         if len(attribs_with_value) == 0:
             if must_be_set:
                 # Raise error if none are set.
-                message = "At least one attribute of this class must be set."
+                message = (
+                    f"{class_name}: At least one attribute of this class must be set."
+                )
                 logger.error(message)
                 raise ValueError(message)
             else:
