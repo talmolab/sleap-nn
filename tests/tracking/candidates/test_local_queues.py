@@ -6,11 +6,14 @@ from sleap_nn.tracking.candidates.local_queues import LocalQueueCandidates
 from sleap_nn.tracking.tracker import Tracker
 
 
-def get_pred_instances(minimal_instance_centered_instance_ckpt, minimal_instance, n=10):
+def get_pred_instances(
+    minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path, n=10
+):
     result_labels = run_inference(
         model_paths=[minimal_instance_centered_instance_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=0.0,
         integral_refinement="integral",
@@ -24,11 +27,14 @@ def get_pred_instances(minimal_instance_centered_instance_ckpt, minimal_instance
 
 
 def test_local_queues_candidates(
-    minimal_instance_centered_instance_ckpt, minimal_instance
+    minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
 ):
 
     pred_instances = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance, 2
+        minimal_instance_centered_instance_ckpt,
+        minimal_instance,
+        n=2,
+        tmp_path=tmp_path,
     )
     tracker = Tracker.from_config(candidates_method="local_queues")
     track_instances = tracker.get_features(pred_instances, 0)
