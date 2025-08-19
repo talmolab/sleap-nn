@@ -1,6 +1,9 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
 from kornia.geometry.transform import crop_and_resize
+from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
+import os
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
@@ -190,16 +193,49 @@ class BaseDataset(Dataset):
 
     def _fill_cache(self):
         """Load all samples to cache."""
-        for labels_idx, lf_idx in self.lf_idx_list:
+
+        def process_sample(args):
+            labels_idx, lf_idx = args
             img = self.labels[labels_idx][lf_idx].image
             if img.shape[-1] == 1:
                 img = np.squeeze(img)
+
             if self.cache_img == "disk":
                 f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
                 Image.fromarray(img).save(f_name, format="JPEG")
-            if self.cache_img == "memory":
-                self.cache[(labels_idx, lf_idx)] = img
+                return (
+                    labels_idx,
+                    lf_idx,
+                ), None  # Return key and None for disk cache
 
+            if self.cache_img == "memory":
+                return (
+                    labels_idx,
+                    lf_idx,
+                ), img  # Return key and image for memory cache
+
+        # Use ThreadPoolExecutor for I/O-bound operations
+        max_workers = min(len(self.lf_idx_list), (os.cpu_count() or 4) * 4)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_sample = {
+                executor.submit(process_sample, (labels_idx, lf_idx)): (
+                    labels_idx,
+                    lf_idx,
+                )
+                for labels_idx, lf_idx in self.lf_idx_list
+            }
+
+            # Collect results
+            for future in concurrent.futures.as_completed(future_to_sample):
+                result = future.result()
+                if result is not None:
+                    key, img = result
+                    if img is not None:  # Memory cache
+                        self.cache[key] = img
+
+        # Close videos after all processing is done
         for label in self.labels:
             for video in label.videos:
                 if video.is_open:
