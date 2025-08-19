@@ -18,6 +18,12 @@ To train a model using CLI,
 sleap-nn-train --config-name config --config-dir path/to/config_dir
 ```
 
+- `config-name`: Name of the config file
+- `config-dir`: Path to the config file
+
+If yor config file is in the path: `/path/to/config/file/config.yaml`, then `config-name` would be `config.yaml` and `config-dir` would be `/path/to/config/file`.
+
+
 Override any configuration from command line:
 
 ```bash
