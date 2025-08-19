@@ -82,6 +82,19 @@ jobs:
           uv run python -c "import sys; print('Python executable:', sys.executable)"
           echo "=== UV Environment NumPy Check ==="
           uv run python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
+          echo "=== CUDA Availability Check ==="
+          uv run python -c "
+          import torch
+          print(f'PyTorch version: {torch.__version__}')
+          print(f'CUDA available: {torch.cuda.is_available()}')
+          print(f'CUDA device count: {torch.cuda.device_count()}')
+          if torch.cuda.is_available():
+              print(f'CUDA version: {torch.version.cuda}')
+              print(f'Current device: {torch.cuda.current_device()}')
+              print(f'Device name: {torch.cuda.get_device_name(0)}')
+          else:
+              print('CUDA is not available')
+          " || echo "CUDA check failed"
           echo "=== PIP EXECUTABLE COMPARISON ==="
           uv run python -c "import subprocess; print('pip from uv run python:', subprocess.check_output(['pip', '--version']).decode().strip())" || echo "pip not found from python"
           uv run pip --version || echo "uv run pip failed"
