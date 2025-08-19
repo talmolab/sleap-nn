@@ -51,6 +51,8 @@ from sleap_nn.training.callbacks import (
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
 
+MEMORY_BUFFER = 0.2  # Default memory buffer for caching
+
 
 @attrs.define
 class ModelTrainer:
