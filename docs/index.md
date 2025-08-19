@@ -52,7 +52,7 @@ Create a `config.yaml` file for your experiment.
 > Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
 ```bash
-sleap-nn-train --config-name config.yaml --config-path configs/ "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config.yaml --config-dir configs/ "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 > For detailed information on training workflows, configuration options, and advanced usage, please refer to the [Training Guide](training.md).
 

@@ -15,23 +15,23 @@ This section explains how to train a model using an existing configuration file.
 
 To train a model using CLI, 
 ```bash
-sleap-nn-train --config-name config --config-path path/to/config_dir
+sleap-nn-train --config-name config --config-dir path/to/config_dir
 ```
 
 Override any configuration from command line:
 
 ```bash
 # Train on list of .slp files
-sleap-nn-train --config-name config --config-path path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
+sleap-nn-train --config-name config --config-dir path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
 
 # Change batch size
-sleap-nn-train --config-name config --config-path path/to/config_dir data_config.batch_size=32 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-dir path/to/config_dir data_config.batch_size=32 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Use different GPU
-sleap-nn-train --config-name config --config-path path/to/config_dir trainer_config.devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-dir path/to/config_dir trainer_config.devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Change learning rate
-sleap-nn-train --config-name config --config-path path/to/config_dir trainer_config.learning_rate=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-dir path/to/config_dir trainer_config.learning_rate=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
 !!! note
@@ -40,13 +40,13 @@ sleap-nn-train --config-name config --config-path path/to/config_dir trainer_con
 ```bash
 # Train centroid model
 sleap-nn-train \
-    --config-path configs \
+    --config-dir configs \
     --config-name centroid_unet \
     "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Train centered instance model
 sleap-nn-train \
-    --config-path configs \
+    --config-dir configs \
     --config-name centered_instance_unet \ 
     "data_config.train_labels_path=[labels.pkg.slp]"
 ```  
@@ -136,7 +136,7 @@ To resume training from a previous checkpoint,
 ```bash
 sleap-nn-train \
     --config-name config \
-    --config-path path/to/config_dir \ 
+    --config-dir path/to/config_dir \ 
     trainer_config.ckpt_path=/path/to/checkpoint.ckpt \
     trainer_config.resume_ckpt_path=/path/to/prv_trained/checkpoint.ckpt \
     "data_config.train_labels_path=[labels.pkg.slp]"

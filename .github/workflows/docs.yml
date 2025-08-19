@@ -5,6 +5,9 @@ on:
     types:
       - published
   push:
+    branches:
+      - main
+      - divya/update-docs-website
     paths:
       - "sleap_nn/**"
       - "docs/**"
@@ -49,9 +52,3 @@ jobs:
         run: |
             mike deploy --update-aliases --allow-empty --push "${{ github.event.release.tag_name }}" latest
 
-      - name: Build and upload docs (dev)
-        if: ${{ github.event_name == 'push' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-            mike deploy --update-aliases --allow-empty --push dev
