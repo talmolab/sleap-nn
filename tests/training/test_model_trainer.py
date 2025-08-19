@@ -1019,23 +1019,24 @@ def test_loading_pretrained_weights(
     assert "Loading backbone weights from" in caplog.text
     assert "Loading head weights from" in caplog.text
 
+
 def test_file_not_found_handling(config, tmp_path, caplog, minimal_instance):
     """Test ModelTrainer handles missing video files gracefully."""
     if torch.mps.is_available():
         config.trainer_config.trainer_accelerator = "cpu"
     else:
         config.trainer_config.trainer_accelerator = "auto"
-    
+
     # Load labels and modify video filename to point to non-existent file
     labels = sio.load_slp(minimal_instance)
     labels.videos[0].filename = "/nonexistent/path/video.mp4"
-    
+
     OmegaConf.update(config, "trainer_config.max_epochs", 1)
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_missing_video/")
-    
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_missing_video/"
+    )
+
     with pytest.raises(FileNotFoundError):
         trainer = ModelTrainer.get_model_trainer_from_config(
-            config, 
-            train_labels=[labels], 
-            val_labels=[labels]
+            config, train_labels=[labels], val_labels=[labels]
         )
