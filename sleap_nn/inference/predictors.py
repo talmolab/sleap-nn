@@ -1267,7 +1267,7 @@ class SingleInstancePredictor(Predictor):
             refinement=self.integral_refinement,
             integral_patch_size=self.integral_patch_size,
             return_confmaps=self.return_confmaps,
-            input_scale=self.confmap_config.data_config.preprocessing.scale,  # TODO
+            input_scale=self.confmap_config.data_config.preprocessing.scale,
         )
 
     @classmethod

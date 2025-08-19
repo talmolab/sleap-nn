@@ -24,17 +24,19 @@ def run_training(config: DictConfig):
     """Create ModelTrainer instance and start training."""
     start_train_time = time()
     start_timestamp = str(datetime.now())
-    logger.info("Started training at:", start_timestamp)
+    logger.info(f"Started training at: {start_timestamp}")
 
     trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
 
     finish_timestamp = str(datetime.now())
     total_elapsed = time() - start_train_time
-    logger.info("Finished training at:", finish_timestamp)
+    logger.info(f"Finished training at: {finish_timestamp}")
     logger.info(f"Total training time: {total_elapsed} secs")
 
-    if trainer.trainer.global_rank == 0:
+    rank = trainer.trainer.global_rank if trainer.trainer is not None else -1
+
+    if rank in [0, -1]:
         # run inference on val dataset
         if config.trainer_config.save_ckpt:
             data_paths = {}
@@ -95,8 +97,8 @@ def run_training(config: DictConfig):
 
 
 def train(
-    train_labels_path: List[str],
-    val_labels_path: List[str] = [],
+    train_labels_path: Optional[List[str]] = None,
+    val_labels_path: Optional[List[str]] = None,
     validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
@@ -167,8 +169,8 @@ def train(
     and starts training by passing this config to the `ModelTrainer` class.
 
     Args:
-        train_labels_path: List of paths to training data (`.slp` file).
-        val_labels_path: List of paths to validation data (`.slp` file).
+        train_labels_path: List of paths to training data (`.slp` file). Default: `None`
+        val_labels_path: List of paths to validation data (`.slp` file). Default: `None`
         validation_fraction: Float between 0 and 1 specifying the fraction of the
             training set to sample for generating the validation set. The remaining
             labeled frames will be left in the training set. If the `validation_labels`
@@ -221,9 +223,9 @@ def train(
                     }
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
-        pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is
+        pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is
             initialized. If `None`, random init is used. Default: None.
-        pretrained_head_weights: Path of the `ckpt` file with which the head layers are
+        pretrained_head_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are
             initialized. If `None`, random init is used. Default: None.
         backbone_config: One of ["unet", "unet_medium_rf", "unet_large_rf", "convnext",
             "convnext_tiny", "convnext_small", "convnext_base", "convnext_large", "swint",
@@ -295,7 +297,7 @@ def train(
             of Torch `Trainer`. Default: 200.
         train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
             this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
-            whichever is largest. Default: `None`.
+            whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
         keep_viz: If set to `True`, the `viz` folder containing training visualizations will be kept after training completes. If `False`, the folder will be deleted. This parameter only has an effect when `visualize_preds_during_training` is `True`. Default: `False`.

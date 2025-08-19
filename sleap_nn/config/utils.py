@@ -39,11 +39,7 @@ def get_output_strides_from_heads(head_configs: DictConfig):
 def check_output_strides(config: OmegaConf) -> OmegaConf:
     """Check max_stride and output_stride in backbone_config with head_config."""
     output_strides = get_output_strides_from_heads(config.model_config.head_configs)
-    # check which backbone architecture
-    for k, v in config.model_config.backbone_config.items():
-        if v is not None:
-            backbone_type = k
-            break
+    backbone_type = get_backbone_type_from_cfg(config)
     if output_strides:
         config.model_config.backbone_config[f"{backbone_type}"]["output_stride"] = min(
             output_strides
@@ -54,6 +50,14 @@ def check_output_strides(config: OmegaConf) -> OmegaConf:
             config.model_config.backbone_config[f"{backbone_type}"]["max_stride"] = max(
                 output_strides
             )
+
+    model_type = get_model_type_from_cfg(config)
+    if model_type == "multi_class_topdown":
+        config.model_config.head_configs.multi_class_topdown.class_vectors.output_stride = config.model_config.backbone_config[
+            f"{backbone_type}"
+        ][
+            "max_stride"
+        ]
     return config
 
 
@@ -91,15 +95,19 @@ def oneof(attrs_cls, must_be_set: bool = False):
             attrib for attrib in attribs if getattr(self, attrib.name) is not None
         ]
 
+        class_name = self.__class__.__name__
+
         if len(attribs_with_value) > 1:
             # Raise error if more than one attribute is set.
-            message = "Only one attribute of this class can be set (not None)."
+            message = (
+                f"{class_name}: Only one attribute of this class can be set (not None)."
+            )
             logger.error(message)
             raise ValueError(message)
 
         if len(attribs_with_value) == 0 and must_be_set:
             # Raise error if none are set.
-            message = "At least one attribute of this class must be set."
+            message = f"{class_name}: At least one attribute of this class must be set."
             logger.error(message)
             raise ValueError(message)
 
@@ -111,17 +119,22 @@ def oneof(attrs_cls, must_be_set: bool = False):
         attribs_with_value = [
             attrib for attrib in attribs if getattr(self, attrib.name) is not None
         ]
+        class_name = self.__class__.__name__
 
         if len(attribs_with_value) > 1:
             # Raise error if more than one attribute is set.
-            message = "Only one attribute of this class can be set (not None)."
+            message = (
+                f"{class_name}: Only one attribute of this class can be set (not None)."
+            )
             logger.error(message)
             raise ValueError(message)
 
         if len(attribs_with_value) == 0:
             if must_be_set:
                 # Raise error if none are set.
-                message = "At least one attribute of this class must be set."
+                message = (
+                    f"{class_name}: At least one attribute of this class must be set."
+                )
                 logger.error(message)
                 raise ValueError(message)
             else:

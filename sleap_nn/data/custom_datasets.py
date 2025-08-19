@@ -1,6 +1,9 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
 from kornia.geometry.transform import crop_and_resize
+from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
+import os
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
@@ -152,8 +155,9 @@ class BaseDataset(Dataset):
             if self.cache_img == "memory":
                 self._fill_cache()
             elif self.cache_img == "disk" and not self.use_existing_imgs:
-                if self.rank is None or self.rank == 0:
+                if self.rank is None or self.rank == -1 or self.rank == 0:
                     self._fill_cache()
+                # Synchronize all ranks after cache creation
                 if is_distributed_initialized():
                     dist.barrier()
 
@@ -189,16 +193,49 @@ class BaseDataset(Dataset):
 
     def _fill_cache(self):
         """Load all samples to cache."""
-        for labels_idx, lf_idx in self.lf_idx_list:
+
+        def process_sample(args):
+            labels_idx, lf_idx = args
             img = self.labels[labels_idx][lf_idx].image
             if img.shape[-1] == 1:
                 img = np.squeeze(img)
+
             if self.cache_img == "disk":
                 f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
                 Image.fromarray(img).save(f_name, format="JPEG")
-            if self.cache_img == "memory":
-                self.cache[(labels_idx, lf_idx)] = img
+                return (
+                    labels_idx,
+                    lf_idx,
+                ), None  # Return key and None for disk cache
 
+            if self.cache_img == "memory":
+                return (
+                    labels_idx,
+                    lf_idx,
+                ), img  # Return key and image for memory cache
+
+        # Use ThreadPoolExecutor for I/O-bound operations
+        max_workers = min(len(self.lf_idx_list), (os.cpu_count() or 4) * 4)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_sample = {
+                executor.submit(process_sample, (labels_idx, lf_idx)): (
+                    labels_idx,
+                    lf_idx,
+                )
+                for labels_idx, lf_idx in self.lf_idx_list
+            }
+
+            # Collect results
+            for future in concurrent.futures.as_completed(future_to_sample):
+                result = future.result()
+                if result is not None:
+                    key, img = result
+                    if img is not None:  # Memory cache
+                        self.cache[key] = img
+
+        # Close videos after all processing is done
         for label in self.labels:
             for video in label.videos:
                 if video.is_open:
@@ -353,6 +390,7 @@ class BottomUpDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -564,6 +602,7 @@ class BottomUpMultiClassDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -821,6 +860,7 @@ class CenteredInstanceDataset(BaseDataset):
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # apply augmentation
         if self.apply_aug:
@@ -1079,6 +1119,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # apply augmentation
         if self.apply_aug:
@@ -1275,6 +1316,7 @@ class CentroidDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -1454,6 +1496,7 @@ class SingleInstanceDataset(BaseDataset):
             max_width=self.max_hw[1],
         )
         sample["instances"] = sample["instances"] * eff_scale
+        sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # resize image
         sample["image"], sample["instances"] = apply_resizer(
@@ -2014,6 +2057,7 @@ def get_train_val_dataloaders(
     train_steps_per_epoch: Optional[int] = None,
     val_steps_per_epoch: Optional[int] = None,
     rank: Optional[int] = None,
+    trainer_devices: int = 1,
 ):
     """Return the train and val dataloaders.
 
@@ -2021,10 +2065,11 @@ def get_train_val_dataloaders(
         train_dataset: Train dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset, BottomUpMultiClassDataset, TopDownCenteredInstanceMultiClassDataset].
         val_dataset: Val dataset-instance of one of the dataset classes [SingleInstanceDataset, CentroidDataset, CenteredInstanceDataset, BottomUpDataset, BottomUpMultiClassDataset, TopDownCenteredInstanceMultiClassDataset].
         config: Sleap-nn config.
-        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data.
+        train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         val_steps_per_epoch: Number of minibatches (steps) to run validation for in an epoch. If set to `None`, this is set to the number of batches in the val data.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        trainer_devices: Number of devices to use for training.
 
     Returns:
         A tuple (train_dataloader, val_dataloader).
@@ -2050,12 +2095,6 @@ def get_train_val_dataloaders(
             batch_size=config.trainer_config.val_data_loader.batch_size,
         )
 
-    trainer_devices = config.trainer_config.trainer_devices
-    trainer_devices = (
-        trainer_devices
-        if isinstance(trainer_devices, int)
-        else torch.cuda.device_count()
-    )
     train_sampler = (
         DistributedSampler(
             dataset=train_dataset,
@@ -2070,11 +2109,7 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
-        len_dataloader=(
-            round(train_steps_per_epoch / trainer_devices)
-            if trainer_devices >= 1
-            else None
-        ),
+        len_dataloader=(round(train_steps_per_epoch / trainer_devices)),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
             if train_sampler is None
@@ -2109,7 +2144,7 @@ def get_train_val_dataloaders(
         sampler=val_sampler,
         len_dataloader=(
             round(val_steps_per_epoch / trainer_devices)
-            if trainer_devices >= 1
+            if trainer_devices > 1
             else None
         ),
         batch_size=config.trainer_config.val_data_loader.batch_size,

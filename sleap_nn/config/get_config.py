@@ -157,7 +157,7 @@ def get_aug_config(
                 aug_config.geometric.mixup_p = 1.0
             else:
                 raise ValueError(
-                    f"`{intensity_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
+                    f"`{geometric_aug}` is not a valid geometric augmentation option. Please use one of ['rotation', 'scale', 'translate', 'erase_scale', 'mixup']"
                 )
 
     elif isinstance(geometric_aug, dict):
@@ -452,8 +452,8 @@ def get_head_configs(head_cfg: Union[str, Dict[str, Any]]):
 
 
 def get_data_config(
-    train_labels_path: List[str],
-    val_labels_path: List[str] = [],
+    train_labels_path: Optional[List[str]] = None,
+    val_labels_path: Optional[List[str]] = None,
     validation_fraction: float = 0.1,
     test_file_path: Optional[str] = None,
     provider: str = "LabelsReader",
@@ -479,8 +479,8 @@ def get_data_config(
     and starts training by passing this config to the `ModelTrainer` class.
 
     Args:
-        train_labels_path: List of paths to training data (`.slp` file).
-        val_labels_path: List of paths to validation data (`.slp` file).
+        train_labels_path: List of paths to training data (`.slp` file). Default: `None`
+        val_labels_path: List of paths to validation data (`.slp` file). Default: `None`
         validation_fraction: Float between 0 and 1 specifying the fraction of the
             training set to sample for generating the validation set. The remaining
             labeled frames will be left in the training set. If the `validation_labels`
@@ -582,9 +582,9 @@ def get_model_config(
     Args:
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
-        pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is
+        pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is
             initialized. If `None`, random init is used. Default: None.
-        pretrained_head_weights: Path of the `ckpt` file with which the head layers are
+        pretrained_head_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are
             initialized. If `None`, random init is used. Default: None.
         backbone_config: One of ["unet", "unet_medium_rf", "unet_large_rf", "convnext",
             "convnext_tiny", "convnext_small", "convnext_base", "convnext_large", "swint",
@@ -718,7 +718,7 @@ def get_trainer_config(
             of Torch `Trainer`. Default: 200.
         train_steps_per_epoch: Number of minibatches (steps) to train for in an epoch. If set to `None`,
             this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
-            whichever is largest. Default: `None`.
+            whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
             are saved to `viz` folder in the ckpt dir and in wandb table.
         keep_viz: If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder

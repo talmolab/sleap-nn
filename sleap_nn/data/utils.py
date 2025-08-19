@@ -92,58 +92,56 @@ def gaussian_pdf(x: torch.Tensor, sigma: float) -> torch.Tensor:
 
 def check_memory(
     labels: sio.Labels,
-    max_hw: Tuple[int, int],
-    model_type: str,
-    input_scaling: float,
-    crop_size: Optional[int],
-):
-    """Return memory required for caching the image samples from a single labels object."""
-    if model_type == "centered_instance":
-        num_samples = len(labels) * get_max_instances(labels)
-        img = (labels[0].image / 255.0).astype(np.float32)
-        img_mem = (crop_size**2) * img.shape[-1] * img.itemsize * num_samples
+) -> int:
+    """Return memory required for caching the image samples from a single labels object.
 
-        return img_mem
+    Args:
+        labels: A `sleap_io.Labels` object containing the labels for a single dataset.
 
-    num_lfs = len(labels)
-    img = (labels[0].image / 255.0).astype(np.float32)
-    h, w = max_hw[0] * input_scaling, max_hw[1] * input_scaling
-    img_mem = h * w * img.shape[-1] * img.itemsize * num_lfs
-
+    Returns:
+        Memory in bytes required to cache the image samples from the labels object.
+    """
+    imgs_bytes = []
+    for label in labels:
+        if label.image is not None:
+            img = label.image
+            img_bytes = img.nbytes
+            imgs_bytes.append(img_bytes)
+        else:
+            raise ValueError(
+                "Labels object contains a label with no image data, which is required for training."
+            )
+    img_mem = sum(imgs_bytes)
     return img_mem
 
 
-def check_cache_memory(train_labels, val_labels, config: DictConfig):
-    """Check memory requirements for in-memory caching dataset pipeline."""
+def check_cache_memory(
+    train_labels: List[sio.Labels],
+    val_labels: List[sio.Labels],
+    memory_buffer: float = 0.2,
+) -> bool:
+    """Check memory requirements for in-memory caching dataset pipeline.
+
+    Args:
+        train_labels: List of `sleap_io.Labels` objects for training data.
+        val_labels: List of `sleap_io.Labels` objects for validation data.
+        memory_buffer: Fraction of the total image memory required for caching that
+            should be reserved as a buffer.
+
+    Returns:
+        bool: True if the total memory required for caching is within available system
+            memory, False otherwise.
+    """
     train_cache_memory_final = 0
     val_cache_memory_final = 0
-    model_type = get_model_type_from_cfg(config)
     for train, val in zip(train_labels, val_labels):
-        train_cache_memory = check_memory(
-            train,
-            max_hw=(
-                config.data_config.preprocessing.max_height,
-                config.data_config.preprocessing.max_width,
-            ),
-            model_type=model_type,
-            input_scaling=config.data_config.preprocessing.scale,
-            crop_size=config.data_config.preprocessing.crop_hw[0],
-        )
-        val_cache_memory = check_memory(
-            val,
-            max_hw=(
-                config.data_config.preprocessing.max_height,
-                config.data_config.preprocessing.max_width,
-            ),
-            model_type=model_type,
-            input_scaling=config.data_config.preprocessing.scale,
-            crop_size=config.data_config.preprocessing.crop_hw[0],
-        )
+        train_cache_memory = check_memory(train)
+        val_cache_memory = check_memory(val)
         train_cache_memory_final += train_cache_memory
         val_cache_memory_final += val_cache_memory
 
     total_cache_memory = train_cache_memory_final + val_cache_memory_final
-    total_cache_memory += 0.1 * total_cache_memory  # memory required in bytes
+    total_cache_memory += memory_buffer * total_cache_memory  # memory required in bytes
     available_memory = psutil.virtual_memory().available  # available memory in bytes
 
     if total_cache_memory > available_memory:

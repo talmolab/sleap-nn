@@ -455,7 +455,7 @@ def create_model_from_legacy_config(config_path: str) -> Model:
 
     if h5_path.exists():
         keras_in_channels = get_keras_first_layer_channels(str(h5_path))
-        if keras_in_channels is not None and keras_in_channels != 1:
+        if keras_in_channels is not None:
             backbone_config = update_backbone_in_channels(
                 backbone_config, keras_in_channels
             )

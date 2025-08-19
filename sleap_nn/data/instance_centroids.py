@@ -50,9 +50,9 @@ def generate_centroids(
         the rank of the input by 1. NaNs will be ignored in the calculation.
     """
     if anchor_ind is not None:
-        centroids = points[..., anchor_ind, :]
+        centroids = points[..., anchor_ind, :].clone()
     else:
-        centroids = torch.full_like(points[..., 0, :], torch.nan)
+        centroids = torch.full_like(points[..., 0, :], torch.nan).clone()
 
     missing_anchors = torch.isnan(centroids).any(dim=-1)
     if missing_anchors.any():

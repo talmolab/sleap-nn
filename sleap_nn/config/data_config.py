@@ -154,7 +154,7 @@ class DataConfig:
     """Data configuration.
 
     Attributes:
-        train_labels_path: (List[str]) List of paths to training data (`.slp` file(s)). *Default*: `[]`.
+        train_labels_path: (List[str]) List of paths to training data (`.slp` file(s)). *Default*: `None`.
         val_labels_path: (List[str]) List of paths to validation data (`.slp` file(s)). *Default*: `None`.
         validation_fraction: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. *Default*: `0.1`.
         test_file_path: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only with CLI to get evaluation on test set after training is completed. *Default*: `None`.
@@ -170,7 +170,7 @@ class DataConfig:
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
     """
 
-    train_labels_path: List[str] = []
+    train_labels_path: Optional[List[str]] = None
     val_labels_path: Optional[List[str]] = None  # TODO : revisit MISSING!
     validation_fraction: float = 0.1
     test_file_path: Optional[str] = None
