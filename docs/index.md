@@ -19,6 +19,8 @@
 
 ## 🚀 Quick Start
 
+Let's start SLEAPiNNg !!! 🐭🐭
+
 #### 1. Install `sleap-nn`
 
 ```bash
@@ -63,6 +65,9 @@ To run inference:
 sleap-nn-track --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
 > More options for running inference and tracking workflows are available in the [Inference Guide](inference.md).
+
+!!! note
+    **Note:** For step-by-step tutorial on our entire workflow, check out [Step--by-Step guide](step_by_step_guide.md).
 
 !!! note
     **Note:** For tutorials, sample notebooks, and instructions on how to use the interactive notebooks, please see [Example notebooks](example_notebooks.md).

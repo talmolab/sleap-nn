@@ -71,6 +71,8 @@ model_config:
     centroid: null
     centered_instance: null
     bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
 
 trainer_config:
   train_data_loader:
