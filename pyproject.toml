@@ -60,7 +60,7 @@ torch-cuda118 = [
     "torch",
     "torchvision",
 ]
-torch-cuda121 = [
+torch-cuda128 = [
     "torch",
     "torchvision",
 ]
@@ -100,7 +100,7 @@ conflicts = [
     [
         { extra = "torch-cpu" },
         { extra = "torch-cuda118" },
-        { extra = "torch-cuda121" }
+        { extra = "torch-cuda128" }
     ]
 ]
 
@@ -108,12 +108,12 @@ conflicts = [
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     { index = "pytorch-cu118", extra = "torch-cuda118" },
-    { index = "pytorch-cu121", extra = "torch-cuda121" },
+    { index = "pytorch-cu128", extra = "torch-cuda128" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
     { index = "pytorch-cu118", extra = "torch-cuda118" },
-    { index = "pytorch-cu121", extra = "torch-cuda121" },
+    { index = "pytorch-cu128", extra = "torch-cuda128" },
 ]
 
 [[tool.uv.index]]
@@ -127,8 +127,8 @@ url = "https://download.pytorch.org/whl/cu118"
 explicit = true
 
 [[tool.uv.index]]
-name = "pytorch-cu121"
-url = "https://download.pytorch.org/whl/cu121"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [tool.black]
