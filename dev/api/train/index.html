@@ -2872,7 +2872,7 @@ initialization and "xavier" uses Xavier initialization method. Default: "default
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Path of the <code>ckpt</code> file with which the backbone is
+                <p>Path of the <code>ckpt</code> (or <code>.h5</code> file from SLEAP) file with which the backbone is
 initialized. If <code>None</code>, random init is used. Default: None.</p>
               </div>
             </td>
@@ -2889,7 +2889,7 @@ initialized. If <code>None</code>, random init is used. Default: None.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Path of the <code>ckpt</code> file with which the head layers are
+                <p>Path of the <code>ckpt</code> (or <code>.h5</code> file from SLEAP) file with which the head layers are
 initialized. If <code>None</code>, random init is used. Default: None.</p>
               </div>
             </td>
@@ -4137,9 +4137,9 @@ should wait to receive a response and should be set to a small value to minimize
 </span><span id="__span-0-223"><a id="__codelineno-0-223" name="__codelineno-0-223"></a><span class="sd">                    }</span>
 </span><span id="__span-0-224"><a id="__codelineno-0-224" name="__codelineno-0-224"></a><span class="sd">        init_weight: model weights initialization method. &quot;default&quot; uses kaiming uniform</span>
 </span><span id="__span-0-225"><a id="__codelineno-0-225" name="__codelineno-0-225"></a><span class="sd">            initialization and &quot;xavier&quot; uses Xavier initialization method. Default: &quot;default&quot;.</span>
-</span><span id="__span-0-226"><a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">        pretrained_backbone_weights: Path of the `ckpt` file with which the backbone is</span>
+</span><span id="__span-0-226"><a id="__codelineno-0-226" name="__codelineno-0-226"></a><span class="sd">        pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is</span>
 </span><span id="__span-0-227"><a id="__codelineno-0-227" name="__codelineno-0-227"></a><span class="sd">            initialized. If `None`, random init is used. Default: None.</span>
-</span><span id="__span-0-228"><a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">        pretrained_head_weights: Path of the `ckpt` file with which the head layers are</span>
+</span><span id="__span-0-228"><a id="__codelineno-0-228" name="__codelineno-0-228"></a><span class="sd">        pretrained_head_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are</span>
 </span><span id="__span-0-229"><a id="__codelineno-0-229" name="__codelineno-0-229"></a><span class="sd">            initialized. If `None`, random init is used. Default: None.</span>
 </span><span id="__span-0-230"><a id="__codelineno-0-230" name="__codelineno-0-230"></a><span class="sd">        backbone_config: One of [&quot;unet&quot;, &quot;unet_medium_rf&quot;, &quot;unet_large_rf&quot;, &quot;convnext&quot;,</span>
 </span><span id="__span-0-231"><a id="__codelineno-0-231" name="__codelineno-0-231"></a><span class="sd">            &quot;convnext_tiny&quot;, &quot;convnext_small&quot;, &quot;convnext_base&quot;, &quot;convnext_large&quot;, &quot;swint&quot;,</span>
