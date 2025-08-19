@@ -514,7 +514,7 @@ class ModelTrainer:
         if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_memory":
             # check available memory. If insufficient memory, default to disk caching.
             mem_available = check_cache_memory(
-                self.train_labels, self.val_labels, self.config
+                self.train_labels, self.val_labels, memory_buffer=MEMORY_BUFFER
             )
             if not mem_available:
                 self.config.data_config.data_pipeline_fw = (
