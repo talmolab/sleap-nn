@@ -631,5 +631,6 @@ def test_main(sample_cfg):
     # test main exits with invalid config (missing trainer_config)
     invalid_cfg = copy.deepcopy(sample_cfg)
     invalid_cfg.trainer_config = None
+    invalid_cfg.model_config = None
     with pytest.raises(SystemExit):
         main(invalid_cfg)
