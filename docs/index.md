@@ -23,21 +23,22 @@ Let's start SLEAPiNNg !!! 🐭🐭
 
 #### 1. Install `sleap-nn`
 
-```bash
-# Create and activate environment
-mamba create -n sleap-nn-dev python=3.11
-mamba activate sleap-nn-dev
-```
+- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
 ```bash
-# Install uv and dependencies
-pip install uv
-uv pip install -e ".[torch]"
+pip install sleap-nn[torch-cu118]
 ```
 
+- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+
 ```bash
-# For GPU support (Windows/Linux with NVIDIA GPU)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install sleap-nn[torch-cu128]
+```
+
+- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+```bash
+pip install sleap-nn[torch-cpu]
 ```
 
 > Refer [Installation](installation.md) for more details on how to install sleap-nn package for your specific hardware.

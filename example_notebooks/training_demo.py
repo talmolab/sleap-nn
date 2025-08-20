@@ -834,17 +834,17 @@ def _(gt_labels, mo, plot_preds_gif, pred_labels):
 
 @app.cell(hide_code=True)
 def _(mo):
+    lf_index = mo.ui.number(start=0, stop=100, label="LF index")
+    return (lf_index,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
     mo.md(r"""To view predictions of a certain frame:""")
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    lf_index = mo.ui.number(start=0, stop=100, label="LF index")
-    return (lf_index,)
-
-
-@app.cell
 def _(lf_index, mo):
     mo.hstack([lf_index, mo.md(f"Has value: {lf_index.value}")])
     return

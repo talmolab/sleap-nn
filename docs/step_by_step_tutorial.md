@@ -1,4 +1,4 @@
-# Step-by-Step Training Guide
+# Step-by-Step Training Tutorial
 
 This tutorial will walk you through the complete process of training a pose estimation model from scratch.
 

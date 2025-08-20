@@ -19,22 +19,22 @@ The example notebooks use marimo, which provides a **sandboxed environment** tha
 
 2. **Create a new folder**:
 
-   Clone the `sleap-nn` repo
-   ```bash
-   cd sleap-nn/example_notebooks
-   ```
-   
-   Or make a new directory
-   ```bash
-   mkdir sleap-nn-tutorials
-   ```
+      Clone the `sleap-nn` repo
+      ```bash
+      cd sleap-nn/example_notebooks
+      ```
+      
+      Or make a new directory
+      ```bash
+      mkdir sleap-nn-tutorials
+      ```
 
 3. **Initialize uv**:
 
-   Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml`.
-   ```bash
-   uv init
-   ```
+      Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml`.
+      ```bash
+      uv init
+      ```
 
 #### Setup
 
