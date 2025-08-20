@@ -17,7 +17,8 @@ requires-python = ">=3.11"
 keywords = ["sleap", "pose estimation", "deep learning", "neural networks", "computer vision", "animal behavior"]
 license = {text = "BSD-3-Clause"}
 classifiers = [
-    "Programming Language :: Python :: 3.11"
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
 ]
 dependencies = [
     "sleap-io>=0.2.0",

@@ -1,0 +1,35 @@
+# Package builds
+name: Build
+
+on:
+  release:
+    types:
+      - published
+  # # Modify and uncomment below to manually trigger build:
+  # push:
+  #   branches:
+  #     - talmo/v0.0.7
+
+jobs:
+  pypi:
+    name: PyPI Wheel
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for PyPI trusted publishing
+    steps:
+
+    - name: Checkout repo
+      uses: actions/checkout@v4
+
+    - name: Setup UV
+      uses: astral-sh/setup-uv@v6
+      with:
+        python-version: "3.12"
+
+    - name: Build distributions
+      run: |
+        uv build
+
+    - name: Publish to PyPI
+      run: |
+        uv publish
