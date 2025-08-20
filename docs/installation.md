@@ -7,13 +7,13 @@
 - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
 ```bash
-pip install sleap-nn[torch-cu118]
+pip install sleap-nn[torch-cuda118]
 ```
 
 - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
 
 ```bash
-pip install sleap-nn[torch-cu128]
+pip install sleap-nn[torch-cuda128]
 ```
 
 - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
@@ -34,13 +34,13 @@ pip install sleap-nn[torch-cpu]
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
       ```bash
-      uv sync --extra dev --extra torch-cu118
+      uv sync --extra dev --extra torch-cuda118
       ```
 
       - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
 
       ```bash
-      uv sync --extra dev --extra torch-cu128
+      uv sync --extra dev --extra torch-cuda128
       ```
      
      - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
