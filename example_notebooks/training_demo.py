@@ -1,6 +1,8 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
+#     "imageio==2.37.0",
+#     "ipython==9.4.0",
 #     "kornia==0.8.1",
 #     "marimo",
 #     "matplotlib==3.9.4",
@@ -10,7 +12,6 @@
 #     "pillow==11.3.0",
 #     "seaborn==0.13.2",
 #     "sleap-io==0.4.1",
-#     "sleap-nn==0.0.1",
 #     "torch==2.7.1",
 #     "torchvision==0.22.1",
 #     "zmq==0.0.0",
@@ -21,6 +22,68 @@ import marimo
 
 __generated_with = "0.14.17"
 app = marimo.App(width="medium")
+
+
+@app.cell(hide_code=True)
+def _():
+    # import all necessary modules
+
+    import marimo as mo
+    import cv2
+    import torch
+    import pprint
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    from torchvision import transforms
+
+    from omegaconf import OmegaConf
+
+    import sleap_io as sio
+    import random
+
+    from sleap_nn.architectures.model import Model
+    from sleap_nn.training.model_trainer import ModelTrainer
+
+    from sleap_nn.config.get_config import (
+        get_data_config,
+        get_head_configs,
+        get_model_config,
+        get_trainer_config,
+    )
+    from sleap_nn.config.training_job_config import TrainingJobConfig
+
+    from sleap_nn.data.custom_datasets import (
+        get_train_val_dataloaders,
+        get_train_val_datasets,
+    )
+
+    from sleap_nn.training.lightning_modules import LightningModel
+
+    from sleap_nn.predict import run_inference
+    from sleap_nn.evaluation import Evaluator
+
+    torch.set_default_dtype(torch.float32)
+    return (
+        Evaluator,
+        LightningModel,
+        ModelTrainer,
+        OmegaConf,
+        TrainingJobConfig,
+        cv2,
+        get_data_config,
+        get_model_config,
+        get_train_val_dataloaders,
+        get_train_val_datasets,
+        get_trainer_config,
+        mo,
+        np,
+        plt,
+        random,
+        run_inference,
+        sio,
+        torch,
+    )
 
 
 @app.cell(hide_code=True)
@@ -35,10 +98,25 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    **_Tips on using marimo:
+    _**
+
+    Marimo notebooks are designed for a seamless, automated workflow. After you select the model type, all cells will execute automatically—no need to run them one by one. However, training and inference will start only when you click the **Run Training**/ **Run Inference** button, giving you full control over when to begin model training or run inference.
+
+    If you want to tweak values in a specific cell, edit the cell and click its yellow highlighted Run button on the right of the cell block; that cell will execute, and Marimo will automatically re-run only the downstream cells that depend on it, leaving unrelated cells unchanged. If you need a full refresh, use highlighted `Run all` button in the bottom right corner!
+    """
+    )
+    return
+
+
 @app.cell
 def _():
-    # until we have sleap-nn pip pkg
-    # ! pip install git+https://github.com/talmolab/sleap-nn.git
+    # until we have sleap-nn pip pkg:
+    # In the manage packages tab to the left, add `git+https://github.com/talmolab/sleap-nn.git` dependency!
     return
 
 
@@ -46,7 +124,7 @@ def _():
 def _(mo):
     mo.vstack(
         [
-            mo.md("Download sample data..."),
+            mo.md("Download sample data and move them to your current working dir..."),
             mo.download(
                 "https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp",
                 label="Train slp file",
@@ -64,7 +142,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""If you already have `.slp` files, provide the paths below.""")
+    mo.md(
+        r"""If you already have `.slp` files to work with, provide the paths below."""
+    )
     return
 
 
@@ -77,9 +157,14 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
+    mo.md(r"""#### Choose the model type you want to train!""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
     model_type = mo.ui.radio(
         options=["single_instance", "centroid", "centered_instance", "bottomup"],
-        label="Choose the model type you want to train!",
     )
     model_type
     return (model_type,)
@@ -94,7 +179,7 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
-        r"""The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo’s sample_configs and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy functions and then create an Omegaconf config."""
+        r"""The first step in training is setting up the configuration. You can either start from one of the sample YAMLs in the repo and edit it, or build the config programmatically. In this tutorial, we’ll take the functional route: compose each section (`data_config`, `model_config`, `trainer_config`) using handy functions and then create an Omegaconf config."""
     )
     return
 
@@ -116,17 +201,13 @@ def _(get_data_config, path_to_train_slp_file, path_to_val_slp_file):
         use_augmentations_train=True,
         intensity_aug=["brightness"],
         geometry_aug=["rotation", "scale"],
-        crop_hw=[100, 100],  # patch fix
     )
     return (data_config,)
 
 
-@app.cell
-def _(data_config):
-    # modify the defaults (if required)
-
-    data_config.augmentation_config.intensity.brightness_min = 0.9
-    data_config.augmentation_config.intensity.brightness_max = 1.1
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Let's see how the `data_config` section looks like:""")
     return
 
 
@@ -140,8 +221,21 @@ def _(OmegaConf, data_config):
 
 @app.cell(hide_code=True)
 def _(mo):
+    mo.md(r"""If required, we could also modify the default values as given below:""")
+    return
+
+
+@app.cell
+def _(data_config):
+    data_config.augmentation_config.intensity.brightness_min = 0.9
+    data_config.augmentation_config.intensity.brightness_max = 1.1
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
     mo.md(
-        r"""Next, we set-up the model config using `get_model_config()` function which sets up the parameters for building the model."""
+        r"""Next, we set-up the model config using `get_model_config()` function which sets up the parameters for building the model. We will be using the `unet` model as the backbone here and head config would be updated based on the model type you chose before!"""
     )
     return
 
@@ -151,10 +245,13 @@ def _(get_model_config, model_type):
     model_config = get_model_config(
         init_weight="xavier", backbone_config="unet", head_configs=f"{model_type.value}"
     )
-
-    # modify the defaults (if required)
-    model_config.backbone_config.unet.filters = 16
     return (model_config,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Let's print and see how the `model_config` looks like:""")
+    return
 
 
 @app.cell(hide_code=True)
@@ -162,6 +259,18 @@ def _(OmegaConf, model_config):
     print("Model Config: ")
     print("===========================")
     print(OmegaConf.to_yaml(model_config, resolve=True, sort_keys=False))
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""If required, we could modify the default values as given below:""")
+    return
+
+
+@app.cell
+def _(model_config):
+    model_config.backbone_config.unet.filters = 16
     return
 
 
@@ -182,21 +291,17 @@ def _(get_trainer_config, model_type):
         shuffle_train=True,
         learning_rate=1e-4,
         save_ckpt=True,
+        max_epochs=10,
         save_ckpt_path=f"{model_type.value}_training",
         lr_scheduler="reduce_lr_on_plateau",
     )
-
-    trainer_config.max_epochs = 10
     return (trainer_config,)
 
 
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
-        r"""
-    **_Note_**: If you want to visualize the model training in [WandB](https://wandb.ai), set the following parameters:
-
-    """
+        r"""**_Note_**: If you want to visualize the model training in [WandB](https://wandb.ai), set the following parameters:"""
     )
     return
 
@@ -217,6 +322,12 @@ def _(mo):
     mo.md(
         r"""**_Note_**: If you’re not using caching (memory/disk; see `data_config.data_pipeline_fw`) and your dataset/transforms aren’t picklable, set num_workers=0 on Windows/macOS (they use `spawn`). On Linux (default `fork`), multiple workers are typically safe."""
     )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Let's look into the generated `trainer_config`:""")
     return
 
 
@@ -247,9 +358,16 @@ def _(TrainingJobConfig, data_config, model_config, trainer_config):
     )
 
     # Convert to omegaconf objects
-
     sleap_nn_cfg = training_job_config.to_sleap_nn_cfg()  # validates config structure
     return (sleap_nn_cfg,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""The entire configuration that would be given as input to the training modules:"""
+    )
+    return
 
 
 @app.cell(hide_code=True)
@@ -283,7 +401,15 @@ def _(ModelTrainer, sleap_nn_cfg):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
-        r"""The `get_model_trainer_from_config` method does the training setup by calling dataset preparation methods to establish training and validation labels (automatically splitting training data for validation if needed) and then invoking `_setup_config()` to process the loaded labels and automatically populate all configuration fields that were initially `None`. This includes computing `max_height` and `max_width` from actual image dimensions in the `sio.Labels` files, extracting skeletons from the labels data structure, and calculating other derived parameters based on the actual data characteristics. The method essentially transforms a minimal configuration into a complete configuration and ensures all required fields are populated and consistent before training begins, allowing users to start with basic parameters while the system automatically handles the complex configuration details."""
+        r"""The `get_model_trainer_from_config` method does the training setup by calling dataset preparation methods to establish training and validation labels (automatically splitting training data for validation if needed) and then invoking `setup_config()` to process the loaded labels and automatically populate all configuration fields that were initially `None`. This includes computing `max_height` and `max_width` from actual image dimensions in the `sio.Labels` files, extracting skeletons from the labels data structure, and calculating other derived parameters based on the actual data characteristics. The method essentially transforms a minimal configuration into a complete configuration and ensures all required fields are populated and consistent before training begins, allowing users to start with basic parameters while the system automatically handles the complex configuration details."""
+    )
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""Let's take a look at the config now, which now has all fields set (esp. `data_config.preprocessing.max_width`, `data_config.preprocessing.max_width` and `data_config.skeletons`)"""
     )
     return
 
@@ -324,16 +450,11 @@ def _(get_train_val_dataloaders, get_train_val_datasets, model_trainer):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-    Let's visualize some of the sample images from the training labels!
-
-    """
-    )
+    mo.md(r"""Let's visualize some of the sample images from the training labels!""")
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(model_type, plt, torch, train_dataloader):
     # visualize samples in dataloader
 
@@ -446,6 +567,12 @@ def _(LightningModel, model_trainer):
 
 
 @app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""Let's take a look at the model created from our config:""")
+    return
+
+
+@app.cell(hide_code=True)
 def _(lightning_model):
     lightning_model.model
     return
@@ -454,7 +581,7 @@ def _(lightning_model):
 @app.cell(hide_code=True)
 def _(lightning_model, mo):
     mo.md(
-        f"""Total number of parameters: {sum(p.numel() for p in lightning_model.parameters())}"""
+        f"""#### Total number of parameters: {sum(p.numel() for p in lightning_model.parameters())}"""
     )
     return
 
@@ -476,10 +603,10 @@ def _(mo):
 
 @app.cell
 def _(mo, model_trainer, run_train):
-    # Call the `train` method to start training the model!
-
     if not run_train.value:
         mo.stop("Click `Run training!` to start.")
+
+    # Call the `train` method to start training the model!
     model_trainer.train()
     return
 
@@ -498,9 +625,26 @@ def _(mo):
     return
 
 
+@app.cell(hide_code=True)
+def _(mo):
+    run_inf = mo.ui.run_button(label="Run Inference!")
+    run_inf
+    return (run_inf,)
+
+
 @app.cell
-def _(model_type, path_to_val_slp_file, run_inference, sleap_nn_cfg):
+def _(
+    mo,
+    model_type,
+    path_to_val_slp_file,
+    run_inf,
+    run_inference,
+    sleap_nn_cfg,
+):
     # Running inference on val dataset
+
+    if not run_inf.value:
+        mo.stop("Click `Run Inference!` to start.")
 
     pred_labels = run_inference(
         data_path=path_to_val_slp_file,
@@ -544,37 +688,169 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
-    mo.md(
-        r"""
-    Sample predictions:
+    mo.md(r"""Sample predictions:""")
+    return
 
-    TODO: add video/ few random frames
-    """
+
+@app.cell(hide_code=True)
+def _(cv2, mo, np, plt, random):
+    import matplotlib.animation as animation
+    from pathlib import Path
+    import imageio
+
+    def plot_preds_gif(
+        gt_labels, pred_labels, num_frames=20, frame_duration=500, random_seed=42
+    ):
+        """Create a GIF animation comparing ground truth vs predictions over random frames."""
+
+        # Set random seed for reproducible frame selection
+        random.seed(random_seed)
+
+        # Randomly sample frames
+        selected_frames = random.sample(list(range(len(pred_labels))), num_frames)
+
+        # Create frames for GIF
+        frames = []
+
+        for frame_idx in range(num_frames):
+            # Create figure for this frame
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
+
+            # Get the labeled frame
+            lf_idx = selected_frames[frame_idx]
+            gt_lf = gt_labels[lf_idx]
+            pred_lf = pred_labels[lf_idx]
+
+            # Ensure we're plotting keypoints for the same frame
+            assert (
+                gt_lf.frame_idx == pred_lf.frame_idx
+            ), f"Frame mismatch at {lf_idx}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
+
+            # Plot image
+            ax.imshow(gt_lf.image, cmap="gray")
+
+            # Plot ground truth instances
+            for idx, instance in enumerate(gt_lf.instances):
+                if not instance.is_empty:
+                    gt_pts = instance.numpy()
+                    ax.plot(
+                        gt_pts[:, 0],
+                        gt_pts[:, 1],
+                        "go",
+                        markersize=8,
+                        alpha=0.8,
+                        label="Ground Truth" if idx == 0 else "",
+                    )
+
+            # Plot predicted instances
+            for idx, instance in enumerate(pred_lf.instances):
+                if not instance.is_empty:
+                    pred_pts = instance.numpy()
+                    ax.plot(
+                        pred_pts[:, 0],
+                        pred_pts[:, 1],
+                        "rx",
+                        markersize=8,
+                        alpha=0.8,
+                        label="Predictions" if idx == 0 else "",
+                    )
+
+            # Add legend
+            ax.legend(loc="upper right", fontsize=10)
+            ax.axis("off")
+
+            # Add overall title
+            fig.suptitle(
+                f"Ground Truth vs Predictions Animation ({num_frames} frames, {frame_duration}ms per frame)",
+                fontsize=10,
+                fontweight="bold",
+            )
+
+            plt.tight_layout()
+
+            # Convert plot to image array
+            fig.canvas.draw()
+            img_array = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+            img_array = img_array.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+
+            frames.append(img_array)
+            plt.close(fig)  # Close to free memory
+
+        # Save as MP4 video
+        output_path = f"gt_vs_pred_animation_{random_seed}.mp4"
+
+        # Get video dimensions from first frame
+        height, width = frames[0].shape[:2]
+
+        # Create video writer
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        fps = 1000 / frame_duration  # Convert ms to fps
+        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+        # Write frames to video
+        for frame in frames:
+            # Convert RGB to BGR (OpenCV expects BGR)
+            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+            out.write(frame_bgr)
+
+        out.release()
+
+        return mo.md(
+            f"""
+        ## 🎬 Animation Created!
+
+        **Frames:** {num_frames} randomly selected frames  
+        **Duration:** {frame_duration}ms per frame  
+        **Random Seed:** {random_seed}  
+        **Total Animation Time:** {(num_frames * frame_duration) / 1000:.1f} seconds
+
+        **File saved as:** `{output_path}`
+
+        You can now download and view the GIF file!
+        """
+        )
+
+    return (plot_preds_gif,)
+
+
+@app.cell(hide_code=True)
+def _(gt_labels, mo, plot_preds_gif, pred_labels):
+    random_seed = 42
+
+    # Create the animation
+    plot_preds_gif(
+        gt_labels,
+        pred_labels,
+        num_frames=20,
+        frame_duration=200,
+        random_seed=random_seed,
     )
+
+    mo.video(f"gt_vs_pred_animation_{random_seed}.mp4")
     return
 
 
-@app.cell
-def _(mo):
-    mo.md(r"""To view predictions of a certain frame:""")
-    return
-
-
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     lf_index = mo.ui.number(start=0, stop=100, label="LF index")
     return (lf_index,)
 
 
-@app.cell
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""To view predictions of a certain frame:""")
+    return
+
+
+@app.cell(hide_code=True)
 def _(lf_index, mo):
     mo.hstack([lf_index, mo.md(f"Has value: {lf_index.value}")])
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(gt_labels, lf_index, plt, pred_labels):
     _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
 
@@ -630,63 +906,6 @@ def _(gt_labels, lf_index, plt, pred_labels):
     plt.tight_layout()
     plt.show()
     return
-
-
-@app.cell(hide_code=True)
-def _():
-    import marimo as mo
-    import cv2
-    import torch
-    import pprint
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import seaborn as sns
-    from torchvision import transforms
-
-    from omegaconf import OmegaConf
-
-    import sleap_io as sio
-    import random
-
-    from sleap_nn.architectures.model import Model
-    from sleap_nn.training.model_trainer import ModelTrainer
-
-    from sleap_nn.config.get_config import (
-        get_data_config,
-        get_head_configs,
-        get_model_config,
-        get_trainer_config,
-    )
-    from sleap_nn.config.training_job_config import TrainingJobConfig
-
-    from sleap_nn.data.custom_datasets import (
-        get_train_val_dataloaders,
-        get_train_val_datasets,
-    )
-
-    from sleap_nn.training.lightning_modules import LightningModel
-
-    from sleap_nn.predict import run_inference
-    from sleap_nn.evaluation import Evaluator
-
-    torch.set_default_dtype(torch.float32)
-    return (
-        Evaluator,
-        LightningModel,
-        ModelTrainer,
-        OmegaConf,
-        TrainingJobConfig,
-        get_data_config,
-        get_model_config,
-        get_train_val_dataloaders,
-        get_train_val_datasets,
-        get_trainer_config,
-        mo,
-        plt,
-        run_inference,
-        sio,
-        torch,
-    )
 
 
 if __name__ == "__main__":

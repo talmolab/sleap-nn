@@ -157,6 +157,13 @@ class LightningModel(L.LightningModule):
         self.input_expand_channels = self.in_channels
         self.init_weights = init_weights
         self.trainer_accelerator = trainer_accelerator
+        if self.trainer_accelerator == "auto":
+            if torch.cuda.is_available():
+                self.trainer_accelerator = "cuda"
+            elif torch.mps.is_available():
+                self.trainer_accelerator = "mps"
+            else:
+                self.trainer_accelerator = "cpu"
         self.lr_scheduler = lr_scheduler
         self.online_mining = online_mining
         self.hard_to_easy_ratio = hard_to_easy_ratio

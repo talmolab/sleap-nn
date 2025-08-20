@@ -4,33 +4,33 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 
 ## Development Setup
 
-1. Fork and clone the repository:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/sleap-nn.git
-   cd sleap-nn
-   ```
+1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+   `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
-2. Create a conda environment based on your platform:
-   ```bash
-   # GPU (Windows/Linux)
-   mamba env create -f environment.yml
-   
-   # CPU (Windows/Linux/Intel Mac)
-   mamba env create -f environment_cpu.yml
-   
-   # Apple Silicon (M1/M2 Mac)
-   mamba env create -f environment_osx-arm64.yml
-   ```
+2. **Install sleap-nn dependencies based on your platform**\
 
-3. Activate the environment:
-   ```bash
-   mamba activate sleap-nn
-   ```
+   - Sync all dependencies based on your correct wheel using `uv sync`:
+     - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
-4. Install the package in development mode:
-   ```bash
-   pip install -e ".[dev]"
-   ```
+      ```bash
+      uv sync --extra dev --extra torch-cuda118
+      ```
+
+      - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+
+      ```bash
+      uv sync --extra dev --extra torch-cuda128
+      ```
+     
+     - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+     Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+     ```bash
+      uv sync --extra dev --extra torch-cpu
+      ```
+
+   You can find the correct wheel for your system at:\
+   👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
+
 
 ## Code Style
 
@@ -45,13 +45,13 @@ We follow the [Google Python Style Guide](https://google.github.io/styleguide/py
 
 ```bash
 # Format code
-black sleap_nn tests
+uv run black sleap_nn tests
 
 # Check formatting
-black --check sleap_nn tests
+uv run black --check sleap_nn tests
 
 # Run linter
-ruff check sleap_nn/
+uv run ruff check sleap_nn/
 ```
 
 ## Testing
@@ -60,16 +60,16 @@ We use `pytest` for testing. Please ensure all tests pass before submitting a PR
 
 ```bash
 # Run all tests
-pytest tests
+uv run pytest tests
 
 # Run specific test file
-pytest tests/path/to/test_file.py
+uv run pytest tests/path/to/test_file.py
 
 # Run with coverage
-pytest --cov=sleap_nn --cov-report=xml tests/
+uv run pytest --cov=sleap_nn --cov-report=xml tests/
 
 # Run tests with duration info
-pytest --durations=-1 tests/
+uv run pytest --durations=-1 tests/
 ```
 
 ## Documentation

@@ -1,94 +1,70 @@
 # Installation
 
-## Prerequisites
+**Prerequisites: Python 3.11**
 
-- Python 3.11
-- [Miniforge](https://github.com/conda-forge/miniforge) (optional, recommended for isolated Python environments with fast dependency resolution)
-- [Mamba](https://mamba.readthedocs.io/) (optional, included with Miniforge, recommended for faster dependency resolution)
+## From PyPI
 
-## Install sleap-nn
-
-### 1. (Optional) Install Miniforge and create environment
-
-We recommend using [Miniforge](https://github.com/conda-forge/miniforge) for an isolated Python environment with fast dependency resolution. (You may skip this step if you already have a suitable Python environment.)
-
-To create and activate development environment
+- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
 ```bash
-mamba create -n sleap-nn-dev python=3.11
-mamba activate sleap-nn-dev
+pip install sleap-nn[torch-cuda118]
 ```
 
-### 2. Install `uv` and Development Dependencies
-
-[`uv`](https://github.com/astral-sh/uv) is a fast and modern package manager for `pyproject.toml`-based projects.
+- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
 
 ```bash
-pip install uv
-uv pip install -e ".[dev]"
+pip install sleap-nn[torch-cuda128]
 ```
 
-### 3. Install PyTorch
-
-You can either:
-
-#### Option A: Install with Optional Dependencies (Recommended)
-
+- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
 ```bash
-uv pip install -e ".[torch]"
+pip install sleap-nn[torch-cpu]
 ```
 
-This installs the default builds of `torch` and `torchvision` via PyPI for your OS. By default, this means:
 
-- **Windows:** CPU-only build.
+## For development setup
 
-- **Linux:** CUDA-enabled (GPU) build (if a compatible NVIDIA GPU is detected).
+1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+   `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
-- **macOS:** CPU-only build (with Metal backend support for Apple Silicon in recent versions)
-If you need a different build (e.g., GPU support on Windows, or CPU-only on Linux), see the manual installation options below.
+2. **Install sleap-nn dependencies based on your platform**\
 
-#### Option B: Manual Installation for Specific Platforms
+   - Sync all dependencies based on your correct wheel using `uv sync`:
+     - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
-Install the correct wheel for your system using PyTorch's index URL:
+      ```bash
+      uv sync --extra dev --extra torch-cuda118
+      ```
 
-**Windows/Linux with NVIDIA GPU (CUDA 11.8):**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-```
+      - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
 
-**macOS with Apple Silicon (M1, M2, M3, M4):**
-You don't need to do anything if you used the `[torch]` optional dependency or default PyPI install—the default wheels now include Metal backend support for Apple GPUs.
+      ```bash
+      uv sync --extra dev --extra torch-cuda128
+      ```
+     
+     - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+     Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+     ```bash
+      uv sync --extra dev --extra torch-cpu
+      ```
 
-**CPU-only (no GPU or unsupported GPU):**
-```bash
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-```
+   You can find the correct wheel for your system at:\
+   👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
 
-You can find the correct wheel for your system at:
-👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
+3. **Run tests**  
+   ```bash
+   uv run pytest tests
+   ```
 
-### 4. Verify Installation
+4. **(Optional) Lint and format code**
+   ```bash
+   uv run black --check sleap_nn tests
+   uv run ruff check sleap_nn/
+   ```
 
-Test your installation:
+---
 
-```bash
-# Run tests
-pytest tests
-
-# Optional: Lint and format code
-black --check sleap_nn tests
-ruff check sleap_nn/
-```
-
-## GPU Support
-
-We recommend installing the torch dependencies manually based on your platform and intentionally **do not include GPU-specific `torch` or `torchvision` builds** in `pyproject.toml` for the below reasons:
-
-- **No CUDA/hardware assumptions**—avoids install issues.
-- **Flexible to choose your own PyTorch build (CPU or GPU).**
-- **All other dependencies managed by `uv`.**-also faster!
-
-> 💡 This makes `sleap-nn` compatible with both GPU-accelerated and CPU-only environments.
 
 ## Troubleshooting
 
@@ -111,6 +87,6 @@ If you encounter CUDA-related errors:
 
 ## Next Steps
 
-- [Training Your First Model](training.md)
+- [Step-by-step guide on training models](step_by_step_guide.md)
 - [Configuration Guide](config.md)
-- [API Reference](api/index.md)
+- [Training models](training.md)

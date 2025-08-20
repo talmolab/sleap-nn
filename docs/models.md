@@ -56,7 +56,7 @@ ConvNeXt is based on Liu et al. (2022) "A ConvNet for the 2020s" and modernizes 
 To train or use a specific model type, you must set the corresponding `head_configs` in the `model_config` section of your configuration file. Different model types require different head configurations:
 
 - **Single Instance models** use one head (`single_instance`)
-- **Top-Down models** each model (centroid and centered-instance) use one head (`con`)
+- **Top-Down models** each model (centroid and centered-instance) use one head (`confmaps`)
 - **Bottom-Up models** use two heads (`bottomup` with both `confmaps` and `pafs`)
 - **ID models** use two heads (e.g., `multi_class_bottomup` with both `confmaps` and `class_maps`/ `class_vectors`)
 

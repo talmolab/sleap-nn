@@ -19,23 +19,26 @@
 
 ## 🚀 Quick Start
 
+Let's start SLEAPiNNg !!! 🐭🐭
+
 #### 1. Install `sleap-nn`
 
-```bash
-# Create and activate environment
-mamba create -n sleap-nn-dev python=3.11
-mamba activate sleap-nn-dev
-```
+- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
 ```bash
-# Install uv and dependencies
-pip install uv
-uv pip install -e ".[torch]"
+pip install sleap-nn[torch-cuda118]
 ```
 
+- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+
 ```bash
-# For GPU support (Windows/Linux with NVIDIA GPU)
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+pip install sleap-nn[torch-cuda128]
+```
+
+- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+```bash
+pip install sleap-nn[torch-cpu]
 ```
 
 > Refer [Installation](installation.md) for more details on how to install sleap-nn package for your specific hardware.
@@ -52,7 +55,7 @@ Create a `config.yaml` file for your experiment.
 > Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
 ```bash
-sleap-nn-train --config-name config.yaml --config-path configs/ "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config.yaml --config-dir configs/ "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 > For detailed information on training workflows, configuration options, and advanced usage, please refer to the [Training Guide](training.md).
 
@@ -63,6 +66,9 @@ To run inference:
 sleap-nn-track --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
 > More options for running inference and tracking workflows are available in the [Inference Guide](inference.md).
+
+!!! note
+    **Note:** For step-by-step tutorial on our entire workflow, check out [Step--by-Step guide](step_by_step_guide.md).
 
 !!! note
     **Note:** For tutorials, sample notebooks, and instructions on how to use the interactive notebooks, please see [Example notebooks](example_notebooks.md).
@@ -131,7 +137,6 @@ Found a bug? Please create an issue on GitHub:
 
 Have questions about usage, feature requests, or want to share your experience?
 - [Start a discussion](https://github.com/talmolab/sleap-nn/discussions)
-- Great for asking questions, sharing tips, or requesting new features
 
 **Additional Resources**:
 

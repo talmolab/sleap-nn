@@ -17,30 +17,59 @@ The example notebooks use marimo, which provides a **sandboxed environment** tha
    pip install uv
    ```
 
-2. **Create a new folder and initialize uv**:
-   ```bash
-   uv init
-   ```
+2. **Create a new folder**:
+
+      Clone the `sleap-nn` repo
+      ```bash
+      cd sleap-nn/example_notebooks
+      ```
+      
+      Or make a new directory
+      ```bash
+      mkdir sleap-nn-tutorials
+      ```
+
+3. **Initialize uv**:
+
+      Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml`.
+      ```bash
+      uv init
+      ```
 
 #### Setup
 
 1. **Add [marimo](https://github.com/marimo-team/marimo) to your project**:
+
+   Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml` as `uv add` will try to add marimo to the existing `.toml`.
+
    ```bash
    uv add marimo
    ```
 
-2. **Download and run the marimo notebooks**
+2. **Run the marimo notebooks**
 
-### (i) Training Demo Notebook
+Ensure the python scripts are in your current working directory!
+
+(i) Training Demo Notebook
+
 - **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
-Download the notebook [training_demo.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py) and run the below command:
+
 ```bash
-   uvx marimo edit --sandbox <filename.py>
+   uvx marimo edit --sandbox training_demo.py
 ```
 
-### (ii) Augmentation Guide Notebook
+(ii) Augmentation Guide Notebook
+
 - **Description**: Visualize the different data augmentation techniques available in sleap-nn.
-Download the notebook: [augmentation_guide.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py) and run the below command:
+
 ```bash
-   uvx marimo edit --sandbox <filename.py>
+   uvx marimo edit --sandbox augmentation_guide.py
+```
+
+(iii) Receptive Field Guide Notebook
+
+- **Description**: Visualize how the receptive field could be set by changing the config parameters.
+
+```bash
+   uvx marimo edit --sandbox receptive_field_guide.py
 ```

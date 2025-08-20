@@ -38,6 +38,9 @@ sleap-nn-track \
     --model_paths models/centered_instance_unet/
 ```
 
+!!! note
+    **_Note (for centroid-only inference)_**: The centroid model is essentially the first stage of TopDown model workflow, which only predicts centers, not keypoints. In centroid-only inference, each predicted centroid is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display. Therefore, an OKS mAP of 1.0 just means all instances were detected—it does not reflect pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) rather than centroid-only inference.
+
 ### Arguments for CLI
 
 #### Essential Parameters
