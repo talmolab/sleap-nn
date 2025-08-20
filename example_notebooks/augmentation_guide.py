@@ -82,7 +82,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_rotation_angle = mo.ui.slider(0, 180, step=1.0, label="Rotation angle")
+    slider_rotation_angle = mo.ui.slider(
+        0, 180, value=0, step=1.0, label="Rotation angle"
+    )
     mo.vstack([slider_rotation_angle])
     return (slider_rotation_angle,)
 
@@ -141,7 +143,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_scale = mo.ui.slider(0, 10, step=0.01, label="Ratio to resize image to")
+    slider_scale = mo.ui.slider(
+        0, 10, value=1.0, step=0.01, label="Ratio to resize image to"
+    )
     mo.vstack([slider_scale])
     return (slider_scale,)
 
@@ -201,8 +205,12 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_translate_width = mo.ui.slider(0, 1, step=0.01, label="Translate width")
-    slider_translate_height = mo.ui.slider(0, 1, step=0.01, label="Translate height")
+    slider_translate_width = mo.ui.slider(
+        0, 1, value=0.0, step=0.01, label="Translate width"
+    )
+    slider_translate_height = mo.ui.slider(
+        0, 1, value=0.0, step=0.01, label="Translate height"
+    )
 
     mo.vstack([slider_translate_width, slider_translate_height])
     return slider_translate_height, slider_translate_width
@@ -275,10 +283,10 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     slider_erase_scale = mo.ui.slider(
-        0, 2, step=0.01, label="Proportion of area to be erased"
+        0, 2, value=0.01, step=0.01, label="Proportion of area to be erased"
     )
     slider_erase_ratio = mo.ui.slider(
-        0, 20, step=0.01, label="Aspect ratio of the area to be erased"
+        0, 20, value=1.0, step=0.01, label="Aspect ratio of the area to be erased"
     )
 
     mo.vstack([slider_erase_scale, slider_erase_ratio])
@@ -357,7 +365,9 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_uniform_noise = mo.ui.slider(0, 1.0, step=0.01, label="Uniform noise")
+    slider_uniform_noise = mo.ui.slider(
+        0, 1.0, value=0, step=0.01, label="Uniform noise"
+    )
     mo.vstack([slider_uniform_noise])
     return (slider_uniform_noise,)
 
@@ -511,10 +521,10 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     slider_gaussian_noise_mean = mo.ui.slider(
-        0, 1.0, step=0.001, label="Gaussian noise mean"
+        0, 1.0, value=0, step=0.001, label="Gaussian noise mean"
     )
     slider_gaussian_noise_std = mo.ui.slider(
-        0, 1.0, step=0.001, label="Gaussian noise standard deviation"
+        0, 1.0, value=0, step=0.001, label="Gaussian noise standard deviation"
     )
     mo.vstack([slider_gaussian_noise_mean, slider_gaussian_noise_std])
     return slider_gaussian_noise_mean, slider_gaussian_noise_std
@@ -585,7 +595,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_contrast = mo.ui.slider(0, 10.0, step=0.01, label="Contrast")
+    slider_contrast = mo.ui.slider(0, 10.0, value=0, step=0.01, label="Contrast")
     mo.vstack([slider_contrast])
     return (slider_contrast,)
 
@@ -644,7 +654,7 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(mo):
-    slider_brightness = mo.ui.slider(0, 2.0, step=0.01, label="Brightness")
+    slider_brightness = mo.ui.slider(0, 2.0, value=0, step=0.01, label="Brightness")
     mo.vstack([slider_brightness])
     return (slider_brightness,)
 
