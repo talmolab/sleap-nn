@@ -1129,3 +1129,41 @@ def test_file_not_found_handling(config, tmp_path, caplog, minimal_instance):
         trainer = ModelTrainer.get_model_trainer_from_config(
             config, train_labels=[labels], val_labels=[labels]
         )
+
+
+def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance):
+    # Test model checkpoint path duplication in the config
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
+
+    config_duplicate_ckpt_path = config.copy()
+    OmegaConf.update(
+        config_duplicate_ckpt_path,
+        "trainer_config.save_ckpt_path",
+        f"{tmp_path}/test_saved_ckpt",
+    )
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]
+    )
+
+    trainer.train()
+    assert Path(config_duplicate_ckpt_path.trainer_config.save_ckpt_path).exists()
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]
+    )
+    trainer.train()
+    assert Path(
+        f"{config_duplicate_ckpt_path.trainer_config.save_ckpt_path}-1"
+    ).exists()
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]
+    )
+    trainer.train()
+    assert Path(
+        f"{config_duplicate_ckpt_path.trainer_config.save_ckpt_path}-2"
+    ).exists()

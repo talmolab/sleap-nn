@@ -14,7 +14,7 @@ import yaml
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
-from itertools import cycle
+from itertools import cycle, count
 from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import WandbLogger
 from sleap_nn.data.utils import check_cache_memory
@@ -315,6 +315,14 @@ class ModelTrainer:
                     + f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
                 )
 
+        # If checkpoint path already exists, add suffix to prevent overwriting
+        if Path(ckpt_path).exists():
+            for i in count(1):
+                new_ckpt_path = f"{ckpt_path}-{i}"
+                if not Path(new_ckpt_path).exists():
+                    ckpt_path = new_ckpt_path
+                    break
+
         self.config.trainer_config.save_ckpt_path = ckpt_path
 
         # set output dir for cache img
@@ -493,7 +501,7 @@ class ModelTrainer:
             try:
                 Path(ckpt_path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                message = f"Cannot create a new folder in {ckpt_path}. Check the permissions to the given Checkpoint directory. \n {e}"
+                message = f"Cannot create a new folder in {ckpt_path}.\n {e}"
                 logger.error(message)
                 raise OSError(message)
 

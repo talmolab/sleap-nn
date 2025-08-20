@@ -179,14 +179,18 @@ def test_train_method(minimal_instance, tmp_path: str):
         save_ckpt_path=(Path(tmp_path) / "test_train_method").as_posix(),
         min_train_steps_per_epoch=1,
     )
-    folder_created = (Path(tmp_path) / "test_train_method").exists()
+    folder_created = (Path(tmp_path) / "test_train_method-1").exists()
     assert folder_created
     assert (
-        (Path(tmp_path) / "test_train_method").joinpath("training_config.yaml").exists()
+        (Path(tmp_path) / "test_train_method-1")
+        .joinpath("training_config.yaml")
+        .exists()
     )
-    assert (Path(tmp_path) / "test_train_method").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_train_method").joinpath("pred_train_0.slp").exists()
-    assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
+    assert (Path(tmp_path) / "test_train_method-1").joinpath("best.ckpt").exists()
+    assert (
+        (Path(tmp_path) / "test_train_method-1").joinpath("pred_train_0.slp").exists()
+    )
+    assert (Path(tmp_path) / "test_train_method-1").joinpath("pred_test.slp").exists()
 
     # convnext
     train(
@@ -244,17 +248,17 @@ def test_train_method(minimal_instance, tmp_path: str):
         save_ckpt_path=(Path(tmp_path) / "test_swint").as_posix(),
         min_train_steps_per_epoch=1,
     )
-    folder_created = (Path(tmp_path) / "test_swint").exists()
+    folder_created = (Path(tmp_path) / "test_swint-1").exists()
     assert folder_created
-    assert (Path(tmp_path) / "test_swint").joinpath("training_config.yaml").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_0.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_1.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_2.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_train_0.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_train_1.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_train_2.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_test.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("training_config.yaml").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("best.ckpt").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_val_0.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_val_1.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_val_2.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_train_0.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_train_1.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_train_2.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_test.slp").exists()
 
     # with augmentations
     with pytest.raises(ValueError):
@@ -326,7 +330,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         min_train_steps_per_epoch=1,
     )
 
-    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    config = OmegaConf.load(f"{tmp_path}/test_aug-1/training_config.yaml")
     assert config.data_config.augmentation_config.intensity.uniform_noise_p == 0.0
     assert config.data_config.augmentation_config.intensity.brightness_p == 1.0
     assert config.data_config.augmentation_config.geometric.affine_p == 1.0
@@ -353,7 +357,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         min_train_steps_per_epoch=1,
     )
 
-    config = OmegaConf.load(f"{tmp_path}/test_aug/training_config.yaml")
+    config = OmegaConf.load(f"{tmp_path}/test_aug-2/training_config.yaml")
     assert config.data_config.augmentation_config.intensity.uniform_noise_p == 1.0
     assert config.data_config.augmentation_config.geometric.affine_p == 1.0
     assert config.data_config.augmentation_config.geometric.rotation_max == 180.0
@@ -619,10 +623,10 @@ def test_main(sample_cfg):
     sample_cfg.data_config.test_file_path = sample_cfg.data_config.train_labels_path[0]
     main(sample_cfg)
 
-    folder_created = Path(sample_cfg.trainer_config.save_ckpt_path).exists()
+    folder_created = Path(f"{sample_cfg.trainer_config.save_ckpt_path}-1").exists()
     assert folder_created
     assert (
-        Path(sample_cfg.trainer_config.save_ckpt_path)
+        Path(f"{sample_cfg.trainer_config.save_ckpt_path}-1")
         .joinpath("pred_test.slp")
         .exists()
     )
