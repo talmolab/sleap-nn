@@ -2192,22 +2192,32 @@
 </span></code></pre></div></p>
 </li>
 <li>
-<p><strong>Create a new folder and initialize uv</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uv<span class="w"> </span>init
-</span></code></pre></div></p>
+<p><strong>Create a new folder</strong>:</p>
 </li>
 </ol>
+<p>Clone the <code>sleap-nn</code> repo
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nb">cd</span><span class="w"> </span>sleap-nn/example_notebooks
+</span></code></pre></div></p>
+<p>Or make a new directory
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mkdir<span class="w"> </span>sleap-nn-tutorials
+</span></code></pre></div></p>
+<ol>
+<li><strong>Initialize uv</strong>:</li>
+</ol>
+<p>Ensure the working directory where you run <code>uv init</code> doesn't have an existing <code>pyproject.toml</code>.
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>init
+</span></code></pre></div></p>
 <h4 id="setup">Setup<a class="headerlink" href="#setup" title="Permanent link">&para;</a></h4>
 <ol>
-<li>
-<p><strong>Add <a href="https://github.com/marimo-team/marimo">marimo</a> to your project</strong>:
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uv<span class="w"> </span>add<span class="w"> </span>marimo
-</span></code></pre></div></p>
-</li>
-<li>
-<p><strong>Download and run the marimo notebooks</strong></p>
-</li>
+<li><strong>Add <a href="https://github.com/marimo-team/marimo">marimo</a> to your project</strong>:</li>
 </ol>
+<p>Ensure the working directory where you run <code>uv init</code> doesn't have an existing <code>pyproject.toml</code> as <code>uv add</code> will try to add marimo to the existing <code>.toml</code>.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>add<span class="w"> </span>marimo
+</span></code></pre></div>
+<ol>
+<li><strong>Run the marimo notebooks</strong></li>
+</ol>
+<p>Ensure the python scripts are in your current working directory!</p>
 <p>(i) Training Demo Notebook</p>
 <ul>
 <li><strong>Description</strong>: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.</li>
@@ -2215,23 +2225,20 @@
 <blockquote>
 <p><strong>Note:</strong> Marimo notebooks are designed for a seamless, automated workflow. After you select the model type, all cells will execute automatically—no need to run them one by one. Training will only start when you click the  <strong>Run Training</strong> button, giving you full control over when to begin model training.</p>
 </blockquote>
-<p>Download the notebook <a href="https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py">training_demo.py</a> and run the below command:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="w">   </span>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span>training_demo.py
-</span></code></pre></div></p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="w">   </span>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span>training_demo.py
+</span></code></pre></div>
 <p>(ii) Augmentation Guide Notebook</p>
 <ul>
-<li><strong>Description</strong>: Visualize the different data augmentation techniques available in sleap-nn.
-Download the notebook: <a href="https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py">augmentation_guide.py</a> and run the below command:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="w">   </span>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span>augmentation_guide.py
-</span></code></pre></div></li>
+<li><strong>Description</strong>: Visualize the different data augmentation techniques available in sleap-nn.</li>
 </ul>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="w">   </span>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span>augmentation_guide.py
+</span></code></pre></div>
 <p>(iii) Receptive Field Guide Notebook</p>
 <ul>
-<li><strong>Description</strong>: Visualize how the receptive field could be set by changing the config parameters.
-Download the notebook: <a href="https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/augmentation_guide.py">augmentation_guide.py</a> and run the below command:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="w">   </span>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span>receptive_field_guide.py
-</span></code></pre></div></li>
+<li><strong>Description</strong>: Visualize how the receptive field could be set by changing the config parameters.</li>
 </ul>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="w">   </span>uvx<span class="w"> </span>marimo<span class="w"> </span>edit<span class="w"> </span>--sandbox<span class="w"> </span>receptive_field_guide.py
+</span></code></pre></div>
 
 
 

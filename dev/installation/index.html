@@ -478,9 +478,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#gpu-support" class="md-nav__link">
+  <a href="#development-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      GPU Support
+      🚀 Development Setup
     </span>
   </a>
   
@@ -2283,9 +2283,9 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#gpu-support" class="md-nav__link">
+  <a href="#development-setup" class="md-nav__link">
     <span class="md-ellipsis">
-      GPU Support
+      🚀 Development Setup
     </span>
   </a>
   
@@ -2410,16 +2410,52 @@ You don't need to do anything if you used the <code>[torch]</code> optional depe
 </span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
 </span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
 </span></code></pre></div>
-<h2 id="gpu-support">GPU Support<a class="headerlink" href="#gpu-support" title="Permanent link">&para;</a></h2>
-<p>We recommend installing the torch dependencies manually based on your platform and intentionally <strong>do not include GPU-specific <code>torch</code> or <code>torchvision</code> builds</strong> in <code>pyproject.toml</code> for the below reasons:</p>
+<hr />
+<h2 id="development-setup">🚀 Development Setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h2>
+<ol>
+<li>
+<p><strong>Install <a href="https://github.com/astral-sh/uv"><code>uv</code></a> and development dependencies</strong><br />
+<code>uv</code> is a fast and modern package manager for <code>pyproject.toml</code>-based projects. Refer <a href="https://docs.astral.sh/uv/getting-started/installation/">installation docs</a> to install uv.</p>
+</li>
+<li>
+<p><strong>Install sleap-nn dependencies based on your platform</strong>\</p>
+</li>
+<li>
+<p>Sync all dependencies based on your correct wheel using <code>uv sync</code>:</p>
 <ul>
-<li><strong>No CUDA/hardware assumptions</strong>—avoids install issues.</li>
-<li><strong>Flexible to choose your own PyTorch build (CPU or GPU).</strong></li>
-<li><strong>All other dependencies managed by <code>uv</code>.</strong>-also faster!</li>
+<li><strong>Windows/Linux with NVIDIA GPU (CUDA 11.8):</strong></li>
 </ul>
-<blockquote>
-<p>💡 This makes <code>sleap-nn</code> compatible with both GPU-accelerated and CPU-only environments.</p>
-</blockquote>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>torch-cu118
+</span></code></pre></div>
+<ul>
+<li><strong>Windows/Linux with NVIDIA GPU (CUDA 12.8):</strong></li>
+</ul>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>torch-cu128
+</span></code></pre></div>
+<ul>
+<li><strong>macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):</strong> 
+ Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+ <code>bash
+  uv sync --extra dev --extra torch-cpu</code></li>
+</ul>
+</li>
+</ol>
+<p>You can find the correct wheel for your system at:\
+   👉 <a href="https://pytorch.org/get-started/locally">https://pytorch.org/get-started/locally</a></p>
+<ol>
+<li>
+<p><strong>Run tests</strong><br />
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>(Optional) Lint and format code</strong>
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>uv<span class="w"> </span>run<span class="w"> </span>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
+</span></code></pre></div></p>
+</li>
+</ol>
+<hr />
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="import-errors">Import Errors<a class="headerlink" href="#import-errors" title="Permanent link">&para;</a></h3>
 <p>If you get import errors:</p>
