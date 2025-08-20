@@ -14,7 +14,7 @@ import yaml
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
-from itertools import cycle
+from itertools import cycle, count
 from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import WandbLogger
 from sleap_nn.data.utils import check_cache_memory
@@ -314,6 +314,14 @@ class ModelTrainer:
                     datetime.now().strftime("%y%m%d_%H%M%S")
                     + f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
                 )
+
+        # If checkpoint path already exists, add suffix to prevent overwriting
+        if Path(ckpt_path).exists():
+            for i in count(1):
+                new_ckpt_path = f"{ckpt_path}-{i}"
+                if not Path(new_ckpt_path).exists():
+                    ckpt_path = new_ckpt_path
+                    break
 
         self.config.trainer_config.save_ckpt_path = ckpt_path
 
