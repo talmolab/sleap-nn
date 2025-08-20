@@ -23,7 +23,7 @@ classifiers = [
 dependencies = [
     "sleap-io>=0.2.0",
     "numpy",
-    "lightning",
+    "lightning>=2.0",
     "kornia",
     "jsonpickle",
     "scipy",
