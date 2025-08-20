@@ -36,17 +36,22 @@ def run_training(config: DictConfig):
 
     rank = trainer.trainer.global_rank if trainer.trainer is not None else -1
 
+    logger.info(f"Training Config: {OmegaConf.to_yaml(trainer.config)}")
+
     if rank in [0, -1]:
         # run inference on val dataset
-        if config.trainer_config.save_ckpt:
+        if trainer.config.trainer_config.save_ckpt:
             data_paths = {}
             for index, path in enumerate(trainer.config.data_config.train_labels_path):
+                logger.info(
+                    f"Training labels path for index {index}: {trainer.config.trainer_config.save_ckpt_path}"
+                )
                 data_paths[f"train_{index}"] = (
-                    Path(config.trainer_config.save_ckpt_path)
+                    Path(trainer.config.trainer_config.save_ckpt_path)
                     / f"labels_train_gt_{index}.slp"
                 ).as_posix()
                 data_paths[f"val_{index}"] = (
-                    Path(config.trainer_config.save_ckpt_path)
+                    Path(trainer.config.trainer_config.save_ckpt_path)
                     / f"labels_val_gt_{index}.slp"
                 ).as_posix()
 
@@ -61,11 +66,11 @@ def run_training(config: DictConfig):
 
                 pred_labels = predict(
                     data_path=path,
-                    model_paths=[config.trainer_config.save_ckpt_path],
+                    model_paths=[trainer.config.trainer_config.save_ckpt_path],
                     peak_threshold=0.2,
                     make_labels=True,
                     device=trainer.trainer.strategy.root_device,
-                    output_path=Path(config.trainer_config.save_ckpt_path)
+                    output_path=Path(trainer.config.trainer_config.save_ckpt_path)
                     / f"pred_{d_name}.slp",
                     ensure_rgb=config.data_config.preprocessing.ensure_rgb,
                     ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -83,7 +88,7 @@ def run_training(config: DictConfig):
                 metrics = evaluator.evaluate()
                 np.savez(
                     (
-                        Path(config.trainer_config.save_ckpt_path)
+                        Path(trainer.config.trainer_config.save_ckpt_path)
                         / f"{d_name}_pred_metrics.npz"
                     ).as_posix(),
                     **metrics,
