@@ -27,6 +27,9 @@ This folder contains all tutorial notebooks created with marimo. These notebooks
 
 (i) Training Demo Notebook
 - **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
+
+**Note:** Marimo notebooks are designed for a seamless, automated workflow. After you select the model type, all cells will execute automatically—no need to run them one by one. Training will only start when you click the **Run Training** button, giving you full control over when to begin model training.
+
 Download the notebook [training_demo.py](https://github.com/talmolab/sleap-nn/blob/main/example_notebooks/training_demo.py) and run the below command:
 ```bash
    uvx marimo edit --sandbox <training_demo.py>

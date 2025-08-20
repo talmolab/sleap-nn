@@ -128,6 +128,8 @@ trainer_config:   # How to train the model
 
 Set the `train_labels_path` to the path of your training `.slp` file, or a list of `.slp` files if you have multiple datasets. The `val_labels_path` is optional—if you leave it out, the training data will be automatically split into training and validation sets based on the `validation_fraction` parameter. 
 
+> Download sample [`train.pkg.slp`](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and [`val.pkg.slp`](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp).
+
 Choose the appropriate `data_pipeline_fw` based on your dataset size and hardware:
 
 - Use `torch_dataset_cache_img_memory` for small datasets that fit comfortably in RAM. This will cache all source images in memory for faster training.
@@ -427,7 +429,7 @@ print(f"Dist p90: {metrics['distance_metrics']['p90']:.3f}")
 import sleap_io as sio
 import matplotlib.pyplot as plt
 
-def plot_preds(gt_labels, lf_index, plt, pred_labels):
+def plot_preds(gt_labels, lf_index, pred_labels):
     _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
 
     # Plot each frame

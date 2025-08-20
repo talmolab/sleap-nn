@@ -31,13 +31,13 @@ Override any configuration from command line:
 sleap-nn-train --config-name config --config-dir path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
 
 # Change batch size
-sleap-nn-train --config-name config --config-dir path/to/config_dir data_config.batch_size=32 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-dir path/to/config_dir trainer_config.train_data_loader.batch_size=8 trainer_config.val_data_loader.batch_size=8 "data_config.train_labels_path=[labels.pkg.slp]"
 
-# Use different GPU
-sleap-nn-train --config-name config --config-dir path/to/config_dir trainer_config.devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
+# Set number of GPUs to be used
+sleap-nn-train --config-name config --config-dir path/to/config_dir trainer_config.trainer_devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Change learning rate
-sleap-nn-train --config-name config --config-dir path/to/config_dir trainer_config.learning_rate=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn-train --config-name config --config-dir path/to/config_dir trainer_config.optimizer.lr=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
 !!! note

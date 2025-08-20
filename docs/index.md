@@ -136,7 +136,6 @@ Found a bug? Please create an issue on GitHub:
 
 Have questions about usage, feature requests, or want to share your experience?
 - [Start a discussion](https://github.com/talmolab/sleap-nn/discussions)
-- Great for asking questions, sharing tips, or requesting new features
 
 **Additional Resources**:
 

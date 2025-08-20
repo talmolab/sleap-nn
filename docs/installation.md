@@ -111,6 +111,6 @@ If you encounter CUDA-related errors:
 
 ## Next Steps
 
-- [Training Your First Model](training.md)
+- [Step-by-step guide on training models](step_by_step_guide.md)
 - [Configuration Guide](config.md)
-- [API Reference](api/index.md)
+- [Training models](training.md)
