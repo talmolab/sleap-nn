@@ -11,6 +11,10 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write  # Required for PyPI trusted publishing
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -27,14 +31,14 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          uv pip install --system -r pyproject.toml --extra dev
+          uv sync
 
       - name: Build package
         run: uv build
 
       - name: Determine index and publish
         run: |
-          # Check if this is a pre-release (e.g., v1.0.0rc1, v2.0.0b2)
+          # Check if this is a test release (e.g., v1.0.0rc1, v2.0.0b2)
           if [[ "${{ github.ref_name }}" =~ [a-zA-Z] ]]; then
             echo "Publishing to TestPyPI..."
             uv publish --index testpypi --trusted-publishing always
