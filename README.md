@@ -1,31 +1,28 @@
 # sleap-nn
 Neural network backend for training and inference for animal pose estimation.
 
+## Prerequisites
+
+- Python 3.11
+
 ## 🚀 Development Setup
 
-1. **Install [miniforge](https://github.com/conda-forge/miniforge?tab=readme-ov-file#requirements-and-installers)**  
-   We recommend using [miniforge](https://github.com/conda-forge/miniforge) for an isolated Python environment with fast dependency resolution.
+1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+   `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
-2. **Create and activate the development environment using Python 3.11**  
-   ```bash
-   mamba create -n sleap-nn-dev python=3.11
-   mamba activate sleap-nn-dev
-   ```
-
-3. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
-   `uv` is a fast and modern package manager for `pyproject.toml`-based projects.
-   **Note:** If syncing dependencies with `uv sync`, no need to do `uv pip install -e ".[dev]"`.
-   ```bash
-   pip install uv
-   ```
-
-4. **Install PyTorch based on your platform**\
+2. **Install sleap-nn dependencies based on your platform**\
 
    - Sync all dependencies based on your correct wheel using `uv sync`:
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
       ```bash
       uv sync --extra dev --extra torch-cu118
+      ```
+
+      - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+
+      ```bash
+      uv sync --extra dev --extra torch-cu128
       ```
      
      - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
@@ -37,12 +34,12 @@ Neural network backend for training and inference for animal pose estimation.
    You can find the correct wheel for your system at:\
    👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
 
-5. **Run tests**  
+3. **Run tests**  
    ```bash
    uv run pytest tests
    ```
 
-6. **(Optional) Lint and format code**
+4. **(Optional) Lint and format code**
    ```bash
    uv run black --check sleap_nn tests
    uv run ruff check sleap_nn/
@@ -58,53 +55,18 @@ The `torch` and `torchvision` dependencies are now defined as **optional** in `p
 
 ---
 
-## 🛠️ Future Improvements
-
-To improve the flexibility and user experience, future versions of `sleap-nn` may:
-
-- **Move **``** imports into functions** or use conditional imports to avoid top-level dependency failures.
-- **Add clearer runtime error messages** when `torch` is required but not available.
-- **Enable limited functionality** in environments without PyTorch (e.g. metadata inspection or CLI help).
-
-This would allow `sleap-nn` to be installed and imported without `torch`, only requiring it when deep learning functionality is actually used.
-
----
-
-## ⚙️ GPU Support Strategy
-
-We intentionally **do not include GPU-specific `torch` or `torchvision` builds** in `pyproject.toml`. Instead, we recommend installing them manually based on your platform.
-
-### ✅ Why this strategy works
-
-- **Portability**: No CUDA version or hardware is assumed. This avoids broken installs on unsupported platforms.
-- **Flexibility**: You can use the appropriate PyTorch build for your system.
-- **Reliability**: All other dependencies are managed cleanly with `uv`.
-
-> 💡 This makes `sleap-nn` compatible with both GPU-accelerated and CPU-only environments.
-
-<details>
-<summary>📦 Why not use `pyproject.toml` for GPU builds?</summary>
-
-- GPU wheels are not on PyPI — they live at [https://download.pytorch.org/whl/](https://download.pytorch.org/whl/)
-- These builds vary by platform, CUDA version, and GPU architecture.
-- `uv` does not currently support CLI-based extra index URLs like pip’s `--index-url`.
-- Hardcoding GPU wheels into `pyproject.toml` would break cross-platform support.
-
-</details>
-
 ## GitHub Workflows
 
 This repository uses GitHub Actions for continuous integration and publishing:
 
 ### CI Workflow (`.github/workflows/ci.yml`)
 Runs on every pull request and performs the following:
-- Sets up a Conda environment using Miniforge3 with Python 3.11.
 - Installs `uv` and uses it to install the package in editable mode with dev dependencies.
 - Runs code quality checks using `black` and `ruff`.
 - Executes the test suite using `pytest` with coverage reporting.
 - Uploads coverage results to Codecov.
 
-Runs on all major operating systems (`ubuntu-latest`, `windows-latest`, `macos-14`).
+Runs on all major operating systems (`ubuntu-latest`, `windows-latest`, `macos-14`) and on `self-hosted-gpu` runners.
 
 ### Release Workflow (`.github/workflows/uvpublish.yml`)
 Triggered on GitHub Releases:

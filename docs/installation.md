@@ -80,15 +80,50 @@ black --check sleap_nn tests
 ruff check sleap_nn/
 ```
 
-## GPU Support
+----
 
-We recommend installing the torch dependencies manually based on your platform and intentionally **do not include GPU-specific `torch` or `torchvision` builds** in `pyproject.toml` for the below reasons:
+## 🚀 Development Setup
 
-- **No CUDA/hardware assumptions**—avoids install issues.
-- **Flexible to choose your own PyTorch build (CPU or GPU).**
-- **All other dependencies managed by `uv`.**-also faster!
+1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+   `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
-> 💡 This makes `sleap-nn` compatible with both GPU-accelerated and CPU-only environments.
+2. **Install sleap-nn dependencies based on your platform**\
+
+   - Sync all dependencies based on your correct wheel using `uv sync`:
+     - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+
+      ```bash
+      uv sync --extra dev --extra torch-cu118
+      ```
+
+      - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+
+      ```bash
+      uv sync --extra dev --extra torch-cu128
+      ```
+     
+     - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+     Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+     ```bash
+      uv sync --extra dev --extra torch-cpu
+      ```
+
+   You can find the correct wheel for your system at:\
+   👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
+
+3. **Run tests**  
+   ```bash
+   uv run pytest tests
+   ```
+
+4. **(Optional) Lint and format code**
+   ```bash
+   uv run black --check sleap_nn tests
+   uv run ruff check sleap_nn/
+   ```
+
+---
+
 
 ## Troubleshooting
 

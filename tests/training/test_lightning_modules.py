@@ -39,7 +39,9 @@ def caplog(caplog: LogCaptureFixture):
     logger.remove(handler_id)
 
 
-def test_topdown_centered_instance_model(config, tmp_path: str):
+def test_topdown_centered_instance_model(
+    config, tmp_path: str, minimal_instance_centered_instance_ckpt
+):
 
     # unet
     model = TopDownCenteredInstanceLightningModule(
@@ -47,10 +49,13 @@ def test_topdown_centered_instance_model(config, tmp_path: str):
         backbone_config=config.model_config.backbone_config,
         backbone_type="unet",
         head_configs=config.model_config.head_configs,
-        pretrained_backbone_weights=config.model_config.pretrained_backbone_weights,
+        pretrained_backbone_weights=(
+            Path(minimal_instance_centered_instance_ckpt) / "best.ckpt"
+        ).as_posix(),
         pretrained_head_weights=config.model_config.pretrained_head_weights,
         init_weights=config.model_config.init_weights,
         lr_scheduler=config.trainer_config.lr_scheduler,
+        trainer_accelerator="auto",
         optimizer="AdamW",
     )
     OmegaConf.update(
