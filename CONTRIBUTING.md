@@ -99,22 +99,29 @@ def load_tracks(filepath: str) -> np.ndarray:
 
 To work with the documentation locally:
 
-1. Install `sleap-nn` with docs dependencies:
+1. **Clone the sleap-nn repo**
+
+```bash
+git clone https://github.com/talmolab/sleap-nn.git
+cd sleap-nn
+```
+
+2. Install `sleap-nn` with docs dependencies:
    ```bash
    pip install -e ".[docs]"
    ```
 
-2. Build and tag a new documentation version:
+3. Build and tag a new documentation version:
    ```bash
    mike deploy --update-aliases 0.1.4 latest
    ```
 
-3. Preview documentation locally:
+4. Preview documentation locally:
    ```bash
    mike serve
    ```
 
-4. Push a specific version manually:
+5. Push a specific version manually:
    ```bash
    mike deploy --push --update-aliases --allow-empty 0.1.4 latest
    ```
