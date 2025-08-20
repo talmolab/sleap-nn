@@ -1,0 +1,10 @@
+# Root config for sleap-nn-train
+defaults:
+  - _self_
+  - override hydra/help: training_help
+
+# You can leave the rest empty so Hydra has a struct to work with.
+# This prevents `{}` from being passed down.
+model_config: {}
+trainer: {}
+data: {}

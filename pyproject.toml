@@ -40,11 +40,17 @@ dependencies = [
 dynamic = ["version", "readme"]
 
 [tool.setuptools]
-packages = ["sleap_nn"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["sleap_nn*"] 
 
 [tool.setuptools.dynamic]
 version = {attr = "sleap_nn.__version__"}
 readme = {file = ["README.md"]}
+
+[tool.setuptools.package-data]
+sleap_nn = ["config/**/*.yaml"]
 
 [project.optional-dependencies]
 torch = [

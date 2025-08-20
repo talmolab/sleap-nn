@@ -1,0 +1,32 @@
+# sleap_nn/config/hydra/help/training_help.yaml
+app_name: sleap-nn-train
+
+header: |-
+  sleap-nn-train — Train SLEAP models from a config YAML file.
+
+template: |-
+  ${hydra.help.header}
+
+  Usage:
+    sleap-nn-train --config-dir <dir> --config-name <name> [overrides]
+
+  Common overrides:
+    trainer_config.max_epochs=100
+    trainer_config.batch_size=32
+
+  Example: 
+    To start a training from scratch: 
+      sleap-nn-train --config-dir . --config-name myrun
+    To start a training from a checkpoint for maximum 20 more epochs without changing config file: 
+      sleap-nn-train --config-dir . --config-name myrun \
+        trainer_config.resume_ckpt_path=<path/to/ckpt> \
+        trainer_config.max_epochs=20
+
+  Tips:
+    - Use -m/--multirun for sweeps; outputs go under hydra.sweep.dir.
+    - For more detailed flags (completion, multirun internals), use --hydra-help.
+
+  ${hydra.help.footer}
+
+footer: |-
+  For a detailed list of all available config options, please refer to the documentation at [https://nn.sleap.ai/dev/config/].
