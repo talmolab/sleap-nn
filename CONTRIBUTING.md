@@ -4,17 +4,10 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 
 ## Development Setup
 
-1. **Clone the sleap-nn repo**
-
-```bash
-git clone https://github.com/talmolab/sleap-nn.git
-cd sleap-nn
-```
-
-2. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
    `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
-3. **Install sleap-nn dependencies based on your platform**\
+2. **Install sleap-nn dependencies based on your platform**\
 
    - Sync all dependencies based on your correct wheel using `uv sync`:
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
@@ -132,7 +125,7 @@ The documentation is automatically deployed to https://nn.sleap.ai/ when changes
 
 1. Create a new branch for your feature or bugfix:
    ```bash
-   git checkout -b your-name/your-feature-name
+   git checkout -b feature/your-feature-name
    ```
 
 2. Make your changes and ensure tests pass

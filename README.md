@@ -18,51 +18,31 @@ This is the deep learning engine that powers [SLEAP](https://sleap.ai) (Social L
 
 ### From PyPI
 
-- **Create a mamba environment**
-    ```bash
-    mamba create -n sleap-nn python=3.11
-    mamba activate sleap-nn
-    ```
+- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
-- **Install uv**
-    ```bash
-    pip install uv
-    ```
+```bash
+pip install sleap-nn[torch-cuda118]
+```
 
-- **Install sleap-nn dependencies**
+- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
 
-    For Windows/Linux with NVIDIA GPU (CUDA 11.8):
+```bash
+pip install sleap-nn[torch-cuda128]
+```
 
-    ```bash
-    uv pip install sleap-nn[torch-cuda118]
-    ```
-
-    For Windows/Linux with NVIDIA GPU (CUDA 12.8):
-
-    ```bash
-    uv pip install sleap-nn[torch-cuda128]
-    ```
-
-    For macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):  
-    Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
-    ```bash
-    uv pip install sleap-nn[torch-cpu]
-    ```
+- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+```bash
+pip install sleap-nn[torch-cpu]
+```
 
 
 ### For development setup
 
-1. **Clone the sleap-nn repo**
-
-```bash
-git clone https://github.com/talmolab/sleap-nn.git
-cd sleap-nn
-```
-
-2. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
    `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
-3. **Install sleap-nn dependencies based on your platform**\
+2. **Install sleap-nn dependencies based on your platform**\
 
    - Sync all dependencies based on your correct wheel using `uv sync`:
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
@@ -86,12 +66,12 @@ cd sleap-nn
    You can find the correct wheel for your system at:\
    👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
 
-4. **Run tests**  
+3. **Run tests**  
    ```bash
    uv run pytest tests
    ```
 
-5. **(Optional) Lint and format code**
+4. **(Optional) Lint and format code**
    ```bash
    uv run black --check sleap_nn tests
    uv run ruff check sleap_nn/
