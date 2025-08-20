@@ -20,22 +20,23 @@ classifiers = [
     "Programming Language :: Python :: 3.11"
 ]
 dependencies = [
-    "lightning",
     "sleap-io>=0.2.0",
     "numpy",
+    "lightning",
+    "kornia",
     "jsonpickle",
     "scipy",
     "attrs",
     "omegaconf",
     "wandb",
-    "kornia",
     "matplotlib",
     "seaborn",
     "rich",
     "loguru",
     "psutil",
     "opencv-python",
-    "hydra-core"
+    "hydra-core",
+    "pyzmq"
 ]
 dynamic = ["version", "readme"]
 
@@ -49,7 +50,19 @@ readme = {file = ["README.md"]}
 [project.optional-dependencies]
 torch = [
     "torch",
-    "torchvision"
+    "torchvision",
+]
+torch-cpu = [
+    "torch",
+    "torchvision",
+]
+torch-cuda118 = [
+    "torch",
+    "torchvision",
+]
+torch-cuda128 = [
+    "torch",
+    "torchvision",
 ]
 dev = [
     "pytest",
@@ -60,8 +73,7 @@ dev = [
     "twine",
     "build",
     "ipython",
-    "ruff",
-    "pyzmq"
+    "ruff"
 ]
 docs = [
     "mkdocs",
@@ -82,6 +94,42 @@ sleap-nn-eval = "sleap_nn.evaluation:main"
 [project.urls]
 Homepage = "https://sleap.ai"
 Repository = "https://github.com/talmolab/sleap-nn"
+
+[tool.uv]
+conflicts = [
+    [
+        { extra = "torch-cpu" },
+        { extra = "torch-cuda118" },
+        { extra = "torch-cuda128" }
+    ]
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "torch-cpu" },
+    { index = "pytorch-cu118", extra = "torch-cuda118" },
+    { index = "pytorch-cu128", extra = "torch-cuda128" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "torch-cpu" },
+    { index = "pytorch-cu118", extra = "torch-cuda118" },
+    { index = "pytorch-cu128", extra = "torch-cuda128" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu118"
+url = "https://download.pytorch.org/whl/cu118"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
 
 [tool.black]
 line-length = 88

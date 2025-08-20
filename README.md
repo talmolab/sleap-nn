@@ -14,36 +14,24 @@ Neural network backend for training and inference for animal pose estimation.
 
 3. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
    `uv` is a fast and modern package manager for `pyproject.toml`-based projects.
+   **Note:** If syncing dependencies with `uv sync`, no need to do `uv pip install -e ".[dev]"`.
    ```bash
    pip install uv
-   uv pip install -e ".[dev]"
    ```
 
 4. **Install PyTorch based on your platform**\
-   You can either:
 
-   - Install the optional dependencies:
-
-     ```bash
-     uv pip install -e ".[torch]"
-     ```
-
-     This installs the default builds of `torch` and `torchvision` via PyPI for your OS.
-
-   - Or manually install the correct wheel for your system using PyTorch's index URL:
-
+   - Sync all dependencies based on your correct wheel using `uv sync`:
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
-       ```bash
-       pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-       ```
-
-     - **macOS with Apple Silicon (M1, M2, M3, M4):** You don’t need to do anything if you used the `[torch]` optional dependency or default PyPI install--the default wheels now include Metal backend support for Apple GPUs.
-
-     - **CPU-only (no GPU or unsupported GPU):** You don’t need to do anything if you used the `[torch]` optional dependency or default PyPI install.
-
       ```bash
-      pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      uv sync --extra dev --extra torch-cu118
+      ```
+     
+     - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+     Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+     ```bash
+      uv sync --extra dev --extra torch-cpu
       ```
 
    You can find the correct wheel for your system at:\
@@ -51,13 +39,13 @@ Neural network backend for training and inference for animal pose estimation.
 
 5. **Run tests**  
    ```bash
-   pytest tests
+   uv run pytest tests
    ```
 
 6. **(Optional) Lint and format code**
    ```bash
-   black --check sleap_nn tests
-   ruff check sleap_nn/
+   uv run black --check sleap_nn tests
+   uv run ruff check sleap_nn/
    ```
 
 ---
@@ -65,14 +53,6 @@ Neural network backend for training and inference for animal pose estimation.
 ## ⚠️ PyTorch is Required at Runtime
 
 The `torch` and `torchvision` dependencies are now defined as **optional** in `pyproject.toml`. However, they are **required for the code to run**, and are imported at the top level in many modules. This means:
-
-- You **must** install `sleap-nn` with the `[torch]` extras:
-
-  ```bash
-  uv pip install -e ".[torch]"
-  ```
-
-- **Or** manually install `torch` and `torchvision` with the appropriate build for your system.
 
 > 🛑 If you install `sleap-nn` without `torch`, **any import of **``** will fail** with an `ImportError` until you install it manually.
 

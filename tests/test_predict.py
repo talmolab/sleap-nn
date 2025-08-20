@@ -78,6 +78,7 @@ def test_topdown_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
+        output_path=tmp_path,
         device="cpu",
         max_instances=6,
         peak_threshold=0.0,
@@ -135,6 +136,7 @@ def test_topdown_predictor(
         ],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=[0.0, 0.0],
         device="cpu",
@@ -170,6 +172,7 @@ def test_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         device="cpu",
         peak_threshold=[0.0, 0.0],
@@ -190,6 +193,7 @@ def test_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         device="cpu",
         frames=[1100, 1101, 1102, 1103],
@@ -207,6 +211,7 @@ def test_topdown_predictor(
             model_paths=[minimal_instance_centered_instance_ckpt],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
+            output_path=tmp_path,
             max_instances=6,
             device="cpu",
             frames=[x for x in range(100)],
@@ -223,6 +228,7 @@ def test_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=2,
         post_connect_single_breaks=True,
         max_tracks=None,
@@ -248,6 +254,7 @@ def test_topdown_predictor(
             ],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
+            output_path=tmp_path,
             max_instances=None,
             post_connect_single_breaks=True,
             max_tracks=None,
@@ -318,6 +325,7 @@ def test_multiclass_topdown_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
+        output_path=tmp_path,
         device="cpu",
         peak_threshold=0.0,
         integral_refinement=None,
@@ -376,6 +384,7 @@ def test_multiclass_topdown_predictor(
         ],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=[0.0, 0.0],
         device="cpu",
@@ -397,6 +406,7 @@ def test_multiclass_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         device="cpu",
         peak_threshold=[0.0, 0.0],
@@ -419,6 +429,7 @@ def test_multiclass_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         integral_refinement=None,
         device="cpu",
@@ -436,6 +447,7 @@ def test_multiclass_topdown_predictor(
             model_paths=[minimal_instance_multi_class_topdown_ckpt],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
+            output_path=tmp_path,
             max_instances=6,
             device="cpu",
             frames=[x for x in range(100)],
@@ -449,6 +461,7 @@ def test_single_instance_predictor(
     small_robot_minimal_video,
     small_robot_minimal,
     minimal_instance_single_instance_ckpt,
+    tmp_path,
 ):
     """Test SingleInstancePredictor module."""
     # provider as LabelsReader
@@ -459,6 +472,7 @@ def test_single_instance_predictor(
         model_paths=[minimal_instance_single_instance_ckpt],
         data_path=small_robot_minimal.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         device="cpu",
         peak_threshold=0.1,
@@ -506,6 +520,7 @@ def test_single_instance_predictor(
         frames=[0],
         device="cpu",
         make_labels=True,
+        output_path=tmp_path,
         peak_threshold=0.1,
         integral_refinement=None,
     )
@@ -534,6 +549,7 @@ def test_single_instance_predictor(
         model_paths=[minimal_instance_single_instance_ckpt],
         data_path=small_robot_minimal_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         device="cpu",
         peak_threshold=0.1,
         integral_refinement=None,
@@ -586,6 +602,7 @@ def test_bottomup_predictor(
     minimal_instance_bottomup_ckpt,
     minimal_instance_centered_instance_ckpt,
     centered_instance_video,
+    tmp_path,
 ):
     """Test BottomUpPredictor module."""
     # provider as LabelsReader
@@ -595,6 +612,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=0.05,
         device="cpu",
@@ -643,6 +661,7 @@ def test_bottomup_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
+        output_path=tmp_path,
         device="cpu",
         integral_refinement=None,
     )
@@ -654,6 +673,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=1.0,
         device="cpu",
@@ -668,6 +688,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=0.05,
         frames=[x for x in range(100)],
@@ -703,6 +724,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=0.05,
         tracking=True,
@@ -727,6 +749,7 @@ def test_multi_class_bottomup_predictor(
     minimal_instance,
     minimal_instance_multi_class_bottomup_ckpt,
     minimal_instance_multi_class_topdown_ckpt,
+    tmp_path,
 ):
     """Test BottomUpPredictor module."""
     # provider as LabelsReader
@@ -736,6 +759,7 @@ def test_multi_class_bottomup_predictor(
         model_paths=[minimal_instance_multi_class_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=0.03,
         device="cpu",
@@ -789,6 +813,7 @@ def test_multi_class_bottomup_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
+        output_path=tmp_path,
         device="cpu",
         integral_refinement=None,
     )
@@ -801,6 +826,7 @@ def test_multi_class_bottomup_predictor(
         model_paths=[minimal_instance_multi_class_bottomup_ckpt],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=0.03,
         frames=[x for x in range(100)],
@@ -837,6 +863,7 @@ def test_tracking_only_pipeline(
     minimal_instance_centroid_ckpt,
     minimal_instance_centered_instance_ckpt,
     centered_instance_video,
+    tmp_path,
 ):
     """Test tracking-only pipeline."""
     labels = run_inference(
@@ -846,16 +873,17 @@ def test_tracking_only_pipeline(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=2,
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
     )
-    labels.save("preds.slp")
+    labels.save(f"{tmp_path}/preds.slp")
 
     tracked_labels = run_inference(
-        data_path="preds.slp",
+        data_path=f"{tmp_path}/preds.slp",
         tracking=True,
         post_connect_single_breaks=True,
         max_instances=2,
@@ -877,12 +905,14 @@ def test_legacy_topdown_predictor(
     minimal_instance,
     sleap_centroid_model_path,
     sleap_centered_instance_model_path,
+    tmp_path,
 ):
     """Test legacy topdown predictor."""
     pred_labels = run_inference(
         model_paths=[sleap_centroid_model_path, sleap_centered_instance_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         integral_refinement="integral",
         max_instances=2,
     )
@@ -917,14 +947,14 @@ def test_legacy_topdown_predictor(
 
 
 def test_legacy_bottomup_predictor(
-    minimal_instance,
-    sleap_bottomup_model_path,
+    minimal_instance, sleap_bottomup_model_path, tmp_path
 ):
     """Test legacy bottomup predictor."""
     pred_labels = run_inference(
         model_paths=[sleap_bottomup_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         integral_refinement="integral",
     )
     gt_labels = sio.load_slp(minimal_instance)
@@ -958,14 +988,14 @@ def test_legacy_bottomup_predictor(
 
 
 def test_legacy_single_instance_predictor(
-    small_robot_minimal,
-    sleap_single_instance_model_path,
+    small_robot_minimal, sleap_single_instance_model_path, tmp_path
 ):
     """Test legacy single instance predictor."""
     pred_labels = run_inference(
         model_paths=[sleap_single_instance_model_path],
         data_path=small_robot_minimal.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         integral_refinement="integral",
     )
     gt_labels = sio.load_slp(small_robot_minimal)
@@ -974,12 +1004,14 @@ def test_legacy_single_instance_predictor(
 def test_legacy_multiclass_bottomup_predictor(
     minimal_instance,
     sleap_bottomup_multiclass_model_path,
+    tmp_path,
 ):
     """Test legacy multiclass bottomup predictor."""
     pred_labels = run_inference(
         model_paths=[sleap_bottomup_multiclass_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         integral_refinement="integral",
     )
     gt_labels = sio.load_slp(minimal_instance)
@@ -989,12 +1021,14 @@ def test_legacy_multiclass_topdown_predictor(
     minimal_instance,
     sleap_centroid_model_path,
     sleap_topdown_multiclass_model_path,
+    tmp_path,
 ):
     """Test legacy multiclass topdown predictor."""
     pred_labels = run_inference(
         model_paths=[sleap_centroid_model_path, sleap_topdown_multiclass_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         integral_refinement="integral",
         max_instances=2,
     )
@@ -1010,6 +1044,8 @@ def test_predict_main(
     import subprocess
 
     cmd = [
+        "uv",
+        "run",
         "python",
         "-m",
         "sleap_nn.predict",

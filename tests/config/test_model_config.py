@@ -165,3 +165,25 @@ def test_model_mapper():
     ]
     assert config.head_configs.single_instance.confmaps.sigma == 3.0
     assert config.head_configs.single_instance.confmaps.output_stride == 2
+
+
+def test_model_oneof_failure_model_config(caplog):
+    """Test validation failure with oneof fields."""
+    with pytest.raises(ValueError):
+        ModelConfig(
+            backbone_config=BackboneConfig(
+                unet=UNetConfig(),
+                swint=SwinTConfig(),
+            )
+        )
+    assert "Only one attribute of this class can be set (not None).\n" in caplog.text
+
+
+def test_model_oneof_failure_head_config(caplog):
+    """Test validation failure with oneof fields."""
+    with pytest.raises(ValueError):
+        HeadConfig(
+            single_instance=SingleInstanceConfig(),
+            centroid=CentroidConfig(),
+        )
+    assert "Only one attribute of this class can be set (not None).\n" in caplog.text

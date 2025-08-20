@@ -26,12 +26,15 @@ def caplog(caplog: LogCaptureFixture):
     logger.remove(handler_id)
 
 
-def get_pred_instances(minimal_instance_centered_instance_ckpt, minimal_instance):
+def get_pred_instances(
+    minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
+):
     """Get `sio.PredictedInstance` objects from Predictor class."""
     result_labels = run_inference(
         model_paths=[minimal_instance_centered_instance_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=6,
         peak_threshold=0.0,
         integral_refinement="integral",
@@ -44,12 +47,14 @@ def get_pred_instances(minimal_instance_centered_instance_ckpt, minimal_instance
     return pred_instances, imgs
 
 
-def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instance):
+def test_tracker(
+    caplog, minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
+):
     """Test `Tracker` module."""
     # Test for the first two instances
     # no new tracks should be created
     pred_instances, _ = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     tracker = Tracker.from_config(
         min_new_track_points=3
@@ -67,7 +72,7 @@ def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instan
     # pose as feature, oks scoring method, avg score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, _ = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     tracker = Tracker.from_config(candidates_method="fixed_window")
     for p in pred_instances:
@@ -87,7 +92,7 @@ def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instan
     # pose as feature, oks scoring method, max score reduction, hungarian matching
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, _ = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     tracker = Tracker.from_config(candidates_method="local_queues")
     for p in pred_instances:
@@ -105,7 +110,7 @@ def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instan
     # Test indv. functions for fixed window
     # with 2 existing tracks in the queue
     pred_instances, _ = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     tracker = Tracker.from_config(
         candidates_method="fixed_window",
@@ -115,7 +120,7 @@ def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instan
     _ = tracker.track(pred_instances, 0)
 
     pred_instances, _ = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     # Test points as feature
     track_instances = tracker.get_features(pred_instances, 0, None)
@@ -164,7 +169,7 @@ def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instan
     # Test local queue tracker
     # with existing tracks
     pred_instances, _ = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     tracker = Tracker.from_config(
         candidates_method="local_queues",
@@ -254,12 +259,14 @@ def test_tracker(caplog, minimal_instance_centered_instance_ckpt, minimal_instan
     assert "Invalid `track_matching_method` argument." in caplog.text
 
 
-def test_flowshifttracker(minimal_instance_centered_instance_ckpt, minimal_instance):
+def test_flowshifttracker(
+    minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
+):
     """Tests for `FlowShiftTracker` class."""
     # Test Fixed-window method: pose as feature, oks scoring method
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, imgs = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     tracker = Tracker.from_config(
         candidates_method="fixed_window",
@@ -293,7 +300,7 @@ def test_flowshifttracker(minimal_instance_centered_instance_ckpt, minimal_insta
     # Test Local queue method: pose as feature, oks scoring method
     # Test for the first two instances (tracks assigned to each of the new instances)
     pred_instances, imgs = get_pred_instances(
-        minimal_instance_centered_instance_ckpt, minimal_instance
+        minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
     )
     tracker = Tracker.from_config(
         candidates_method="local_queues",
@@ -349,6 +356,7 @@ def test_run_tracker(
     minimal_instance_centered_instance_ckpt,
     centered_instance_video,
     minimal_instance,
+    tmp_path,
 ):
     """Tests for run_tracker."""
     labels = run_inference(
@@ -358,6 +366,7 @@ def test_run_tracker(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
+        output_path=tmp_path,
         max_instances=2,
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
@@ -387,6 +396,7 @@ def test_run_tracker(
             ],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
+            output_path=tmp_path,
             max_instances=2,
             peak_threshold=0.1,
             frames=[x for x in range(0, 10)],

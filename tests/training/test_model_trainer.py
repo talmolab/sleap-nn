@@ -22,6 +22,7 @@ from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
 )
+from sleap_nn.config.model_config import ConvNextConfig, SingleInstanceConfig
 import sleap_io as sio
 from torch.nn.functional import mse_loss
 import os
@@ -158,7 +159,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     sample = next(iter(train_dataloader))
     assert sample["instance_image"].shape == (1, 1, 1, 104, 104)
 
-    ## raise exception if no imsg are found when use_existing_imgs = True.
+    ## raise exception if no imgs are found when use_existing_imgs = True.
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
     )
@@ -231,7 +232,9 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_trainer"
+    )
     OmegaConf.update(config, "trainer_config.profiler", None)
 
     ## invalid profiler: raise exception
@@ -401,7 +404,7 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
     OmegaConf.update(
         single_instance_config,
         "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer_single_instan e",
+        f"{tmp_path}/test_model_trainer_single_instance",
     )
     OmegaConf.update(
         single_instance_config, "trainer_config.visualize_preds_during_training", True
@@ -504,7 +507,9 @@ def test_zmq_callbacks(config, tmp_path: str):
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_zmq_callbacks"
+    )
     OmegaConf.update(
         config, "trainer_config.zmq.publish_address", "tcp://127.0.0.1:9510"
     )
@@ -766,13 +771,15 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, ca
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 # TODO: Revisit this test later (Failing on ubuntu)
-def test_resume_training(config):
+def test_resume_training(config, tmp_path):
     if torch.mps.is_available():
         config.trainer_config.trainer_accelerator = "cpu"
     else:
         config.trainer_config.trainer_accelerator = "auto"
     # train a model for 2 epochs:
-    OmegaConf.update(config, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_resume_trainer"
+    )
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
@@ -790,7 +797,9 @@ def test_resume_training(config):
     prv_runid = training_config.trainer_config.wandb.current_run_id
     OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
     OmegaConf.update(config_copy, "data_config.data_pipeline_fw", "torch_dataset")
-    OmegaConf.update(config_copy, "trainer_config.save_ckpt_path", None)
+    OmegaConf.update(
+        config_copy, "trainer_config.save_ckpt_path", f"{tmp_path}/test_resume_trainer"
+    )
     OmegaConf.update(config_copy, "trainer_config.save_ckpt", True)
     trainer = ModelTrainer.get_model_trainer_from_config(config_copy)
     trainer.train()
@@ -956,6 +965,83 @@ def test_keep_viz_behavior(config, tmp_path, minimal_instance):
     assert not viz_path.exists(), "viz folder should be deleted when keep_viz=False"
 
 
+def test_backbone_oneof_validation_error(config, caplog):
+    # Test that an error is raised when a oneof field is not set
+    config_unet_and_convnext = config.copy()
+    OmegaConf.update(
+        config_unet_and_convnext,
+        "model_config.backbone_config.convnext",
+        ConvNextConfig(),
+    )
+    with pytest.raises(ValueError):
+        ModelTrainer.get_model_trainer_from_config(config_unet_and_convnext)
+    assert "Only one attribute" in caplog.text
+    assert "BackboneConfig" in caplog.text
+
+
+def test_backbone_oneof_validation_error_no_backbone(config, caplog):
+    # Test that an error is raised when no backbone field is set
+    config_no_backbone = config.copy()
+    OmegaConf.update(
+        config_no_backbone,
+        "model_config.backbone_config.unet",
+        None,
+    )
+    OmegaConf.update(
+        config_no_backbone,
+        "model_config.backbone_config.convnext",
+        None,
+    )
+    OmegaConf.update(
+        config_no_backbone,
+        "model_config.backbone_config.swint",
+        None,
+    )
+    with pytest.raises(ValueError):
+        ModelTrainer.get_model_trainer_from_config(config_no_backbone)
+
+
+def test_head_configs_oneof_validation_error(config, caplog):
+    # Test that an error is raised when a oneof field is not set
+    config_two_head_configs = config.copy()
+    OmegaConf.update(
+        config_two_head_configs,
+        "model_config.head_configs.single_instance",
+        SingleInstanceConfig(),
+    )
+    with pytest.raises(ValueError):
+        ModelTrainer.get_model_trainer_from_config(config_two_head_configs)
+    assert "Only one attribute" in caplog.text
+    assert "HeadConfig" in caplog.text
+
+
+def test_head_config_oneof_validation_error_no_head(config, caplog):
+    # Test that an error is raised when no head field is set
+    config_no_head = config.copy()
+    OmegaConf.update(
+        config_no_head,
+        "model_config.head_configs.single_instance",
+        None,
+    )
+    OmegaConf.update(
+        config_no_head,
+        "model_config.head_configs.centroid",
+        None,
+    )
+    OmegaConf.update(
+        config_no_head,
+        "model_config.head_configs.centered_instance",
+        None,
+    )
+    OmegaConf.update(
+        config_no_head,
+        "model_config.head_configs.bottomup",
+        None,
+    )
+    with pytest.raises(ValueError):
+        ModelTrainer.get_model_trainer_from_config(config_no_head)
+
+
 @pytest.mark.skipif(
     sys.platform.startswith("li")
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
@@ -968,6 +1054,7 @@ def test_loading_pretrained_weights(
     minimal_instance,
     caplog,
     minimal_instance_centered_instance_ckpt,
+    tmp_path,
 ):
     """Test loading pretrained weights for model initialization."""
     # with keras (.h5 weights)
@@ -983,6 +1070,7 @@ def test_loading_pretrained_weights(
     sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
+    sleap_nn_config.trainer_config.save_ckpt_path = f"{tmp_path}/test_loading_weights"
 
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
@@ -1009,6 +1097,7 @@ def test_loading_pretrained_weights(
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
     sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
+    sleap_nn_config.trainer_config.save_ckpt_path = f"{tmp_path}/test_loading_weights"
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
         train_labels=[sio.load_slp(minimal_instance)],
@@ -1018,3 +1107,25 @@ def test_loading_pretrained_weights(
 
     assert "Loading backbone weights from" in caplog.text
     assert "Loading head weights from" in caplog.text
+
+
+def test_file_not_found_handling(config, tmp_path, caplog, minimal_instance):
+    """Test ModelTrainer handles missing video files gracefully."""
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
+
+    # Load labels and modify video filename to point to non-existent file
+    labels = sio.load_slp(minimal_instance)
+    labels.videos[0].filename = "/nonexistent/path/video.mp4"
+
+    OmegaConf.update(config, "trainer_config.max_epochs", 1)
+    OmegaConf.update(
+        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_missing_video/"
+    )
+
+    with pytest.raises(FileNotFoundError):
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            config, train_labels=[labels], val_labels=[labels]
+        )

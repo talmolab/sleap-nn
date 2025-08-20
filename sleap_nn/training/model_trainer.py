@@ -1,20 +1,21 @@
 """This module is to train a sleap-nn model using Lightning."""
 
-from pathlib import Path
 import os
 import shutil
 import copy
 import attrs
 import torch
 import sleap_io as sio
-from itertools import cycle
-from omegaconf import DictConfig, OmegaConf
+import time
 import lightning as L
 import wandb
 import yaml
+
+from pathlib import Path
 from typing import List, Optional
-import time
 from datetime import datetime
+from itertools import cycle
+from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import WandbLogger
 from sleap_nn.data.utils import check_cache_memory
 from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
@@ -24,7 +25,6 @@ from lightning.pytorch.profilers import (
     PyTorchProfiler,
     PassThroughProfiler,
 )
-import sleap_io as sio
 from sleap_io.io.skeleton import SkeletonYAMLEncoder
 from sleap_nn.data.instance_cropping import find_instance_crop_size
 from sleap_nn.data.providers import get_max_height_width
@@ -50,6 +50,8 @@ from sleap_nn.training.callbacks import (
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
+
+MEMORY_BUFFER = 0.2  # Default memory buffer for caching
 
 
 @attrs.define
@@ -130,6 +132,18 @@ class ModelTrainer:
         model_trainer._initial_config = model_trainer.config.copy()
         # update config parameters
         model_trainer.setup_config()
+
+        # Check if all videos exist across all labels
+        all_videos_exist = all(
+            video.exists(check_all=True)
+            for labels in [*model_trainer.train_labels, *model_trainer.val_labels]
+            for video in labels.videos
+        )
+
+        if not all_videos_exist:
+            raise FileNotFoundError(
+                "One or more video files do not exist or are not accessible."
+            )
 
         return model_trainer
 
@@ -512,7 +526,7 @@ class ModelTrainer:
         if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_memory":
             # check available memory. If insufficient memory, default to disk caching.
             mem_available = check_cache_memory(
-                self.train_labels, self.val_labels, self.config
+                self.train_labels, self.val_labels, memory_buffer=MEMORY_BUFFER
             )
             if not mem_available:
                 self.config.data_config.data_pipeline_fw = (

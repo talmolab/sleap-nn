@@ -9,10 +9,6 @@ on:
       - ".github/workflows/ci.yml"
       - "pyproject.toml"
 
-defaults:
-  run:
-    shell: bash -l {0}  # Enable conda environment
-
 jobs:
   lint:
     name: Lint
@@ -21,28 +17,22 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          activate-environment: sleap-nn-dev
-          python-version: 3.11
-          miniforge-variant: Miniforge3
-          use-mamba: true
-          auto-activate-base: false
-
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: false
 
+      - name: Set up Python
+        run: uv python install 3.11
+
       - name: Install dev dependencies and torch
-        run: uv pip install -e ".[dev, torch]"
+        run: uv sync --extra dev --extra torch-cpu
 
       - name: Run Black
-        run: black --check sleap_nn tests
+        run: uv run black --check sleap_nn tests
 
       - name: Run Ruff
-        run: ruff check sleap_nn/
+        run: uv run ruff check sleap_nn/
 
   tests:
     timeout-minutes: 30
@@ -68,31 +58,80 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Set up Miniconda
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          activate-environment: sleap-nn-dev
-          python-version: ${{ matrix.python }}
-          miniforge-variant: Miniforge3
-          use-mamba: true
-          auto-activate-base: false
-
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: false
 
-      - name: Install dev dependencies and torch
-        run: uv pip install -e ".[dev, torch]"
+      - name: Set up Python (non-self-hosted GPU)
+        if: matrix.os != 'self-hosted-gpu'
+        run: uv python install ${{ matrix.python }}
+
+      - name: Install dev dependencies and torch (self-hosted GPU)
+        if: matrix.os == 'self-hosted-gpu'
+        run: uv sync --extra dev --extra torch-cuda128
+
+      - name: Install dev dependencies and torch (non-self-hosted GPU)
+        if: matrix.os != 'self-hosted-gpu'
+        run: uv sync --extra dev --extra torch-cpu
 
       - name: Print environment info
         run: |
-          which python
-          python --version
-          pip freeze
+          echo "=== UV Environment ==="
+          uv run python --version
+          uv run python -c "import sys; print('Python executable:', sys.executable)"
+          echo "=== UV Environment NumPy Check ==="
+          uv run python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
+          echo "=== CUDA Availability Check ==="
+          uv run python -c "
+          import torch
+          print(f'PyTorch version: {torch.__version__}')
+          print(f'CUDA available: {torch.cuda.is_available()}')
+          print(f'CUDA device count: {torch.cuda.device_count()}')
+          if torch.cuda.is_available():
+              print(f'CUDA version: {torch.version.cuda}')
+              print(f'Current device: {torch.cuda.current_device()}')
+              print(f'Device name: {torch.cuda.get_device_name(0)}')
+          else:
+              print('CUDA is not available')
+          " || echo "CUDA check failed"
+          echo "=== PIP EXECUTABLE COMPARISON ==="
+          uv run python -c "import subprocess; print('pip from uv run python:', subprocess.check_output(['pip', '--version']).decode().strip())" || echo "pip not found from python"
+          uv run pip --version || echo "uv run pip failed"
+          echo "=== UV pip list vs python -m pip list ==="
+          echo "--- uv run pip list ---"
+          uv run pip list | head -20
+          echo "--- uv run python -m pip list ---"
+          uv run python -m pip list | head -20
+          echo "=== UV ENVIRONMENT CHECK ==="
+          uv run python -c "import os; print('VIRTUAL_ENV:', os.environ.get('VIRTUAL_ENV', 'Not set'))"
+          echo "=== Import Test ==="
+          uv run python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
+
+      - name: Check MPS backend (macOS only)
+        if: runner.os == 'macOS'
+        run: |
+          echo "=== macOS MPS Backend Check ==="
+          uv run python -c "
+          import torch
+          print(f'PyTorch version: {torch.__version__}')
+          print(f'MPS available: {torch.backends.mps.is_available()}')
+          print(f'MPS built: {torch.backends.mps.is_built()}')
+          if torch.backends.mps.is_available():
+              print('MPS backend is available and ready to use!')
+              device = torch.device('mps')
+              test_tensor = torch.randn(3, 3).to(device)
+              print(f'Test tensor on MPS: {test_tensor.device}')
+          else:
+              print('MPS backend is not available on this macOS system')
+          "
 
       - name: Run pytest
-        run: pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+        run: |
+          echo "=== Final environment check before tests ==="
+          uv run python -c "import numpy, torch, lightning, kornia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
+          echo "=== Running pytest ==="
+          uv run pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
