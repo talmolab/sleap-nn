@@ -445,12 +445,14 @@ def train(
     run_training(omegaconf_config.copy())
 
 
-@hydra.main(version_base=None, config_path='config', config_name="training")
+@hydra.main(version_base=None, config_path="config", config_name="training")
 def main(cfg: DictConfig):
     """Train SLEAP-NN model using CLI."""
     if not cfg.trainer_config:
         # set save_ckpt_path to current working dir if not specified
-        print("No trainer config found! Use `sleap-nn-train --help` for more information.")
+        print(
+            "No trainer config found! Use `sleap-nn-train --help` for more information."
+        )
         raise SystemExit(2)
     logger.info("Input config:")
     logger.info("\n" + OmegaConf.to_yaml(cfg))
