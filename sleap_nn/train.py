@@ -8,7 +8,6 @@ from datetime import datetime
 from time import time
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional, List, Tuple, Union
-from dataclasses import dataclass
 from functools import wraps
 from hydra.core.config_store import ConfigStore
 from hydra.conf import HelpConf
@@ -450,9 +449,8 @@ def train(
     run_training(omegaconf_config.copy())
 
 
-
 def add_help(name: str = "sleap_help"):
-    # build a HelpConf node (can also use textwrap.dedent if you want clean margins)
+    """Decorator to inject and override hydra/help config. Provide readable help messages for `sleap-nn-train` CLI."""
     template = (
         "${hydra.help.header}\n\n"
         "Usage:\n"
@@ -477,7 +475,7 @@ def add_help(name: str = "sleap_help"):
     cs.store(
         group="hydra/help",
         name=name,
-        node=HelpConf(                     # ← correct type
+        node=HelpConf(  # ← correct type
             app_name="sleap-nn-train",
             header="sleap-nn-train — Train SLEAP models from a config YAML file.",
             footer="For a detailed list of all available config options, please refer to https://nn.sleap.ai/dev/config/.",
@@ -492,11 +490,13 @@ def add_help(name: str = "sleap_help"):
             if "hydra/help=" not in joined and "hydra.help." not in joined:
                 sys.argv.insert(1, f"hydra/help={name}")
             return fn(*args, **kwargs)
+
         return wrapper
 
     return outer
 
-@add_help()     
+
+@add_help()
 @hydra.main(version_base=None, config_path=None, config_name=None)
 def main(cfg: DictConfig):
     """Train SLEAP-NN model using CLI."""
