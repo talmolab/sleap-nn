@@ -55,7 +55,7 @@ def test_topdown_centered_instance_model(
         pretrained_head_weights=config.model_config.pretrained_head_weights,
         init_weights=config.model_config.init_weights,
         lr_scheduler=config.trainer_config.lr_scheduler,
-        trainer_accelerator="auto",
+        trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         optimizer="AdamW",
     )
     OmegaConf.update(

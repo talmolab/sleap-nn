@@ -54,8 +54,6 @@ Ensure the python scripts are in your current working directory!
 
 - **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
 
-> **Note:** Marimo notebooks are designed for a seamless, automated workflow. After you select the model type, all cells will execute automatically—no need to run them one by one. Training will only start when you click the  **Run Training** button, giving you full control over when to begin model training.
-
 ```bash
    uvx marimo edit --sandbox training_demo.py
 ```

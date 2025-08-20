@@ -160,7 +160,7 @@ class LightningModel(L.LightningModule):
         if self.trainer_accelerator == "auto":
             if torch.cuda.is_available():
                 self.trainer_accelerator = "cuda"
-            elif torch.backends.mps.is_available():
+            elif torch.mps.is_available():
                 self.trainer_accelerator = "mps"
             else:
                 self.trainer_accelerator = "cpu"
