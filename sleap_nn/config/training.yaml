@@ -6,5 +6,5 @@ defaults:
 # You can leave the rest empty so Hydra has a struct to work with.
 # This prevents `{}` from being passed down.
 model_config: {}
-trainer: {}
-data: {}
+trainer_config: {}
+data_config: {}
