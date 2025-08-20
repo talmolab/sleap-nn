@@ -133,6 +133,18 @@ class ModelTrainer:
         # update config parameters
         model_trainer.setup_config()
 
+        # Check if all videos exist across all labels
+        all_videos_exist = all(
+            video.exists(check_all=True)
+            for labels in [*model_trainer.train_labels, *model_trainer.val_labels]
+            for video in labels.videos
+        )
+
+        if not all_videos_exist:
+            raise FileNotFoundError(
+                "One or more video files do not exist or are not accessible."
+            )
+
         return model_trainer
 
     def _setup_train_val_labels(
