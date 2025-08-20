@@ -5,10 +5,13 @@ on:
   release:
     types:
       - published
-  # # Modify and uncomment below to manually trigger build:
-  # push:
-  #   branches:
-  #     - talmo/v0.0.7
+  workflow_dispatch:
+    inputs:
+      testpypi:
+        description: 'Publish to TestPyPI'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   pypi:
@@ -30,6 +33,13 @@ jobs:
       run: |
         uv build
 
-    - name: Publish to PyPI
+    - name: Determine index and publish
       run: |
-        uv publish
+        # Manual override for TestPyPI
+        if [[ "${{ github.event.inputs.testpypi }}" == "true" ]]; then
+          echo "Manual TestPyPI publishing..."
+          uv publish --index testpypi --trusted-publishing always
+        else
+          echo "Publishing to PyPI..."
+          uv publish
+        fi
