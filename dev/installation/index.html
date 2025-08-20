@@ -2271,6 +2271,12 @@ Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
 </ul>
 <h2 id="for-development-setup">For development setup<a class="headerlink" href="#for-development-setup" title="Permanent link">&para;</a></h2>
 <ol>
+<li><strong>Clone the sleap-nn repo</strong></li>
+</ol>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/talmolab/sleap-nn.git
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nb">cd</span><span class="w"> </span>sleap-nn
+</span></code></pre></div>
+<ol>
 <li>
 <p><strong>Install <a href="https://github.com/astral-sh/uv"><code>uv</code></a> and development dependencies</strong><br />
 <code>uv</code> is a fast and modern package manager for <code>pyproject.toml</code>-based projects. Refer <a href="https://docs.astral.sh/uv/getting-started/installation/">installation docs</a> to install uv.</p>
@@ -2283,12 +2289,12 @@ Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
 <ul>
 <li><strong>Windows/Linux with NVIDIA GPU (CUDA 11.8):</strong></li>
 </ul>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>torch-cuda118
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>torch-cuda118
 </span></code></pre></div>
 <ul>
 <li><strong>Windows/Linux with NVIDIA GPU (CUDA 12.8):</strong></li>
 </ul>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>torch-cuda128
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>torch-cuda128
 </span></code></pre></div>
 <ul>
 <li><strong>macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):</strong> 
@@ -2303,13 +2309,13 @@ Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
 <ol>
 <li>
 <p><strong>Run tests</strong><br />
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests
 </span></code></pre></div></p>
 </li>
 <li>
 <p><strong>(Optional) Lint and format code</strong>
-   <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>run<span class="w"> </span>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>uv<span class="w"> </span>run<span class="w"> </span>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
 </span></code></pre></div></p>
 </li>
 </ol>
@@ -2318,9 +2324,8 @@ Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
 <h3 id="import-errors">Import Errors<a class="headerlink" href="#import-errors" title="Permanent link">&para;</a></h3>
 <p>If you get import errors:</p>
 <ol>
-<li>Ensure you've activated the conda environment: <code>mamba activate sleap-nn-dev</code></li>
 <li>Verify PyTorch is installed: <code>python -c "import torch; print(torch.__version__)"</code></li>
-<li>Try reinstalling with torch extras: <code>uv pip install -e ".[torch]"</code></li>
+<li>Try reinstalling with torch extras: <code>uv pip install -e ".[torch-cuda118]"</code></li>
 </ol>
 <h3 id="cuda-issues">CUDA Issues<a class="headerlink" href="#cuda-issues" title="Permanent link">&para;</a></h3>
 <p>If you encounter CUDA-related errors:</p>
