@@ -4,60 +4,77 @@
 
 ## From PyPI
 
-- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+- **Create a mamba environment**
+    ```bash
+    mamba create -n sleap-nn python=3.11
+    mamba activate sleap-nn
+    ```
 
-```bash
-pip install sleap-nn[torch-cuda118]
-```
+- **Install uv**
+    ```bash
+    pip install uv
+    ```
 
-- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+- **Install sleap-nn dependencies**
 
-```bash
-pip install sleap-nn[torch-cuda128]
-```
+    For Windows/Linux with NVIDIA GPU (CUDA 11.8):
 
-- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
-Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
-```bash
-pip install sleap-nn[torch-cpu]
-```
+    ```bash
+    uv pip install sleap-nn[torch-cuda118]
+    ```
+
+    For Windows/Linux with NVIDIA GPU (CUDA 12.8):
+
+    ```bash
+    uv pip install sleap-nn[torch-cuda128]
+    ```
+
+    For macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):  
+    Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+    ```bash
+    uv pip install sleap-nn[torch-cpu]
+    ```
 
 
 ## For development setup
 
-1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
+1. **Clone the sleap-nn repo**
+
+   ```bash
+   git clone https://github.com/talmolab/sleap-nn.git
+   cd sleap-nn
+   ```
+
+2. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
    `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
-2. **Install sleap-nn dependencies based on your platform**\
+3. **Install sleap-nn dependencies based on your platform**\
 
    - Sync all dependencies based on your correct wheel using `uv sync`:
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
-      ```bash
-      uv sync --extra dev --extra torch-cuda118
-      ```
+         ```bash
+         uv sync --extra dev --extra torch-cuda118
+         ```
 
       - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
 
-      ```bash
-      uv sync --extra dev --extra torch-cuda128
-      ```
+         ```bash
+         uv sync --extra dev --extra torch-cuda128
+         ```
      
      - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
-     Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
-     ```bash
-      uv sync --extra dev --extra torch-cpu
-      ```
+         Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+         ```bash
+         uv sync --extra dev --extra torch-cpu
+         ```
 
-   You can find the correct wheel for your system at:\
-   👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
-
-3. **Run tests**  
+4. **Run tests**  
    ```bash
    uv run pytest tests
    ```
 
-4. **(Optional) Lint and format code**
+5. **(Optional) Lint and format code**
    ```bash
    uv run black --check sleap_nn tests
    uv run ruff check sleap_nn/
@@ -74,7 +91,7 @@ If you get import errors:
 
 1. Ensure you've activated the conda environment: `mamba activate sleap-nn-dev`
 2. Verify PyTorch is installed: `python -c "import torch; print(torch.__version__)"`
-3. Try reinstalling with torch extras: `uv pip install -e ".[torch]"`
+3. Try reinstalling with torch extras: `uv pip install -e ".[torch-cuda118]"`
 
 ### CUDA Issues
 

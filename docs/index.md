@@ -23,23 +23,36 @@ Let's start SLEAPiNNg !!! 🐭🐭
 
 #### 1. Install `sleap-nn`
 
-- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+- **Create a mamba environment**
+    ```bash
+    mamba create -n sleap-nn python=3.11
+    mamba activate sleap-nn
+    ```
 
-```bash
-pip install sleap-nn[torch-cuda118]
-```
+- **Install uv**
+    ```bash
+    pip install uv
+    ```
 
-- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+- **Install sleap-nn dependencies**
 
-```bash
-pip install sleap-nn[torch-cuda128]
-```
+    For Windows/Linux with NVIDIA GPU (CUDA 11.8):
 
-- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
-Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
-```bash
-pip install sleap-nn[torch-cpu]
-```
+    ```bash
+    uv pip install sleap-nn[torch-cuda118]
+    ```
+
+    For Windows/Linux with NVIDIA GPU (CUDA 12.8):
+
+    ```bash
+    uv pip install sleap-nn[torch-cuda128]
+    ```
+
+    For macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):  
+    Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+    ```bash
+    uv pip install sleap-nn[torch-cpu]
+    ```
 
 > Refer [Installation](installation.md) for more details on how to install sleap-nn package for your specific hardware.
 
