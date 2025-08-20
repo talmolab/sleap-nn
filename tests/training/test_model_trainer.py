@@ -1142,7 +1142,7 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
     OmegaConf.update(
         config_duplicate_ckpt_path,
         "trainer_config.save_ckpt_path",
-        f"/{tmp_path}/test_saved_ckpt",
+        f"{tmp_path}/test_saved_ckpt",
     )
     labels = sio.load_slp(minimal_instance)
     trainer = ModelTrainer.get_model_trainer_from_config(
@@ -1153,19 +1153,25 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
     assert Path(config_duplicate_ckpt_path.trainer_config.save_ckpt_path).exists()
     assert (
         Path(config_duplicate_ckpt_path.trainer_config.save_ckpt_path).as_posix()
-        == f"/{tmp_path}/test_saved_ckpt"
+        == f"{tmp_path}/test_saved_ckpt"
     )
 
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]
+    )
     trainer.train()
     assert Path(config_duplicate_ckpt_path.trainer_config.save_ckpt_path).exists()
     assert (
         Path(f"{config_duplicate_ckpt_path.trainer_config.save_ckpt_path}-1").as_posix()
-        == f"/{tmp_path}/test_saved_ckpt-1"
+        == f"{tmp_path}/test_saved_ckpt-1"
     )
 
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]
+    )
     trainer.train()
     assert Path(config_duplicate_ckpt_path.trainer_config.save_ckpt_path).exists()
     assert (
         Path(f"{config_duplicate_ckpt_path.trainer_config.save_ckpt_path}-2").as_posix()
-        == f"/{tmp_path}/test_saved_ckpt-2"
+        == f"{tmp_path}/test_saved_ckpt-2"
     )

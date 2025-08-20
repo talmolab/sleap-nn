@@ -501,7 +501,7 @@ class ModelTrainer:
             try:
                 Path(ckpt_path).mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                message = f"Cannot create a new folder in {ckpt_path}. Check the permissions to the given Checkpoint directory. \n {e}"
+                message = f"Cannot create a new folder in {ckpt_path}.\n {e}"
                 logger.error(message)
                 raise OSError(message)
 
