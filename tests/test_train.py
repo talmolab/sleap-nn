@@ -641,11 +641,6 @@ def test_main(sample_cfg):
         main(invalid_cfg)
 
 
-@pytest.mark.skipif(
-    sys.platform.startswith("li")
-    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
-    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
-)
 def test_main_cli(sample_cfg, tmp_path):
     # Test that train cli handles empty argument gracefully
     cmd = [
