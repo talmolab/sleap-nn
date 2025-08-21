@@ -501,15 +501,22 @@ def add_help(name: str = "sleap_help"):
 
                 beginning_of_overrides_section = -1
                 for idx, arg in enumerate(sys.argv[1:dashdash], start=1):
-                    if not arg.startswith("-") and idx < dashdash and ("=" in arg or arg.startswith("+")):
+                    if (
+                        not arg.startswith("-")
+                        and idx < dashdash
+                        and ("=" in arg or arg.startswith("+"))
+                    ):
                         beginning_of_overrides_section = idx
                         break
                 if beginning_of_overrides_section != -1:
-                    sys.argv.insert(beginning_of_overrides_section, f"hydra/help={name}")
+                    sys.argv.insert(
+                        beginning_of_overrides_section, f"hydra/help={name}"
+                    )
                 else:
                     sys.argv.insert(dashdash, f"hydra/help={name}")
             # breakpoint()
             return fn(*args, **kwargs)
+
         return wrapper
 
     return outer
