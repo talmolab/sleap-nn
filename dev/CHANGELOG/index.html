@@ -289,6 +289,19 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Changelog
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="./" class="md-nav__link md-nav__link--active">
         
   
@@ -300,6 +313,34 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v001-2025-08-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.1 (2025-08-20)
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2073,6 +2114,23 @@
     
   
   
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v001-2025-08-20" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.1 (2025-08-20)
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
 </nav>
                   </div>
                 </div>
@@ -2088,6 +2146,404 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v001-2025-08-20">v0.0.1 (2025-08-20)<a class="headerlink" href="#v001-2025-08-20" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Add sleap-nn entry points (#300)</li>
+<li>Add helpful CLI message to <code>sleap-nn-train</code> (#294)</li>
+<li>Add Hyphen to Checkpoint Paths when Duplication Found (#299)</li>
+<li>Minor fixes to pyproject.toml (#298)</li>
+<li>Add testpypi index to toml (#297)</li>
+<li>Add build ci option to release to testpypi (#296)</li>
+<li>Update build CI (#295)</li>
+<li>Add more documentation (#287)</li>
+<li>Fix transitive torch/torchvision installation &amp; platform compatilibility (#268)</li>
+<li>Add file existence tracking to trainer and related tests (#291)</li>
+<li>Remove Permanent File Creations After Testing Locally (#292)</li>
+<li>Parallelizing dataset caching (#284)</li>
+<li>Fix <code>@oneof</code> Validation and Add Support for None for train_labels_path (#282)</li>
+<li>Check memory with source images (#283)</li>
+<li>Self-hosted Runners Tests and Trainer Accelerator (#281)</li>
+<li>Add support to load keras weights for model init (#285)</li>
+<li>Fix spell</li>
+<li>Minor changes to data pipeline and training guide notebook</li>
+<li>Add self-hosted runner to CI (#277)</li>
+<li>Add training demo notebook</li>
+<li>Minor changes</li>
+<li>Add eff_scale to dataset</li>
+<li>Fix centered-instance dataset</li>
+<li>Update docs with cli shortcuts</li>
+<li>Fix rank access</li>
+<li>Fix spell checks</li>
+<li>Ensure only rank-0 handles writing files in ddp training</li>
+<li>Add tests for predict main</li>
+<li>Add test for sleap-nn eval main</li>
+<li>Add CLI entry-point functions and shortcuts</li>
+<li>Ensure consistent types for augmentation parameters</li>
+<li>Format files</li>
+<li>Fix skeletons structure in cfg</li>
+<li>Add augmentation guide notebook</li>
+<li>Format file</li>
+<li>Add more tests</li>
+<li>Modify aug parameter</li>
+<li>Refactor lightning module parameters</li>
+<li>Add more sample cfg to config.md</li>
+<li>Move convnext/ swint pretrained weights</li>
+<li>Fix tests</li>
+<li>Update in channels for torch with keras weights</li>
+<li>Fix defaults for contrast</li>
+<li>Add first layer of decoder to strides</li>
+<li>Fix head inchannel compute</li>
+<li>Fix minor bugs</li>
+<li>Revert "Minor bug fixes in training pipeline"</li>
+<li>Fix tests</li>
+<li>Minor bug fixes in training pipeline</li>
+<li>Update train CLI</li>
+<li>Format files</li>
+<li>Update ckpts and cfgs</li>
+<li>Minor changes to inference docs</li>
+<li>Add docs for inference</li>
+<li>Update config.md</li>
+<li>Update installation doc</li>
+<li>Fix preprocess config in inference</li>
+<li>Fix wandb logging</li>
+<li>Add more tests</li>
+<li>Modify threshold for inference tests</li>
+<li>Fix tests</li>
+<li>Fix path</li>
+<li>Add legacy model converter to inference pipeline</li>
+<li>Remove docker file</li>
+<li>Setup docs (#251)</li>
+<li>Fix minor bugs</li>
+<li>Move sample configs to new folder</li>
+<li>Remove note</li>
+<li>Format config.md</li>
+<li>Simplify layer mappings with updated layer names in sleap-nn</li>
+<li>Fix tests</li>
+<li>Add keep-viz parameter</li>
+<li>Minor fix</li>
+<li>Modify ckpts</li>
+<li>Add max instances</li>
+<li>Add refine blocks</li>
+<li>Fix tests</li>
+<li>Update ckpts</li>
+<li>Rearrange assets and update defaults in config.md</li>
+<li>Fix tests</li>
+<li>Fix swint architecture</li>
+<li>Make torch dependencies optional (#243)</li>
+<li>Add middle layer and final pool to convnext and swint</li>
+<li>Add codespell workflow for spell checking (#241)</li>
+<li>Fix tests</li>
+<li>Set weight only to False</li>
+<li>Format tracker.py</li>
+<li>Enable tracking on user-labeled instances</li>
+<li>Use sleap-io yaml encoder</li>
+<li>Map sleap skeleton to sleap-nn yaml format</li>
+<li>Get sleap-nn pip package ready to publish (#236)</li>
+<li>Modify min steps for tests</li>
+<li>Add len arg to InfiniteDataLoader</li>
+<li>Minor changes to docstrings</li>
+<li>Fix tests</li>
+<li>Add topdown ID model</li>
+<li>Add tests for bottom up ID model</li>
+<li>Remove empty io subfolder</li>
+<li>Remove .DS_Store files from repository</li>
+<li>Format helper script with black to fix CI</li>
+<li>Achieve 100% test coverage for legacy_models.py</li>
+<li>style: Apply black formatting to test_legacy_models.py</li>
+<li>refactor: Merge inference tests into test_legacy_models.py</li>
+<li>test: Add inference comparison tests for legacy models</li>
+<li>test: Add multiclass legacy models for testing</li>
+<li>test: Add dummy activations and generation script for legacy models</li>
+<li>style: Apply black formatting</li>
+<li>clean: Remove unused sleap_nn/io module</li>
+<li>refactor: Move legacy models to root and use existing config loader</li>
+<li>fix: Improve layer mapping and architecture inference in legacy loader</li>
+<li>feat: Implement full model loading from legacy configs</li>
+<li>Fix tests</li>
+<li>Add bottomup ID model</li>
+<li>Add weight conversion utilities for legacy models</li>
+<li>Add legacy SLEAP model fixtures for testing</li>
+<li>Preparation for code assistant integration (#233)</li>
+<li>Remove litdata and iterdatapipe pipelines</li>
+<li>Add more tests</li>
+<li>Skip eval if no instances are predicted</li>
+<li>Add tracking logs</li>
+<li>Add min visible keypoints for spawning new tracks</li>
+<li>Add track-only pipeline</li>
+<li>Add ohkm losses</li>
+<li>Fix tests</li>
+<li>Add Distributed sampler for multi-gpu training</li>
+<li>Fix infinite data loader and update steps per epoch</li>
+<li>Set ckpt dir for wandb logs</li>
+<li>Add skips to ubuntu tests</li>
+<li>Fix tests</li>
+<li>Refactor ModelTrainer class</li>
+<li>Fix trainer config mappings and add option to load cfg from json str</li>
+<li>Fix tests</li>
+<li>Add part-wise losses to csv</li>
+<li>Fix attrs</li>
+<li>Fix bugs with zmq config</li>
+<li>Add ensure_grayscale parameter</li>
+<li>Add seaborn to dependencies</li>
+<li>Modify viz functions</li>
+<li>Add keypoint mining</li>
+<li>Run inference on cpu for bottomup</li>
+<li>Fix tests</li>
+<li>Convert nested tensors to lists to support mps</li>
+<li>Map ckpts to device while loading</li>
+<li>Fix tests and modify ckpts</li>
+<li>Bug fixes to model architecture and trainer</li>
+<li>Fix test</li>
+<li>Add logs to inference</li>
+<li>Black reformatting done on test_custom_datasets</li>
+<li>Added slight fix and an additional test</li>
+<li>Added additional fixes/tests</li>
+<li>Re-added Skip for test that was failing to run on ubuntu</li>
+<li>Reformatting for ruff</li>
+<li>Modified files to pass pytests</li>
+<li>Modifications made to pass pytests</li>
+<li>Modified files for testing with Pytest</li>
+<li>Added skeleton equality check</li>
+<li>Updated config files and train.py to account for multiple slp files</li>
+<li>Modified custom_datasets.py to support multiple slp files</li>
+<li>Reformatted model_trainer.py</li>
+<li>Update model_trainer.py to account for multiple slp and validation files</li>
+<li>Fix tests</li>
+<li>Add option to auto-select device for inference</li>
+<li>Save val preds after training</li>
+<li>Fix bug in evaluation</li>
+<li>Fix update tracks in fixd window</li>
+<li>Minor fixes to tracking</li>
+<li>Fix tests</li>
+<li>Add video index and dataset args</li>
+<li>Fix filtering for suggested frames</li>
+<li>Add flags to filter frames</li>
+<li>Add tests for frame range</li>
+<li>Fix formatting</li>
+<li>Add frame range</li>
+<li>Add CLI for inference</li>
+<li>Add docstring</li>
+<li>Fix tests</li>
+<li>Add more tests for coverage</li>
+<li>Add tests</li>
+<li>Add callbacks for visualizing preds during training</li>
+<li>ƒix tests</li>
+<li>Add jsonpickle dependency</li>
+<li>Add tests for custom callbacks</li>
+<li>Add custom callbacks to publish metrics during training</li>
+<li>Save labels with centroid inference</li>
+<li>Fix tests</li>
+<li>Minor fixes to config mapper</li>
+<li>Fix anchor part in config</li>
+<li>Add tests for no val path</li>
+<li>Fix validation fraction type</li>
+<li>Add option to get val labels from train labels</li>
+<li>Fix tests</li>
+<li>Minor fixes to mappers</li>
+<li>Move to python v3.11</li>
+<li>Set num workers 0</li>
+<li>Bump up to python 3.12</li>
+<li>Fix up block computation for swint and convnext</li>
+<li>Fix creating instance objects for sleap-iov0.3</li>
+<li>Fix sleap-io version</li>
+<li>Close videos before creating data loaders</li>
+<li>Fix bug in saving chunks</li>
+<li>Ensure caching in rank:0</li>
+<li>Fix caching when imgs already exist</li>
+<li>Minor fixes to lightning modules</li>
+<li>Add vanilla dataset pipeline</li>
+<li>Fix training test</li>
+<li>Add explicit params</li>
+<li>Cache only images</li>
+<li>Fix multi-gpu training</li>
+<li>Minor changes to config validation</li>
+<li>Save files only in rank 0</li>
+<li>Ensure chunks are generated in rank 0</li>
+<li>Add docker img for remote dev</li>
+<li>fix accessing default profiler</li>
+<li>Fix default profiler</li>
+<li>Add profiler and startegy parameters</li>
+<li>remove missing parameter comments and put in separate doc</li>
+<li>change load_sleap_config to be class method of TrainingJobConfig</li>
+<li>move sleap configs for tests to folder. Update test path to access new dir. Var for mappers.</li>
+<li>Add tests for reusing npz chunks</li>
+<li>Save config with chunks</li>
+<li>Move lightning modules</li>
+<li>Add tests</li>
+<li>rename file and function for bottomup_multiclass</li>
+<li>change docstring and headers</li>
+<li>Fix max instances in topdown inference</li>
+<li>adjust skeletons parameter</li>
+<li>Fix size matcher</li>
+<li>Remove shutils</li>
+<li>Fix tests</li>
+<li>docstrings</li>
+<li>Add default scale</li>
+<li>Add scale param to custom datasets</li>
+<li>output omegaconf, check for mandatory values, change default values</li>
+<li>add different head types and adjust with tests</li>
+<li>uniformnoisemax set to max 1, missingerror on no train/val path</li>
+<li>linted.</li>
+<li>test training_job_config with json file</li>
+<li>add tests for data config and adjust paths to map legacy config</li>
+<li>model_config tests and legacy config path adjustments</li>
+<li>test trainer_mapper function</li>
+<li>map train_loader, val_loader, ckpt, max_epochs, optimizer, lr_schedulers, early_stopping, and commented out unspecified parameters</li>
+<li>model_config map backbone, heads, and lint other files</li>
+<li>check geometric config and comment out all parameters not addressed in old config</li>
+<li>initial mappers function</li>
+<li>outline for loading old sleap config</li>
+<li>Fix length in custom datasets</li>
+<li>Add tests for convnext/ swint</li>
+<li>Add max stride to convnext and swint backbones</li>
+<li>Add test cases</li>
+<li>Fix lr scheduler config</li>
+<li>Fix preprocess config in tests</li>
+<li>Specify custom anchor index</li>
+<li>Add test cases</li>
+<li>Split config functions</li>
+<li>Add separate functions</li>
+<li>Fix preprocessing during inference (#156)</li>
+<li>Add logger (#148)</li>
+<li>Move train files to sleap_nn</li>
+<li>Generate evaluation metrics after training'</li>
+<li>Add CLI for train</li>
+<li>Add an entry point train function (#150)</li>
+<li>Change backbone config structure (#149)</li>
+<li>Add output stride to backbone config (#147)</li>
+<li>Move all params to config (#146)</li>
+<li>Implement Omegaconfig PR1: basic functionality (#97)</li>
+<li>Add multi-gpu support (#145)</li>
+<li>Fix config format while logging to wandb (#144)</li>
+<li>Filter instances while generating indices (#138)</li>
+<li>Add option to reuse np chunks (#136)</li>
+<li>Save <code>.slp</code> file after inference (#135)</li>
+<li>Fix caching in datasets (#134)</li>
+<li>Fix running inference on Bottom-up models with CUDA (#133)</li>
+<li>Add <code>CyclerDataLoader</code> to ensure minimum steps per epoch (#132)</li>
+<li>Remove eval (#131)</li>
+<li>Check memory before caching (#130)</li>
+<li>Resize imgs before cropping (#129)</li>
+<li>Fix crop size (#127)</li>
+<li>Add <code>group</code> to wandb config (#126)</li>
+<li>Generate np chunks for caching (#125)</li>
+<li>Remove random_crop augmentation (#124)</li>
+<li>Add caching to Torch Datasets pipeline (#123)</li>
+<li>Fix Pafs shape (#121)</li>
+<li>Add torch Dataset classes (#120)</li>
+<li>Fix Normalization order in data pipelines (#118)</li>
+<li>Add option to reuse <code>.bin</code> files (#116)</li>
+<li>Add option to load ckpts for backbone and head for running inference (#115)</li>
+<li>Add option to load weights for head layers (#114)</li>
+<li>Add config to WandB (#113)</li>
+<li>Add StepLR scheduler (#109)</li>
+<li>Add option to specify <code>.bin</code> file directory in config (#107)</li>
+<li>Add threshold mode in config for learning rate scheduler (#106)</li>
+<li>Convert Tensor images to PIL (#105)</li>
+<li>Fix sizematcher in Inference data pipline (#102)</li>
+<li>Auto compute max height and width from labels (#101)</li>
+<li>Move ld.optimize to a subprocess (#100)</li>
+<li>Remove IterDataPipe from Inference pipeline (#96)</li>
+<li>Add function to load trained weights for backbone model (#95)</li>
+<li>LitData Refactor PR1: Get individual functions for data pipelines (#90)</li>
+<li>Resume training and automatically compute crop size for TopDownConfmaps pipeline (#88)</li>
+<li>Add Tracker (#87)</li>
+<li>Fix augmentation order (#86)</li>
+<li>Add minimal pretrained checkpoints for tests and fix PAF grouping interpolation (#73)</li>
+<li>Refactor Augmentation config (#67)</li>
+<li>Refactor model config (#61)</li>
+<li>Remove Part-names and Edge dependency in config (#54)</li>
+<li>Add BottomUp model pipeline (#52)</li>
+<li>Refactor model pipeline (#51)</li>
+<li>Add VideoReader (#45)</li>
+<li>Add ConvNext Backbone (#40)</li>
+<li>Edge Maps (#38)</li>
+<li>Add predictor class (#36)</li>
+<li>PAF Grouping (#33)</li>
+<li>Update model_trainer.py</li>
+<li>Fix to config</li>
+<li>Add wandb test</li>
+<li>Modify Forward pass</li>
+<li>Add test cases</li>
+<li>Add wandb api option</li>
+<li>Small fix to find_global_peaks_rough (#28)</li>
+<li>Minor fix</li>
+<li>Add tests</li>
+<li>Fix tests</li>
+<li>Fix to tmp_path</li>
+<li>Add tmp_path</li>
+<li>Change Path</li>
+<li>Add default parameters</li>
+<li>change default log</li>
+<li>modify input size</li>
+<li>modify centroid dimension</li>
+<li>modify keys</li>
+<li>Fix to config file</li>
+<li>Format md file</li>
+<li>Add md file</li>
+<li>Modify Docstrings</li>
+<li>add wandb import</li>
+<li>Modify test function</li>
+<li>ruff lint fix</li>
+<li>Add test function</li>
+<li>lint fix</li>
+<li>Add trainer</li>
+<li>find_global_peaks_rough_fix</li>
+<li>Added SingleInstanceConfmapsPipeline (#23)</li>
+<li>Modify videos</li>
+<li>Fix label skeleton</li>
+<li>Fix skeleton</li>
+<li>Modify index format</li>
+<li>Fix format</li>
+<li>Format File</li>
+<li>Modify Test cases</li>
+<li>Fix toml</li>
+<li>Format Files</li>
+<li>Add deepcopy</li>
+<li>Remove folder for evaluation</li>
+<li>Add metatdata to dictionary</li>
+<li>Fix to frame pair matching</li>
+<li>Implement base Model and Head classes (#17)</li>
+<li>Add comments in Test function</li>
+<li>Modify output format</li>
+<li>Split test cases</li>
+<li>Remove deep copy</li>
+<li>Format file</li>
+<li>Add more test cases</li>
+<li>Modify Test Cases</li>
+<li>Modify Test Functions</li>
+<li>Add Imports</li>
+<li>Format Docstrings</li>
+<li>Adding ruff to ci.yml (#21)</li>
+<li>Add Test cases</li>
+<li>Format Docstrings</li>
+<li>Format File</li>
+<li>Add New Test Cases</li>
+<li>Add Evaluation Module</li>
+<li>Format Files</li>
+<li>Format Files</li>
+<li>Add New Test Case</li>
+<li>Top-down Centered-instance Pipeline (#16)</li>
+<li>Modify Test Case</li>
+<li>Modify Test Fucntion</li>
+<li>Add Test Function</li>
+<li>Add option to Filter user instances</li>
+<li>UNet Implementation (#15)</li>
+<li>Peak finding (#14)</li>
+<li>Update sleap_nn/data/confidence_maps.py</li>
+<li>Address changes</li>
+<li>Add test for replacing nans.</li>
+<li>Channel first order</li>
+<li>Add more Kornia augmentations (#12)</li>
+<li>Add confidence maps</li>
+<li>Instance Cropping (#13)</li>
+<li>Refactor datapipes (#9)</li>
+<li>Add pipeline blocks for rotation and scaling (#8)</li>
+<li>Add centroid finder block (#7)</li>
+<li>Core Data Loader Implementation (#4)</li>
+<li>Initial commit.</li>
+<li>Initial commit</li>
+</ul>
 
 
 
