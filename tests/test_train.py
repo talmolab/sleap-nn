@@ -1,3 +1,4 @@
+import subprocess
 from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
 import copy
@@ -638,3 +639,120 @@ def test_main(sample_cfg):
     invalid_cfg.model_config = None
     with pytest.raises(SystemExit):
         main(invalid_cfg)
+
+
+def test_main_cli(sample_cfg, tmp_path):
+    # Test that train cli handles empty argument gracefully
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn-train",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 2
+    assert result.returncode == 2
+    assert "No model config found" in result.stdout  # Should tell user what is wrong
+    assert "--help" in result.stdout  # should suggest using --help
+
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn-train",
+        "--help",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 0
+    assert result.returncode == 0
+    assert "Usage" in result.stdout  # Should show usage information
+    assert "sleap.ai" in result.stdout  # should point user to read the documents
+
+    # Now to test overrides and defaults
+
+    sample_cfg.trainer_config.trainer_accelerator = (
+        "cpu" if torch.mps.is_available() else "auto"
+    )
+    OmegaConf.save(sample_cfg, (Path(tmp_path) / "test_config.yaml").as_posix())
+
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn-train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 0
+    assert result.returncode == 0
+    # Try to parse the output back into the yaml, truncate the beginning (starts with "data_config")
+    # Only keep stdout starting from "data_config"
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    output = OmegaConf.create(stripped_out)
+    assert output == sample_cfg
+
+    # config override should work
+    sample_cfg.trainer_config.max_epochs = 2
+    sample_cfg.data_config.preprocessing.scale = 1.2
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn-train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+        "trainer_config.max_epochs=2",
+        "data_config.preprocessing.scale=1.2",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 0
+    assert result.returncode == 0
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    output = OmegaConf.create(stripped_out)
+    assert output == sample_cfg
+
+    # Test CLI with '--' to separate config overrides from positional args
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn-train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+        "--",
+        "trainer_config.max_epochs=3",
+        "data_config.preprocessing.scale=1.5",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 0
+    assert result.returncode == 0
+    # Check that overrides are applied
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    output = OmegaConf.create(stripped_out)
+    assert output.trainer_config.max_epochs == 3
+    assert output.data_config.preprocessing.scale == 1.5
