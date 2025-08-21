@@ -495,7 +495,6 @@ def add_help(name: str = "sleap_help"):
             if "hydra/help=" not in joined and "hydra.help." not in joined:
                 if "--" in sys.argv:
                     dashdash = sys.argv.index("--")
-                    sys.argv.insert(dashdash, f"hydra/help={name}")
                 else:
                     dashdash = len(sys.argv)
 
