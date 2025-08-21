@@ -677,57 +677,14 @@ class Evaluator:
         return metrics
 
 
-@click.command()
-@click.option(
-    "--ground_truth_path",
-    type=str,
-    required=True,
-    help="Path to ground truth labels file (.slp)",
-)
-@click.option(
-    "--predicted_path",
-    type=str,
-    required=True,
-    help="Path to predicted labels file (.slp)",
-)
-@click.option(
-    "--oks_stddev",
-    type=float,
-    default=0.025,
-    help="Standard deviation for OKS computation. Default: 0.025",
-)
-@click.option(
-    "--oks_scale",
-    type=float,
-    default=None,
-    help="Scale for OKS computation. If None, bounding box area will be used. Default: None",
-)
-@click.option(
-    "--match_threshold",
-    type=float,
-    default=0.0,
-    help="Threshold for OKS scores when determining instance matches. Default: 0.0",
-)
-@click.option(
-    "--user_labels_only",
-    is_flag=True,
-    default=True,
-    help="If True, only user-labeled frames in ground truth are considered. Default: True",
-)
-@click.option(
-    "--save_metrics",
-    type=str,
-    default=None,
-    help="Path to save metrics as .npz file. If not provided, metrics will not be saved.",
-)
-def main(
+def run_evaluation(
     ground_truth_path: str,
     predicted_path: str,
-    oks_stddev: float,
-    oks_scale: Optional[float],
-    match_threshold: float,
-    user_labels_only: bool,
-    save_metrics: Optional[str],
+    oks_stddev: float = 0.025,
+    oks_scale: Optional[float] = None,
+    match_threshold: float = 0,
+    user_labels_only: bool = True,
+    save_metrics: Optional[str] = None,
 ):
     """Evaluate SLEAP-NN model predictions against ground truth labels."""
     logger.info("Loading ground truth labels...")
@@ -786,6 +743,54 @@ def main(
         logger.info(f"Metrics saved successfully to {save_path}")
 
     return metrics
+
+
+@click.command()
+@click.option(
+    "--ground_truth_path",
+    type=str,
+    required=True,
+    help="Path to ground truth labels file (.slp)",
+)
+@click.option(
+    "--predicted_path",
+    type=str,
+    required=True,
+    help="Path to predicted labels file (.slp)",
+)
+@click.option(
+    "--oks_stddev",
+    type=float,
+    default=0.025,
+    help="Standard deviation for OKS computation. Default: 0.025",
+)
+@click.option(
+    "--oks_scale",
+    type=float,
+    default=None,
+    help="Scale for OKS computation. If None, bounding box area will be used. Default: None",
+)
+@click.option(
+    "--match_threshold",
+    type=float,
+    default=0.0,
+    help="Threshold for OKS scores when determining instance matches. Default: 0.0",
+)
+@click.option(
+    "--user_labels_only",
+    is_flag=True,
+    default=True,
+    help="If True, only user-labeled frames in ground truth are considered. Default: True",
+)
+@click.option(
+    "--save_metrics",
+    type=str,
+    default=None,
+    help="Path to save metrics as .npz file. If not provided, metrics will not be saved.",
+)
+def main(**kwargs):
+    """Run evaluation."""
+    run_evaluation(**kwargs)
 
 
 if __name__ == "__main__":
