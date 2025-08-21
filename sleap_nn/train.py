@@ -493,9 +493,23 @@ def add_help(name: str = "sleap_help"):
         def wrapper(*args, **kwargs):
             joined = " ".join(sys.argv[1:])
             if "hydra/help=" not in joined and "hydra.help." not in joined:
-                sys.argv.insert(1, f"hydra/help={name}")
-            return fn(*args, **kwargs)
+                if "--" in sys.argv:
+                    dashdash = sys.argv.index("--")
+                    sys.argv.insert(dashdash, f"hydra/help={name}")
+                else:
+                    dashdash = len(sys.argv)
 
+                beginning_of_overrides_section = -1
+                for idx, arg in enumerate(sys.argv[1:dashdash], start=1):
+                    if not arg.startswith("-") and idx < dashdash and ("=" in arg or arg.startswith("+")):
+                        beginning_of_overrides_section = idx
+                        break
+                if beginning_of_overrides_section != -1:
+                    sys.argv.insert(beginning_of_overrides_section, f"hydra/help={name}")
+                else:
+                    sys.argv.insert(dashdash, f"hydra/help={name}")
+            # breakpoint()
+            return fn(*args, **kwargs)
         return wrapper
 
     return outer
