@@ -1458,6 +1458,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#sleap_nn.evaluation.run_evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      run_evaluation
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2314,6 +2323,15 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#sleap_nn.evaluation.run_evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      run_evaluation
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2442,10 +2460,10 @@
               </td>
             </tr>
             <tr class="doc-section-item">
-              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ground_truth_path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;predicted_path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;oks_stddev&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;oks_scale&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;match_threshold&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;user_labels_only&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;save_metrics&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.evaluation.main&lt;/code&gt;)" href="#sleap_nn.evaluation.main">main</a></code></td>
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;main&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;**&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;kwargs&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.evaluation.main&lt;/code&gt;)" href="#sleap_nn.evaluation.main">main</a></code></td>
               <td>
                 <div class="doc-md-description">
-                  <p>Evaluate SLEAP-NN model predictions against ground truth labels.</p>
+                  <p>Run evaluation.</p>
                 </div>
               </td>
             </tr>
@@ -2462,6 +2480,14 @@
               <td>
                 <div class="doc-md-description">
                   <p>Match pairs of instances between ground truth and predictions in a frame.</p>
+                </div>
+              </td>
+            </tr>
+            <tr class="doc-section-item">
+              <td><code><a class="autorefs autorefs-internal" title="&lt;code class=&quot;highlight language-python&quot;&gt;&lt;span class=&quot;n&quot;&gt;run_evaluation&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;(&lt;/span&gt;&lt;span class=&quot;n&quot;&gt;ground_truth_path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;predicted_path&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;oks_stddev&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mf&quot;&gt;0.025&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;oks_scale&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;match_threshold&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;mi&quot;&gt;0&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;user_labels_only&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;True&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;,&lt;/span&gt; &lt;span class=&quot;n&quot;&gt;save_metrics&lt;/span&gt;&lt;span class=&quot;o&quot;&gt;=&lt;/span&gt;&lt;span class=&quot;kc&quot;&gt;None&lt;/span&gt;&lt;span class=&quot;p&quot;&gt;)&lt;/span&gt;&lt;/code&gt; (&lt;code&gt;sleap_nn.evaluation.run_evaluation&lt;/code&gt;)" href="#sleap_nn.evaluation.run_evaluation">run_evaluation</a></code></td>
+              <td>
+                <div class="doc-md-description">
+                  <p>Evaluate SLEAP-NN model predictions against ground truth labels.</p>
                 </div>
               </td>
             </tr>
@@ -5059,87 +5085,19 @@ also be considered for matching.</p>
 
 
 <h3 id="sleap_nn.evaluation.main" class="doc doc-heading">
-            <code class="highlight language-python"><span class="n">main</span><span class="p">(</span><span class="n">ground_truth_path</span><span class="p">,</span> <span class="n">predicted_path</span><span class="p">,</span> <span class="n">oks_stddev</span><span class="p">,</span> <span class="n">oks_scale</span><span class="p">,</span> <span class="n">match_threshold</span><span class="p">,</span> <span class="n">user_labels_only</span><span class="p">,</span> <span class="n">save_metrics</span><span class="p">)</span></code>
+            <code class="highlight language-python"><span class="n">main</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></code>
 
 <a href="#sleap_nn.evaluation.main" class="headerlink" title="Permanent link">&para;</a></h3>
 
 
     <div class="doc doc-contents ">
 
-        <p>Evaluate SLEAP-NN model predictions against ground truth labels.</p>
+        <p>Run evaluation.</p>
 
 
             <details class="quote">
               <summary>Source code in <code>sleap_nn/evaluation.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-680">680</a></span>
-<span class="normal"><a href="#__codelineno-0-681">681</a></span>
-<span class="normal"><a href="#__codelineno-0-682">682</a></span>
-<span class="normal"><a href="#__codelineno-0-683">683</a></span>
-<span class="normal"><a href="#__codelineno-0-684">684</a></span>
-<span class="normal"><a href="#__codelineno-0-685">685</a></span>
-<span class="normal"><a href="#__codelineno-0-686">686</a></span>
-<span class="normal"><a href="#__codelineno-0-687">687</a></span>
-<span class="normal"><a href="#__codelineno-0-688">688</a></span>
-<span class="normal"><a href="#__codelineno-0-689">689</a></span>
-<span class="normal"><a href="#__codelineno-0-690">690</a></span>
-<span class="normal"><a href="#__codelineno-0-691">691</a></span>
-<span class="normal"><a href="#__codelineno-0-692">692</a></span>
-<span class="normal"><a href="#__codelineno-0-693">693</a></span>
-<span class="normal"><a href="#__codelineno-0-694">694</a></span>
-<span class="normal"><a href="#__codelineno-0-695">695</a></span>
-<span class="normal"><a href="#__codelineno-0-696">696</a></span>
-<span class="normal"><a href="#__codelineno-0-697">697</a></span>
-<span class="normal"><a href="#__codelineno-0-698">698</a></span>
-<span class="normal"><a href="#__codelineno-0-699">699</a></span>
-<span class="normal"><a href="#__codelineno-0-700">700</a></span>
-<span class="normal"><a href="#__codelineno-0-701">701</a></span>
-<span class="normal"><a href="#__codelineno-0-702">702</a></span>
-<span class="normal"><a href="#__codelineno-0-703">703</a></span>
-<span class="normal"><a href="#__codelineno-0-704">704</a></span>
-<span class="normal"><a href="#__codelineno-0-705">705</a></span>
-<span class="normal"><a href="#__codelineno-0-706">706</a></span>
-<span class="normal"><a href="#__codelineno-0-707">707</a></span>
-<span class="normal"><a href="#__codelineno-0-708">708</a></span>
-<span class="normal"><a href="#__codelineno-0-709">709</a></span>
-<span class="normal"><a href="#__codelineno-0-710">710</a></span>
-<span class="normal"><a href="#__codelineno-0-711">711</a></span>
-<span class="normal"><a href="#__codelineno-0-712">712</a></span>
-<span class="normal"><a href="#__codelineno-0-713">713</a></span>
-<span class="normal"><a href="#__codelineno-0-714">714</a></span>
-<span class="normal"><a href="#__codelineno-0-715">715</a></span>
-<span class="normal"><a href="#__codelineno-0-716">716</a></span>
-<span class="normal"><a href="#__codelineno-0-717">717</a></span>
-<span class="normal"><a href="#__codelineno-0-718">718</a></span>
-<span class="normal"><a href="#__codelineno-0-719">719</a></span>
-<span class="normal"><a href="#__codelineno-0-720">720</a></span>
-<span class="normal"><a href="#__codelineno-0-721">721</a></span>
-<span class="normal"><a href="#__codelineno-0-722">722</a></span>
-<span class="normal"><a href="#__codelineno-0-723">723</a></span>
-<span class="normal"><a href="#__codelineno-0-724">724</a></span>
-<span class="normal"><a href="#__codelineno-0-725">725</a></span>
-<span class="normal"><a href="#__codelineno-0-726">726</a></span>
-<span class="normal"><a href="#__codelineno-0-727">727</a></span>
-<span class="normal"><a href="#__codelineno-0-728">728</a></span>
-<span class="normal"><a href="#__codelineno-0-729">729</a></span>
-<span class="normal"><a href="#__codelineno-0-730">730</a></span>
-<span class="normal"><a href="#__codelineno-0-731">731</a></span>
-<span class="normal"><a href="#__codelineno-0-732">732</a></span>
-<span class="normal"><a href="#__codelineno-0-733">733</a></span>
-<span class="normal"><a href="#__codelineno-0-734">734</a></span>
-<span class="normal"><a href="#__codelineno-0-735">735</a></span>
-<span class="normal"><a href="#__codelineno-0-736">736</a></span>
-<span class="normal"><a href="#__codelineno-0-737">737</a></span>
-<span class="normal"><a href="#__codelineno-0-738">738</a></span>
-<span class="normal"><a href="#__codelineno-0-739">739</a></span>
-<span class="normal"><a href="#__codelineno-0-740">740</a></span>
-<span class="normal"><a href="#__codelineno-0-741">741</a></span>
-<span class="normal"><a href="#__codelineno-0-742">742</a></span>
-<span class="normal"><a href="#__codelineno-0-743">743</a></span>
-<span class="normal"><a href="#__codelineno-0-744">744</a></span>
-<span class="normal"><a href="#__codelineno-0-745">745</a></span>
-<span class="normal"><a href="#__codelineno-0-746">746</a></span>
-<span class="normal"><a href="#__codelineno-0-747">747</a></span>
-<span class="normal"><a href="#__codelineno-0-748">748</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-748">748</a></span>
 <span class="normal"><a href="#__codelineno-0-749">749</a></span>
 <span class="normal"><a href="#__codelineno-0-750">750</a></span>
 <span class="normal"><a href="#__codelineno-0-751">751</a></span>
@@ -5179,115 +5137,57 @@ also be considered for matching.</p>
 <span class="normal"><a href="#__codelineno-0-785">785</a></span>
 <span class="normal"><a href="#__codelineno-0-786">786</a></span>
 <span class="normal"><a href="#__codelineno-0-787">787</a></span>
-<span class="normal"><a href="#__codelineno-0-788">788</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-680"><a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="nd">@click</span><span class="o">.</span><span class="n">command</span><span class="p">()</span>
-</span><span id="__span-0-681"><a id="__codelineno-0-681" name="__codelineno-0-681"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-682"><a id="__codelineno-0-682" name="__codelineno-0-682"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-683"><a id="__codelineno-0-683" name="__codelineno-0-683"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-684"><a id="__codelineno-0-684" name="__codelineno-0-684"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-685"><a id="__codelineno-0-685" name="__codelineno-0-685"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to ground truth labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-686"><a id="__codelineno-0-686" name="__codelineno-0-686"></a><span class="p">)</span>
-</span><span id="__span-0-687"><a id="__codelineno-0-687" name="__codelineno-0-687"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-688"><a id="__codelineno-0-688" name="__codelineno-0-688"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
-</span><span id="__span-0-689"><a id="__codelineno-0-689" name="__codelineno-0-689"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-690"><a id="__codelineno-0-690" name="__codelineno-0-690"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-691"><a id="__codelineno-0-691" name="__codelineno-0-691"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to predicted labels file (.slp)&quot;</span><span class="p">,</span>
-</span><span id="__span-0-692"><a id="__codelineno-0-692" name="__codelineno-0-692"></a><span class="p">)</span>
-</span><span id="__span-0-693"><a id="__codelineno-0-693" name="__codelineno-0-693"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-694"><a id="__codelineno-0-694" name="__codelineno-0-694"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
-</span><span id="__span-0-695"><a id="__codelineno-0-695" name="__codelineno-0-695"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-696"><a id="__codelineno-0-696" name="__codelineno-0-696"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
-</span><span id="__span-0-697"><a id="__codelineno-0-697" name="__codelineno-0-697"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Standard deviation for OKS computation. Default: 0.025&quot;</span><span class="p">,</span>
-</span><span id="__span-0-698"><a id="__codelineno-0-698" name="__codelineno-0-698"></a><span class="p">)</span>
-</span><span id="__span-0-699"><a id="__codelineno-0-699" name="__codelineno-0-699"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-700"><a id="__codelineno-0-700" name="__codelineno-0-700"></a>    <span class="s2">&quot;--oks_scale&quot;</span><span class="p">,</span>
-</span><span id="__span-0-701"><a id="__codelineno-0-701" name="__codelineno-0-701"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-702"><a id="__codelineno-0-702" name="__codelineno-0-702"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-703"><a id="__codelineno-0-703" name="__codelineno-0-703"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale for OKS computation. If None, bounding box area will be used. Default: None&quot;</span><span class="p">,</span>
-</span><span id="__span-0-704"><a id="__codelineno-0-704" name="__codelineno-0-704"></a><span class="p">)</span>
-</span><span id="__span-0-705"><a id="__codelineno-0-705" name="__codelineno-0-705"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-706"><a id="__codelineno-0-706" name="__codelineno-0-706"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span>
-</span><span id="__span-0-707"><a id="__codelineno-0-707" name="__codelineno-0-707"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-708"><a id="__codelineno-0-708" name="__codelineno-0-708"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
-</span><span id="__span-0-709"><a id="__codelineno-0-709" name="__codelineno-0-709"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Threshold for OKS scores when determining instance matches. Default: 0.0&quot;</span><span class="p">,</span>
-</span><span id="__span-0-710"><a id="__codelineno-0-710" name="__codelineno-0-710"></a><span class="p">)</span>
-</span><span id="__span-0-711"><a id="__codelineno-0-711" name="__codelineno-0-711"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-712"><a id="__codelineno-0-712" name="__codelineno-0-712"></a>    <span class="s2">&quot;--user_labels_only&quot;</span><span class="p">,</span>
-</span><span id="__span-0-713"><a id="__codelineno-0-713" name="__codelineno-0-713"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-714"><a id="__codelineno-0-714" name="__codelineno-0-714"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-715"><a id="__codelineno-0-715" name="__codelineno-0-715"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;If True, only user-labeled frames in ground truth are considered. Default: True&quot;</span><span class="p">,</span>
-</span><span id="__span-0-716"><a id="__codelineno-0-716" name="__codelineno-0-716"></a><span class="p">)</span>
-</span><span id="__span-0-717"><a id="__codelineno-0-717" name="__codelineno-0-717"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
-</span><span id="__span-0-718"><a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span>
-</span><span id="__span-0-719"><a id="__codelineno-0-719" name="__codelineno-0-719"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-720"><a id="__codelineno-0-720" name="__codelineno-0-720"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
-</span><span id="__span-0-721"><a id="__codelineno-0-721" name="__codelineno-0-721"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics as .npz file. If not provided, metrics will not be saved.&quot;</span><span class="p">,</span>
-</span><span id="__span-0-722"><a id="__codelineno-0-722" name="__codelineno-0-722"></a><span class="p">)</span>
-</span><span id="__span-0-723"><a id="__codelineno-0-723" name="__codelineno-0-723"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span>
-</span><span id="__span-0-724"><a id="__codelineno-0-724" name="__codelineno-0-724"></a>    <span class="n">ground_truth_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-725"><a id="__codelineno-0-725" name="__codelineno-0-725"></a>    <span class="n">predicted_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
-</span><span id="__span-0-726"><a id="__codelineno-0-726" name="__codelineno-0-726"></a>    <span class="n">oks_stddev</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-727"><a id="__codelineno-0-727" name="__codelineno-0-727"></a>    <span class="n">oks_scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">],</span>
-</span><span id="__span-0-728"><a id="__codelineno-0-728" name="__codelineno-0-728"></a>    <span class="n">match_threshold</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span>
-</span><span id="__span-0-729"><a id="__codelineno-0-729" name="__codelineno-0-729"></a>    <span class="n">user_labels_only</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span>
-</span><span id="__span-0-730"><a id="__codelineno-0-730" name="__codelineno-0-730"></a>    <span class="n">save_metrics</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
-</span><span id="__span-0-731"><a id="__codelineno-0-731" name="__codelineno-0-731"></a><span class="p">):</span>
-</span><span id="__span-0-732"><a id="__codelineno-0-732" name="__codelineno-0-732"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Evaluate SLEAP-NN model predictions against ground truth labels.&quot;&quot;&quot;</span>
-</span><span id="__span-0-733"><a id="__codelineno-0-733" name="__codelineno-0-733"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Loading ground truth labels...&quot;</span><span class="p">)</span>
-</span><span id="__span-0-734"><a id="__codelineno-0-734" name="__codelineno-0-734"></a>    <span class="n">ground_truth_instances</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="n">ground_truth_path</span><span class="p">)</span>
-</span><span id="__span-0-735"><a id="__codelineno-0-735" name="__codelineno-0-735"></a>
-</span><span id="__span-0-736"><a id="__codelineno-0-736" name="__codelineno-0-736"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Loading predicted labels...&quot;</span><span class="p">)</span>
-</span><span id="__span-0-737"><a id="__codelineno-0-737" name="__codelineno-0-737"></a>    <span class="n">predicted_instances</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="n">predicted_path</span><span class="p">)</span>
-</span><span id="__span-0-738"><a id="__codelineno-0-738" name="__codelineno-0-738"></a>
-</span><span id="__span-0-739"><a id="__codelineno-0-739" name="__codelineno-0-739"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Creating evaluator...&quot;</span><span class="p">)</span>
-</span><span id="__span-0-740"><a id="__codelineno-0-740" name="__codelineno-0-740"></a>    <span class="n">evaluator</span> <span class="o">=</span> <span class="n">Evaluator</span><span class="p">(</span>
-</span><span id="__span-0-741"><a id="__codelineno-0-741" name="__codelineno-0-741"></a>        <span class="n">ground_truth_instances</span><span class="o">=</span><span class="n">ground_truth_instances</span><span class="p">,</span>
-</span><span id="__span-0-742"><a id="__codelineno-0-742" name="__codelineno-0-742"></a>        <span class="n">predicted_instances</span><span class="o">=</span><span class="n">predicted_instances</span><span class="p">,</span>
-</span><span id="__span-0-743"><a id="__codelineno-0-743" name="__codelineno-0-743"></a>        <span class="n">oks_stddev</span><span class="o">=</span><span class="n">oks_stddev</span><span class="p">,</span>
-</span><span id="__span-0-744"><a id="__codelineno-0-744" name="__codelineno-0-744"></a>        <span class="n">oks_scale</span><span class="o">=</span><span class="n">oks_scale</span><span class="p">,</span>
-</span><span id="__span-0-745"><a id="__codelineno-0-745" name="__codelineno-0-745"></a>        <span class="n">match_threshold</span><span class="o">=</span><span class="n">match_threshold</span><span class="p">,</span>
-</span><span id="__span-0-746"><a id="__codelineno-0-746" name="__codelineno-0-746"></a>        <span class="n">user_labels_only</span><span class="o">=</span><span class="n">user_labels_only</span><span class="p">,</span>
-</span><span id="__span-0-747"><a id="__codelineno-0-747" name="__codelineno-0-747"></a>    <span class="p">)</span>
-</span><span id="__span-0-748"><a id="__codelineno-0-748" name="__codelineno-0-748"></a>
-</span><span id="__span-0-749"><a id="__codelineno-0-749" name="__codelineno-0-749"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Computing evaluation metrics...&quot;</span><span class="p">)</span>
-</span><span id="__span-0-750"><a id="__codelineno-0-750" name="__codelineno-0-750"></a>    <span class="n">metrics</span> <span class="o">=</span> <span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
-</span><span id="__span-0-751"><a id="__codelineno-0-751" name="__codelineno-0-751"></a>
-</span><span id="__span-0-752"><a id="__codelineno-0-752" name="__codelineno-0-752"></a>    <span class="c1"># Print key metrics</span>
-</span><span id="__span-0-753"><a id="__codelineno-0-753" name="__codelineno-0-753"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Evaluation Results:&quot;</span><span class="p">)</span>
-</span><span id="__span-0-754"><a id="__codelineno-0-754" name="__codelineno-0-754"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mOKS: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;mOKS&#39;</span><span class="p">][</span><span class="s1">&#39;mOKS&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-755"><a id="__codelineno-0-755" name="__codelineno-0-755"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mAP (OKS VOC): </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAP&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-756"><a id="__codelineno-0-756" name="__codelineno-0-756"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mAR (OKS VOC): </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAR&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-757"><a id="__codelineno-0-757" name="__codelineno-0-757"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Average Distance: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;avg&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-758"><a id="__codelineno-0-758" name="__codelineno-0-758"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mPCK: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;pck_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;mPCK&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-759"><a id="__codelineno-0-759" name="__codelineno-0-759"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
-</span><span id="__span-0-760"><a id="__codelineno-0-760" name="__codelineno-0-760"></a>        <span class="sa">f</span><span class="s2">&quot;Visibility Precision: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;visibility_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;precision&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span>
-</span><span id="__span-0-761"><a id="__codelineno-0-761" name="__codelineno-0-761"></a>    <span class="p">)</span>
-</span><span id="__span-0-762"><a id="__codelineno-0-762" name="__codelineno-0-762"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Visibility Recall: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;visibility_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;recall&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-763"><a id="__codelineno-0-763" name="__codelineno-0-763"></a>
-</span><span id="__span-0-764"><a id="__codelineno-0-764" name="__codelineno-0-764"></a>    <span class="c1"># Save metrics if path provided</span>
-</span><span id="__span-0-765"><a id="__codelineno-0-765" name="__codelineno-0-765"></a>    <span class="k">if</span> <span class="n">save_metrics</span><span class="p">:</span>
-</span><span id="__span-0-766"><a id="__codelineno-0-766" name="__codelineno-0-766"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saving metrics to </span><span class="si">{</span><span class="n">save_metrics</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
-</span><span id="__span-0-767"><a id="__codelineno-0-767" name="__codelineno-0-767"></a>        <span class="n">save_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">save_metrics</span><span class="p">)</span>
-</span><span id="__span-0-768"><a id="__codelineno-0-768" name="__codelineno-0-768"></a>        <span class="n">save_path</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
-</span><span id="__span-0-769"><a id="__codelineno-0-769" name="__codelineno-0-769"></a>
-</span><span id="__span-0-770"><a id="__codelineno-0-770" name="__codelineno-0-770"></a>        <span class="c1"># Convert metrics to numpy arrays for saving</span>
-</span><span id="__span-0-771"><a id="__codelineno-0-771" name="__codelineno-0-771"></a>        <span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span>
-</span><span id="__span-0-772"><a id="__codelineno-0-772" name="__codelineno-0-772"></a>            <span class="n">save_path</span><span class="p">,</span>
-</span><span id="__span-0-773"><a id="__codelineno-0-773" name="__codelineno-0-773"></a>            <span class="n">mOKS</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;mOKS&quot;</span><span class="p">][</span><span class="s2">&quot;mOKS&quot;</span><span class="p">],</span>
-</span><span id="__span-0-774"><a id="__codelineno-0-774" name="__codelineno-0-774"></a>            <span class="n">mAP</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;voc_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;oks_voc.mAP&quot;</span><span class="p">],</span>
-</span><span id="__span-0-775"><a id="__codelineno-0-775" name="__codelineno-0-775"></a>            <span class="n">mAR</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;voc_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;oks_voc.mAR&quot;</span><span class="p">],</span>
-</span><span id="__span-0-776"><a id="__codelineno-0-776" name="__codelineno-0-776"></a>            <span class="n">avg_distance</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;distance_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;avg&quot;</span><span class="p">],</span>
-</span><span id="__span-0-777"><a id="__codelineno-0-777" name="__codelineno-0-777"></a>            <span class="n">mPCK</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;pck_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;mPCK&quot;</span><span class="p">],</span>
-</span><span id="__span-0-778"><a id="__codelineno-0-778" name="__codelineno-0-778"></a>            <span class="n">visibility_precision</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;visibility_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;precision&quot;</span><span class="p">],</span>
-</span><span id="__span-0-779"><a id="__codelineno-0-779" name="__codelineno-0-779"></a>            <span class="n">visibility_recall</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;visibility_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;recall&quot;</span><span class="p">],</span>
-</span><span id="__span-0-780"><a id="__codelineno-0-780" name="__codelineno-0-780"></a>            <span class="c1"># Save full metrics dict as well</span>
-</span><span id="__span-0-781"><a id="__codelineno-0-781" name="__codelineno-0-781"></a>            <span class="n">voc_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;voc_metrics&quot;</span><span class="p">],</span>
-</span><span id="__span-0-782"><a id="__codelineno-0-782" name="__codelineno-0-782"></a>            <span class="n">distance_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;distance_metrics&quot;</span><span class="p">],</span>
-</span><span id="__span-0-783"><a id="__codelineno-0-783" name="__codelineno-0-783"></a>            <span class="n">pck_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;pck_metrics&quot;</span><span class="p">],</span>
-</span><span id="__span-0-784"><a id="__codelineno-0-784" name="__codelineno-0-784"></a>            <span class="n">visibility_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;visibility_metrics&quot;</span><span class="p">],</span>
-</span><span id="__span-0-785"><a id="__codelineno-0-785" name="__codelineno-0-785"></a>        <span class="p">)</span>
-</span><span id="__span-0-786"><a id="__codelineno-0-786" name="__codelineno-0-786"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metrics saved successfully to </span><span class="si">{</span><span class="n">save_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-0-787"><a id="__codelineno-0-787" name="__codelineno-0-787"></a>
-</span><span id="__span-0-788"><a id="__codelineno-0-788" name="__codelineno-0-788"></a>    <span class="k">return</span> <span class="n">metrics</span>
+<span class="normal"><a href="#__codelineno-0-788">788</a></span>
+<span class="normal"><a href="#__codelineno-0-789">789</a></span>
+<span class="normal"><a href="#__codelineno-0-790">790</a></span>
+<span class="normal"><a href="#__codelineno-0-791">791</a></span>
+<span class="normal"><a href="#__codelineno-0-792">792</a></span>
+<span class="normal"><a href="#__codelineno-0-793">793</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-748"><a id="__codelineno-0-748" name="__codelineno-0-748"></a><span class="nd">@click</span><span class="o">.</span><span class="n">command</span><span class="p">()</span>
+</span><span id="__span-0-749"><a id="__codelineno-0-749" name="__codelineno-0-749"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-750"><a id="__codelineno-0-750" name="__codelineno-0-750"></a>    <span class="s2">&quot;--ground_truth_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-751"><a id="__codelineno-0-751" name="__codelineno-0-751"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-752"><a id="__codelineno-0-752" name="__codelineno-0-752"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-753"><a id="__codelineno-0-753" name="__codelineno-0-753"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to ground truth labels file (.slp)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-754"><a id="__codelineno-0-754" name="__codelineno-0-754"></a><span class="p">)</span>
+</span><span id="__span-0-755"><a id="__codelineno-0-755" name="__codelineno-0-755"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-756"><a id="__codelineno-0-756" name="__codelineno-0-756"></a>    <span class="s2">&quot;--predicted_path&quot;</span><span class="p">,</span>
+</span><span id="__span-0-757"><a id="__codelineno-0-757" name="__codelineno-0-757"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-758"><a id="__codelineno-0-758" name="__codelineno-0-758"></a>    <span class="n">required</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-759"><a id="__codelineno-0-759" name="__codelineno-0-759"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to predicted labels file (.slp)&quot;</span><span class="p">,</span>
+</span><span id="__span-0-760"><a id="__codelineno-0-760" name="__codelineno-0-760"></a><span class="p">)</span>
+</span><span id="__span-0-761"><a id="__codelineno-0-761" name="__codelineno-0-761"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-762"><a id="__codelineno-0-762" name="__codelineno-0-762"></a>    <span class="s2">&quot;--oks_stddev&quot;</span><span class="p">,</span>
+</span><span id="__span-0-763"><a id="__codelineno-0-763" name="__codelineno-0-763"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-764"><a id="__codelineno-0-764" name="__codelineno-0-764"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span>
+</span><span id="__span-0-765"><a id="__codelineno-0-765" name="__codelineno-0-765"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Standard deviation for OKS computation. Default: 0.025&quot;</span><span class="p">,</span>
+</span><span id="__span-0-766"><a id="__codelineno-0-766" name="__codelineno-0-766"></a><span class="p">)</span>
+</span><span id="__span-0-767"><a id="__codelineno-0-767" name="__codelineno-0-767"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-768"><a id="__codelineno-0-768" name="__codelineno-0-768"></a>    <span class="s2">&quot;--oks_scale&quot;</span><span class="p">,</span>
+</span><span id="__span-0-769"><a id="__codelineno-0-769" name="__codelineno-0-769"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-770"><a id="__codelineno-0-770" name="__codelineno-0-770"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-771"><a id="__codelineno-0-771" name="__codelineno-0-771"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Scale for OKS computation. If None, bounding box area will be used. Default: None&quot;</span><span class="p">,</span>
+</span><span id="__span-0-772"><a id="__codelineno-0-772" name="__codelineno-0-772"></a><span class="p">)</span>
+</span><span id="__span-0-773"><a id="__codelineno-0-773" name="__codelineno-0-773"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-774"><a id="__codelineno-0-774" name="__codelineno-0-774"></a>    <span class="s2">&quot;--match_threshold&quot;</span><span class="p">,</span>
+</span><span id="__span-0-775"><a id="__codelineno-0-775" name="__codelineno-0-775"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">float</span><span class="p">,</span>
+</span><span id="__span-0-776"><a id="__codelineno-0-776" name="__codelineno-0-776"></a>    <span class="n">default</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+</span><span id="__span-0-777"><a id="__codelineno-0-777" name="__codelineno-0-777"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Threshold for OKS scores when determining instance matches. Default: 0.0&quot;</span><span class="p">,</span>
+</span><span id="__span-0-778"><a id="__codelineno-0-778" name="__codelineno-0-778"></a><span class="p">)</span>
+</span><span id="__span-0-779"><a id="__codelineno-0-779" name="__codelineno-0-779"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-780"><a id="__codelineno-0-780" name="__codelineno-0-780"></a>    <span class="s2">&quot;--user_labels_only&quot;</span><span class="p">,</span>
+</span><span id="__span-0-781"><a id="__codelineno-0-781" name="__codelineno-0-781"></a>    <span class="n">is_flag</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-782"><a id="__codelineno-0-782" name="__codelineno-0-782"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-783"><a id="__codelineno-0-783" name="__codelineno-0-783"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;If True, only user-labeled frames in ground truth are considered. Default: True&quot;</span><span class="p">,</span>
+</span><span id="__span-0-784"><a id="__codelineno-0-784" name="__codelineno-0-784"></a><span class="p">)</span>
+</span><span id="__span-0-785"><a id="__codelineno-0-785" name="__codelineno-0-785"></a><span class="nd">@click</span><span class="o">.</span><span class="n">option</span><span class="p">(</span>
+</span><span id="__span-0-786"><a id="__codelineno-0-786" name="__codelineno-0-786"></a>    <span class="s2">&quot;--save_metrics&quot;</span><span class="p">,</span>
+</span><span id="__span-0-787"><a id="__codelineno-0-787" name="__codelineno-0-787"></a>    <span class="nb">type</span><span class="o">=</span><span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-788"><a id="__codelineno-0-788" name="__codelineno-0-788"></a>    <span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-789"><a id="__codelineno-0-789" name="__codelineno-0-789"></a>    <span class="n">help</span><span class="o">=</span><span class="s2">&quot;Path to save metrics as .npz file. If not provided, metrics will not be saved.&quot;</span><span class="p">,</span>
+</span><span id="__span-0-790"><a id="__codelineno-0-790" name="__codelineno-0-790"></a><span class="p">)</span>
+</span><span id="__span-0-791"><a id="__codelineno-0-791" name="__codelineno-0-791"></a><span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+</span><span id="__span-0-792"><a id="__codelineno-0-792" name="__codelineno-0-792"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Run evaluation.&quot;&quot;&quot;</span>
+</span><span id="__span-0-793"><a id="__codelineno-0-793" name="__codelineno-0-793"></a>    <span class="n">run_evaluation</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -5849,6 +5749,159 @@ of available instances.</p>
 </span><span id="__span-0-333"><a id="__codelineno-0-333" name="__codelineno-0-333"></a>    <span class="p">]</span>
 </span><span id="__span-0-334"><a id="__codelineno-0-334" name="__codelineno-0-334"></a>
 </span><span id="__span-0-335"><a id="__codelineno-0-335" name="__codelineno-0-335"></a>    <span class="k">return</span> <span class="n">positive_pairs</span><span class="p">,</span> <span class="n">false_negatives</span>
+</span></code></pre></div></td></tr></table></div>
+            </details>
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="sleap_nn.evaluation.run_evaluation" class="doc doc-heading">
+            <code class="highlight language-python"><span class="n">run_evaluation</span><span class="p">(</span><span class="n">ground_truth_path</span><span class="p">,</span> <span class="n">predicted_path</span><span class="p">,</span> <span class="n">oks_stddev</span><span class="o">=</span><span class="mf">0.025</span><span class="p">,</span> <span class="n">oks_scale</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">match_threshold</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">user_labels_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">save_metrics</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span></code>
+
+<a href="#sleap_nn.evaluation.run_evaluation" class="headerlink" title="Permanent link">&para;</a></h3>
+
+
+    <div class="doc doc-contents ">
+
+        <p>Evaluate SLEAP-NN model predictions against ground truth labels.</p>
+
+
+            <details class="quote">
+              <summary>Source code in <code>sleap_nn/evaluation.py</code></summary>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-680">680</a></span>
+<span class="normal"><a href="#__codelineno-0-681">681</a></span>
+<span class="normal"><a href="#__codelineno-0-682">682</a></span>
+<span class="normal"><a href="#__codelineno-0-683">683</a></span>
+<span class="normal"><a href="#__codelineno-0-684">684</a></span>
+<span class="normal"><a href="#__codelineno-0-685">685</a></span>
+<span class="normal"><a href="#__codelineno-0-686">686</a></span>
+<span class="normal"><a href="#__codelineno-0-687">687</a></span>
+<span class="normal"><a href="#__codelineno-0-688">688</a></span>
+<span class="normal"><a href="#__codelineno-0-689">689</a></span>
+<span class="normal"><a href="#__codelineno-0-690">690</a></span>
+<span class="normal"><a href="#__codelineno-0-691">691</a></span>
+<span class="normal"><a href="#__codelineno-0-692">692</a></span>
+<span class="normal"><a href="#__codelineno-0-693">693</a></span>
+<span class="normal"><a href="#__codelineno-0-694">694</a></span>
+<span class="normal"><a href="#__codelineno-0-695">695</a></span>
+<span class="normal"><a href="#__codelineno-0-696">696</a></span>
+<span class="normal"><a href="#__codelineno-0-697">697</a></span>
+<span class="normal"><a href="#__codelineno-0-698">698</a></span>
+<span class="normal"><a href="#__codelineno-0-699">699</a></span>
+<span class="normal"><a href="#__codelineno-0-700">700</a></span>
+<span class="normal"><a href="#__codelineno-0-701">701</a></span>
+<span class="normal"><a href="#__codelineno-0-702">702</a></span>
+<span class="normal"><a href="#__codelineno-0-703">703</a></span>
+<span class="normal"><a href="#__codelineno-0-704">704</a></span>
+<span class="normal"><a href="#__codelineno-0-705">705</a></span>
+<span class="normal"><a href="#__codelineno-0-706">706</a></span>
+<span class="normal"><a href="#__codelineno-0-707">707</a></span>
+<span class="normal"><a href="#__codelineno-0-708">708</a></span>
+<span class="normal"><a href="#__codelineno-0-709">709</a></span>
+<span class="normal"><a href="#__codelineno-0-710">710</a></span>
+<span class="normal"><a href="#__codelineno-0-711">711</a></span>
+<span class="normal"><a href="#__codelineno-0-712">712</a></span>
+<span class="normal"><a href="#__codelineno-0-713">713</a></span>
+<span class="normal"><a href="#__codelineno-0-714">714</a></span>
+<span class="normal"><a href="#__codelineno-0-715">715</a></span>
+<span class="normal"><a href="#__codelineno-0-716">716</a></span>
+<span class="normal"><a href="#__codelineno-0-717">717</a></span>
+<span class="normal"><a href="#__codelineno-0-718">718</a></span>
+<span class="normal"><a href="#__codelineno-0-719">719</a></span>
+<span class="normal"><a href="#__codelineno-0-720">720</a></span>
+<span class="normal"><a href="#__codelineno-0-721">721</a></span>
+<span class="normal"><a href="#__codelineno-0-722">722</a></span>
+<span class="normal"><a href="#__codelineno-0-723">723</a></span>
+<span class="normal"><a href="#__codelineno-0-724">724</a></span>
+<span class="normal"><a href="#__codelineno-0-725">725</a></span>
+<span class="normal"><a href="#__codelineno-0-726">726</a></span>
+<span class="normal"><a href="#__codelineno-0-727">727</a></span>
+<span class="normal"><a href="#__codelineno-0-728">728</a></span>
+<span class="normal"><a href="#__codelineno-0-729">729</a></span>
+<span class="normal"><a href="#__codelineno-0-730">730</a></span>
+<span class="normal"><a href="#__codelineno-0-731">731</a></span>
+<span class="normal"><a href="#__codelineno-0-732">732</a></span>
+<span class="normal"><a href="#__codelineno-0-733">733</a></span>
+<span class="normal"><a href="#__codelineno-0-734">734</a></span>
+<span class="normal"><a href="#__codelineno-0-735">735</a></span>
+<span class="normal"><a href="#__codelineno-0-736">736</a></span>
+<span class="normal"><a href="#__codelineno-0-737">737</a></span>
+<span class="normal"><a href="#__codelineno-0-738">738</a></span>
+<span class="normal"><a href="#__codelineno-0-739">739</a></span>
+<span class="normal"><a href="#__codelineno-0-740">740</a></span>
+<span class="normal"><a href="#__codelineno-0-741">741</a></span>
+<span class="normal"><a href="#__codelineno-0-742">742</a></span>
+<span class="normal"><a href="#__codelineno-0-743">743</a></span>
+<span class="normal"><a href="#__codelineno-0-744">744</a></span>
+<span class="normal"><a href="#__codelineno-0-745">745</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-680"><a id="__codelineno-0-680" name="__codelineno-0-680"></a><span class="k">def</span><span class="w"> </span><span class="nf">run_evaluation</span><span class="p">(</span>
+</span><span id="__span-0-681"><a id="__codelineno-0-681" name="__codelineno-0-681"></a>    <span class="n">ground_truth_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-682"><a id="__codelineno-0-682" name="__codelineno-0-682"></a>    <span class="n">predicted_path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-0-683"><a id="__codelineno-0-683" name="__codelineno-0-683"></a>    <span class="n">oks_stddev</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.025</span><span class="p">,</span>
+</span><span id="__span-0-684"><a id="__codelineno-0-684" name="__codelineno-0-684"></a>    <span class="n">oks_scale</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-685"><a id="__codelineno-0-685" name="__codelineno-0-685"></a>    <span class="n">match_threshold</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
+</span><span id="__span-0-686"><a id="__codelineno-0-686" name="__codelineno-0-686"></a>    <span class="n">user_labels_only</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-0-687"><a id="__codelineno-0-687" name="__codelineno-0-687"></a>    <span class="n">save_metrics</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-0-688"><a id="__codelineno-0-688" name="__codelineno-0-688"></a><span class="p">):</span>
+</span><span id="__span-0-689"><a id="__codelineno-0-689" name="__codelineno-0-689"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Evaluate SLEAP-NN model predictions against ground truth labels.&quot;&quot;&quot;</span>
+</span><span id="__span-0-690"><a id="__codelineno-0-690" name="__codelineno-0-690"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Loading ground truth labels...&quot;</span><span class="p">)</span>
+</span><span id="__span-0-691"><a id="__codelineno-0-691" name="__codelineno-0-691"></a>    <span class="n">ground_truth_instances</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="n">ground_truth_path</span><span class="p">)</span>
+</span><span id="__span-0-692"><a id="__codelineno-0-692" name="__codelineno-0-692"></a>
+</span><span id="__span-0-693"><a id="__codelineno-0-693" name="__codelineno-0-693"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Loading predicted labels...&quot;</span><span class="p">)</span>
+</span><span id="__span-0-694"><a id="__codelineno-0-694" name="__codelineno-0-694"></a>    <span class="n">predicted_instances</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="n">predicted_path</span><span class="p">)</span>
+</span><span id="__span-0-695"><a id="__codelineno-0-695" name="__codelineno-0-695"></a>
+</span><span id="__span-0-696"><a id="__codelineno-0-696" name="__codelineno-0-696"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Creating evaluator...&quot;</span><span class="p">)</span>
+</span><span id="__span-0-697"><a id="__codelineno-0-697" name="__codelineno-0-697"></a>    <span class="n">evaluator</span> <span class="o">=</span> <span class="n">Evaluator</span><span class="p">(</span>
+</span><span id="__span-0-698"><a id="__codelineno-0-698" name="__codelineno-0-698"></a>        <span class="n">ground_truth_instances</span><span class="o">=</span><span class="n">ground_truth_instances</span><span class="p">,</span>
+</span><span id="__span-0-699"><a id="__codelineno-0-699" name="__codelineno-0-699"></a>        <span class="n">predicted_instances</span><span class="o">=</span><span class="n">predicted_instances</span><span class="p">,</span>
+</span><span id="__span-0-700"><a id="__codelineno-0-700" name="__codelineno-0-700"></a>        <span class="n">oks_stddev</span><span class="o">=</span><span class="n">oks_stddev</span><span class="p">,</span>
+</span><span id="__span-0-701"><a id="__codelineno-0-701" name="__codelineno-0-701"></a>        <span class="n">oks_scale</span><span class="o">=</span><span class="n">oks_scale</span><span class="p">,</span>
+</span><span id="__span-0-702"><a id="__codelineno-0-702" name="__codelineno-0-702"></a>        <span class="n">match_threshold</span><span class="o">=</span><span class="n">match_threshold</span><span class="p">,</span>
+</span><span id="__span-0-703"><a id="__codelineno-0-703" name="__codelineno-0-703"></a>        <span class="n">user_labels_only</span><span class="o">=</span><span class="n">user_labels_only</span><span class="p">,</span>
+</span><span id="__span-0-704"><a id="__codelineno-0-704" name="__codelineno-0-704"></a>    <span class="p">)</span>
+</span><span id="__span-0-705"><a id="__codelineno-0-705" name="__codelineno-0-705"></a>
+</span><span id="__span-0-706"><a id="__codelineno-0-706" name="__codelineno-0-706"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Computing evaluation metrics...&quot;</span><span class="p">)</span>
+</span><span id="__span-0-707"><a id="__codelineno-0-707" name="__codelineno-0-707"></a>    <span class="n">metrics</span> <span class="o">=</span> <span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
+</span><span id="__span-0-708"><a id="__codelineno-0-708" name="__codelineno-0-708"></a>
+</span><span id="__span-0-709"><a id="__codelineno-0-709" name="__codelineno-0-709"></a>    <span class="c1"># Print key metrics</span>
+</span><span id="__span-0-710"><a id="__codelineno-0-710" name="__codelineno-0-710"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Evaluation Results:&quot;</span><span class="p">)</span>
+</span><span id="__span-0-711"><a id="__codelineno-0-711" name="__codelineno-0-711"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mOKS: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;mOKS&#39;</span><span class="p">][</span><span class="s1">&#39;mOKS&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-712"><a id="__codelineno-0-712" name="__codelineno-0-712"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mAP (OKS VOC): </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAP&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-713"><a id="__codelineno-0-713" name="__codelineno-0-713"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mAR (OKS VOC): </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAR&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-714"><a id="__codelineno-0-714" name="__codelineno-0-714"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Average Distance: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;avg&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-715"><a id="__codelineno-0-715" name="__codelineno-0-715"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mPCK: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;pck_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;mPCK&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-716"><a id="__codelineno-0-716" name="__codelineno-0-716"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+</span><span id="__span-0-717"><a id="__codelineno-0-717" name="__codelineno-0-717"></a>        <span class="sa">f</span><span class="s2">&quot;Visibility Precision: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;visibility_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;precision&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span>
+</span><span id="__span-0-718"><a id="__codelineno-0-718" name="__codelineno-0-718"></a>    <span class="p">)</span>
+</span><span id="__span-0-719"><a id="__codelineno-0-719" name="__codelineno-0-719"></a>    <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Visibility Recall: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;visibility_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;recall&#39;</span><span class="p">]</span><span class="si">:</span><span class="s2">.4f</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-720"><a id="__codelineno-0-720" name="__codelineno-0-720"></a>
+</span><span id="__span-0-721"><a id="__codelineno-0-721" name="__codelineno-0-721"></a>    <span class="c1"># Save metrics if path provided</span>
+</span><span id="__span-0-722"><a id="__codelineno-0-722" name="__codelineno-0-722"></a>    <span class="k">if</span> <span class="n">save_metrics</span><span class="p">:</span>
+</span><span id="__span-0-723"><a id="__codelineno-0-723" name="__codelineno-0-723"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Saving metrics to </span><span class="si">{</span><span class="n">save_metrics</span><span class="si">}</span><span class="s2">...&quot;</span><span class="p">)</span>
+</span><span id="__span-0-724"><a id="__codelineno-0-724" name="__codelineno-0-724"></a>        <span class="n">save_path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">save_metrics</span><span class="p">)</span>
+</span><span id="__span-0-725"><a id="__codelineno-0-725" name="__codelineno-0-725"></a>        <span class="n">save_path</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</span><span id="__span-0-726"><a id="__codelineno-0-726" name="__codelineno-0-726"></a>
+</span><span id="__span-0-727"><a id="__codelineno-0-727" name="__codelineno-0-727"></a>        <span class="c1"># Convert metrics to numpy arrays for saving</span>
+</span><span id="__span-0-728"><a id="__codelineno-0-728" name="__codelineno-0-728"></a>        <span class="n">np</span><span class="o">.</span><span class="n">savez</span><span class="p">(</span>
+</span><span id="__span-0-729"><a id="__codelineno-0-729" name="__codelineno-0-729"></a>            <span class="n">save_path</span><span class="p">,</span>
+</span><span id="__span-0-730"><a id="__codelineno-0-730" name="__codelineno-0-730"></a>            <span class="n">mOKS</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;mOKS&quot;</span><span class="p">][</span><span class="s2">&quot;mOKS&quot;</span><span class="p">],</span>
+</span><span id="__span-0-731"><a id="__codelineno-0-731" name="__codelineno-0-731"></a>            <span class="n">mAP</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;voc_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;oks_voc.mAP&quot;</span><span class="p">],</span>
+</span><span id="__span-0-732"><a id="__codelineno-0-732" name="__codelineno-0-732"></a>            <span class="n">mAR</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;voc_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;oks_voc.mAR&quot;</span><span class="p">],</span>
+</span><span id="__span-0-733"><a id="__codelineno-0-733" name="__codelineno-0-733"></a>            <span class="n">avg_distance</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;distance_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;avg&quot;</span><span class="p">],</span>
+</span><span id="__span-0-734"><a id="__codelineno-0-734" name="__codelineno-0-734"></a>            <span class="n">mPCK</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;pck_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;mPCK&quot;</span><span class="p">],</span>
+</span><span id="__span-0-735"><a id="__codelineno-0-735" name="__codelineno-0-735"></a>            <span class="n">visibility_precision</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;visibility_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;precision&quot;</span><span class="p">],</span>
+</span><span id="__span-0-736"><a id="__codelineno-0-736" name="__codelineno-0-736"></a>            <span class="n">visibility_recall</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;visibility_metrics&quot;</span><span class="p">][</span><span class="s2">&quot;recall&quot;</span><span class="p">],</span>
+</span><span id="__span-0-737"><a id="__codelineno-0-737" name="__codelineno-0-737"></a>            <span class="c1"># Save full metrics dict as well</span>
+</span><span id="__span-0-738"><a id="__codelineno-0-738" name="__codelineno-0-738"></a>            <span class="n">voc_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;voc_metrics&quot;</span><span class="p">],</span>
+</span><span id="__span-0-739"><a id="__codelineno-0-739" name="__codelineno-0-739"></a>            <span class="n">distance_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;distance_metrics&quot;</span><span class="p">],</span>
+</span><span id="__span-0-740"><a id="__codelineno-0-740" name="__codelineno-0-740"></a>            <span class="n">pck_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;pck_metrics&quot;</span><span class="p">],</span>
+</span><span id="__span-0-741"><a id="__codelineno-0-741" name="__codelineno-0-741"></a>            <span class="n">visibility_metrics</span><span class="o">=</span><span class="n">metrics</span><span class="p">[</span><span class="s2">&quot;visibility_metrics&quot;</span><span class="p">],</span>
+</span><span id="__span-0-742"><a id="__codelineno-0-742" name="__codelineno-0-742"></a>        <span class="p">)</span>
+</span><span id="__span-0-743"><a id="__codelineno-0-743" name="__codelineno-0-743"></a>        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Metrics saved successfully to </span><span class="si">{</span><span class="n">save_path</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-0-744"><a id="__codelineno-0-744" name="__codelineno-0-744"></a>
+</span><span id="__span-0-745"><a id="__codelineno-0-745" name="__codelineno-0-745"></a>    <span class="k">return</span> <span class="n">metrics</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
