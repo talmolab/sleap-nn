@@ -135,7 +135,9 @@ class UNet(nn.Module):
                         pool_before_convs=False,
                         pooling_stride=2,
                         num_convs=convs_per_block - 1,
-                        filters=int(last_block_filters * filters_rate),
+                        filters=int(
+                            filters * (filters_rate ** (down_blocks + stem_blocks))
+                        ),
                         kernel_size=kernel_size,
                         use_bias=True,
                         batch_norm=False,
@@ -151,10 +153,14 @@ class UNet(nn.Module):
                     block_filters = int(last_block_filters)
                 else:
                     # Keep the block output filters the same
-                    block_filters = int(last_block_filters * filters_rate)
+                    block_filters = int(
+                        filters * (filters_rate ** (down_blocks + stem_blocks))
+                    )
 
                 middle_contract = SimpleConvBlock(
-                    in_channels=int(last_block_filters * filters_rate),
+                    in_channels=int(
+                        filters * (filters_rate ** (down_blocks + stem_blocks))
+                    ),
                     pool=False,
                     pool_before_convs=False,
                     pooling_stride=2,
