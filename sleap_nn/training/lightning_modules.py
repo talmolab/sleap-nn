@@ -1,17 +1,12 @@
 """This module has the LightningModule classes for all model types."""
 
-from turtle import back
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, Union, Dict, Any
 import time
 from torch import nn
 import numpy as np
 import torch
-from pathlib import Path
-import sleap_io as sio
 from omegaconf import OmegaConf, DictConfig
 import lightning as L
-from PIL import Image
-import wandb
 from torchvision.models.swin_transformer import (
     Swin_T_Weights,
     Swin_S_Weights,
@@ -26,7 +21,6 @@ from torchvision.models.convnext import (
     ConvNeXt_Small_Weights,
     ConvNeXt_Large_Weights,
 )
-import sleap_io as sio
 from sleap_nn.inference.topdown import (
     CentroidCrop,
     FindInstancePeaks,
@@ -48,7 +42,6 @@ from sleap_nn.training.utils import (
     plot_peaks,
 )
 import matplotlib.pyplot as plt
-from sleap_nn.config.model_config import BackboneConfig
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.config.trainer_config import (
     LRSchedulerConfig,
@@ -58,7 +51,6 @@ from sleap_nn.config.trainer_config import (
 from sleap_nn.config.get_config import get_backbone_config
 from sleap_nn.legacy_models import (
     load_legacy_model_weights,
-    get_keras_first_layer_channels,
 )
 
 MODEL_WEIGHTS = {
