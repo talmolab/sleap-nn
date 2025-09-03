@@ -101,12 +101,12 @@ Create a `config.yaml` file for your experiment.
 > Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
 ```bash
-sleap-nn-train --config-name config.yaml --config-dir configs/ "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train --config-name config.yaml --config-dir configs/ "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
 #### 3. Run inference on the trained model
 
 To run inference:
 ```bash
-sleap-nn-track --data-path video.mp4 --model-paths model_ckpt_dir/
+sleap-nn track --data-path video.mp4 --model-paths model_ckpt_dir/
 ```

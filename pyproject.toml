@@ -91,9 +91,6 @@ docs = [
 
 [project.scripts]
 sleap-nn = "sleap_nn.cli:cli"
-sleap-nn-train = "sleap_nn.train:main"
-sleap-nn-track = "sleap_nn.predict:main"
-sleap-nn-eval = "sleap_nn.evaluation:main"
 
 [project.urls]
 Homepage = "https://sleap.ai"

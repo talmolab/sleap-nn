@@ -646,7 +646,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
     ]
     result = subprocess.run(
         cmd,
@@ -661,7 +662,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--help",
     ]
     result = subprocess.run(
@@ -684,7 +686,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--config-dir",
         f"{tmp_path}",
         "--config-name",
@@ -710,7 +713,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--config-dir",
         f"{tmp_path}",
         "--config-name",
@@ -734,7 +738,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--config-dir",
         f"{tmp_path}",
         "--config-name",

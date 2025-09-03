@@ -507,11 +507,12 @@ def test_evaluator_main(
 
     import subprocess
 
-    # Build the command to run sleap-nn-eval with the required arguments
+    # Build the command to run sleap-nn eval with the required arguments
     cmd = [
         "uv",
         "run",
-        "sleap-nn-eval",
+        "sleap-nn",
+        "eval",
         "--ground_truth_path",
         minimal_instance.as_posix(),
         "--predicted_path",
