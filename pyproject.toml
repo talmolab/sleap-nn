@@ -37,6 +37,8 @@ dependencies = [
     "psutil",
     "opencv-python",
     "hydra-core",
+    "jupyter",
+    "jupyterlab",
     "pyzmq"
 ]
 dynamic = ["version", "readme"]
