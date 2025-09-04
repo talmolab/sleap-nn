@@ -2369,14 +2369,14 @@ Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
 <blockquote>
 <p>Download sample training data from <a href="https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp">here</a> and validation data from <a href="https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp">here</a> for quick experimentation.</p>
 </blockquote>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn-train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>configs/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>configs/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[labels.pkg.slp]&quot;</span>
 </span></code></pre></div>
 <blockquote>
 <p>For detailed information on training workflows, configuration options, and advanced usage, please refer to the <a href="training/">Training Guide</a>.</p>
 </blockquote>
 <h4 id="4-run-inference-on-the-trained-model">4. Run inference on the trained model<a class="headerlink" href="#4-run-inference-on-the-trained-model" title="Permanent link">&para;</a></h4>
 <p>To run inference:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn-track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
 </span></code></pre></div></p>
 <blockquote>
 <p>More options for running inference and tracking workflows are available in the <a href="inference/">Inference Guide</a>.</p>
