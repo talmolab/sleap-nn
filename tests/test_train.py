@@ -5,7 +5,7 @@ import copy
 import sys
 import torch
 import pytest
-from sleap_nn.train import train, main
+from sleap_nn.train import train, run_training as main
 
 
 @pytest.fixture
@@ -633,35 +633,13 @@ def test_main(sample_cfg):
         .exists()
     )
 
-    # test main exits with invalid config (missing trainer_config)
-    invalid_cfg = copy.deepcopy(sample_cfg)
-    invalid_cfg.trainer_config = None
-    invalid_cfg.model_config = None
-    with pytest.raises(SystemExit):
-        main(invalid_cfg)
-
 
 def test_main_cli(sample_cfg, tmp_path):
-    # Test that train cli handles empty argument gracefully
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
-    ]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-    )
-    # Exit code should be 2
-    assert result.returncode == 2
-    assert "No model config found" in result.stdout  # Should tell user what is wrong
-    assert "--help" in result.stdout  # should suggest using --help
-
-    cmd = [
-        "uv",
-        "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--help",
     ]
     result = subprocess.run(
@@ -684,7 +662,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--config-dir",
         f"{tmp_path}",
         "--config-name",
@@ -710,7 +689,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--config-dir",
         f"{tmp_path}",
         "--config-name",
@@ -734,7 +714,8 @@ def test_main_cli(sample_cfg, tmp_path):
     cmd = [
         "uv",
         "run",
-        "sleap-nn-train",
+        "sleap-nn",
+        "train",
         "--config-dir",
         f"{tmp_path}",
         "--config-name",

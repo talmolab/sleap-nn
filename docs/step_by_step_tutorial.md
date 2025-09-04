@@ -289,7 +289,7 @@ Now that you have your configuration file, let's train your model! SLEAP-NN prov
 The CLI is perfect for quick training runs and automation:
 
 ```bash
-sleap-nn-train \
+sleap-nn train \
     --config-name my_config.yaml \
     --config-dir /path/to/config/directory
 ```
@@ -360,20 +360,20 @@ Now that you have a trained model, let's use it to make predictions on new data!
 
 ```bash
 # Basic inference on a slp file
-sleap-nn-track \
+sleap-nn track \
     --data_path test.slp \
     --model_paths my_model \
     --output_path my_predictions.slp
 
 # Inference on specific frames on a video
-sleap-nn-track \
+sleap-nn track \
     --data_path video.mp4 \
     --frames "1-100" \
     --model_paths my_model \
     --output_path my_predictions.slp
 
 # Inference on a video + tracking
-sleap-nn-track \
+sleap-nn track \
     --data_path video.mp4 \
     --frames "1-100" \
     --model_paths my_model \

@@ -3,10 +3,21 @@
 import click
 from loguru import logger
 from pathlib import Path
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 from sleap_nn.predict import run_inference, frame_list
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.train import run_training
+import hydra
+import sys
+from click import Command
+
+
+class TrainCommand(Command):
+    """Custom command class that overrides help behavior for train command."""
+
+    def format_help(self, ctx, formatter):
+        """Override the help formatting to show custom training help."""
+        show_training_help()
 
 
 @click.group()
@@ -22,32 +33,119 @@ def cli():
     pass
 
 
-@cli.command()
+def show_training_help():
+    """Display training help information."""
+    help_text = """
+sleap-nn train — Train SLEAP models from a config YAML file.
+
+Usage:
+  sleap-nn train --config-dir <dir> --config-name <name> [overrides]
+
+Common overrides:
+  trainer_config.max_epochs=100
+  trainer_config.batch_size=32
+
+Examples:
+  Start new run:
+    sleap-nn train --config-dir . --config-name myrun
+  Resume 20 more epochs:
+    sleap-nn train --config-dir . --config-name myrun \\
+      trainer_config.resume_ckpt_path=<path/to/ckpt> \\
+      trainer_config.max_epochs=20
+
+Tips:
+  - Use -m/--multirun for sweeps; outputs go under hydra.sweep.dir.
+  - For Hydra flags and completion, use --hydra-help.
+
+For a detailed list of all available config options, please refer to https://nn.sleap.ai/config/.
+"""
+    click.echo(help_text)
+
+
+@cli.command(cls=TrainCommand)
 @click.option("--config-name", "-c", type=str, help="Configuration file name")
-@click.option("--config-dir", "-d", type=str, help="Configuration directory path")
-def train(config_name, config_dir):
-    """Run training workflow."""
-    config_name = (
-        config_name if config_name.endswith(".yaml") else f"{config_name}.yaml"
-    )
-    config_path = Path(config_dir) / config_name if config_dir else config_name
-    cfg = OmegaConf.load(config_path)
-    logger.info("Input config:")
-    logger.info("\n" + OmegaConf.to_yaml(cfg))
-    run_training(cfg)
+@click.option(
+    "--config-dir", "-d", type=str, default=".", help="Configuration directory path"
+)
+@click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
+def train(config_name, config_dir, overrides):
+    """Run training workflow with Hydra config overrides.
+
+    Examples:
+        sleap-nn train --config-name myconfig --config-dir ./configs
+        sleap-nn train -c myconfig -d ./configs trainer_config.max_epochs=100
+        sleap-nn train -c myconfig -d ./configs +experiment=new_model
+    """
+    # Show help if no config name provided
+    if not config_name:
+        show_training_help()
+        return
+
+    # Initialize Hydra manually
+    with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
+        # Compose config with overrides
+        cfg = hydra.compose(config_name=config_name, overrides=list(overrides))
+
+        # Validate config
+        if not hasattr(cfg, "model_config") or not cfg.model_config:
+            click.echo(
+                "No model config found! Use `sleap-nn train --help` for more information."
+            )
+            raise click.Abort()
+
+        logger.info("Input config:")
+        logger.info("\n" + OmegaConf.to_yaml(cfg))
+        run_training(cfg)
 
 
 @cli.command()
 @click.option(
     "--data_path",
+    "-i",
     type=str,
     required=True,
     help="Path to data to predict on. This can be a labels (.slp) file or any supported video format.",
 )
 @click.option(
     "--model_paths",
+    "-m",
     multiple=True,
     help="Path to trained model directory (with training_config.json). Multiple models can be specified, each preceded by --model_paths.",
+)
+@click.option(
+    "--output_path",
+    "-o",
+    type=str,
+    default=None,
+    help="The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp'.",
+)
+@click.option(
+    "--device",
+    "-d",
+    type=str,
+    default="auto",
+    help="Device on which torch.Tensor will be allocated. One of the ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen).",
+)
+@click.option(
+    "--batch_size",
+    "-b",
+    type=int,
+    default=4,
+    help="Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory.",
+)
+@click.option(
+    "--tracking",
+    "-t",
+    is_flag=True,
+    default=False,
+    help="If True, runs tracking on the predicted instances.",
+)
+@click.option(
+    "-n",
+    "--max_instances",
+    type=int,
+    default=None,
+    help="Limit maximum number of instances in multi-instance models. Not available for ID models. Defaults to None.",
 )
 @click.option(
     "--backbone_ckpt_path",
@@ -60,13 +158,6 @@ def train(config_name, config_dir):
     type=str,
     default=None,
     help="Path to `.ckpt` file if a different set of head layer weights are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt from `backbone_ckpt_path` if provided.)",
-)
-@click.option(
-    "-n",
-    "--max_instances",
-    type=int,
-    default=None,
-    help="Limit maximum number of instances in multi-instance models. Not available for ID models. Defaults to None.",
 )
 @click.option(
     "--max_height",
@@ -138,34 +229,10 @@ def train(config_name, config_dir):
     help="List of frames to predict when running on a video. Can be specified as a comma separated list (e.g. 1,2,3) or a range separated by hyphen (e.g., 1-3, for 1,2,3). If not provided, defaults to predicting on the entire video.",
 )
 @click.option(
-    "--batch_size",
-    type=int,
-    default=4,
-    help="Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory.",
-)
-@click.option(
     "--integral_patch_size",
     type=int,
     default=5,
     help="Size of patches to crop around each rough peak as an integer scalar. Default: 5.",
-)
-@click.option(
-    "--return_confmaps",
-    is_flag=True,
-    default=False,
-    help="If True, predicted confidence maps will be returned along with the predicted peak values and points. Default: False.",
-)
-@click.option(
-    "--return_pafs",
-    is_flag=True,
-    default=False,
-    help="If True, the part affinity fields will be returned together with the predicted instances. This will result in slower inference times since the data must be copied off of the GPU, but is useful for visualizing the raw output of the model. Default: False.",
-)
-@click.option(
-    "--return_paf_graph",
-    is_flag=True,
-    default=False,
-    help="If True, the part affinity field graph will be returned together with the predicted instances. The graph is obtained by parsing the part affinity fields with the paf_scorer instance and is an intermediate representation used during instance grouping. Default: False.",
 )
 @click.option(
     "--max_edge_length_ratio",
@@ -198,24 +265,6 @@ def train(config_name, config_dir):
     help="Minimum line score (between -1 and 1) required to form a match between candidate point pairs. Useful for rejecting spurious detections when there are no better ones. Default: 0.25.",
 )
 @click.option(
-    "--return_class_maps",
-    is_flag=True,
-    default=False,
-    help="If True, the class maps will be returned together with the predicted instances. This will result in slower inference times since the data must be copied off of the GPU, but is useful for visualizing the raw output of the model.",
-)
-@click.option(
-    "--return_class_vectors",
-    is_flag=True,
-    default=False,
-    help="If True, the classification probabilities will be returned together with the predicted peaks. This will not line up with the grouped instances, for which the associated class probabilities will always be returned in instance_scores.",
-)
-@click.option(
-    "--make_labels",
-    is_flag=True,
-    default=True,
-    help="If True (the default), returns a sio.Labels instance with sio.PredictedInstances. If False, just return a list of dictionaries containing the raw arrays returned by the inference model. Default: True.",
-)
-@click.option(
     "--queue_maxsize",
     type=int,
     default=8,
@@ -238,25 +287,6 @@ def train(config_name, config_dir):
     type=str,
     default="integral",
     help="If `None`, returns the grid-aligned peaks with no refinement. If `'integral'`, peaks will be refined with integral regression. Default: 'integral'.",
-)
-@click.option(
-    "-o",
-    "--output_path",
-    type=str,
-    default=None,
-    help="The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp'.",
-)
-@click.option(
-    "--device",
-    type=str,
-    default="auto",
-    help="Device on which torch.Tensor will be allocated. One of the ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen).",
-)
-@click.option(
-    "--tracking",
-    is_flag=True,
-    default=False,
-    help="If True, runs tracking on the predicted instances.",
 )
 @click.option(
     "--tracking_window_size",
@@ -349,7 +379,7 @@ def train(config_name, config_dir):
     help="If True and `max_tracks` is not None with local queues candidate method, connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.",
 )
 def track(**kwargs):
-    """CLI command that handles argument conversion and calls run_inference."""
+    """Run Inference and Tracking workflow."""
     # Convert model_paths from tuple to list
     if "model_paths" in kwargs and kwargs["model_paths"]:
         kwargs["model_paths"] = list(kwargs["model_paths"])
@@ -369,16 +399,19 @@ def track(**kwargs):
 @cli.command()
 @click.option(
     "--ground_truth_path",
+    "-g",
     type=str,
     required=True,
     help="Path to ground truth labels file (.slp)",
 )
 @click.option(
     "--predicted_path",
+    "-p",
     type=str,
     required=True,
     help="Path to predicted labels file (.slp)",
 )
+@click.option("--save_metrics", "-s", type=str, help="Path to save metrics (.npz file)")
 @click.option(
     "--oks_stddev",
     type=float,
@@ -392,7 +425,6 @@ def track(**kwargs):
 @click.option(
     "--user_labels_only", is_flag=True, help="Only evaluate user-labeled frames"
 )
-@click.option("--save_metrics", type=str, help="Path to save metrics (.npz file)")
 def eval(**kwargs):
     """Run evaluation workflow."""
     run_evaluation(**kwargs)

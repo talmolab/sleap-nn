@@ -1,6 +1,5 @@
 """Entry point for sleap_nn training."""
 
-import hydra
 from loguru import logger
 from pathlib import Path
 import numpy as np
@@ -8,10 +7,6 @@ from datetime import datetime
 from time import time
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional, List, Tuple, Union
-from functools import wraps
-from hydra.core.config_store import ConfigStore
-from hydra.conf import HelpConf
-import hydra, sys, logging
 import sleap_io as sio
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
@@ -22,6 +17,7 @@ from sleap_nn.config.get_config import (
     get_model_config,
     get_data_config,
 )
+from typing import Any, Dict, Optional, List, Tuple, Union
 
 
 def run_training(config: DictConfig):
@@ -452,91 +448,3 @@ def train(
 
     # run training
     run_training(omegaconf_config.copy())
-
-
-def add_help(name: str = "sleap_help"):
-    """Decorator to inject and override hydra/help config. Provide readable help messages for `sleap-nn-train` CLI."""
-    template = (
-        "${hydra.help.header}\n\n"
-        "Usage:\n"
-        "  ${hydra.help.app_name} --config-dir <dir> --config-name <name> [overrides]\n\n"
-        "Common overrides:\n"
-        "  trainer_config.max_epochs=100\n"
-        "  trainer_config.batch_size=32\n\n"
-        "Examples:\n"
-        "  Start new run:\n"
-        "    ${hydra.help.app_name} --config-dir . --config-name myrun\n"
-        "  Resume 20 more epochs:\n"
-        "    ${hydra.help.app_name} --config-dir . --config-name myrun \\\n"
-        "      trainer_config.resume_ckpt_path=<path/to/ckpt> \\\n"
-        "      trainer_config.max_epochs=20\n\n"
-        "Tips:\n"
-        "  - Use -m/--multirun for sweeps; outputs go under hydra.sweep.dir.\n"
-        "  - For Hydra flags and completion, use --hydra-help.\n\n"
-        "${hydra.help.footer}\n"
-    )
-
-    cs = ConfigStore.instance()
-    cs.store(
-        group="hydra/help",
-        name=name,
-        node=HelpConf(  # ← correct type
-            app_name="sleap-nn-train",
-            header="sleap-nn-train — Train SLEAP models from a config YAML file.",
-            footer="For a detailed list of all available config options, please refer to https://nn.sleap.ai/dev/config/.",
-            template=template,
-        ),
-    )
-
-    def outer(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            joined = " ".join(sys.argv[1:])
-            if "hydra/help=" not in joined and "hydra.help." not in joined:
-                if "--" in sys.argv:
-                    dashdash = sys.argv.index("--")
-                else:
-                    dashdash = len(sys.argv)
-
-                beginning_of_overrides_section = -1
-                for idx, arg in enumerate(sys.argv[1:dashdash], start=1):
-                    if (
-                        not arg.startswith("-")
-                        and idx < dashdash
-                        and ("=" in arg or arg.startswith("+"))
-                    ):
-                        beginning_of_overrides_section = idx
-                        break
-                if beginning_of_overrides_section != -1:
-                    sys.argv.insert(
-                        beginning_of_overrides_section, f"hydra/help={name}"
-                    )
-                else:
-                    sys.argv.insert(dashdash, f"hydra/help={name}")
-            # breakpoint()
-            return fn(*args, **kwargs)
-
-        return wrapper
-
-    return outer
-
-
-@add_help()
-@hydra.main(version_base=None, config_path=None, config_name=None)
-def main(cfg: DictConfig):
-    """Train SLEAP-NN model using CLI."""
-    # Inject help message (override hydra/help here)
-
-    if not hasattr(cfg, "model_config") or not cfg.model_config:
-        # set save_ckpt_path to current working dir if not specified
-        print(
-            "No model config found! Use `sleap-nn-train --help` for more information."
-        )
-        raise SystemExit(2)
-    logger.info("Input config:")
-    logger.info("\n" + OmegaConf.to_yaml(cfg))
-    run_training(cfg)
-
-
-if __name__ == "__main__":
-    main()
