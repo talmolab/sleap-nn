@@ -162,13 +162,7 @@ class ModelTrainer:
         skeleton = self.skeletons[0]
         for index, train_label in enumerate(labels):
             skel_temp = train_label.skeletons[0]
-            nodes_equal = [node.name for node in skeleton.nodes] == [
-                node.name for node in skel_temp.nodes
-            ]
-            edge_inds_equal = [tuple(edge) for edge in skeleton.edge_inds] == [
-                tuple(edge) for edge in skel_temp.edge_inds
-            ]
-            skeletons_equal = nodes_equal and edge_inds_equal
+            skeletons_equal = skeleton.matches(skel_temp)
             if skeletons_equal:
                 total_train_lfs += len(train_label)
             else:
