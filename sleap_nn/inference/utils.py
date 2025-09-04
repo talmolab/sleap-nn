@@ -2,7 +2,7 @@
 
 from omegaconf import OmegaConf
 import sleap_io as sio
-from sleap_io.io.main import SkeletonYAMLDecoder
+from sleap_io.io.skeleton import SkeletonYAMLDecoder
 import torch
 
 
