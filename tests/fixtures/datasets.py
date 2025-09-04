@@ -58,7 +58,7 @@ def config(sleap_nn_data_dir):
                     "max_width": None,
                     "max_height": None,
                     "scale": 1.0,
-                    "crop_hw": [160, 160],
+                    "crop_size": 160,
                     "min_crop_size": None,
                 },
                 "use_augmentations_train": True,

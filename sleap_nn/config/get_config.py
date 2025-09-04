@@ -467,7 +467,7 @@ def get_data_config(
     scale: float = 1.0,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
-    crop_hw: Optional[Tuple[int, int]] = None,
+    crop_size: Optional[int] = None,
     min_crop_size: Optional[int] = 100,
     use_augmentations_train: bool = False,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
@@ -511,10 +511,10 @@ def get_data_config(
             original image size will be retained. Default: None.
         max_width: Maximum width the image should be padded to. If not provided, the
             original image size will be retained. Default: None.
-        crop_hw: Crop height and width of each instance (h, w) for centered-instance model.
+        crop_size: Crop size of each instance for centered-instance model.
             If `None`, this would be automatically computed based on the largest instance
             in the `sio.Labels` file. Default: None.
-        min_crop_size: Minimum crop size to be used if `crop_hw` is `None`. Default: 100.
+        min_crop_size: Minimum crop size to be used if `crop_size` is `None`. Default: 100.
         use_augmentations_train: True if the data augmentation should be applied to the
             training data, else False. Default: False.
         intensity_aug: One of ["uniform_noise", "gaussian_noise", "contrast", "brightness"]
@@ -538,7 +538,7 @@ def get_data_config(
         max_height=max_height,
         max_width=max_width,
         scale=scale,
-        crop_hw=crop_hw,
+        crop_size=crop_size,
         min_crop_size=min_crop_size,
     )
     augmentation_config = None

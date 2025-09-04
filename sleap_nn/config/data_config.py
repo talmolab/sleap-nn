@@ -23,8 +23,8 @@ class PreprocessingConfig:
         max_height: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. *Default*: `None`.
         max_width: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. *Default*: `None`.
         scale: (float) Factor to resize the image dimensions by, specified as a float. *Default*: `1.0`.
-        crop_hw: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. *Default*: `None`.
-        min_crop_size: (int) Minimum crop size to be used if `crop_hw` is `None`. *Default*: `100`.
+        crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. *Default*: `None`.
+        min_crop_size: (int) Minimum crop size to be used if `crop_size` is `None`. *Default*: `100`.
     """
 
     ensure_rgb: bool = False
@@ -34,7 +34,7 @@ class PreprocessingConfig:
     scale: float = field(
         default=1.0, validator=lambda instance, attr, value: instance.validate_scale()
     )
-    crop_hw: Optional[Tuple[int, int]] = None
+    crop_size: Optional[int] = None
     min_crop_size: Optional[int] = 100  # to help app work in case of error
 
     def validate_scale(self):
@@ -273,7 +273,7 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         is not None
     ):
         size = legacy_config_data["instance_cropping"]["crop_size"]
-        preprocessing_args["crop_hw"] = (size, size)
+        preprocessing_args["crop_size"] = size
 
     # augmentation
     if (

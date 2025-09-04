@@ -195,11 +195,14 @@ class ModelTrainer:
 
     def _setup_preprocessing_config(self):
         """Setup preprocessing config."""
-        # compute max_heigt, max_width, and crop_hw (if not provided in the config)
+        # compute max_heigt, max_width, and crop_size (if not provided in the config)
         max_height = self.config.data_config.preprocessing.max_height
         max_width = self.config.data_config.preprocessing.max_width
-        if self.model_type == "centered_instance":
-            crop_hw = self.config.data_config.preprocessing.crop_hw
+        if (
+            self.model_type == "centered_instance"
+            or self.model_type == "multi_class_topdown"
+        ):
+            crop_size = self.config.data_config.preprocessing.crop_size
 
         max_h, max_w = 0, 0
         max_crop_size = 0
@@ -214,11 +217,14 @@ class ModelTrainer:
                 if current_max_w > max_w:
                     max_w = current_max_w
 
-            if self.model_type == "centered_instance":
+            if (
+                self.model_type == "centered_instance"
+                or self.model_type == "multi_class_topdown"
+            ):
                 # compute crop size if not provided in config
-                if crop_hw is None:
+                if crop_size is None:
 
-                    crop_size = find_instance_crop_size(
+                    crop_sz = find_instance_crop_size(
                         labels=train_label,
                         maximum_stride=self.config.model_config.backbone_config[
                             f"{self.backbone_type}"
@@ -227,19 +233,19 @@ class ModelTrainer:
                         input_scaling=self.config.data_config.preprocessing.scale,
                     )
 
-                    if crop_size > max_crop_size:
-                        max_crop_size = crop_size
+                    if crop_sz > max_crop_size:
+                        max_crop_size = crop_sz
 
         # if preprocessing params were None, replace with computed params
         if max_height is None or max_width is None:
             self.config.data_config.preprocessing.max_height = max_h
             self.config.data_config.preprocessing.max_width = max_w
 
-        if self.model_type == "centered_instance" and crop_hw is None:
-            self.config.data_config.preprocessing.crop_hw = [
-                max_crop_size,
-                max_crop_size,
-            ]
+        if (
+            self.model_type == "centered_instance"
+            or self.model_type == "multi_class_topdown"
+        ) and crop_size is None:
+            self.config.data_config.preprocessing.crop_size = max_crop_size
 
     def _setup_head_config(self):
         """Setup node, edge and class names in head config."""
@@ -479,6 +485,13 @@ class ModelTrainer:
 
         # set output stride for backbone from head config and verify max stride
         self.config = check_output_strides(self.config)
+
+        # if trainer_devices is None, set it to "auto"
+        self.config.trainer_config.trainer_devices = (
+            "auto"
+            if self.config.trainer_config.trainer_devices is None
+            else self.config.trainer_config.trainer_devices
+        )
 
         # setup checkpoint path
         self._setup_ckpt_path()

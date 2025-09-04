@@ -556,7 +556,7 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance
     )
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
-    OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(
         config,

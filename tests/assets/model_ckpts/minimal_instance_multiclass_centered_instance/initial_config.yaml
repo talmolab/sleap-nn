@@ -15,9 +15,7 @@ data_config:
     max_height: null
     max_width: null
     scale: 1.0
-    crop_hw:
-    - 128
-    - 128
+    crop_size: 128
     min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:

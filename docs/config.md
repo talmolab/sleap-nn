@@ -28,7 +28,7 @@ data_config:
     ensure_rgb: false
     ensure_grayscale: false
     scale: 1.0
-    crop_hw: null
+    crop_size: null
     min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:
@@ -213,8 +213,8 @@ data_config:
     - `max_height`: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. **Default**: `None`
     - `max_width`: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. **Default**: `None`
     - `scale`: (float) Factor to resize the image dimensions by, specified as a float. **Default**: `1.0`
-    - `crop_hw`: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. **Default**: `None`
-    - `min_crop_size`: (int) Minimum crop size to be used if `crop_hw` is `None`. **Default**: `100`
+    - `crop_size`: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. **Default**: `None`
+    - `min_crop_size`: (int) Minimum crop size to be used if `crop_size` is `None`. **Default**: `100`
 
 #### Example: Common Preprocessing Configurations
 
@@ -225,7 +225,7 @@ data_config:
     ensure_rgb: false
     ensure_grayscale: false
     scale: 1.0
-    crop_hw: null
+    crop_size: null
     min_crop_size: 100
 ```
 
@@ -236,7 +236,7 @@ data_config:
     ensure_rgb: true
     ensure_grayscale: false
     scale: 1.0
-    crop_hw: null
+    crop_size: null
     min_crop_size: 100
 ```
 
@@ -247,7 +247,7 @@ data_config:
     ensure_rgb: false
     ensure_grayscale: false
     scale: 1.0
-    crop_hw: [256, 256]  # Fixed 256x256 crop
+    crop_size: 256  # Fixed 256x256 crop
     min_crop_size: 100
 ```
 
@@ -260,7 +260,7 @@ data_config:
     scale: 1.0
     max_height: 512
     max_width: 512
-    crop_hw: null
+    crop_size: null
     min_crop_size: 100
 ```
 

@@ -37,7 +37,7 @@ def test_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": None,
         "ensure_grayscale": None,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -63,7 +63,7 @@ def test_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": False,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -106,7 +106,7 @@ def test_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": True,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -214,7 +214,7 @@ def test_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": False,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -322,7 +322,7 @@ def test_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": True,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -433,7 +433,7 @@ def test_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": False,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -544,7 +544,7 @@ def test_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": True,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -597,7 +597,7 @@ def test_multiclass_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": None,
         "ensure_grayscale": None,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -619,7 +619,7 @@ def test_multiclass_topdown_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": False,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -809,7 +809,7 @@ def test_single_instance_predictor(
     preprocess_config = {
         "ensure_rgb": None,
         "ensure_grayscale": None,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -846,7 +846,7 @@ def test_bottomup_predictor(
     preprocess_config = {
         "ensure_rgb": None,
         "ensure_grayscale": None,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -869,7 +869,7 @@ def test_bottomup_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": True,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
     }
@@ -918,7 +918,7 @@ def test_multi_class_bottomup_predictor(
     preprocess_config = {
         "ensure_rgb": None,
         "ensure_grayscale": None,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
         "scale": None,
@@ -941,7 +941,7 @@ def test_multi_class_bottomup_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": True,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
     }

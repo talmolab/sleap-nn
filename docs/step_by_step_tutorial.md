@@ -31,7 +31,7 @@ data_config:
     ensure_rgb: false
     ensure_grayscale: false
     scale: 1.0
-    crop_hw: null
+    crop_size: null
     min_crop_size: 100
   use_augmentations_train: true
   augmentation_config:
@@ -149,7 +149,7 @@ data_config:
     ensure_rgb: false
     ensure_grayscale: false
     scale: 1.0
-    crop_hw: null # only for centered-instance model
+    crop_size: null # only for centered-instance model
     min_crop_size: 100 # only for centered-instance model
   use_augmentations_train: true
   augmentation_config:

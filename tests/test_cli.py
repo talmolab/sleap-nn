@@ -29,7 +29,7 @@ def sample_config(tmp_path, minimal_instance):
                     "max_width": None,
                     "max_height": None,
                     "scale": 1.0,
-                    "crop_hw": [160, 160],
+                    "crop_size": 160,
                     "min_crop_size": None,
                 },
                 "use_augmentations_train": True,

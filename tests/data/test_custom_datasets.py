@@ -409,7 +409,7 @@ def test_bottomup_multiclass_dataset(minimal_instance, tmp_path):
 
 def test_centered_instance_dataset(minimal_instance, tmp_path):
     """Test the CenteredInstanceDataset."""
-    crop_hw = (160, 160)
+    crop_size = 160
     base_topdown_data_config = OmegaConf.create(
         {
             "user_instances_only": True,
@@ -431,7 +431,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
-        crop_hw=crop_hw,
+        crop_size=crop_size,
         labels=[
             sio.load_slp(minimal_instance),
             sio.load_slp(minimal_instance),
@@ -471,7 +471,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
-        crop_hw=crop_hw,
+        crop_size=crop_size,
         labels=[sio.load_slp(minimal_instance)],
         cache_img="memory",
         apply_aug=base_topdown_data_config.use_augmentations_train,
@@ -551,7 +551,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         ensure_rgb=True,
         ensure_grayscale=False,
         confmap_head_config=confmap_head,
-        crop_hw=(100, 100),
+        crop_size=100,
         labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
@@ -629,7 +629,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=2.0,
         confmap_head_config=confmap_head,
-        crop_hw=(100, 100),
+        crop_size=100,
         labels=[sio.load_slp(minimal_instance)],
         apply_aug=base_topdown_data_config.use_augmentations_train,
         intensity_aug=base_topdown_data_config.augmentation_config.intensity,
@@ -670,7 +670,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
             tracks += 1
     tracked_labels.update()
 
-    crop_hw = (160, 160)
+    crop_size = 160
     base_topdown_data_config = OmegaConf.create(
         {
             "user_instances_only": True,
@@ -693,7 +693,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
-        crop_hw=crop_hw,
+        crop_size=crop_size,
         labels=[
             tracked_labels,
             tracked_labels,
@@ -736,7 +736,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
-        crop_hw=crop_hw,
+        crop_size=crop_size,
         labels=[tracked_labels],
         cache_img="memory",
         apply_aug=base_topdown_data_config.use_augmentations_train,
@@ -803,7 +803,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         ensure_rgb=True,
         ensure_grayscale=False,
         confmap_head_config=confmap_head,
-        crop_hw=(100, 100),
+        crop_size=100,
         labels=[tracked_labels],
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
@@ -867,7 +867,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=2.0,
         confmap_head_config=confmap_head,
-        crop_hw=(100, 100),
+        crop_size=100,
         labels=[tracked_labels],
         apply_aug=base_topdown_data_config.use_augmentations_train,
         intensity_aug=["uniform_noise", "gaussian_noise"],

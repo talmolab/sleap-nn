@@ -229,7 +229,7 @@ def run_inference(
     preprocess_config = {  # if not given, then use from training config
         "ensure_rgb": ensure_rgb,
         "ensure_grayscale": ensure_grayscale,
-        "crop_hw": (crop_size, crop_size) if crop_size is not None else None,
+        "crop_size": crop_size,
         "max_width": max_width,
         "max_height": max_height,
         "scale": input_scale,

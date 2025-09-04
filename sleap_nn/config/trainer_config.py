@@ -231,7 +231,7 @@ class TrainerConfig:
     train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
     val_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
     model_ckpt: ModelCkptConfig = field(factory=ModelCkptConfig)
-    trainer_devices: Any = field(
+    trainer_devices: Optional[Any] = field(
         default="auto",
         validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val),
     )
@@ -274,6 +274,8 @@ class TrainerConfig:
     @staticmethod
     def validate_trainer_devices(value):
         """Validate the value of trainer_devices."""
+        if value is None:
+            return
         if isinstance(value, int) and value >= 0:
             return
         if isinstance(value, list) and all(
@@ -282,7 +284,7 @@ class TrainerConfig:
             return
         if isinstance(value, str) and value == "auto":
             return
-        message = "trainer_devices must be an integer >= 0, a list of integers >= 0, or the string 'auto'."
+        message = "trainer_devices must be an integer >= 0, or the string 'auto'."
         logger.error(message)
         raise ValueError(message)
 

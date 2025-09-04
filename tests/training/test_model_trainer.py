@@ -74,9 +74,9 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     OmegaConf.update(
         config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
     )
-    # without explicitly providing crop_hw
+    # without explicitly providing crop_size
     config_copy = config.copy()
-    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config_copy, "trainer_config.train_data_loader.num_workers", 0)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(config_copy, "data_config.data_pipeline_fw", "torch_dataset")
@@ -98,7 +98,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
 
     ## with memory caching
     config_copy = config.copy()
-    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(
         config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
@@ -121,7 +121,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
 
     ## with caching imgs on disk
     config_copy = config.copy()
-    OmegaConf.update(config_copy, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(
         config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
@@ -292,7 +292,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     OmegaConf.update(
         training_cfg, "trainer_config.visualize_preds_during_training", True
     )
-    OmegaConf.update(training_cfg, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(training_cfg, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(training_cfg, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(training_cfg, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(training_cfg, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
@@ -345,7 +345,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     assert training_config.model_config.total_params is not None
     assert training_config.trainer_config.wandb.api_key == ""
     assert training_config.data_config.skeletons
-    assert training_config.data_config.preprocessing.crop_hw == (104, 104)
+    assert training_config.data_config.preprocessing.crop_size == 104
 
     checkpoint = torch.load(
         Path(model_trainer.config.trainer_config.save_ckpt_path).joinpath("last.ckpt"),

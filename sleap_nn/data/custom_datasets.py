@@ -702,7 +702,7 @@ class CenteredInstanceDataset(BaseDataset):
             the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
-        crop_hw: Height and width of the crop in pixels.
+        crop_size: Crop size of each instance for centered-instance model.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
 
@@ -713,7 +713,7 @@ class CenteredInstanceDataset(BaseDataset):
     def __init__(
         self,
         labels: List[sio.Labels],
-        crop_hw: Tuple[int],
+        crop_size: int,
         confmap_head_config: DictConfig,
         max_stride: int,
         anchor_ind: Optional[int] = None,
@@ -747,7 +747,7 @@ class CenteredInstanceDataset(BaseDataset):
             use_existing_imgs=use_existing_imgs,
             rank=rank,
         )
-        self.crop_hw = crop_hw
+        self.crop_size = crop_size
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list()
@@ -849,7 +849,7 @@ class CenteredInstanceDataset(BaseDataset):
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
-        crop_size = np.array(self.crop_hw) * np.sqrt(
+        crop_size = np.array([self.crop_size, self.crop_size]) * np.sqrt(
             2
         )  # crop extra for rotation augmentation
         crop_size = crop_size.astype(np.int32).tolist()
@@ -886,14 +886,14 @@ class CenteredInstanceDataset(BaseDataset):
 
         # re-crop to original crop size
         sample["instance_bbox"] = torch.unsqueeze(
-            make_centered_bboxes(
-                sample["centroid"][0], self.crop_hw[0], self.crop_hw[1]
-            ),
+            make_centered_bboxes(sample["centroid"][0], self.crop_size, self.crop_size),
             0,
         )  # (n_samples=1, 4, 2)
 
         sample["instance_image"] = crop_and_resize(
-            sample["instance_image"], boxes=sample["instance_bbox"], size=self.crop_hw
+            sample["instance_image"],
+            boxes=sample["instance_bbox"],
+            size=(self.crop_size, self.crop_size),
         )
         point = sample["instance_bbox"][0][0]
         center_instance = sample["instance"] - point
@@ -961,7 +961,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
-        crop_hw: Height and width of the crop in pixels.
+        crop_size: Crop size of each instance for centered-instance model.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
 
@@ -972,7 +972,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
     def __init__(
         self,
         labels: List[sio.Labels],
-        crop_hw: Tuple[int],
+        crop_size: int,
         confmap_head_config: DictConfig,
         max_stride: int,
         anchor_ind: Optional[int] = None,
@@ -992,7 +992,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         """Initialize class attributes."""
         super().__init__(
             labels=labels,
-            crop_hw=crop_hw,
+            crop_size=crop_size,
             confmap_head_config=confmap_head_config,
             max_stride=max_stride,
             anchor_ind=anchor_ind,
@@ -1108,7 +1108,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
-        crop_size = np.array(self.crop_hw) * np.sqrt(
+        crop_size = np.array([self.crop_size, self.crop_size]) * np.sqrt(
             2
         )  # crop extra for rotation augmentation
         crop_size = crop_size.astype(np.int32).tolist()
@@ -1145,14 +1145,14 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         # re-crop to original crop size
         sample["instance_bbox"] = torch.unsqueeze(
-            make_centered_bboxes(
-                sample["centroid"][0], self.crop_hw[0], self.crop_hw[1]
-            ),
+            make_centered_bboxes(sample["centroid"][0], self.crop_size, self.crop_size),
             0,
         )  # (n_samples=1, 4, 2)
 
         sample["instance_image"] = crop_and_resize(
-            sample["instance_image"], boxes=sample["instance_bbox"], size=self.crop_hw
+            sample["instance_image"],
+            boxes=sample["instance_bbox"],
+            size=(self.crop_size, self.crop_size),
         )
         point = sample["instance_bbox"][0][0]
         center_instance = sample["instance"] - point
@@ -1826,7 +1826,7 @@ def get_train_val_datasets(
             ),
             scale=config.data_config.preprocessing.scale,
             apply_aug=config.data_config.use_augmentations_train,
-            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            crop_size=config.data_config.preprocessing.crop_size,
             max_hw=(
                 config.data_config.preprocessing.max_height,
                 config.data_config.preprocessing.max_width,
@@ -1850,7 +1850,7 @@ def get_train_val_datasets(
             geometric_aug=None,
             scale=config.data_config.preprocessing.scale,
             apply_aug=False,
-            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            crop_size=config.data_config.preprocessing.crop_size,
             max_hw=(
                 config.data_config.preprocessing.max_height,
                 config.data_config.preprocessing.max_width,
@@ -1889,7 +1889,7 @@ def get_train_val_datasets(
             ),
             scale=config.data_config.preprocessing.scale,
             apply_aug=config.data_config.use_augmentations_train,
-            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            crop_size=config.data_config.preprocessing.crop_size,
             max_hw=(
                 config.data_config.preprocessing.max_height,
                 config.data_config.preprocessing.max_width,
@@ -1913,7 +1913,7 @@ def get_train_val_datasets(
             geometric_aug=None,
             scale=config.data_config.preprocessing.scale,
             apply_aug=False,
-            crop_hw=list(config.data_config.preprocessing.crop_hw),
+            crop_size=config.data_config.preprocessing.crop_size,
             max_hw=(
                 config.data_config.preprocessing.max_height,
                 config.data_config.preprocessing.max_width,
