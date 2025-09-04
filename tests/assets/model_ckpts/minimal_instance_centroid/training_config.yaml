@@ -115,7 +115,8 @@ trainer_config:
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: minimal_instance_centroid
+  ckpt_dir: .
+  run_name: minimal_instance_centroid
   resume_ckpt_path: null
   wandb:
     entity: null

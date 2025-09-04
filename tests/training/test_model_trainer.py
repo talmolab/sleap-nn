@@ -54,9 +54,8 @@ def caplog(caplog: LogCaptureFixture):
 def test_cfg_without_val_labels_path(config, tmp_path, minimal_instance):
     """Test Model Trainer if no val labels path is provided."""
     labels = sio.load_slp(minimal_instance)
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_vals_fraction/"
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_vals_fraction")
     config.data_config.val_labels_path = None
     # val labels will be split from train labels.
     trainer = ModelTrainer.get_model_trainer_from_config(config)
@@ -71,9 +70,8 @@ def test_cfg_without_val_labels_path(config, tmp_path, minimal_instance):
 def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_instance):
     """Test _create_data_loader function of ModelTrainer class."""
     ## torch_dataset: test centered-instance pipeline
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_model_trainer")
     # without explicitly providing crop_size
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_size", None)
@@ -232,9 +230,8 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_trainer"
-    )
+    OmegaConf.update(config, "trainer_config.run_name", "test_trainer")
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(config, "trainer_config.profiler", None)
 
     ## invalid profiler: raise exception
@@ -254,9 +251,12 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     )
     OmegaConf.update(no_save_ckpt_cfg, "trainer_config.save_ckpt", False)
     OmegaConf.update(
+        no_save_ckpt_cfg, "trainer_config.run_name", "test_trainer_no_save_ckpt"
+    )
+    OmegaConf.update(
         no_save_ckpt_cfg,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_trainer_no_save_ckpt",
+        "trainer_config.ckpt_dir",
+        f"{tmp_path}",
     )
     OmegaConf.update(
         no_save_ckpt_cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
@@ -269,17 +269,26 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     model_trainer.train()
 
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("training_config.yaml")
         .exists()
     )
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("viz")
         .exists()
     )
     assert not (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("best.ckpt")
         .exists()
     )
@@ -301,45 +310,70 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     model_trainer = ModelTrainer.get_model_trainer_from_config(training_cfg)
     model_trainer.train()
 
-    assert Path(model_trainer.config.trainer_config.save_ckpt_path).exists()
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        Path(model_trainer.config.trainer_config.ckpt_dir)
+        / model_trainer.config.trainer_config.run_name
+    ).exists()
+    assert (
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("wandb")
         .exists()
     )  # check wandb folder
 
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("viz")
         .exists()
     )  # check if viz folder is created and non-empty
     assert any(
-        (Path(model_trainer.config.trainer_config.save_ckpt_path) / "viz").glob("*.png")
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+            / "viz"
+        ).glob("*.png")
     )
 
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("last.ckpt")
         .exists()
     )
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("best.ckpt")
         .exists()
     )
 
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("initial_config.yaml")
         .exists()
     )
     assert (
-        Path(model_trainer.config.trainer_config.save_ckpt_path)
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        )
         .joinpath("training_config.yaml")
         .exists()
     )
     training_config = OmegaConf.load(
-        f"{model_trainer.config.trainer_config.save_ckpt_path}/training_config.yaml"
+        f"{model_trainer.config.trainer_config.ckpt_dir}/{model_trainer.config.trainer_config.run_name}/training_config.yaml"
     )
     assert training_config.trainer_config.wandb.current_run_id is not None
     assert training_config.model_config.total_params is not None
@@ -348,19 +382,26 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     assert training_config.data_config.preprocessing.crop_size == 104
 
     checkpoint = torch.load(
-        Path(model_trainer.config.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        ).joinpath("last.ckpt"),
         map_location="cpu",
         weights_only=False,
     )
     assert checkpoint["epoch"] == 1
 
     # check for training metrics csv
-    path = Path(model_trainer.config.trainer_config.save_ckpt_path)
+    path = (
+        Path(model_trainer.config.trainer_config.ckpt_dir)
+        / model_trainer.config.trainer_config.run_name
+    )
     assert path.joinpath("training_log.csv").exists()
     df = pd.read_csv(
-        Path(model_trainer.config.trainer_config.save_ckpt_path).joinpath(
-            "training_log.csv"
-        )
+        (
+            Path(model_trainer.config.trainer_config.ckpt_dir)
+            / model_trainer.config.trainer_config.run_name
+        ).joinpath("training_log.csv")
     )
     assert (
         abs(
@@ -403,8 +444,13 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
     OmegaConf.update(single_instance_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(
         single_instance_config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer_single_instance",
+        "trainer_config.run_name",
+        "test_model_trainer_single_instance",
+    )
+    OmegaConf.update(
+        single_instance_config,
+        "trainer_config.ckpt_dir",
+        f"{tmp_path}",
     )
     OmegaConf.update(
         single_instance_config, "trainer_config.visualize_preds_during_training", True
@@ -426,9 +472,16 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
     trainer.train()
     assert isinstance(trainer.lightning_model, SingleInstanceLightningModule)
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path) / "viz" / "train.0000.png"
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+        / "train.0000.png"
     ).exists()
-    assert (Path(trainer.config.trainer_config.save_ckpt_path) / "best.ckpt").exists()
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "best.ckpt"
+    ).exists()
 
 
 @pytest.mark.skipif(
@@ -447,10 +500,9 @@ def test_model_trainer_centroid(config, tmp_path):
     head_config = centroid_config.model_config.head_configs.centered_instance
     OmegaConf.update(centroid_config, "model_config.head_configs.centroid", head_config)
     OmegaConf.update(
-        centroid_config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer_centroid",
+        centroid_config, "trainer_config.run_name", "test_model_trainer_centroid"
     )
+    OmegaConf.update(centroid_config, "trainer_config.ckpt_dir", f"{tmp_path}")
     del centroid_config.model_config.head_configs.centered_instance
     del centroid_config.model_config.head_configs.centroid["confmaps"].part_names
 
@@ -469,9 +521,16 @@ def test_model_trainer_centroid(config, tmp_path):
     trainer.train()
     assert isinstance(trainer.lightning_model, CentroidLightningModule)
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path) / "viz" / "train.0000.png"
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+        / "train.0000.png"
     ).exists()
-    assert (Path(trainer.config.trainer_config.save_ckpt_path) / "best.ckpt").exists()
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "best.ckpt"
+    ).exists()
 
 
 @pytest.mark.skipif(
@@ -507,9 +566,8 @@ def test_zmq_callbacks(config, tmp_path: str):
     OmegaConf.update(
         config, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_zmq_callbacks"
-    )
+    OmegaConf.update(config, "trainer_config.run_name", "test_zmq_callbacks")
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
         config, "trainer_config.zmq.publish_address", "tcp://127.0.0.1:9510"
     )
@@ -543,11 +601,8 @@ def test_model_trainer_bottomup(config, tmp_path):
     # bottom up model
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
-    OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{Path(tmp_path) / 'bottomup_trainer_test'}",
-    )
+    OmegaConf.update(config, "trainer_config.run_name", "bottomup_trainer_test")
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "trainer_config.visualize_preds_during_training", True)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
@@ -578,20 +633,32 @@ def test_model_trainer_bottomup(config, tmp_path):
     trainer = ModelTrainer.get_model_trainer_from_config(bottomup_config)
     trainer.train()
     assert isinstance(trainer.lightning_model, BottomUpLightningModule)
-    assert (Path(trainer.config.trainer_config.save_ckpt_path) / "viz").exists()
-    assert Path(trainer.config.trainer_config.save_ckpt_path) / "viz" / "train.0000.png"
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path)
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+    ).exists()
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+        / "train.0000.png"
+    )
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
         / "viz"
         / "train.pafs_magnitude.0000.png"
     )
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path)
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
         / "viz"
         / "validation.0000.png"
     )
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path)
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
         / "viz"
         / "validation.pafs_magnitude.0000.png"
     )
@@ -612,10 +679,9 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
     OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{Path(tmp_path) / 'multiclass_bottomup_trainer_test'}",
+        config, "trainer_config.run_name", "multiclass_bottomup_trainer_test"
     )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "trainer_config.visualize_preds_during_training", True)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
@@ -668,20 +734,32 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
     )
     trainer.train()
     assert isinstance(trainer.lightning_model, BottomUpMultiClassLightningModule)
-    assert (Path(trainer.config.trainer_config.save_ckpt_path) / "viz").exists()
-    assert Path(trainer.config.trainer_config.save_ckpt_path) / "viz" / "train.0000.png"
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path)
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+    ).exists()
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+        / "train.0000.png"
+    )
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
         / "viz"
         / "train.class_maps.0000.png"
     )
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path)
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
         / "viz"
         / "validation.0000.png"
     )
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path)
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
         / "viz"
         / "validation.class_maps.0000.png"
     )
@@ -701,10 +779,9 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, ca
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.profiler", "simple")
     OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{Path(tmp_path) / 'multiclass_topdown_trainer_test'}",
+        config, "trainer_config.run_name", "multiclass_topdown_trainer_test"
     )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(config, "trainer_config.use_wandb", True)
     OmegaConf.update(config, "trainer_config.visualize_preds_during_training", True)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
@@ -756,10 +833,20 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, ca
     assert isinstance(
         trainer.lightning_model, TopDownCenteredInstanceMultiClassLightningModule
     )
-    assert (Path(trainer.config.trainer_config.save_ckpt_path) / "viz").exists()
-    assert Path(trainer.config.trainer_config.save_ckpt_path) / "viz" / "train.0000.png"
     assert (
-        Path(trainer.config.trainer_config.save_ckpt_path)
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+    ).exists()
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+        / "train.0000.png"
+    )
+    assert (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
         / "viz"
         / "validation.0000.png"
     )
@@ -777,9 +864,8 @@ def test_resume_training(config, tmp_path):
     else:
         config.trainer_config.trainer_accelerator = "auto"
     # train a model for 2 epochs:
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_resume_trainer"
-    )
+    OmegaConf.update(config, "trainer_config.run_name", "test_resume_trainer")
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     trainer = ModelTrainer.get_model_trainer_from_config(config)
     trainer.train()
@@ -789,30 +875,39 @@ def test_resume_training(config, tmp_path):
     OmegaConf.update(
         config_copy,
         "trainer_config.resume_ckpt_path",
-        f"{Path(trainer.config.trainer_config.save_ckpt_path).joinpath('best.ckpt')}",
+        f"{(Path(trainer.config.trainer_config.ckpt_dir) / trainer.config.trainer_config.run_name).joinpath('best.ckpt')}",
     )
     training_config = OmegaConf.load(
-        f"{trainer.config.trainer_config.save_ckpt_path}/training_config.yaml"
+        (
+            Path(trainer.config.trainer_config.ckpt_dir)
+            / trainer.config.trainer_config.run_name
+            / "training_config.yaml"
+        ).as_posix()
     )
     prv_runid = training_config.trainer_config.wandb.current_run_id
     OmegaConf.update(config_copy, "trainer_config.wandb.prv_runid", prv_runid)
     OmegaConf.update(config_copy, "data_config.data_pipeline_fw", "torch_dataset")
-    OmegaConf.update(
-        config_copy, "trainer_config.save_ckpt_path", f"{tmp_path}/test_resume_trainer"
-    )
+    OmegaConf.update(config_copy, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config_copy, "trainer_config.run_name", "test_resume_trainer")
     OmegaConf.update(config_copy, "trainer_config.save_ckpt", True)
     trainer = ModelTrainer.get_model_trainer_from_config(config_copy)
     trainer.train()
 
     checkpoint = torch.load(
-        Path(trainer.config.trainer_config.save_ckpt_path).joinpath("last.ckpt"),
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "last.ckpt",
         map_location="cpu",
         weights_only=False,
     )
     assert checkpoint["epoch"] == 3
 
     training_config = OmegaConf.load(
-        f"{trainer.config.trainer_config.save_ckpt_path}/training_config.yaml"
+        (
+            Path(trainer.config.trainer_config.ckpt_dir)
+            / trainer.config.trainer_config.run_name
+            / "training_config.yaml"
+        ).as_posix()
     )
     assert training_config.trainer_config.wandb.current_run_id == prv_runid
 
@@ -845,10 +940,9 @@ def test_early_stopping(config, tmp_path):
         config_early_stopping, "trainer_config.lr_scheduler", {"step_lr": None}
     )
     OmegaConf.update(
-        config_early_stopping,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_early_stopping/",
+        config_early_stopping, "trainer_config.run_name", "test_early_stopping"
     )
+    OmegaConf.update(config_early_stopping, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
         config_early_stopping, "data_config.data_pipeline_fw", "torch_dataset"
     )
@@ -857,7 +951,9 @@ def test_early_stopping(config, tmp_path):
     trainer.train()
 
     checkpoint = torch.load(
-        Path(trainer.config.trainer_config.save_ckpt_path).joinpath("best.ckpt"),
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "best.ckpt",
         map_location="cpu",
         weights_only=False,
     )
@@ -887,9 +983,10 @@ def test_reuse_cache_img_files(config, tmp_path: str):
 
     OmegaConf.update(
         centroid_config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer_reuse_imgs_cache/",
+        "trainer_config.run_name",
+        "test_model_trainer_reuse_imgs_cache",
     )
+    OmegaConf.update(centroid_config, "trainer_config.ckpt_dir", f"{tmp_path}")
 
     OmegaConf.update(centroid_config, "trainer_config.save_ckpt", True)
     OmegaConf.update(centroid_config, "trainer_config.use_wandb", False)
@@ -933,16 +1030,19 @@ def test_keep_viz_behavior(config, tmp_path, minimal_instance):
     OmegaConf.update(cfg_keep, "trainer_config.save_ckpt", True)
     OmegaConf.update(cfg_keep, "trainer_config.visualize_preds_during_training", True)
     OmegaConf.update(cfg_keep, "trainer_config.keep_viz", True)
-    OmegaConf.update(
-        cfg_keep, "trainer_config.save_ckpt_path", f"{tmp_path}/keep_viz_true"
-    )
+    OmegaConf.update(cfg_keep, "trainer_config.run_name", "test_keep_viz_true")
+    OmegaConf.update(cfg_keep, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(cfg_keep, "trainer_config.max_epochs", 1)
     labels = sio.load_slp(minimal_instance)
     trainer = ModelTrainer.get_model_trainer_from_config(
         cfg_keep, train_labels=[labels], val_labels=[labels]
     )
     trainer.train()
-    viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
+    viz_path = (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+    )
     assert viz_path.exists() and any(
         viz_path.glob("*.png")
     ), "viz folder should be kept when keep_viz=True"
@@ -952,16 +1052,19 @@ def test_keep_viz_behavior(config, tmp_path, minimal_instance):
     OmegaConf.update(cfg_del, "trainer_config.save_ckpt", True)
     OmegaConf.update(cfg_del, "trainer_config.visualize_preds_during_training", True)
     OmegaConf.update(cfg_del, "trainer_config.keep_viz", False)
-    OmegaConf.update(
-        cfg_del, "trainer_config.save_ckpt_path", f"{tmp_path}/keep_viz_false"
-    )
+    OmegaConf.update(cfg_del, "trainer_config.run_name", "test_keep_viz_false")
+    OmegaConf.update(cfg_del, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(cfg_del, "trainer_config.max_epochs", 1)
     labels = sio.load_slp(minimal_instance)
     trainer = ModelTrainer.get_model_trainer_from_config(
         cfg_del, train_labels=[labels], val_labels=[labels]
     )
     trainer.train()
-    viz_path = Path(trainer.config.trainer_config.save_ckpt_path) / "viz"
+    viz_path = (
+        Path(trainer.config.trainer_config.ckpt_dir)
+        / trainer.config.trainer_config.run_name
+        / "viz"
+    )
     assert not viz_path.exists(), "viz folder should be deleted when keep_viz=False"
 
 
@@ -1070,7 +1173,8 @@ def test_loading_pretrained_weights(
     sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
-    sleap_nn_config.trainer_config.save_ckpt_path = f"{tmp_path}/test_loading_weights"
+    sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
+    sleap_nn_config.trainer_config.run_name = "test_loading_weights"
 
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
@@ -1097,7 +1201,8 @@ def test_loading_pretrained_weights(
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
     sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
-    sleap_nn_config.trainer_config.save_ckpt_path = f"{tmp_path}/test_loading_weights"
+    sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
+    sleap_nn_config.trainer_config.run_name = "test_loading_weights"
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
         train_labels=[sio.load_slp(minimal_instance)],
@@ -1121,9 +1226,8 @@ def test_file_not_found_handling(config, tmp_path, caplog, minimal_instance):
     labels.videos[0].filename = "/nonexistent/path/video.mp4"
 
     OmegaConf.update(config, "trainer_config.max_epochs", 1)
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_missing_video/"
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_missing_video")
 
     with pytest.raises(FileNotFoundError):
         trainer = ModelTrainer.get_model_trainer_from_config(
@@ -1141,8 +1245,13 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
     config_duplicate_ckpt_path = config.copy()
     OmegaConf.update(
         config_duplicate_ckpt_path,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_saved_ckpt",
+        "trainer_config.ckpt_dir",
+        f"{tmp_path}",
+    )
+    OmegaConf.update(
+        config_duplicate_ckpt_path,
+        "trainer_config.run_name",
+        "test_saved_ckpt",
     )
     labels = sio.load_slp(minimal_instance)
     trainer = ModelTrainer.get_model_trainer_from_config(
@@ -1150,14 +1259,9 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
     )
 
     trainer.train()
-    assert Path(config_duplicate_ckpt_path.trainer_config.save_ckpt_path).exists()
-
-    trainer = ModelTrainer.get_model_trainer_from_config(
-        config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]
-    )
-    trainer.train()
-    assert Path(
-        f"{config_duplicate_ckpt_path.trainer_config.save_ckpt_path}-1"
+    assert (
+        Path(config_duplicate_ckpt_path.trainer_config.ckpt_dir)
+        / config_duplicate_ckpt_path.trainer_config.run_name
     ).exists()
 
     trainer = ModelTrainer.get_model_trainer_from_config(
@@ -1165,5 +1269,13 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
     )
     trainer.train()
     assert Path(
-        f"{config_duplicate_ckpt_path.trainer_config.save_ckpt_path}-2"
+        f"{config_duplicate_ckpt_path.trainer_config.ckpt_dir}/{config_duplicate_ckpt_path.trainer_config.run_name}-1"
+    ).exists()
+
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]
+    )
+    trainer.train()
+    assert Path(
+        f"{config_duplicate_ckpt_path.trainer_config.ckpt_dir}/{config_duplicate_ckpt_path.trainer_config.run_name}-2"
     ).exists()

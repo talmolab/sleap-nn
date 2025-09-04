@@ -96,7 +96,8 @@ trainer_config:
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: your_model_name
+  ckpt_dir: <ckpt_dir>
+  run_name: <run_name>
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
@@ -202,7 +203,7 @@ data_config:
 
 ### Data Pipeline Framework
 - `data_pipeline_fw`: (str) Framework to create the data loaders. One of [`torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`]. **Default**: `"torch_dataset"`. (Note: When using `torch_dataset`, `num_workers` in `trainer_config` should be set to 0 as multiprocessing doesn't work with pickling video backends.)
-- `cache_img_path`: (str) Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline framework. If `None`, the path provided in `trainer_config.save_ckpt` is used. The `train_imgs` and `val_imgs` dirs are created inside this path. **Default**: `None`
+- `cache_img_path`: (str) Path to save `.jpg` images created with `torch_dataset_cache_img_disk` data pipeline framework. If `None`, the path `<trainer_config.ckpt_dir>/<trainer_config.run_name>` is used. The `train_imgs` and `val_imgs` dirs are created inside this path. **Default**: `None`
 - `use_existing_imgs`: (bool) Use existing train and val images/ chunks in the `cache_img_path` for `torch_dataset_cache_img_disk` frameworks. If `True`, the `cache_img_path` should have `train_imgs` and `val_imgs` dirs. **Default**: `False`
 - `delete_cache_imgs_after_training`: (bool) If `False`, the images (torch_dataset_cache_img_disk) are retained after training. Else, the files are deleted. **Default**: `True`
 
@@ -710,7 +711,8 @@ trainer_config:
 - `seed`: (int) Seed value for the current experiment. **Default**: `0`
 - `use_wandb`: (bool) True to enable wandb logging. **Default**: `False`
 - `save_ckpt`: (bool) True to enable checkpointing. **Default**: `False`
-- `save_ckpt_path`: (str) Directory path to save the training config and checkpoint files. **Default**: `None`
+- `ckpt_dir`: (str) Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`
+- `run_name`: (str) Name of the current run. The ckpts will be created in `<ckpt_dir>/<run_name>`. If `None`, a run name is generated with `<timestamp>_<head_name>`. **Default**: `None`
 - `resume_ckpt_path`: (str) Path to `.ckpt` file from which training is resumed. **Default**: `None`
 
 ### Optimizer Configuration

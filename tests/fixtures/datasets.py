@@ -142,7 +142,8 @@ def config(sleap_nn_data_dir):
                 "keep_viz": True,
                 "use_wandb": False,
                 "save_ckpt": False,
-                "save_ckpt_path": "",
+                "ckpt_dir": ".",
+                "run_name": None,
                 "resume_ckpt_path": None,
                 "wandb": {
                     "entity": None,

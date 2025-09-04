@@ -288,9 +288,13 @@ class ModelTrainer:
 
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""
-        # if save_ckpt_path is None, assign a new dir name
-        ckpt_path = self.config.trainer_config.save_ckpt_path
-        if ckpt_path is None:
+        # if run_name is None, assign a new dir name
+        ckpt_dir = self.config.trainer_config.ckpt_dir
+        if ckpt_dir is None:
+            ckpt_dir = "."
+            self.config.trainer_config.ckpt_dir = ckpt_dir
+        run_name = self.config.trainer_config.run_name
+        if run_name is None:
             trainer_devices = (
                 self.config.trainer_config.trainer_devices
                 if self.config.trainer_config.trainer_devices is not None
@@ -306,30 +310,31 @@ class ModelTrainer:
                 else:
                     trainer_devices = 1
             if trainer_devices > 1:
-                ckpt_path = (
+                run_name = (
                     f"{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
                 )
             else:
-                ckpt_path = (
+                run_name = (
                     datetime.now().strftime("%y%m%d_%H%M%S")
                     + f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
                 )
 
         # If checkpoint path already exists, add suffix to prevent overwriting
-        if Path(ckpt_path).exists():
+        if (Path(ckpt_dir) / run_name).exists():
             for i in count(1):
-                new_ckpt_path = f"{ckpt_path}-{i}"
-                if not Path(new_ckpt_path).exists():
-                    ckpt_path = new_ckpt_path
+                new_run_name = f"{run_name}-{i}"
+                if not (Path(ckpt_dir) / new_run_name).exists():
+                    run_name = new_run_name
                     break
 
-        self.config.trainer_config.save_ckpt_path = ckpt_path
+        self.config.trainer_config.run_name = run_name
 
         # set output dir for cache img
         if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk":
             if self.config.data_config.cache_img_path is None:
-                self.config.data_config.cache_img_path = Path(
-                    self.config.trainer_config.save_ckpt_path
+                self.config.data_config.cache_img_path = (
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
                 )
 
     def _verify_model_input_channels(self):
@@ -501,7 +506,10 @@ class ModelTrainer:
 
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder."""
-        ckpt_path = self.config.trainer_config.save_ckpt_path
+        ckpt_path = (
+            Path(self.config.trainer_config.ckpt_dir)
+            / self.config.trainer_config.run_name
+        ).as_posix()
         logger.info(f"Setting up model ckpt dir: `{ckpt_path}`...")
 
         if not Path(ckpt_path).exists():
@@ -558,7 +566,8 @@ class ModelTrainer:
             base_cache_img_path = (
                 Path(self.config.data_config.cache_img_path)
                 if self.config.data_config.cache_img_path is not None
-                else Path(self.config.trainer_config.save_ckpt_path)
+                else Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
             )
 
             if self.config.data_config.cache_img_path is None:
@@ -582,7 +591,10 @@ class ModelTrainer:
             checkpoint_callback = ModelCheckpoint(
                 save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
                 save_last=self.config.trainer_config.model_ckpt.save_last,
-                dirpath=self.config.trainer_config.save_ckpt_path,
+                dirpath=(
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                ).as_posix(),
                 filename="best",
                 monitor="val_loss",
                 mode="min",
@@ -605,7 +617,8 @@ class ModelTrainer:
             ]:
                 csv_log_keys.extend(self.skeletons[0].node_names)
             csv_logger = CSVLoggerCallback(
-                filepath=Path(self.config.trainer_config.save_ckpt_path)
+                filepath=Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
                 / "training_log.csv",
                 keys=csv_log_keys,
             )
@@ -635,7 +648,10 @@ class ModelTrainer:
                 entity=wandb_config.entity,
                 project=wandb_config.project,
                 name=wandb_config.name,
-                save_dir=self.config.trainer_config.save_ckpt_path,
+                save_dir=(
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                ).as_posix(),
                 id=self.config.trainer_config.wandb.prv_runid,
                 group=self.config.trainer_config.wandb.group,
             )
@@ -661,7 +677,11 @@ class ModelTrainer:
             train_viz_pipeline = cycle(viz_train_dataset)
             val_viz_pipeline = cycle(viz_val_dataset)
 
-            viz_dir = Path(self.config.trainer_config.save_ckpt_path) / "viz"
+            viz_dir = (
+                Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
+                / "viz"
+            )
             if not Path(viz_dir).exists():
                 if RANK in [0, -1]:
                     Path(viz_dir).mkdir(parents=True, exist_ok=True)
@@ -871,7 +891,10 @@ class ModelTrainer:
         )
 
         if self.trainer.global_rank == 0:  # save config only in rank 0 process
-            ckpt_path = self.config.trainer_config.save_ckpt_path
+            ckpt_path = (
+                Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
+            ).as_posix()
             OmegaConf.save(
                 self._initial_config,
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
@@ -880,7 +903,10 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb:
                 if wandb.run is None:
                     wandb.init(
-                        dir=self.config.trainer_config.save_ckpt_path,
+                        dir=(
+                            Path(self.config.trainer_config.ckpt_dir)
+                            / self.config.trainer_config.run_name
+                        ).as_posix(),
                         project=self.config.trainer_config.wandb.project,
                         entity=self.config.trainer_config.wandb.entity,
                         name=self.config.trainer_config.wandb.name,
@@ -896,7 +922,8 @@ class ModelTrainer:
             OmegaConf.save(
                 self.config,
                 (
-                    Path(self.config.trainer_config.save_ckpt_path)
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
                     / "training_config.yaml"
                 ).as_posix(),
             )
@@ -941,7 +968,11 @@ class ModelTrainer:
                 and not self.config.trainer_config.keep_viz
             ):
                 if self.trainer.global_rank == 0:
-                    viz_dir = Path(self.config.trainer_config.save_ckpt_path) / "viz"
+                    viz_dir = (
+                        Path(self.config.trainer_config.ckpt_dir)
+                        / self.config.trainer_config.run_name
+                        / "viz"
+                    )
                     if viz_dir.exists():
                         logger.info(f"Deleting viz folder at {viz_dir}...")
                         shutil.rmtree(viz_dir, ignore_errors=True)

@@ -24,9 +24,8 @@ def test_bottomup_inference_model(
     train_config = OmegaConf.load(
         f"{minimal_instance_bottomup_ckpt}/training_config.yaml"
     )
-    OmegaConf.update(
-        train_config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
+    OmegaConf.update(train_config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(train_config, "trainer_config.run_name", "test_model_trainer")
     OmegaConf.update(
         train_config,
         "data_config.train_labels_path",
@@ -117,9 +116,8 @@ def test_multiclass_bottomup_inference_model(
     train_config = OmegaConf.load(
         f"{minimal_instance_multi_class_bottomup_ckpt}/training_config.yaml"
     )
-    OmegaConf.update(
-        train_config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_model_trainer/"
-    )
+    OmegaConf.update(train_config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(train_config, "trainer_config.run_name", "test_model_trainer")
     OmegaConf.update(
         train_config,
         "data_config.train_labels_path",

@@ -110,7 +110,8 @@ trainer_config:
   seed: 0
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path:
+  ckpt_dir:
+  run_name:
   resume_ckpt_path: null
   optimizer_name: Adam
   optimizer:

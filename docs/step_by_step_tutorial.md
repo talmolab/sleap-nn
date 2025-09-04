@@ -92,7 +92,8 @@ trainer_config:
   max_epochs: 200
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: your_model_name
+  ckpt_dir: <ckpt_dir>
+  run_name: <run_name>
   optimizer_name: Adam
   optimizer:
     lr: 0.0001
@@ -222,8 +223,8 @@ The `trainer_config` section controls the training process, including key hyperp
 
 - **Epochs and Checkpoints:**  
     - Set `max_epochs` to control how many epochs to train for.
-    - Use `save_ckpt_path` to specify where model checkpoints are saved. If not set, a default path will be created using a timestamp and model type.
-    - For multi-GPU training, always set a static `save_ckpt_path` so all workers write to the same location.
+    - Use `ckpt_dir` and `run_name` to specify where model checkpoints are saved. If not set, a default folder in the working dir will be created using a timestamp and model type.
+    - For multi-GPU training, always set a static `run_name` so all workers write to the same location.
 
 - **Device and Accelerator:**  
     - `trainer_accelerator` can be `"cpu"`, `"cuda"`, `"mps"`, or `"auto"`.  
@@ -258,7 +259,8 @@ trainer_config:
   max_epochs: 200
   use_wandb: false
   save_ckpt: true
-  save_ckpt_path: my_model_ckpt_dir
+  ckpt_dir: my_model_ckpt_dir
+  run_name: my_run_1
   optimizer_name: Adam
   optimizer:
     lr: 0.0001

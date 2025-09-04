@@ -110,7 +110,8 @@ def sample_cfg(minimal_instance, tmp_path):
                 "seed": 1000,
                 "use_wandb": False,
                 "save_ckpt": True,
-                "save_ckpt_path": (Path(tmp_path) / "test_cli_main").as_posix(),
+                "ckpt_dir": Path(tmp_path).as_posix(),
+                "run_name": "test_cli_main",
                 "resume_ckpt_path": None,
                 "wandb": {
                     "entity": None,
@@ -154,7 +155,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         head_configs="centered_instance",
         save_ckpt=True,
-        save_ckpt_path=(Path(tmp_path) / "test_train_method").as_posix(),
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_train_method",
         online_mining=True,
         min_train_steps_per_epoch=5,
     )
@@ -178,7 +180,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         head_configs="centered_instance",
         save_ckpt=True,
-        save_ckpt_path=(Path(tmp_path) / "test_train_method").as_posix(),
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_train_method",
         min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_train_method-1").exists()
@@ -205,7 +208,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         backbone_config="convnext",
         head_configs="centered_instance",
         save_ckpt=True,
-        save_ckpt_path=(Path(tmp_path) / "test_convnext").as_posix(),
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_convnext",
         min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_convnext").exists()
@@ -226,7 +230,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         backbone_config="swint",
         head_configs="centered_instance",
         save_ckpt=True,
-        save_ckpt_path=(Path(tmp_path) / "test_swint").as_posix(),
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_swint",
         min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_swint").exists()
@@ -247,7 +252,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         backbone_config="swint",
         head_configs="centered_instance",
         save_ckpt=True,
-        save_ckpt_path=(Path(tmp_path) / "test_swint").as_posix(),
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_swint",
         min_train_steps_per_epoch=1,
     )
     folder_created = (Path(tmp_path) / "test_swint-1").exists()
@@ -275,7 +281,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             intensity_aug="intensity",
             geometry_aug=["rotation", "scale"],
             save_ckpt=True,
-            save_ckpt_path=f"{tmp_path}/test_aug",
+            ckpt_dir=Path(tmp_path).as_posix(),
+            run_name="test_aug",
             min_train_steps_per_epoch=1,
         )
 
@@ -291,7 +298,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             intensity_aug="uniform_noise",
             geometry_aug="rotate",
             save_ckpt=True,
-            save_ckpt_path=f"{tmp_path}/test_aug",
+            ckpt_dir=Path(tmp_path).as_posix(),
+            run_name="test_aug",
             min_train_steps_per_epoch=1,
         )
 
@@ -306,7 +314,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         intensity_aug=["uniform_noise", "gaussian_noise", "contrast"],
         geometry_aug=["rotation", "scale"],
         save_ckpt=True,
-        save_ckpt_path=f"{tmp_path}/test_aug",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_aug",
         min_train_steps_per_epoch=1,
     )
 
@@ -328,7 +337,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         intensity_aug="brightness",
         geometry_aug=["translate", "erase_scale", "mixup"],
         save_ckpt=True,
-        save_ckpt_path=f"{tmp_path}/test_aug",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_aug",
         min_train_steps_per_epoch=1,
     )
 
@@ -355,7 +365,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         },
         geometry_aug={"rotation_max": 180.0, "rotation_min": -180.0, "affine_p": 1.0},
         save_ckpt=True,
-        save_ckpt_path=f"{tmp_path}/test_aug",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_aug",
         min_train_steps_per_epoch=1,
     )
 
@@ -375,7 +386,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             trainer_num_devices=1,
             head_configs="centroid",
             save_ckpt=True,
-            save_ckpt_path=f"{tmp_path}/test_aug",
+            ckpt_dir=Path(tmp_path).as_posix(),
+            run_name="test_aug",
             min_train_steps_per_epoch=1,
         )
 
@@ -402,7 +414,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         head_configs="centroid",
         save_ckpt=False,
-        save_ckpt_path=f"{tmp_path}/test_custom_backbone",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_custom_backbone",
         min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_custom_backbone/training_config.yaml")
@@ -419,7 +432,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             trainer_num_devices=1,
             head_configs="center",
             save_ckpt=True,
-            save_ckpt_path=f"{tmp_path}/test_aug",
+            ckpt_dir=Path(tmp_path).as_posix(),
+            run_name="test_aug",
             min_train_steps_per_epoch=1,
         )
 
@@ -443,7 +457,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             },
         },
         save_ckpt=False,
-        save_ckpt_path=f"{tmp_path}/test_centroid",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_centroid",
         min_train_steps_per_epoch=1,
     )
     config = OmegaConf.load(f"{tmp_path}/test_centroid/training_config.yaml")
@@ -458,7 +473,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     #     head_configs="single_instance",
     #     save_ckpt=True,
     #     trainer_num_devices=1,
-    #     save_ckpt_path=f"{tmp_path}/test_single_instabce",
+    #     ckpt_dir=Path(tmp_path).as_posix(),
+    #     run_name="test_single_instabce",
     #     lr_scheduler="reduce_lr_on_plateau",
     # )
     # config = OmegaConf.load(f"{tmp_path}/test_single_instabce/training_config.yaml")
@@ -473,7 +489,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         trainer_num_devices=1,
         head_configs="bottomup",
         save_ckpt=True,
-        save_ckpt_path=f"{tmp_path}/test_bottomup",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_bottomup",
         lr_scheduler="reduce_lr_on_plateau",
         min_train_steps_per_epoch=1,
     )
@@ -499,7 +516,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             }
         },
         save_ckpt=True,
-        save_ckpt_path=f"{tmp_path}/test_custom_head",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_custom_head",
         lr_scheduler="step_lr",
         min_train_steps_per_epoch=1,
     )
@@ -531,7 +549,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             }
         },
         save_ckpt=False,
-        save_ckpt_path=f"{tmp_path}/test_scheduler",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_scheduler",
         lr_scheduler={
             "step_lr": {"step_size": 10, "gamma": 0.1},
         },
@@ -553,7 +572,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             }
         },
         save_ckpt=False,
-        save_ckpt_path=f"{tmp_path}/test_reducelr_scheduler",
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_reducelr_scheduler",
         lr_scheduler={
             "reduce_lr_on_plateau": {
                 "threshold": 1e-5,
@@ -579,7 +599,8 @@ def test_train_method(minimal_instance, tmp_path: str):
             trainer_num_devices=1,
             head_configs="centered_instance",
             save_ckpt=False,
-            save_ckpt_path=f"{tmp_path}/test_invalid_sch",
+            ckpt_dir=Path(tmp_path).as_posix(),
+            run_name="test_invalid_sch",
             lr_scheduler="red_lr",
             min_train_steps_per_epoch=1,
         )
@@ -597,26 +618,35 @@ def test_main(sample_cfg):
         sample_cfg.trainer_config.trainer_accelerator = "auto"
     main(sample_cfg)
 
-    folder_created = Path(sample_cfg.trainer_config.save_ckpt_path).exists()
+    folder_created = (
+        Path(sample_cfg.trainer_config.ckpt_dir) / sample_cfg.trainer_config.run_name
+    ).exists()
     assert folder_created
     assert (
-        Path(sample_cfg.trainer_config.save_ckpt_path)
+        (Path(sample_cfg.trainer_config.ckpt_dir) / sample_cfg.trainer_config.run_name)
         .joinpath("training_config.yaml")
         .exists()
     )
-    assert Path(sample_cfg.trainer_config.save_ckpt_path).joinpath("best.ckpt").exists()
     assert (
-        Path(sample_cfg.trainer_config.save_ckpt_path)
+        (Path(sample_cfg.trainer_config.ckpt_dir) / sample_cfg.trainer_config.run_name)
+        .joinpath("best.ckpt")
+        .exists()
+    )
+    assert (
+        (Path(sample_cfg.trainer_config.ckpt_dir) / sample_cfg.trainer_config.run_name)
         .joinpath("pred_train_0.slp")
         .exists()
     )
     assert (
-        Path(sample_cfg.trainer_config.save_ckpt_path)
+        (Path(sample_cfg.trainer_config.ckpt_dir) / sample_cfg.trainer_config.run_name)
         .joinpath("pred_val_0.slp")
         .exists()
     )
     assert (
-        not Path(sample_cfg.trainer_config.save_ckpt_path)
+        not (
+            Path(sample_cfg.trainer_config.ckpt_dir)
+            / sample_cfg.trainer_config.run_name
+        )
         .joinpath("pred_test.slp")
         .exists()
     )
@@ -625,10 +655,14 @@ def test_main(sample_cfg):
     sample_cfg.data_config.test_file_path = sample_cfg.data_config.train_labels_path[0]
     main(sample_cfg)
 
-    folder_created = Path(f"{sample_cfg.trainer_config.save_ckpt_path}-1").exists()
+    folder_created = Path(
+        f"{sample_cfg.trainer_config.ckpt_dir}/{sample_cfg.trainer_config.run_name}-1"
+    ).exists()
     assert folder_created
     assert (
-        Path(f"{sample_cfg.trainer_config.save_ckpt_path}-1")
+        Path(
+            f"{sample_cfg.trainer_config.ckpt_dir}/{sample_cfg.trainer_config.run_name}-1"
+        )
         .joinpath("pred_test.slp")
         .exists()
     )

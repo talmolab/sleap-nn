@@ -209,7 +209,8 @@ def test_trainer_config(caplog):
     assert conf_structured.lr_scheduler is None
     assert conf_structured.early_stopping is None
     assert conf_structured.use_wandb is False
-    assert conf_structured.save_ckpt_path is None
+    assert conf_structured.ckpt_dir == "."
+    assert conf_structured.run_name is None
 
     # Test customization
     custom_conf = TrainerConfig(
