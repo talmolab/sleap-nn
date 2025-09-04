@@ -59,7 +59,7 @@ def test_single_instance_inference_model(
     find_peaks_layer = SingleInstanceInferenceModel(
         torch_model=torch_model.to("cpu"),
         output_stride=4,
-        peak_threshold=2.0,
+        peak_threshold=3.0,
         return_confmaps=False,
         input_scale=0.5,
     )
