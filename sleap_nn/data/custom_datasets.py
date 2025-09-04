@@ -814,7 +814,7 @@ class CenteredInstanceDataset(BaseDataset):
         )  # (n_samples=1, num_instances, num_nodes, 2)
 
         instances = torch.from_numpy(instances.astype("float32"))
-        image = torch.from_numpy(image)
+        image = torch.from_numpy(image.copy())
 
         num_instances, _ = instances.shape[1:3]
         orig_img_height, orig_img_width = image.shape[-2:]
@@ -1057,7 +1057,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         )  # (n_samples=1, num_instances, num_nodes, 2)
 
         instances = torch.from_numpy(instances.astype("float32"))
-        image = torch.from_numpy(image)
+        image = torch.from_numpy(image.copy())
 
         num_instances, _ = instances.shape[1:3]
         orig_img_height, orig_img_width = image.shape[-2:]

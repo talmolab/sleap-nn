@@ -89,7 +89,7 @@ def process_lf(
         )  # (n_samples, max_instances, num_nodes, 2)
 
     ex = {
-        "image": torch.from_numpy(image),
+        "image": torch.from_numpy(image.copy()),
         "instances": instances,
         "video_idx": torch.tensor(video_idx, dtype=torch.int32),
         "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
@@ -172,7 +172,7 @@ class VideoReader(Thread):
 
                 self.frame_buffer.put(
                     {
-                        "image": torch.from_numpy(img),
+                        "image": torch.from_numpy(img.copy()),
                         "frame_idx": torch.tensor(idx, dtype=torch.int32),
                         "video_idx": torch.tensor(0, dtype=torch.int32),
                         "orig_size": torch.Tensor(img.shape[-2:]),
@@ -286,7 +286,7 @@ class LabelsReader(Thread):
                 img = np.expand_dims(img, axis=0)  # (1, C, H, W)
 
                 sample = {
-                    "image": torch.from_numpy(img),
+                    "image": torch.from_numpy(img.copy()),
                     "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                     "video_idx": torch.tensor(
                         self.labels.videos.index(lf.video), dtype=torch.int32

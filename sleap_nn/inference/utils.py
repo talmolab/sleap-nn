@@ -2,6 +2,7 @@
 
 from omegaconf import OmegaConf
 import sleap_io as sio
+from sleap_io.io.skeleton import SkeletonYAMLDecoder
 import torch
 
 
@@ -18,17 +19,8 @@ def get_skeleton_from_config(skeleton_config: OmegaConf):
     """
     skeletons = []
     for skel_cfg in skeleton_config:
-
-        skel = sio.Skeleton(
-            nodes=[n["name"] for n in skel_cfg.nodes], name=skel_cfg.name
-        )
-        skel.add_edges(
-            [(e["source"]["name"], e["destination"]["name"]) for e in skel_cfg.edges]
-        )
-        if skel_cfg.symmetries:
-            for n1, n2 in skel_cfg.symmetries:
-                skel.add_symmetry(n1["name"], n2["name"])
-
+        skel = SkeletonYAMLDecoder().decode(dict(skel_cfg))
+        skel.name = skel_cfg.name
         skeletons.append(skel)
 
     return skeletons
