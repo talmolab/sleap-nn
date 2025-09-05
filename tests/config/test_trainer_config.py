@@ -282,7 +282,7 @@ def test_trainer_mapper():
     assert config.visualize_preds_during_training is True
 
     # Test for default values (unspecified by legacy config)
-    assert config.trainer_devices == "auto"
+    assert config.trainer_devices is None
     assert config.trainer_accelerator == "auto"
     assert config.enable_progress_bar is True
     assert config.min_train_steps_per_epoch == 200

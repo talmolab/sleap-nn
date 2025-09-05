@@ -696,7 +696,7 @@ trainer_config:
     - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. **Default**: `None`
 
 ### Hardware Configuration
-- `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. **Default**: `"auto"`
+- `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. If `None`, it's set to "auto". **Default**: `None`
 - `trainer_accelerator`: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to. **Default**: `"auto"`
 - `profiler`: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"]. **Default**: `None`
 - `trainer_strategy`: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. **Default**: `"auto"`

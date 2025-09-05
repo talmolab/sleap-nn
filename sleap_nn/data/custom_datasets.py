@@ -235,12 +235,6 @@ class BaseDataset(Dataset):
                     if img is not None:  # Memory cache
                         self.cache[key] = img
 
-        # Close videos after all processing is done
-        for label in self.labels:
-            for video in label.videos:
-                if video.is_open:
-                    video.close()
-
     def _get_video_idx(self, lf, labels_idx):
         """Return indsample of `lf.video` in `labels.videos`."""
         return self.labels[labels_idx].videos.index(lf.video)

@@ -156,7 +156,7 @@ trainer_config:
   ckpt_dir: models
   run_name: multi_gpu_training_1
   trainer_accelerator: "auto"
-  trainer_devices: "auto"
+  trainer_devices: "auto" # or null
   trainer_strategy: "auto"
 ```
 
