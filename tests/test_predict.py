@@ -590,7 +590,7 @@ def test_single_instance_predictor(
     preprocess_config = {
         "ensure_rgb": False,
         "ensure_grayscale": True,
-        "crop_hw": None,
+        "crop_size": None,
         "max_width": None,
         "max_height": None,
     }

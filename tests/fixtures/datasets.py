@@ -58,7 +58,7 @@ def config(sleap_nn_data_dir):
                     "max_width": None,
                     "max_height": None,
                     "scale": 1.0,
-                    "crop_hw": [160, 160],
+                    "crop_size": 160,
                     "min_crop_size": None,
                 },
                 "use_augmentations_train": True,
@@ -142,7 +142,8 @@ def config(sleap_nn_data_dir):
                 "keep_viz": True,
                 "use_wandb": False,
                 "save_ckpt": False,
-                "save_ckpt_path": "",
+                "ckpt_dir": ".",
+                "run_name": None,
                 "resume_ckpt_path": None,
                 "wandb": {
                     "entity": None,

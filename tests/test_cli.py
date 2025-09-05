@@ -29,7 +29,7 @@ def sample_config(tmp_path, minimal_instance):
                     "max_width": None,
                     "max_height": None,
                     "scale": 1.0,
-                    "crop_hw": [160, 160],
+                    "crop_size": 160,
                     "min_crop_size": None,
                 },
                 "use_augmentations_train": True,
@@ -104,7 +104,8 @@ def sample_config(tmp_path, minimal_instance):
                 "seed": 42,
                 "use_wandb": False,
                 "save_ckpt": True,
-                "save_ckpt_path": str(tmp_path / "test_ckpt"),
+                "ckpt_dir": str(tmp_path),
+                "run_name": "test_ckpt",
                 "resume_ckpt_path": None,
             },
         }
@@ -128,8 +129,13 @@ def test_train_command(sample_config, tmp_path):
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     print(result.stdout)
     print(result.stderr)
-    assert Path(f"{sample_config.trainer_config.save_ckpt_path}").exists()
-    assert Path(f"{sample_config.trainer_config.save_ckpt_path}/best.ckpt").exists()
+    assert (
+        Path(f"{sample_config.trainer_config.ckpt_dir}")
+        / sample_config.trainer_config.run_name
+    ).exists()
+    assert Path(
+        f"{sample_config.trainer_config.ckpt_dir}/{sample_config.trainer_config.run_name}/best.ckpt"
+    ).exists()
 
 
 def test_track_command(

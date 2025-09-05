@@ -153,7 +153,8 @@ sleap-nn train \
 To automatically configure the accelerator and number of devices, set:
 ```yaml
 trainer_config:
-  save_ckpt_path: multi_gpu_training
+  ckpt_dir: models
+  run_name: multi_gpu_training_1
   trainer_accelerator: "auto"
   trainer_devices: "auto"
   trainer_strategy: "auto"
@@ -162,7 +163,8 @@ trainer_config:
 To set the number of gpus to be used and the accelerator:
 ```yaml
 trainer_config:
-  save_ckpt_path: multi_gpu_training
+ckpt_dir: models
+  run_name: multi_gpu_training_1
   trainer_accelerator: "gpu"
   trainer_devices: 4
   trainer_strategy: "ddp"

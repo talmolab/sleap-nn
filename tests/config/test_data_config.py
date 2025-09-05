@@ -177,7 +177,7 @@ def test_data_mapper():
     assert config.preprocessing.max_height == 256
     assert config.preprocessing.max_width == 256
     assert config.preprocessing.scale == 0.5
-    assert config.preprocessing.crop_hw is None
+    assert config.preprocessing.crop_size is None
     assert config.preprocessing.min_crop_size == 100
 
     # Test augmentation config

@@ -36,6 +36,7 @@ def _():
     import matplotlib.pyplot as plt
     import seaborn as sns
     from torchvision import transforms
+    from pathlib import Path
 
     from omegaconf import OmegaConf
 
@@ -292,7 +293,7 @@ def _(get_trainer_config, model_type):
         learning_rate=1e-4,
         save_ckpt=True,
         max_epochs=10,
-        save_ckpt_path=f"{model_type.value}_training",
+        run_name=f"{model_type.value}_training",
         lr_scheduler="reduce_lr_on_plateau",
     )
     return (trainer_config,)
@@ -648,7 +649,12 @@ def _(
 
     pred_labels = run_inference(
         data_path=path_to_val_slp_file,
-        model_paths=[sleap_nn_cfg.trainer_config.save_ckpt_path],
+        model_paths=[
+            (
+                Path(sleap_nn_cfg.trainer_config.ckpt_dir)
+                / sleap_nn_cfg.trainer_config.run_name
+            ).as_posix()
+        ],
         output_path=f"predictions_{model_type.value}.slp",
     )
     return (pred_labels,)

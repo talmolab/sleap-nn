@@ -195,11 +195,14 @@ class ModelTrainer:
 
     def _setup_preprocessing_config(self):
         """Setup preprocessing config."""
-        # compute max_heigt, max_width, and crop_hw (if not provided in the config)
+        # compute max_heigt, max_width, and crop_size (if not provided in the config)
         max_height = self.config.data_config.preprocessing.max_height
         max_width = self.config.data_config.preprocessing.max_width
-        if self.model_type == "centered_instance":
-            crop_hw = self.config.data_config.preprocessing.crop_hw
+        if (
+            self.model_type == "centered_instance"
+            or self.model_type == "multi_class_topdown"
+        ):
+            crop_size = self.config.data_config.preprocessing.crop_size
 
         max_h, max_w = 0, 0
         max_crop_size = 0
@@ -214,11 +217,14 @@ class ModelTrainer:
                 if current_max_w > max_w:
                     max_w = current_max_w
 
-            if self.model_type == "centered_instance":
+            if (
+                self.model_type == "centered_instance"
+                or self.model_type == "multi_class_topdown"
+            ):
                 # compute crop size if not provided in config
-                if crop_hw is None:
+                if crop_size is None:
 
-                    crop_size = find_instance_crop_size(
+                    crop_sz = find_instance_crop_size(
                         labels=train_label,
                         maximum_stride=self.config.model_config.backbone_config[
                             f"{self.backbone_type}"
@@ -227,19 +233,19 @@ class ModelTrainer:
                         input_scaling=self.config.data_config.preprocessing.scale,
                     )
 
-                    if crop_size > max_crop_size:
-                        max_crop_size = crop_size
+                    if crop_sz > max_crop_size:
+                        max_crop_size = crop_sz
 
         # if preprocessing params were None, replace with computed params
         if max_height is None or max_width is None:
             self.config.data_config.preprocessing.max_height = max_h
             self.config.data_config.preprocessing.max_width = max_w
 
-        if self.model_type == "centered_instance" and crop_hw is None:
-            self.config.data_config.preprocessing.crop_hw = [
-                max_crop_size,
-                max_crop_size,
-            ]
+        if (
+            self.model_type == "centered_instance"
+            or self.model_type == "multi_class_topdown"
+        ) and crop_size is None:
+            self.config.data_config.preprocessing.crop_size = max_crop_size
 
     def _setup_head_config(self):
         """Setup node, edge and class names in head config."""
@@ -282,9 +288,13 @@ class ModelTrainer:
 
     def _setup_ckpt_path(self):
         """Setup checkpoint path."""
-        # if save_ckpt_path is None, assign a new dir name
-        ckpt_path = self.config.trainer_config.save_ckpt_path
-        if ckpt_path is None:
+        # if run_name is None, assign a new dir name
+        ckpt_dir = self.config.trainer_config.ckpt_dir
+        if ckpt_dir is None:
+            ckpt_dir = "."
+            self.config.trainer_config.ckpt_dir = ckpt_dir
+        run_name = self.config.trainer_config.run_name
+        if run_name is None:
             trainer_devices = (
                 self.config.trainer_config.trainer_devices
                 if self.config.trainer_config.trainer_devices is not None
@@ -300,30 +310,31 @@ class ModelTrainer:
                 else:
                     trainer_devices = 1
             if trainer_devices > 1:
-                ckpt_path = (
+                run_name = (
                     f"{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
                 )
             else:
-                ckpt_path = (
+                run_name = (
                     datetime.now().strftime("%y%m%d_%H%M%S")
                     + f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
                 )
 
         # If checkpoint path already exists, add suffix to prevent overwriting
-        if Path(ckpt_path).exists():
+        if (Path(ckpt_dir) / run_name).exists():
             for i in count(1):
-                new_ckpt_path = f"{ckpt_path}-{i}"
-                if not Path(new_ckpt_path).exists():
-                    ckpt_path = new_ckpt_path
+                new_run_name = f"{run_name}-{i}"
+                if not (Path(ckpt_dir) / new_run_name).exists():
+                    run_name = new_run_name
                     break
 
-        self.config.trainer_config.save_ckpt_path = ckpt_path
+        self.config.trainer_config.run_name = run_name
 
         # set output dir for cache img
         if self.config.data_config.data_pipeline_fw == "torch_dataset_cache_img_disk":
             if self.config.data_config.cache_img_path is None:
-                self.config.data_config.cache_img_path = Path(
-                    self.config.trainer_config.save_ckpt_path
+                self.config.data_config.cache_img_path = (
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
                 )
 
     def _verify_model_input_channels(self):
@@ -480,6 +491,13 @@ class ModelTrainer:
         # set output stride for backbone from head config and verify max stride
         self.config = check_output_strides(self.config)
 
+        # if trainer_devices is None, set it to "auto"
+        self.config.trainer_config.trainer_devices = (
+            "auto"
+            if self.config.trainer_config.trainer_devices is None
+            else self.config.trainer_config.trainer_devices
+        )
+
         # setup checkpoint path
         self._setup_ckpt_path()
 
@@ -488,7 +506,10 @@ class ModelTrainer:
 
     def _setup_model_ckpt_dir(self):
         """Create the model ckpt folder."""
-        ckpt_path = self.config.trainer_config.save_ckpt_path
+        ckpt_path = (
+            Path(self.config.trainer_config.ckpt_dir)
+            / self.config.trainer_config.run_name
+        ).as_posix()
         logger.info(f"Setting up model ckpt dir: `{ckpt_path}`...")
 
         if not Path(ckpt_path).exists():
@@ -545,7 +566,8 @@ class ModelTrainer:
             base_cache_img_path = (
                 Path(self.config.data_config.cache_img_path)
                 if self.config.data_config.cache_img_path is not None
-                else Path(self.config.trainer_config.save_ckpt_path)
+                else Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
             )
 
             if self.config.data_config.cache_img_path is None:
@@ -569,7 +591,10 @@ class ModelTrainer:
             checkpoint_callback = ModelCheckpoint(
                 save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
                 save_last=self.config.trainer_config.model_ckpt.save_last,
-                dirpath=self.config.trainer_config.save_ckpt_path,
+                dirpath=(
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                ).as_posix(),
                 filename="best",
                 monitor="val_loss",
                 mode="min",
@@ -592,7 +617,8 @@ class ModelTrainer:
             ]:
                 csv_log_keys.extend(self.skeletons[0].node_names)
             csv_logger = CSVLoggerCallback(
-                filepath=Path(self.config.trainer_config.save_ckpt_path)
+                filepath=Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
                 / "training_log.csv",
                 keys=csv_log_keys,
             )
@@ -622,7 +648,10 @@ class ModelTrainer:
                 entity=wandb_config.entity,
                 project=wandb_config.project,
                 name=wandb_config.name,
-                save_dir=self.config.trainer_config.save_ckpt_path,
+                save_dir=(
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                ).as_posix(),
                 id=self.config.trainer_config.wandb.prv_runid,
                 group=self.config.trainer_config.wandb.group,
             )
@@ -648,7 +677,11 @@ class ModelTrainer:
             train_viz_pipeline = cycle(viz_train_dataset)
             val_viz_pipeline = cycle(viz_val_dataset)
 
-            viz_dir = Path(self.config.trainer_config.save_ckpt_path) / "viz"
+            viz_dir = (
+                Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
+                / "viz"
+            )
             if not Path(viz_dir).exists():
                 if RANK in [0, -1]:
                     Path(viz_dir).mkdir(parents=True, exist_ok=True)
@@ -858,7 +891,10 @@ class ModelTrainer:
         )
 
         if self.trainer.global_rank == 0:  # save config only in rank 0 process
-            ckpt_path = self.config.trainer_config.save_ckpt_path
+            ckpt_path = (
+                Path(self.config.trainer_config.ckpt_dir)
+                / self.config.trainer_config.run_name
+            ).as_posix()
             OmegaConf.save(
                 self._initial_config,
                 (Path(ckpt_path) / "initial_config.yaml").as_posix(),
@@ -867,7 +903,10 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb:
                 if wandb.run is None:
                     wandb.init(
-                        dir=self.config.trainer_config.save_ckpt_path,
+                        dir=(
+                            Path(self.config.trainer_config.ckpt_dir)
+                            / self.config.trainer_config.run_name
+                        ).as_posix(),
                         project=self.config.trainer_config.wandb.project,
                         entity=self.config.trainer_config.wandb.entity,
                         name=self.config.trainer_config.wandb.name,
@@ -883,7 +922,8 @@ class ModelTrainer:
             OmegaConf.save(
                 self.config,
                 (
-                    Path(self.config.trainer_config.save_ckpt_path)
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
                     / "training_config.yaml"
                 ).as_posix(),
             )
@@ -928,7 +968,11 @@ class ModelTrainer:
                 and not self.config.trainer_config.keep_viz
             ):
                 if self.trainer.global_rank == 0:
-                    viz_dir = Path(self.config.trainer_config.save_ckpt_path) / "viz"
+                    viz_dir = (
+                        Path(self.config.trainer_config.ckpt_dir)
+                        / self.config.trainer_config.run_name
+                        / "viz"
+                    )
                     if viz_dir.exists():
                         logger.info(f"Deleting viz folder at {viz_dir}...")
                         shutil.rmtree(viz_dir, ignore_errors=True)

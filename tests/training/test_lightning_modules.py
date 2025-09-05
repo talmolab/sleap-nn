@@ -58,10 +58,9 @@ def test_topdown_centered_instance_model(
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         optimizer="AdamW",
     )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_topdown_centered_instance_model_1/",
+        config, "trainer_config.run_name", "test_topdown_centered_instance_model_1"
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
@@ -115,10 +114,9 @@ def test_topdown_centered_instance_model(
     model = LightningModel.get_lightning_model_from_config(
         config=model_trainer.config
     )  # passing model trainer config modifies the in_channels according to the pretrained model weights
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_topdown_centered_instance_model_2/",
+        config, "trainer_config.run_name", "test_topdown_centered_instance_model_2"
     )
     train_dataset, val_dataset = get_train_val_datasets(
         train_labels=model_trainer.train_labels,
@@ -162,9 +160,8 @@ def test_centroid_model(config, tmp_path: str):
         head_configs=config.model_config.head_configs,
     )
 
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_centroid_model_1/"
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_centroid_model_1")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
     train_dataset, val_dataset = get_train_val_datasets(
@@ -191,9 +188,8 @@ def test_centroid_model(config, tmp_path: str):
     # torch dataset
     model = LightningModel.get_lightning_model_from_config(config=config)
 
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_centroid_model_2/"
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_centroid_model_2")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
@@ -227,12 +223,8 @@ def test_single_instance_model(config, tmp_path: str):
     del config.model_config.head_configs.single_instance.confmaps.anchor_part
 
     OmegaConf.update(config, "model_config.init_weights", "xavier")
-
-    OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_single_instance_model_1/",
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_single_instance_model_1")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
     train_dataset, val_dataset = get_train_val_datasets(
@@ -278,11 +270,8 @@ def test_single_instance_model(config, tmp_path: str):
     assert abs(loss - mse_loss(preds, input_["confidence_maps"].squeeze(dim=1))) < 1e-3
 
     # torch dataset
-    OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_single_instance_model_2/",
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_single_instance_model_2")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
     train_dataset, val_dataset = get_train_val_datasets(
@@ -339,9 +328,8 @@ def test_bottomup_model(config, tmp_path: str):
     config.model_config.head_configs.bottomup["pafs"] = paf
     config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_bottomup_model_1/"
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_bottomup_model_1")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
     train_dataset, val_dataset = get_train_val_datasets(
@@ -380,9 +368,8 @@ def test_bottomup_model(config, tmp_path: str):
     config.model_config.head_configs.bottomup["pafs"] = paf
     config.model_config.head_configs.bottomup.confmaps.loss_weight = 1.0
 
-    OmegaConf.update(
-        config, "trainer_config.save_ckpt_path", f"{tmp_path}/test_bottomup_model_2/"
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_bottomup_model_2")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
     train_dataset, val_dataset = get_train_val_datasets(
@@ -434,10 +421,9 @@ def test_multi_class_bottomup_model(config, tmp_path: str, minimal_instance):
     config.model_config.head_configs.multi_class_bottomup["class_maps"] = class_maps
     config.model_config.head_configs.multi_class_bottomup.confmaps.loss_weight = 1.0
 
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_multi_class_bottomup_model_1/",
+        config, "trainer_config.run_name", "test_multi_class_bottomup_model_1"
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(
@@ -495,10 +481,11 @@ def test_mutli_class_topdown_centered(config, tmp_path: str, minimal_instance):
     )
 
     model = LightningModel.get_lightning_model_from_config(config=model_trainer.config)
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
         config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_topdown_centered_instance_multiclass_model_1/",
+        "trainer_config.run_name",
+        "test_topdown_centered_instance_multiclass_model_1",
     )
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
 
@@ -531,11 +518,8 @@ def test_incorrect_model_type(config, caplog, tmp_path: str):
 
     OmegaConf.update(config, "model_config.init_weights", "xavier")
 
-    OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_single_instance_model_1/",
-    )
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(config, "trainer_config.run_name", "test_single_instance_model_1")
     OmegaConf.update(config, "data_config.data_pipeline_fw", "torch_dataset")
     with pytest.raises(Exception):
         _ = LightningModel.get_lightning_model_from_config(config)
@@ -549,14 +533,13 @@ def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance
     else:
         OmegaConf.update(config, "trainer_config.trainer_accelerator", "cpu")
 
+    OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
-        config,
-        "trainer_config.save_ckpt_path",
-        f"{tmp_path}/test_model_trainer_load_trained_ckpts/",
+        config, "trainer_config.run_name", "test_model_trainer_load_trained_ckpts"
     )
     OmegaConf.update(config, "trainer_config.save_ckpt", True)
     OmegaConf.update(config, "trainer_config.use_wandb", True)
-    OmegaConf.update(config, "data_config.preprocessing.crop_hw", None)
+    OmegaConf.update(config, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config, "data_config.preprocessing.min_crop_size", 100)
     OmegaConf.update(
         config,

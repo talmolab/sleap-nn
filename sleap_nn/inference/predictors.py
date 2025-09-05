@@ -82,8 +82,8 @@ class Predictor(ABC):
             apply_pad_to_stride) should be applied on the frames read in the video reader.
             Default: True.
         preprocess_config: Preprocessing config with keys: [`scale`,
-            `ensure_rgb`, `ensure_grayscale`, `scale`, `max_height`, `max_width`, `crop_hw`]. Default: {"scale": 1.0,
-            "ensure_rgb": False, "ensure_grayscale": False, "max_height": None, "max_width": None, "crop_hw": None}
+            `ensure_rgb`, `ensure_grayscale`, `scale`, `max_height`, `max_width`, `crop_size`]. Default: {"scale": 1.0,
+            "ensure_rgb": False, "ensure_grayscale": False, "max_height": None, "max_width": None, "crop_size": None}
         pipeline: If provider is LabelsReader, pipeline is a `DataLoader` object. If provider
             is VideoReader, pipeline is an instance of `sleap_nn.data.providers.VideoReader`
             class. Default: None.
@@ -101,7 +101,7 @@ class Predictor(ABC):
         "scale": 1.0,
         "ensure_rgb": False,
         "ensure_grayscale": False,
-        "crop_hw": None,
+        "crop_size": None,
         "max_height": None,
         "max_width": None,
     }
@@ -608,7 +608,10 @@ class TopDownPredictor(Predictor):
         if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
-                crop_hw=self.preprocess_config.crop_hw,
+                crop_hw=(
+                    self.preprocess_config.crop_size,
+                    self.preprocess_config.crop_size,
+                ),
                 anchor_ind=anchor_ind,
                 return_crops=return_crops,
             )
@@ -629,7 +632,10 @@ class TopDownPredictor(Predictor):
                 max_instances=self.max_instances,
                 max_stride=max_stride,
                 input_scale=self.centroid_config.data_config.preprocessing.scale,
-                crop_hw=self.preprocess_config.crop_hw,
+                crop_hw=(
+                    self.preprocess_config.crop_size,
+                    self.preprocess_config.crop_size,
+                ),
                 use_gt_centroids=False,
             )
 
@@ -1013,10 +1019,10 @@ class TopDownPredictor(Predictor):
                 else preprocess_config["max_width"]
             )
 
-        preprocess_config["crop_hw"] = (
-            confmap_config.data_config.preprocessing.crop_hw
-            if preprocess_config["crop_hw"] is None and confmap_config is not None
-            else preprocess_config["crop_hw"]
+        preprocess_config["crop_size"] = (
+            confmap_config.data_config.preprocessing.crop_size
+            if preprocess_config["crop_size"] is None and confmap_config is not None
+            else preprocess_config["crop_size"]
         )
 
         # create an instance of TopDownPredictor class
@@ -2568,7 +2574,10 @@ class TopDownMultiClassPredictor(Predictor):
         if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
-                crop_hw=self.preprocess_config.crop_hw,
+                crop_hw=(
+                    self.preprocess_config.crop_size,
+                    self.preprocess_config.crop_size,
+                ),
                 anchor_ind=anchor_ind,
                 return_crops=return_crops,
             )
@@ -2589,7 +2598,10 @@ class TopDownMultiClassPredictor(Predictor):
                 max_instances=self.max_instances,
                 max_stride=max_stride,
                 input_scale=self.centroid_config.data_config.preprocessing.scale,
-                crop_hw=self.preprocess_config.crop_hw,
+                crop_hw=(
+                    self.preprocess_config.crop_size,
+                    self.preprocess_config.crop_size,
+                ),
                 use_gt_centroids=False,
             )
 
@@ -2992,10 +3004,10 @@ class TopDownMultiClassPredictor(Predictor):
                 else preprocess_config["max_width"]
             )
 
-        preprocess_config["crop_hw"] = (
-            confmap_config.data_config.preprocessing.crop_hw
-            if preprocess_config["crop_hw"] is None and confmap_config is not None
-            else preprocess_config["crop_hw"]
+        preprocess_config["crop_size"] = (
+            confmap_config.data_config.preprocessing.crop_size
+            if preprocess_config["crop_size"] is None and confmap_config is not None
+            else preprocess_config["crop_size"]
         )
 
         # create an instance of TopDownPredictor class

@@ -218,7 +218,8 @@ class TrainerConfig:
         seed: (int) Seed value for the current experiment. *Default*: `0`.
         use_wandb: (bool) True to enable wandb logging. *Default*: `False`.
         save_ckpt: (bool) True to enable checkpointing. *Default*: `False`.
-        save_ckpt_path: (str) Directory path to save the training config and checkpoint files. *Default*: `None`.
+        ckpt_dir: (str) Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`
+        run_name: (str) Name of the current run. The ckpts will be created in `<ckpt_dir>/<run_name>`. If `None`, a run name is generated with `<timestamp>_<head_name>`. *Default*: `None`.
         resume_ckpt_path: (str) Path to `.ckpt` file from which training is resumed. *Default*: `None`.
         wandb: (Only if use_wandb is True, else skip this)
         optimizer_name: (str) Optimizer to be used. One of ["Adam", "AdamW"]. *Default*: `"Adam"`.
@@ -231,7 +232,7 @@ class TrainerConfig:
     train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
     val_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
     model_ckpt: ModelCkptConfig = field(factory=ModelCkptConfig)
-    trainer_devices: Any = field(
+    trainer_devices: Optional[Any] = field(
         default="auto",
         validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val),
     )
@@ -247,7 +248,8 @@ class TrainerConfig:
     seed: int = 0
     use_wandb: bool = False
     save_ckpt: bool = False
-    save_ckpt_path: Optional[str] = None
+    ckpt_dir: str = "."
+    run_name: Optional[str] = None
     resume_ckpt_path: Optional[str] = None
     wandb: WandBConfig = field(factory=WandBConfig)
     optimizer_name: str = field(
@@ -274,6 +276,8 @@ class TrainerConfig:
     @staticmethod
     def validate_trainer_devices(value):
         """Validate the value of trainer_devices."""
+        if value is None:
+            return
         if isinstance(value, int) and value >= 0:
             return
         if isinstance(value, list) and all(
@@ -282,7 +286,7 @@ class TrainerConfig:
             return
         if isinstance(value, str) and value == "auto":
             return
-        message = "trainer_devices must be an integer >= 0, a list of integers >= 0, or the string 'auto'."
+        message = "trainer_devices must be an integer >= 0, or the string 'auto'."
         logger.error(message)
         raise ValueError(message)
 
@@ -390,9 +394,10 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         ]
 
     trainer_cfg_args["save_ckpt"] = True
-    trainer_cfg_args["save_ckpt_path"] = (
-        Path(legacy_config_outputs.get("runs_folder", ".")) / run_name
+    trainer_cfg_args["ckpt_dir"] = (
+        Path(legacy_config_outputs.get("runs_folder", "."))
     ).as_posix()
+    trainer_cfg_args["run_name"] = run_name
     trainer_cfg_args["resume_ckpt_path"] = resume_ckpt_path
 
     trainer_cfg_args["optimizer_name"] = re.sub(

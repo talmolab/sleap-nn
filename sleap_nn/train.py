@@ -44,14 +44,16 @@ def run_training(config: DictConfig):
             data_paths = {}
             for index, path in enumerate(trainer.config.data_config.train_labels_path):
                 logger.info(
-                    f"Training labels path for index {index}: {trainer.config.trainer_config.save_ckpt_path}"
+                    f"Training labels path for index {index}: {(Path(trainer.config.trainer_config.ckpt_dir) / trainer.config.trainer_config.run_name).as_posix()}"
                 )
                 data_paths[f"train_{index}"] = (
-                    Path(trainer.config.trainer_config.save_ckpt_path)
+                    Path(trainer.config.trainer_config.ckpt_dir)
+                    / trainer.config.trainer_config.run_name
                     / f"labels_train_gt_{index}.slp"
                 ).as_posix()
                 data_paths[f"val_{index}"] = (
-                    Path(trainer.config.trainer_config.save_ckpt_path)
+                    Path(trainer.config.trainer_config.ckpt_dir)
+                    / trainer.config.trainer_config.run_name
                     / f"labels_val_gt_{index}.slp"
                 ).as_posix()
 
@@ -66,11 +68,15 @@ def run_training(config: DictConfig):
 
                 pred_labels = predict(
                     data_path=path,
-                    model_paths=[trainer.config.trainer_config.save_ckpt_path],
+                    model_paths=[
+                        Path(trainer.config.trainer_config.ckpt_dir)
+                        / trainer.config.trainer_config.run_name
+                    ],
                     peak_threshold=0.2,
                     make_labels=True,
                     device=trainer.trainer.strategy.root_device,
-                    output_path=Path(trainer.config.trainer_config.save_ckpt_path)
+                    output_path=Path(trainer.config.trainer_config.ckpt_dir)
+                    / trainer.config.trainer_config.run_name
                     / f"pred_{d_name}.slp",
                     ensure_rgb=config.data_config.preprocessing.ensure_rgb,
                     ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -88,7 +94,8 @@ def run_training(config: DictConfig):
                 metrics = evaluator.evaluate()
                 np.savez(
                     (
-                        Path(trainer.config.trainer_config.save_ckpt_path)
+                        Path(trainer.config.trainer_config.ckpt_dir)
+                        / trainer.config.trainer_config.run_name
                         / f"{d_name}_pred_metrics.npz"
                     ).as_posix(),
                     **metrics,
@@ -117,7 +124,7 @@ def train(
     scale: float = 1.0,
     max_height: Optional[int] = None,
     max_width: Optional[int] = None,
-    crop_hw: Optional[Tuple[int, int]] = None,
+    crop_size: Optional[int] = None,
     min_crop_size: Optional[int] = 100,
     use_augmentations_train: bool = False,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
@@ -143,7 +150,8 @@ def train(
     seed: int = 0,
     use_wandb: bool = False,
     save_ckpt: bool = False,
-    save_ckpt_path: Optional[str] = None,
+    ckpt_dir: Optional[str] = None,
+    run_name: Optional[str] = None,
     resume_ckpt_path: Optional[str] = None,
     wandb_entity: Optional[str] = None,
     wandb_project: Optional[str] = None,
@@ -206,10 +214,10 @@ def train(
             original image size will be retained. Default: None.
         max_width: Maximum width the image should be padded to. If not provided, the
             original image size will be retained. Default: None.
-        crop_hw: Crop height and width of each instance (h, w) for centered-instance model.
+        crop_size: Crop size of each instance for centered-instance model.
             If `None`, this would be automatically computed based on the largest instance
             in the `sio.Labels` file. Default: None.
-        min_crop_size: Minimum crop size to be used if `crop_hw` is `None`. Default: 100.
+        min_crop_size: Minimum crop size to be used if `crop_size` is `None`. Default: 100.
         use_augmentations_train: True if the data augmentation should be applied to the
             training data, else False. Default: False.
         intensity_aug: One of ["uniform_noise", "gaussian_noise", "contrast", "brightness"]
@@ -309,9 +317,8 @@ def train(
         max_epochs: Maximum number of epochs to run. Default: 10.
         seed: Seed value for the current experiment. default: 0.
         save_ckpt: True to enable checkpointing. Default: False.
-        save_ckpt_path: Directory path to save the training config and checkpoint files.
-            If `None` and `save_ckpt` is `True`, then the current working dir is used as
-            the ckpt path. Default: None
+        ckpt_dir: Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`
+        run_name: Name of the current run. The ckpts will be created in `<ckpt_dir>/<run_name>`. If `None`, a run name is generated with `<timestamp>_<head_name>`. **Default**: `None`
         resume_ckpt_path: Path to `.ckpt` file from which training is resumed. Default: None.
         use_wandb: True to enable wandb logging. Default: False.
         wandb_entity: Entity of wandb project. Default: None.
@@ -380,7 +387,7 @@ def train(
         scale=scale,
         max_height=max_height,
         max_width=max_width,
-        crop_hw=crop_hw,
+        crop_size=crop_size,
         min_crop_size=min_crop_size,
         use_augmentations_train=use_augmentations_train,
         intensity_aug=intensity_aug,
@@ -412,7 +419,8 @@ def train(
         seed=seed,
         use_wandb=use_wandb,
         save_ckpt=save_ckpt,
-        save_ckpt_path=save_ckpt_path,
+        ckpt_dir=ckpt_dir,
+        run_name=run_name,
         resume_ckpt_path=resume_ckpt_path,
         wandb_entity=wandb_entity,
         wandb_project=wandb_project,
