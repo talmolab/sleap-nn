@@ -3337,7 +3337,7 @@
 </ul>
 <h3 id="hardware-configuration">Hardware Configuration<a class="headerlink" href="#hardware-configuration" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>trainer_devices</code>: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. <strong>Default</strong>: <code>"auto"</code></li>
+<li><code>trainer_devices</code>: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. If <code>None</code>, it's set to "auto". <strong>Default</strong>: <code>None</code></li>
 <li><code>trainer_accelerator</code>: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the <code>Trainer</code> to be connected to. <strong>Default</strong>: <code>"auto"</code></li>
 <li><code>profiler</code>: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"]. <strong>Default</strong>: <code>None</code></li>
 <li><code>trainer_strategy</code>: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by <code>lightning.Trainer</code>. <strong>Default</strong>: <code>"auto"</code></li>
