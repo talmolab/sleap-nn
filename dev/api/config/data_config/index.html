@@ -3462,13 +3462,13 @@ the parameters required to initialize the data config.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="sleap_nn.config.data_config.PreprocessingConfig.crop_hw">crop_hw</span></code></td>
+            <td><code><span title="sleap_nn.config.data_config.PreprocessingConfig.crop_size">crop_size</span></code></td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="typing.Tuple">Tuple</span>[<span title="int">int</span>, <span title="int">int</span>]]</code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="int">int</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If <code>None</code>, this would be automatically computed based on the largest instance in the <code>sio.Labels</code> file. <em>Default</em>: <code>None</code>.</p>
+                <p>(int) Crop size of each instance for centered-instance model. If <code>None</code>, this would be automatically computed based on the largest instance in the <code>sio.Labels</code> file. <em>Default</em>: <code>None</code>.</p>
               </div>
             </td>
           </tr>
@@ -3479,7 +3479,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(int) Minimum crop size to be used if <code>crop_hw</code> is <code>None</code>. <em>Default</em>: <code>100</code>.</p>
+                <p>(int) Minimum crop size to be used if <code>crop_size</code> is <code>None</code>. <em>Default</em>: <code>100</code>.</p>
               </div>
             </td>
           </tr>
@@ -3568,8 +3568,8 @@ the parameters required to initialize the data config.</p>
 </span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="sd">        max_height: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. *Default*: `None`.</span>
 </span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a><span class="sd">        max_width: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. *Default*: `None`.</span>
 </span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a><span class="sd">        scale: (float) Factor to resize the image dimensions by, specified as a float. *Default*: `1.0`.</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a><span class="sd">        crop_hw: (Tuple[int]) Crop height and width of each instance (h, w) for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. *Default*: `None`.</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a><span class="sd">        min_crop_size: (int) Minimum crop size to be used if `crop_hw` is `None`. *Default*: `100`.</span>
+</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a><span class="sd">        crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. *Default*: `None`.</span>
+</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a><span class="sd">        min_crop_size: (int) Minimum crop size to be used if `crop_size` is `None`. *Default*: `100`.</span>
 </span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>
 </span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>    <span class="n">ensure_rgb</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
@@ -3579,7 +3579,7 @@ the parameters required to initialize the data config.</p>
 </span><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a>    <span class="n">scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
 </span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a>        <span class="n">default</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">validator</span><span class="o">=</span><span class="k">lambda</span> <span class="n">instance</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="n">instance</span><span class="o">.</span><span class="n">validate_scale</span><span class="p">()</span>
 </span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a>    <span class="p">)</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>    <span class="n">crop_hw</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>    <span class="n">crop_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 </span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a>    <span class="n">min_crop_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="mi">100</span>  <span class="c1"># to help app work in case of error</span>
 </span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a>
 </span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">validate_scale</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
@@ -4110,7 +4110,7 @@ the parameters required to initialize the data config.</p>
 </span><span id="__span-0-273"><a id="__codelineno-0-273" name="__codelineno-0-273"></a>        <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 </span><span id="__span-0-274"><a id="__codelineno-0-274" name="__codelineno-0-274"></a>    <span class="p">):</span>
 </span><span id="__span-0-275"><a id="__codelineno-0-275" name="__codelineno-0-275"></a>        <span class="n">size</span> <span class="o">=</span> <span class="n">legacy_config_data</span><span class="p">[</span><span class="s2">&quot;instance_cropping&quot;</span><span class="p">][</span><span class="s2">&quot;crop_size&quot;</span><span class="p">]</span>
-</span><span id="__span-0-276"><a id="__codelineno-0-276" name="__codelineno-0-276"></a>        <span class="n">preprocessing_args</span><span class="p">[</span><span class="s2">&quot;crop_hw&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+</span><span id="__span-0-276"><a id="__codelineno-0-276" name="__codelineno-0-276"></a>        <span class="n">preprocessing_args</span><span class="p">[</span><span class="s2">&quot;crop_size&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">size</span>
 </span><span id="__span-0-277"><a id="__codelineno-0-277" name="__codelineno-0-277"></a>
 </span><span id="__span-0-278"><a id="__codelineno-0-278" name="__codelineno-0-278"></a>    <span class="c1"># augmentation</span>
 </span><span id="__span-0-279"><a id="__codelineno-0-279" name="__codelineno-0-279"></a>    <span class="k">if</span> <span class="p">(</span>
