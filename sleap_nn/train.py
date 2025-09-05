@@ -139,7 +139,7 @@ def train(
     num_workers: int = 0,
     ckpt_save_top_k: int = 1,
     ckpt_save_last: Optional[bool] = None,
-    trainer_num_devices: Union[str, int] = "auto",
+    trainer_num_devices: Optional[Union[str, int]] = None,
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = True,
     min_train_steps_per_epoch: int = 200,
@@ -300,7 +300,7 @@ def train(
             the checkpoint file. This allows accessing the latest checkpoint in a deterministic
             manner. Default: None.
         trainer_num_devices: Number of devices to train on (int), which devices to train
-            on (list or str), or "auto" to select automatically. Default: "auto".
+            on (list or str), or "auto" to select automatically. If `None`, it's set to "auto". Default: None.
         trainer_accelerator: One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".

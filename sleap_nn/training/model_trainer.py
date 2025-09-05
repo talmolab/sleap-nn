@@ -295,6 +295,8 @@ class ModelTrainer:
             self.config.trainer_config.ckpt_dir = ckpt_dir
         run_name = self.config.trainer_config.run_name
         if run_name is None:
+            sum_train_lfs = sum([len(train_label) for train_label in self.train_labels])
+            sum_val_lfs = sum([len(val_label) for val_label in self.val_labels])
             trainer_devices = (
                 self.config.trainer_config.trainer_devices
                 if self.config.trainer_config.trainer_devices is not None
@@ -310,13 +312,11 @@ class ModelTrainer:
                 else:
                     trainer_devices = 1
             if trainer_devices > 1:
-                run_name = (
-                    f"{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
-                )
+                run_name = f"{self.model_type}.n={sum_train_lfs+sum_val_lfs}"
             else:
                 run_name = (
                     datetime.now().strftime("%y%m%d_%H%M%S")
-                    + f".{self.model_type}.n={len(self.train_labels)+len(self.val_labels)}"
+                    + f".{self.model_type}.n={sum_train_lfs+sum_val_lfs}"
                 )
 
         # If checkpoint path already exists, add suffix to prevent overwriting

@@ -96,7 +96,7 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: false
-  trainer_devices: auto
+  trainer_devices:
   trainer_accelerator: auto
   profiler: null
   trainer_strategy: auto

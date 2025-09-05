@@ -1214,4 +1214,11 @@ def model_mapper(legacy_config: dict) -> ModelConfig:
 
     head_cfg = HeadConfig(**head_cfg_args)
 
-    return ModelConfig(backbone_config=backbone_cfg, head_configs=head_cfg)
+    trained_weights_path = legacy_config_model.get("base_checkpoint", None)
+
+    return ModelConfig(
+        backbone_config=backbone_cfg,
+        head_configs=head_cfg,
+        pretrained_backbone_weights=trained_weights_path,
+        pretrained_head_weights=trained_weights_path,
+    )
