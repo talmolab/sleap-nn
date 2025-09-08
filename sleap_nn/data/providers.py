@@ -239,9 +239,12 @@ class LabelsReader(Thread):
         elif self.only_suggested_frames:
             self.filtered_lfs = []
             for suggestion in self.labels.suggestions:
-                lf = self.labels.find(suggestion.video, suggestion.frame_idx)[0]
-                if lf is None or not lf.has_user_instances:
-                    self.filtered_lfs.append(lf)
+                lf = self.labels.find(suggestion.video, suggestion.frame_idx)
+                if len(lf) == 0 or not lf[0].has_user_instances:
+                    new_lf = sio.LabeledFrame(
+                        video=suggestion.video, frame_idx=suggestion.frame_idx
+                    )
+                    self.filtered_lfs.append(new_lf)
 
         else:
             self.filtered_lfs = [lf for lf in self.labels]
