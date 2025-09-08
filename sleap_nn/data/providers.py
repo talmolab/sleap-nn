@@ -241,7 +241,9 @@ class LabelsReader(Thread):
             for suggestion in self.labels.suggestions:
                 lf = self.labels.find(suggestion.video, suggestion.frame_idx)
                 if len(lf) == 0 or not lf[0].has_user_instances:
-                    new_lf = sio.LabeledFrame(video=suggestion.video, frame_idx=suggestion.frame_idx)
+                    new_lf = sio.LabeledFrame(
+                        video=suggestion.video, frame_idx=suggestion.frame_idx
+                    )
                     self.filtered_lfs.append(new_lf)
 
         else:
