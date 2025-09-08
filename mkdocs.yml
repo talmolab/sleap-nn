@@ -91,3 +91,29 @@ markdown_extensions:
   - pymdownx.tasklist:
       custom_checkbox: true
   - pymdownx.tilde
+
+extra:
+  version:
+    provider: mike
+
+  social:
+    - icon: fontawesome/brands/github 
+      link: https://github.com/talmolab
+    - icon: fontawesome/brands/x-twitter
+      link: https://twitter.com/talmop
+
+nav:
+  - Overview: index.md
+  - Installation: installation.md
+  - Tutorials:
+    - Example Notebooks: example_notebooks.md
+    - Step-by-Step Tutorial: step_by_step_tutorial.md
+  - How-to guides:
+    - Configuration Setup: config.md
+    - Training: training.md
+    - Inference & Tracking: inference.md
+  - Reference:
+    - Model Architectures: models.md
+    - Full API: reference/
+  - Changelog: changelog.md
+  - Releases: https://github.com/talmolab/sleap-nn/releases

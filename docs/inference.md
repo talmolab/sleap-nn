@@ -144,7 +144,7 @@ labels = run_inference(
 )
 ```
 
-For a detailed explanation of all available parameters for `run_inference`, see the API docs for [run_inference()](../api/inference/predictors/#sleap_nn.inference.predictors.run_inference).
+For a detailed explanation of all available parameters for `run_inference`, see the API docs for [run_inference()](../api/predict/#sleap_nn.predict.run_inference).
 
 ## Tracking
 
