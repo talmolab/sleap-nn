@@ -6,11 +6,25 @@ This document provides a detailed guide to all configuration options available f
 
 The config file has three main sections:
 
-1. **[`data_config`](#data-configuration-data_config)**: Creating a data pipeline  
-2. **[`model_config`](#model-configuration-model_config)**: Initialize the sleap-nn backbone and head models  
-3. **[`trainer_config`](#trainer-configuration-trainer_config)**: Hyperparameters required to train the model with Lightning
+1. **[`data_config`](#data-configuration-data_config)**: Controls data loading, dataset paths, preprocessing, and augmentation settings.
+2. **[`model_config`](#model-configuration-model_config)**: Defines the model architecture, including backbone and head layer options.
+3. **[`trainer_config`](#trainer-configuration-trainer_config)**: Sets training hyperparameters and experiment management options (e.g., logging, callbacks, hardware).
 
 ## Basic Configuration Structure
+
+### Commonly customized fields
+
+- **`data_config`**
+    - **`train_labels_path`**: Path(s) to your training label files.
+    - **`val_labels_path`**: Path(s) to your validation label files.
+    - **`augmentation_config`**: Controls data augmentation settings for training.
+
+- **`model_config`**
+    - **`head_configs`**: Defines the output heads (e.g., for confidence maps, part affinity fields, etc.).
+
+- **`trainer_config`**
+    - **`ckpt_dir`**: Directory where checkpoints and logs will be saved.
+    - **`run_name`**: Name for this training run (used for organizing outputs and logging). The checkpoints for a specific run would be saved in `<ckpt_dir>/<run_name>` folder.
 
 ### Sample configuration format
 
@@ -86,7 +100,7 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: false
-  trainer_devices: auto
+  trainer_devices:
   trainer_accelerator: auto
   enable_progress_bar: true
   min_train_steps_per_epoch: 200
@@ -172,8 +186,8 @@ The data configuration section controls how training and validation data is load
 
 ### Core Data Settings
 - `provider`: (str) Provider class to read the input sleap files. Only "LabelsReader" is currently supported for the training pipeline. **Default**: `"LabelsReader"`
-- `train_labels_path`: (list) List of paths to training data (`.slp` file(s)). **Default**: `[]`
-- `val_labels_path`: (list) List of paths to validation data (`.slp` file(s)). **Default**: `None`
+- `train_labels_path`: (list) List of paths to training data (`.slp` file(s)). We only support training with `.slp` or `.pkg.slp` files. **Default**: `[]`
+- `val_labels_path`: (list) List of paths to your validation data (`.slp` file(s)). If not specified, the validation set will be automatically created by sampling a fraction of the training data according to `validation_fraction`. **Default**: `None`. 
 - `validation_fraction`: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. **Default**: `0.1`
 - `test_file_path`: (str) Path to test dataset (`.slp` file or `.mp4` file). **Note**: This is used only with CLI to get evaluation on test set once training is completed. **Default**: `None`
 - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. **Default**: `True`
@@ -365,8 +379,8 @@ The model configuration section defines the neural network architecture, includi
 
 ### Model Initialization
 - `init_weights`: (str) Model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. **Default**: `"default"`
-- `pretrained_backbone_weights`: (str) Path of the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
-- `pretrained_head_weights`: (str) Path of the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
+- `pretrained_backbone_weights`: (str) Path to the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
+- `pretrained_head_weights`: (str) Path to the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
 
 ### Backbone Configuration
 **Note**: Configs should be provided only for the model to train and others should be `None`.
@@ -407,20 +421,20 @@ model_config:
 
 #### ConvNeXt Backbone
 - `backbone_config.convnext`:
-  - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. **Default**: `None`
-  - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
-    - `depths`: (List[int]) Number of layers in each block. **Default**: `[3, 3, 9, 3]`
-    - `channels`: (List[int]) Number of channels in each block. **Default**: `[96, 192, 384, 768]`
-  - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. **Default**: `"tiny"`
-  - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
-  - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. **Default**: `4`
-  - `stem_patch_stride`: (int) Convolutional stride in the stem layer. **Default**: `2`
-  - `in_channels`: (int) Number of input channels. **Default**: `1`
-  - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
-  - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
-  - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
-  - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
+    - `pre_trained_weights`: (str) Pretrained weights file name supported only for ConvNext backbones. For ConvNext, one of ["ConvNeXt_Base_Weights","ConvNeXt_Tiny_Weights", "ConvNeXt_Small_Weights", "ConvNeXt_Large_Weights"]. **Default**: `None`
+    - `arch`: (Default is `Tiny` architecture config. No need to provide if `model_type` is provided)
+      - `depths`: (List[int]) Number of layers in each block. **Default**: `[3, 3, 9, 3]`
+      - `channels`: (List[int]) Number of channels in each block. **Default**: `[96, 192, 384, 768]`
+    - `model_type`: (str) One of the ConvNext architecture types: ["tiny", "small", "base", "large"]. **Default**: `"tiny"`
+    - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all convnext architectures provided stem_stride is 2. **Default**: `32`
+    - `stem_patch_kernel`: (int) Size of the convolutional kernels in the stem layer. **Default**: `4`
+    - `stem_patch_stride`: (int) Convolutional stride in the stem layer. **Default**: `2`
+    - `in_channels`: (int) Number of input channels. **Default**: `1`
+    - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
+    - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
+    - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
+    - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
 
 **Example ConvNeXt configuration:**
 ```yaml
@@ -444,19 +458,19 @@ model_config:
 
 #### Swin Transformer Backbone
 - `backbone_config.swint`:
-  - `pre_trained_weights`: (str) Pretrained weights file name supported only for SwinT backbones. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]. **Default**: `None`
-  - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. **Default**: `"tiny"`
-  - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. **Default**: `None`
-  - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures provided stem_stride is 2. **Default**: `32`
-  - `patch_size`: (int) Patch size for the stem layer of SwinT. **Default**: `4`
-  - `stem_patch_stride`: (int) Stride for the patch. **Default**: `2`
-  - `window_size`: (int) Window size. **Default**: `7`
-  - `in_channels`: (int) Number of input channels. **Default**: `1`
-  - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
-  - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
-  - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
-  - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
-  - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
+    - `pre_trained_weights`: (str) Pretrained weights file name supported only for SwinT backbones. For SwinT, one of ["Swin_T_Weights", "Swin_S_Weights", "Swin_B_Weights"]. **Default**: `None`
+    - `model_type`: (str) One of the SwinT architecture types: ["tiny", "small", "base"]. **Default**: `"tiny"`
+    - `arch`: Dictionary of embed dimension, depths and number of heads in each layer. Default is "Tiny architecture". {'embed': 96, 'depths': [2,2,6,2], 'channels':[3, 6, 12, 24]}. **Default**: `None`
+    - `max_stride`: (int) Factor by which input image size is reduced through the layers. This is always `32` for all swint architectures provided stem_stride is 2. **Default**: `32`
+    - `patch_size`: (int) Patch size for the stem layer of SwinT. **Default**: `4`
+    - `stem_patch_stride`: (int) Stride for the patch. **Default**: `2`
+    - `window_size`: (int) Window size. **Default**: `7`
+    - `in_channels`: (int) Number of input channels. **Default**: `1`
+    - `kernel_size`: (int) Size of the convolutional kernels. **Default**: `3`
+    - `filters_rate`: (float) Factor to adjust the number of filters per block. **Default**: `2`
+    - `convs_per_block`: (int) Number of convolutional layers per block. **Default**: `2`
+    - `up_interpolate`: (bool) If True, use bilinear interpolation instead of transposed convolutions for upsampling. Interpolation is faster but transposed convolutions may be able to learn richer or more complex upsampling to recover details from higher scales. **Default**: `True`
+    - `output_stride`: (int) The stride of the output confidence maps relative to the input image. This is the reciprocal of the resolution, e.g., an output stride of 2 results in confidence maps that are 0.5x the size of the input. Increasing this value can considerably speed up model performance and decrease memory requirements, at the cost of decreased spatial resolution. Ideally, this should be minimum of the output strides of all head layers. **Default**: `1`
 
 **Example SwinT configuration:**
 ```yaml
@@ -814,20 +828,6 @@ trainer_config:
     group: null
 ```
 
-**Offline WandB logging:**
-```yaml
-trainer_config:
-  use_wandb: true
-  wandb:
-    entity: "your_username"
-    project: "sleap_nn_experiments"
-    name: "offline_experiment"
-    api_key: null
-    wandb_mode: "offline"
-    prv_runid: null
-    group: "experiment_group"
-```
-
 **Resume from previous run:**
 ```yaml
 trainer_config:
@@ -851,8 +851,8 @@ trainer_config:
 
 ### ZMQ Configuration
 - `zmq`:
-    - `publish_address`: (str) Specifies the address and port to which the training logs (loss values) should be sent to. **Default**: `None`
-    - `controller_address`: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI). **Default**: `None`
+    - `publish_address`: (str) The address (e.g., `tcp://127.0.0.1:9000`) where training logs (such as loss values) will be published in real time (used primarily with the SLEAP GUI). Set to `None` to disable log publishing. **Default**: `None`
+    - `controller_address`: (str) The address and port to listen for external stop/pause commands (used primarily with the SLEAP GUI). Set to `None` to disable remote control. **Default**: `None`
     - `controller_polling_timeout`: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. **Default**: `10`
 
 

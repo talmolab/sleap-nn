@@ -113,7 +113,8 @@ nav:
     - Training: training.md
     - Inference & Tracking: inference.md
   - Reference:
+    - Core Components: core_components.md
     - Model Architectures: models.md
-    - Full API: reference/
+    - Full API: api/
   - Changelog: changelog.md
   - Releases: https://github.com/talmolab/sleap-nn/releases

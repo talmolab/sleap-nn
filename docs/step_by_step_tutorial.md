@@ -412,10 +412,7 @@ ground_truth = sio.load_slp("ground_truth.slp")
 predictions = sio.load_slp("predictions.slp")
 
 # Create evaluator
-evaluator = Evaluator(
-    ground_truth=ground_truth,
-    predicted=predictions
-)
+evaluator = Evaluator(ground_truth, predictions)
 
 # Run evaluation
 metrics = evaluator.evaluate()
