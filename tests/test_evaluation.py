@@ -524,6 +524,18 @@ def test_evaluator_main(
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/metrics_test.npz").exists()
 
+    metrics = np.load(f"{tmp_path}/metrics_test.npz", allow_pickle=True)
+    assert "voc_metrics" in metrics
+    assert "mOKS" in metrics
+    assert "distance_metrics" in metrics
+    assert "pck_metrics" in metrics
+    assert "visibility_metrics" in metrics
+    voc_metrics = metrics["voc_metrics"].item()
+    assert "pck_voc.mAP" in voc_metrics
+    assert "pck_voc.mAR" in voc_metrics
+    assert "oks_voc.mAP" in voc_metrics
+    assert "oks_voc.mAR" in voc_metrics
+
 
 # def test_evaluator_logging_empty_frame_pairs(capsys, minimal_instance):
 #     """Test that the Evaluator logs an error when there are no matching frame pairs."""
