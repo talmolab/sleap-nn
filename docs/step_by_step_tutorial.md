@@ -4,7 +4,7 @@ This tutorial will walk you through the complete process of training a pose esti
 
 ## 📋 Prerequisites
 
-Before starting, make sure you have `SLEAP-NN` installed (Refer [`Installation docs`](installation.md))
+Before starting, make sure you have `sleap-nn` installed (Refer [`Installation docs`](installation.md))
 
 ---
 
@@ -120,7 +120,7 @@ Your config file has three main sections:
 ```yaml
 data_config:      # How to load and process your data
 model_config:     # What model architecture to use
-trainer_config:   # How to train the model
+trainer_config:   # How to train the model, setup hyparameters
 ```
 
 ### 1.3 Key Parameters to Modify
@@ -223,18 +223,13 @@ The `trainer_config` section controls the training process, including key hyperp
 
 - **Epochs and Checkpoints:**  
     - Set `max_epochs` to control how many epochs to train for.
-    - Use `ckpt_dir` and `run_name` to specify where model checkpoints are saved. If not set, a default folder in the working dir will be created using a timestamp and model type.
+    - Use `ckpt_dir` and `run_name` to specify where model checkpoints are saved. If both are `None`, a default folder will be created in the working directory using a timestamp and model type.
     - For multi-GPU training, always set a static `run_name` so all workers write to the same location.
 
 - **Device and Accelerator:**  
     - `trainer_accelerator` can be `"cpu"`, `"cuda"`, `"mps"`, or `"auto"`.  
             - `"auto"` lets Lightning choose the best device based on your hardware.
-    - `trainer_devices` can be set to specify the number of devices (e.g., GPUs) to use.
-
-- **Other Tips:**  
-    - Adjust `batch_size` and learning rate (`optimizer.lr`) as needed for your dataset and hardware.
-    - Enable `visualize_preds_during_training` to see predictions during training.
-    - Use `use_wandb: true` to log training metrics to Weights & Biases (optional).
+    - `trainer_devices` can be set to specify the number of devices (e.g., GPUs) to use. If `None`, the number of devices is inferred from the underlying hardware in the training workflow.  
 
 For a full list of options and explanations, see the [Config Reference](config.md#trainer-configuration-trainer_config).
 
@@ -288,7 +283,7 @@ Now that you have your configuration file, let's train your model! SLEAP-NN prov
 
 ### 2.1 Training with Command Line Interface (CLI)
 
-The CLI is perfect for quick training runs and automation:
+The CLI is perfect for quick training runs:
 
 ```bash
 sleap-nn train \
@@ -300,7 +295,7 @@ sleap-nn train \
 
 The Python API gives you more control and is great for custom training workflows:
 
-```python
+```python linenums="1"
 from omegaconf import OmegaConf
 from sleap_nn.training.model_trainer import ModelTrainer
 
@@ -316,7 +311,7 @@ trainer.train()
 
 If you want to use custom `sleap_io.Labels` objects,
 
-```python
+```python linenums="1"
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_io import Labels
 
@@ -339,7 +334,7 @@ trainer.train()
 
 After training, you'll find:
 ```
-my_model_ckpt_dir/
+my_model_ckpt_dir/my_run_1
 ├── best.ckpt                  # Best model weights
 ├── initial_config.yaml        # Initial training configuration
 ├── training_config.yaml       # Final training configuration
@@ -358,7 +353,7 @@ my_model_ckpt_dir/
 
 Now that you have a trained model, let's use it to make predictions on new data!
 
-### 3.1 Inference on Videos
+### 3.1 Inference
 
 ```bash
 # Basic inference on a slp file
@@ -428,21 +423,21 @@ print(f"Dist p90: {metrics['distance_metrics']['p90']:.3f}")
 import sleap_io as sio
 import matplotlib.pyplot as plt
 
-def plot_preds(gt_labels, lf_index, pred_labels):
+def plot_preds(gt_labels, pred_labels, lf_index):
     _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
 
     # Plot each frame
-    gt_lf = gt_labels[lf_index.value]
-    pred_lf = pred_labels[lf_index.value]
+    gt_lf = gt_labels[lf_index]
+    pred_lf = pred_labels[lf_index]
 
     # Ensure we're plotting keypoints for the same frame
     assert (
         gt_lf.frame_idx == pred_lf.frame_idx
-    ), f"Frame mismatch at {lf_index.value}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
+    ), f"Frame mismatch at {lf_index}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
 
     _ax.imshow(gt_lf.image, cmap="gray")
     _ax.set_title(
-        f"Frame {gt_lf.frame_idx} (lf idx: {lf_index.value})",
+        f"Frame {gt_lf.frame_idx} (lf idx: {lf_index})",
         fontsize=12,
         fontweight="bold",
     )

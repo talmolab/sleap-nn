@@ -3,6 +3,8 @@
 [![CI](https://github.com/talmolab/sleap-nn/actions/workflows/ci.yml/badge.svg)](https://github.com/talmolab/sleap-nn/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/talmolab/sleap-nn/branch/main/graph/badge.svg?token=Sj8kIFl3pi)](https://codecov.io/gh/talmolab/sleap-nn)
 [![Release](https://img.shields.io/github/v/release/talmolab/sleap-nn?label=Latest)](https://github.com/talmolab/sleap-nn/releases/)
+[![PyPI](https://img.shields.io/pypi/v/sleap-nn?label=PyPI)](https://pypi.org/project/sleap-nn)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/sleap-nn)
 
 Neural network backend for training and inference for animal pose estimation.
 
@@ -12,28 +14,41 @@ This is the deep learning engine that powers [SLEAP](https://sleap.ai) (Social L
 
 **📚 [Documentation](https://nn.sleap.ai)** - Comprehensive guides and API reference
 
-## Installation
+### Quick Start
 
-**Prerequisites: Python 3.11**
+Let's start SLEAPiNNg !!! 🐭🐭
 
-### From PyPI
+> For detailed information on setting up config, training/ inference workflows, please refer to our [docs](https://nn.sleap.ai).
 
-- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
-
+#### 1. Install uv
+Install [`uv`](https://github.com/astral-sh/uv) first - a fast Python package manager:
 ```bash
-pip install sleap-nn[torch-cuda118]
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+#### 2. Set Up Your Configuration
+
+Create a `config.yaml` file for your experiment.
+
+> Use a sample config from [`docs/sample_configs`](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
+
+#### 3. Train a model
+
+> Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
 ```bash
-pip install sleap-nn[torch-cuda128]
+uvx sleap-nn[torch-cpu] train --config-name config.yaml --config-dir /path/to/configs/ "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
-- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
-Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
+#### 4. Run inference on the trained model
+
+To run inference:
 ```bash
-pip install sleap-nn[torch-cpu]
+uvx sleap-nn[torch-cpu] track --data-path video.mp4 --model-paths model_ckpt_dir/
 ```
 
 
@@ -46,12 +61,20 @@ git clone https://github.com/talmolab/sleap-nn.git
 cd sleap-nn
 ```
 
-2. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
-   `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
+2. **Install [`uv`](https://github.com/astral-sh/uv)**
+Install [`uv`](https://github.com/astral-sh/uv) first - a fast Python package manager:
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+  
 
 3. **Install sleap-nn dependencies based on your platform**\
 
-   - Sync all dependencies based on your correct wheel using `uv sync`:
+   - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
       ```bash
@@ -83,30 +106,3 @@ cd sleap-nn
    uv run black --check sleap_nn tests
    uv run ruff check sleap_nn/
    ```
-
-## Quick Start
-
-Let's start SLEAPiNNg !!! 🐭🐭
-
-> For detailed information on setting up config, training/ inference workflows, please refer to our [docs](https://nn.sleap.ai).
-
-#### 1. Set Up Your Configuration
-
-Create a `config.yaml` file for your experiment.
-
-> Use a sample config from [`docs/sample_configs`](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
-
-#### 2. Train a model
-
-> Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
-
-```bash
-sleap-nn train --config-name config.yaml --config-dir configs/ "data_config.train_labels_path=[labels.pkg.slp]"
-```
-
-#### 3. Run inference on the trained model
-
-To run inference:
-```bash
-sleap-nn track --data-path video.mp4 --model-paths model_ckpt_dir/
-```
