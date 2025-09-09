@@ -38,13 +38,13 @@ We use `uvx` here which automatically installs sleap-nn from PyPI with all depen
 > **Quick Start Data:** Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
 ```bash
-uvx "sleap-nn[torch-cpu]" train --config-name config.yaml --config-dir configs/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
+uvx "sleap-nn[torch-cpu]" train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
 ```
 
 !!! tip "GPU Acceleration"
     For faster training, use `torch-cuda118` or `torch-cuda128` instead of `torch-cpu`:
     ```bash
-    uvx "sleap-nn[torch-cuda118]" train --config-name config.yaml --config-dir configs/
+    uvx "sleap-nn[torch-cuda118]" train --config-name config.yaml --config-dir /path/to/config_dir/
     ```
 
 
@@ -66,9 +66,9 @@ uvx "sleap-nn[torch-cpu]" track --data_path video.mp4 --model_paths model_ckpt_d
 - **[Installation Guide](installation.md)** - Complete installation instructions with different options (CPU, GPU, development)
 
 #### **How-to Guides**
-- **[Configuration Guide](config.md)** - Detailed explanation of all configuration parameters
-- **[Training Guide](training.md)** - Training workflows, and advanced usage
-- **[Inference Guide](inference.md)** - Running inference, tracking, and performance optimization
+- **[Configuration Guide](config.md)** - Detailed explanation of all configuration parameters and how to set up your config file for training
+- **[Training Guide](training.md)** - How to train models using the CLI or Python API and advanced training options
+- **[Inference Guide](inference.md)** - How to run inference and tracking with CLI/ APIs and evaluate the models
 
 #### **Tutorials**
 - **[Example Notebooks](example_notebooks.md)** - Interactive marimo-based tutorial notebooks

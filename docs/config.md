@@ -169,6 +169,10 @@ Refer to the sample configuration files [here](https://github.com/talmolab/sleap
 
 If you have a SLEAP (v1.4 or earlier) `config.json` file from a previous project, you can easily convert it to a SLEAP-NN-compatible YAML configuration using the following code snippet:
 
+!!! warning "Legacy Config Conversion Limitation"
+    **Only UNet backbones are supported when converting legacy SLEAP (≤1.4) `config.json` files.**  
+    See the [Model Architectures documentation](models.md) for a list of supported backbones in SLEAP-NN.
+
 ```python
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from omegaconf import OmegaConf

@@ -6,6 +6,14 @@ This tutorial will walk you through the complete process of training a pose esti
 
 Before starting, make sure you have `sleap-nn` installed (Refer [`Installation docs`](installation.md))
 
+!!! note "API-based Tutorial"
+
+    In this tutorial, we use the **Python API** for all steps, which is ideal for running in a notebook or Python script. The `uvx` workflow **will not work** with the API-based approach.  
+
+      - **Installation:** Make sure you have installed `sleap-nn` using either [pip](installation.md#installation-using-pip) or the [uv sync workflow](installation.md#installation-using-uv-sync).
+
+      - **Command Line Interface (CLI):** If you prefer using the CLI, or want to see all available CLI options, refer to the [Training Guide](training.md) and [Inference Guide](inference.md).
+
 ---
 
 ## 🚀 Step 1: Configuration Setup
@@ -84,7 +92,7 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: false
-  trainer_devices: auto
+  trainer_devices:
   trainer_accelerator: auto
   min_train_steps_per_epoch: 200
   visualize_preds_during_training: true
@@ -219,7 +227,7 @@ The `trainer_config` section controls the training process, including key hyperp
 
 - **Data Loader Workers (`num_workers`):**  
     - For the default data pipeline (`torch_dataset`), set `num_workers: 0` because `.slp` video objects cannot be pickled for multiprocessing.
-    - If you use a caching data pipeline (e.g., `torch_dataset_cache_img_memory` or `torch_dataset_cache_img_disk`), you can increase `num_workers` (>0) to speed up data loading.
+    - If you use a caching data pipeline (e.g., `torch_dataset_cache_img_memory` or `torch_dataset_cache_img_disk` for `data_config.data_pipeline_fw`), you can increase `num_workers` (>0) to speed up data loading.
 
 - **Epochs and Checkpoints:**  
     - Set `max_epochs` to control how many epochs to train for.
@@ -231,7 +239,7 @@ The `trainer_config` section controls the training process, including key hyperp
             - `"auto"` lets Lightning choose the best device based on your hardware.
     - `trainer_devices` can be set to specify the number of devices (e.g., GPUs) to use. If `None`, the number of devices is inferred from the underlying hardware in the training workflow.  
 
-For a full list of options and explanations, see the [Config Reference](config.md#trainer-configuration-trainer_config).
+For a full list of options and explanations for the `trainer_config` parameters, see the [Config Guide](config.md#trainer-configuration-trainer_config).
 
 ```yaml
 trainer_config:
@@ -246,7 +254,7 @@ trainer_config:
   model_ckpt:
     save_top_k: 1
     save_last: false
-  trainer_devices: auto
+  trainer_devices:
   trainer_accelerator: auto
   min_train_steps_per_epoch: 200
   visualize_preds_during_training: true
@@ -279,21 +287,9 @@ trainer_config:
 
 ## 🤖 Step 2: Training Your Model
 
-Now that you have your configuration file, let's train your model! SLEAP-NN provides two ways to train: command-line interface (CLI) and Python API.
+Now that you have your configuration file, let's train your model!
 
-### 2.1 Training with Command Line Interface (CLI)
-
-The CLI is perfect for quick training runs:
-
-```bash
-sleap-nn train \
-    --config-name my_config.yaml \
-    --config-dir /path/to/config/directory
-```
-
-### 2.2 Training with Python API
-
-The Python API gives you more control and is great for custom training workflows:
+### 2.1 Training with Python API
 
 ```python linenums="1"
 from omegaconf import OmegaConf
@@ -330,7 +326,10 @@ trainer = ModelTrainer.get_model_trainer_from_config(
 trainer.train()
 ```
 
-### 2.3 Training Output
+> For more details and advanced training options, see the [Training Guide](training.md).
+
+
+### 2.2 Training Output
 
 After training, you'll find:
 ```
@@ -355,28 +354,45 @@ Now that you have a trained model, let's use it to make predictions on new data!
 
 ### 3.1 Inference
 
-```bash
-# Basic inference on a slp file
-sleap-nn track \
-    --data_path test.slp \
-    --model_paths my_model \
-    --output_path my_predictions.slp
+To run inference on a `.slp` file, 
 
-# Inference on specific frames on a video
-sleap-nn track \
-    --data_path video.mp4 \
-    --frames "1-100" \
-    --model_paths my_model \
-    --output_path my_predictions.slp
+```python linenums="1"
+from sleap_nn.predict import run_inference
 
-# Inference on a video + tracking
-sleap-nn track \
-    --data_path video.mp4 \
-    --frames "1-100" \
-    --model_paths my_model \
-    --output_path my_predictions.slp \
-    --tracking
+pred_labels = run_inference(
+  data_path="test.slp",
+  model_paths=["/path/to/model/dir"],
+  output_path="preds.slp",
+)
 ```
+
+To run inference on a video on specific frames, 
+
+```python linenums="1"
+from sleap_nn.predict import run_inference
+
+pred_labels = run_inference(
+  data_path="test.mp4",
+  model_paths=["/path/to/model/dir"],
+  output_path="preds.slp",
+  frames=list(range(100)), # run on the first 100 frames
+)
+```
+
+To run inference on a video with tracking, 
+
+```python linenums="1"
+from sleap_nn.predict import run_inference
+
+pred_labels = run_inference(
+  data_path="test.mp4",
+  model_paths=["/path/to/model/dir"],
+  output_path="preds.slp",
+  tracking=True
+)
+```
+
+> For more details and advanced inference options, see the [Inference Guide](inference.md).
 
 ### 3.2 Inference Parameters
 

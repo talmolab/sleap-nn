@@ -9,13 +9,13 @@
     
     - If you're using the `uvx` workflow, you do **not** need to install anything; just run:
       
-          `uvx sleap-nn[torch-cpu] train`
+          `uvx sleap-nn[torch-cpu] train ...`
 
       (See [installation using uvx](installation.md#installation-using-uvx) for more details.)
     
     - If you are using `uv sync`, add `uv run` as a prefix to all CLI commands shown below, for example:
 
-          `uv run sleap-nn train`
+          `uv run sleap-nn train ...`
 
 This section explains how to train a model using an existing configuration file. If you need help creating or editing a config, see the [configuration guide](config.md). 
 
@@ -36,16 +36,16 @@ Override any configuration from command line:
 
 ```bash
 # Train on list of .slp files
-sleap-nn train --config-name config --config-dir path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
+sleap-nn train --config-name config --config-dir /path/to/config_dir/ "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
 
 # Change batch size
-sleap-nn train --config-name config --config-dir path/to/config_dir trainer_config.train_data_loader.batch_size=8 trainer_config.val_data_loader.batch_size=8 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train --config-name config --config-dir /path/to/config_dir/ trainer_config.train_data_loader.batch_size=8 trainer_config.val_data_loader.batch_size=8 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Set number of GPUs to be used
-sleap-nn train --config-name config --config-dir path/to/config_dir trainer_config.trainer_devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train --config-name config --config-dir /path/to/config_dir/ trainer_config.trainer_devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Change learning rate
-sleap-nn train --config-name config --config-dir path/to/config_dir trainer_config.optimizer.lr=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train --config-name config --config-dir /path/to/config_dir/ trainer_config.optimizer.lr=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
 !!! note
@@ -54,13 +54,13 @@ sleap-nn train --config-name config --config-dir path/to/config_dir trainer_conf
 ```bash
 # Train centroid model
 sleap-nn train \
-    --config-dir configs \
+    --config-dir /path/to/config_dir/ \
     --config-name centroid_unet \
     "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Train centered instance model
 sleap-nn train \
-    --config-dir configs \
+    --config-dir /path/to/config_dir/ \
     --config-name centered_instance_unet \ 
     "data_config.train_labels_path=[labels.pkg.slp]"
 ```  
@@ -176,7 +176,7 @@ To resume training from a previous checkpoint (restoring both model weights and 
 ```bash
 sleap-nn train \
     --config-name config \
-    --config-dir path/to/config_dir \ 
+    --config-dir /path/to/config_dir/ \ 
     trainer_config.resume_ckpt_path=/path/to/prv_trained/checkpoint.ckpt \
     "data_config.train_labels_path=[labels.pkg.slp]"
 ```

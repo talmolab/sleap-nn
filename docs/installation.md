@@ -27,19 +27,19 @@
 
 === "Windows/Linux (CUDA 11.8)"
     ```bash
-    uvx "sleap-nn[torch-cuda118]" train --config-name myconfig --config-dir configs/
+    uvx "sleap-nn[torch-cuda118]" train --config-name myconfig --config-dir /path/to/config_dir/
     uvx "sleap-nn[torch-cuda118]" track --data_path video.mp4 --model_paths models/
     ```
 
 === "Windows/Linux (CUDA 12.8)"
     ```bash
-    uvx "sleap-nn[torch-cuda128]" train --config-name myconfig --config-dir configs/
+    uvx "sleap-nn[torch-cuda128]" train --config-name myconfig --config-dir /path/to/config_dir/
     uvx "sleap-nn[torch-cuda128]" track --data_path video.mp4 --model_paths models/
     ```
 
 === "macOS/CPU Only"
     ```bash
-    uvx "sleap-nn[torch-cpu]" train --config-name myconfig --config-dir configs/
+    uvx "sleap-nn[torch-cpu]" train --config-name myconfig --config-dir /path/to/config_dir/
     uvx "sleap-nn[torch-cpu]" track --data_path video.mp4 --model_paths models/
     ```
 

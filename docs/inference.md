@@ -10,13 +10,13 @@ SLEAP-NN provides powerful inference capabilities for pose estimation with suppo
     
     - If you're using the `uvx` workflow, you do **not** need to install anything; just run:
       
-          `uvx sleap-nn[torch-cpu] track`
+          `uvx sleap-nn[torch-cpu] track ...`
 
       (See [installation using uvx](installation.md#installation-using-uvx) for more details.)
     
     - If you are using `uv sync`, add `uv run` as a prefix to all CLI commands shown below, for example:
 
-          `uv run sleap-nn track`
+          `uv run sleap-nn track ...`
 
 ## Run Inference with CLI
 
@@ -222,6 +222,8 @@ sleap-nn track \
 SLEAP-NN supporting running inference with models trained using the original SLEAP TensorFlow/Keras backend (sleap <= 1.4), **but only for UNet backbone models**.
 To run inference with legacy SLEAP models (trained with TensorFlow/Keras, sleap ≤ 1.4), simply use the same CLI or API workflows described above in the [With CLI](#with-cli) and [With API](#with-api) sections. Just provide the path to the directory containing both `best_model.h5` and `training_config.json` from your SLEAP training run as your `model_paths` argument. SLEAP-NN will automatically detect and load these legacy models for inference.
 
+!!! warning "Legacy support Limitation"
+    **Currently, only UNet backbone models are supported for inference when converting legacy SLEAP (≤1.4) models.**  
 
 ## Evaluation Metrics
 
