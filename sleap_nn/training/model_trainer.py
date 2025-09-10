@@ -388,12 +388,7 @@ class ModelTrainer:
             if self.config.model_config.pretrained_backbone_weights.endswith(".ckpt"):
                 pretrained_backbone_ckpt = torch.load(
                     self.config.model_config.pretrained_backbone_weights,
-                    map_location=(
-                        self.config.trainer_config.trainer_accelerator
-                        if self.config.trainer_config.trainer_accelerator is not None
-                        or self.config.trainer_config.trainer_accelerator != "auto"
-                        else "cpu"
-                    ),
+                    map_location="cpu",  # this will be loaded on cpu as it's just used to get the input channels
                     weights_only=False,
                 )
                 input_channels = list(pretrained_backbone_ckpt["state_dict"].values())[

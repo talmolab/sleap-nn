@@ -1,9 +1,10 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
 from kornia.geometry.transform import crop_and_resize
-from concurrent.futures import ThreadPoolExecutor
-import concurrent.futures
-import os
+
+# from concurrent.futures import ThreadPoolExecutor # TODO: implement parallel processing
+# import concurrent.futures
+# import os
 from itertools import cycle
 from pathlib import Path
 import torch.distributed as dist
@@ -193,47 +194,16 @@ class BaseDataset(Dataset):
 
     def _fill_cache(self):
         """Load all samples to cache."""
-
-        def process_sample(args):
-            labels_idx, lf_idx = args
+        # TODO: Implement parallel processing (using threads might cause error with MediaVideo backend)
+        for labels_idx, lf_idx in self.lf_idx_list:
             img = self.labels[labels_idx][lf_idx].image
             if img.shape[-1] == 1:
                 img = np.squeeze(img)
-
             if self.cache_img == "disk":
                 f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
                 Image.fromarray(img).save(f_name, format="JPEG")
-                return (
-                    labels_idx,
-                    lf_idx,
-                ), None  # Return key and None for disk cache
-
             if self.cache_img == "memory":
-                return (
-                    labels_idx,
-                    lf_idx,
-                ), img  # Return key and image for memory cache
-
-        # Use ThreadPoolExecutor for I/O-bound operations
-        max_workers = min(len(self.lf_idx_list), (os.cpu_count() or 4) * 4)
-
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all tasks
-            future_to_sample = {
-                executor.submit(process_sample, (labels_idx, lf_idx)): (
-                    labels_idx,
-                    lf_idx,
-                )
-                for labels_idx, lf_idx in self.lf_idx_list
-            }
-
-            # Collect results
-            for future in concurrent.futures.as_completed(future_to_sample):
-                result = future.result()
-                if result is not None:
-                    key, img = result
-                    if img is not None:  # Memory cache
-                        self.cache[key] = img
+                self.cache[(labels_idx, lf_idx)] = img
 
     def _get_video_idx(self, lf, labels_idx):
         """Return indsample of `lf.video` in `labels.videos`."""
@@ -2103,7 +2073,11 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
-        len_dataloader=(round(train_steps_per_epoch / trainer_devices)),
+        len_dataloader=(
+            max(1, round(train_steps_per_epoch / trainer_devices))
+            if trainer_devices > 1
+            else None
+        ),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
             if train_sampler is None
@@ -2137,7 +2111,7 @@ def get_train_val_dataloaders(
         shuffle=False if val_sampler is None else None,
         sampler=val_sampler,
         len_dataloader=(
-            round(val_steps_per_epoch / trainer_devices)
+            max(1, round(val_steps_per_epoch / trainer_devices))
             if trainer_devices > 1
             else None
         ),

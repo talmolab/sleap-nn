@@ -210,7 +210,11 @@ class LightningModel(L.LightningModule):
             if self.pretrained_backbone_weights.endswith(".ckpt"):
                 ckpt = torch.load(
                     self.pretrained_backbone_weights,
-                    map_location=self.trainer_accelerator,
+                    map_location=(
+                        self.trainer_accelerator
+                        if not self.trainer_accelerator == "gpu"
+                        else "cuda"
+                    ),
                     weights_only=False,
                 )
                 ckpt["state_dict"] = {
@@ -239,7 +243,11 @@ class LightningModel(L.LightningModule):
             if self.pretrained_head_weights.endswith(".ckpt"):
                 ckpt = torch.load(
                     self.pretrained_head_weights,
-                    map_location=self.trainer_accelerator,
+                    map_location=(
+                        self.trainer_accelerator
+                        if not self.trainer_accelerator == "gpu"
+                        else "cuda"
+                    ),
                     weights_only=False,
                 )
                 ckpt["state_dict"] = {
