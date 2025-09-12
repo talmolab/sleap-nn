@@ -2073,11 +2073,7 @@ def get_train_val_dataloaders(
     train_data_loader = InfiniteDataLoader(
         dataset=train_dataset,
         sampler=train_sampler,
-        len_dataloader=(
-            max(1, round(train_steps_per_epoch / trainer_devices))
-            if trainer_devices > 1
-            else None
-        ),
+        len_dataloader=max(1, round(train_steps_per_epoch / trainer_devices)),
         shuffle=(
             config.trainer_config.train_data_loader.shuffle
             if train_sampler is None
