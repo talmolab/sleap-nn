@@ -13,7 +13,7 @@ The models are stored in tests/assets/legacy_models/ and include:
 - Multiclass top-down models for multi-animal pose with identity tracking
 
 Each model directory contains:
-- best_model.h5: Trained Keras model weights
+- best_model.h5: Trained Keras model weights (only UNet backbone is supported)
 - training_config.json: Full configuration used for training
 - initial_config.json: Initial model architecture configuration
 - training_log.csv: Training metrics over epochs

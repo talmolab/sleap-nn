@@ -9,7 +9,7 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 
 2. **Install sleap-nn dependencies based on your platform**\
 
-   - Sync all dependencies based on your correct wheel using `uv sync`:
+   - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
      - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
       ```bash
@@ -27,9 +27,6 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
      ```bash
       uv sync --extra dev --extra torch-cpu
       ```
-
-   You can find the correct wheel for your system at:\
-   👉 [https://pytorch.org/get-started/locally](https://pytorch.org/get-started/locally)
 
 
 ## Code Style
@@ -108,22 +105,22 @@ cd sleap-nn
 
 2. Install `sleap-nn` with docs dependencies:
    ```bash
-   pip install -e ".[docs]"
+   uv sync --extra docs --extra dev --extra torch-cpu
    ```
 
 3. Build and tag a new documentation version:
    ```bash
-   mike deploy --update-aliases 0.1.4 latest
+   uv run mike deploy --update-aliases 0.1.4 latest
    ```
 
 4. Preview documentation locally:
    ```bash
-   mike serve
+   uv run mike serve
    ```
 
 5. Push a specific version manually:
    ```bash
-   mike deploy --push --update-aliases --allow-empty 0.1.4 latest
+   uv run mike deploy --push --update-aliases --allow-empty 0.1.4 latest
    ```
 
 The documentation is automatically deployed to https://nn.sleap.ai/ when changes are pushed to the main branch or when a new release is published.
@@ -132,7 +129,7 @@ The documentation is automatically deployed to https://nn.sleap.ai/ when changes
 
 1. Create a new branch for your feature or bugfix:
    ```bash
-   git checkout -b feature/your-feature-name
+   git checkout -b your-username/your-feature-name
    ```
 
 2. Make your changes and ensure tests pass

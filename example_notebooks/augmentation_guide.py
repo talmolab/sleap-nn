@@ -1,10 +1,10 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = [
 #     "kornia==0.8.1",
 #     "marimo",
 #     "matplotlib==3.9.4",
-#     "numpy==2.0.2",
+#     "numpy",
 #     "pillow==11.3.0",
 #     "seaborn==0.13.2",
 #     "torch==2.7.1",
@@ -14,11 +14,11 @@
 
 import marimo
 
-__generated_with = "0.14.16"
+__generated_with = "0.15.2"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Visualizing Data Augmentations with SLEAP-NN""")
     return
@@ -32,7 +32,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""Upload a sample image:""")
     return
@@ -66,6 +66,24 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""### Rotation""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### Scale""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### Translate""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### Erase""")
     return
 
 
@@ -126,12 +144,6 @@ def _(Image, K, file, io, mo, slider_rotation_angle, to_tensor, transforms):
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""### Scale""")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
     mo.md(
         r"""
     Scales the image without changing the output image size.
@@ -183,12 +195,6 @@ def _(Image, K, file, io, mo, slider_scale, to_tensor, transforms):
             mo.image(_aug_image_pil, width=400, height=250),
         ]
     )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""### Translate""")
     return
 
 
@@ -259,12 +265,6 @@ def _(
             mo.image(_aug_image_pil, width=400, height=250),
         ]
     )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""### Erase""")
     return
 
 
@@ -348,6 +348,24 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""### Uniform noise""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### Gaussian noise""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### Contrast""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""### Brightness""")
     return
 
 
@@ -506,12 +524,6 @@ def _(
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""### Gaussian noise""")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
     mo.md(
         r"""Adds pixel-wise gaussian noise with a specified mean and std to the image."""
     )
@@ -578,12 +590,6 @@ def _(
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""### Contrast""")
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
     mo.md(
         r"""
     Modify image contrast.
@@ -632,12 +638,6 @@ def _(Image, K, file, io, mo, slider_contrast, to_tensor, transforms):
             mo.image(_aug_image_pil, width=400, height=250),
         ]
     )
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""### Brightness""")
     return
 
 

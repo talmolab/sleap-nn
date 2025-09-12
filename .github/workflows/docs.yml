@@ -21,23 +21,24 @@ jobs:
       contents: write
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - name: Setup UV
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
 
-      - name: Install sleap-nn with docs dependencies
+      - name: Install dependencies
         run: |
-            pip install -e ".[docs]"
+          uv sync --extra dev --extra torch-cpu --extra docs
 
       - name: Print environment info
         run: |
-            which python
-            pip freeze
+          which python
+          uv pip list
+          uv pip freeze
 
       - name: Setup Git user
         run: |
@@ -49,11 +50,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-            mike deploy --update-aliases --allow-empty --push "${{ github.event.release.tag_name }}" latest
+            uv run mike deploy --update-aliases --allow-empty --push "${{ github.event.release.tag_name }}" latest
 
       - name: Build and upload docs (dev)
         if: ${{ github.event_name == 'push' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-            mike deploy --update-aliases --allow-empty --push dev
+            uv run mike deploy --update-aliases --allow-empty --push dev
