@@ -164,8 +164,8 @@ train(
 
 SLEAP-NN makes it easy to fine-tune or transfer-learn from existing models. To initialize your model with pre-trained weights, simply set the following options in your configuration:
 
-- `model_config.pretrained_backbone_weights`: Path to a checkpoint file (or `.h5` file path from SLEAP <=1.4) containing the backbone weights you want to load. This will initialize the backbone (e.g., UNet, Swin Transformer) with the specified weights.
-- `model_config.pretrained_head_weights`: Path to a checkpoint file (or `.h5` file from SLEAP ≤1.4) to initialize the model's head weights (e.g., for bottomup or topdown heads). The head and backbone weights are usually the same checkpoint, but you can specify a different file here if you want to use separate weights for the head (for example, when adapting a model to a new output head or architecture).
+- `model_config.pretrained_backbone_weights`: Path to a checkpoint file (or `.h5` file path from SLEAP <=1.4 - only UNet backbone is supported) containing the backbone weights you want to load. This will initialize the backbone (e.g., UNet, Swin Transformer) with the specified weights.
+- `model_config.pretrained_head_weights`: Path to a checkpoint file (or `.h5` file from SLEAP ≤1.4 - only UNet backbone is supported) to initialize the model's head weights (e.g., for bottomup or topdown heads). The head and backbone weights are usually the same checkpoint, but you can specify a different file here if you want to use separate weights for the head (for example, when adapting a model to a new output head or architecture).
 
 By specifying these options, your model will be initialized with the provided weights, allowing you to fine-tune on new data or adapt to a new task. You can use this for transfer learning from a model trained on a different dataset, or to continue training with a modified head or backbone.
 

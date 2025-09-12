@@ -236,9 +236,9 @@ def train(
                     }
         init_weight: model weights initialization method. "default" uses kaiming uniform
             initialization and "xavier" uses Xavier initialization method. Default: "default".
-        pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is
+        pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file with which the backbone is
             initialized. If `None`, random init is used. Default: None.
-        pretrained_head_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are
+        pretrained_head_weights: Path of the `ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file with which the head layers are
             initialized. If `None`, random init is used. Default: None.
         backbone_config: One of ["unet", "unet_medium_rf", "unet_large_rf", "convnext",
             "convnext_tiny", "convnext_small", "convnext_base", "convnext_large", "swint",

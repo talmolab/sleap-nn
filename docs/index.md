@@ -57,7 +57,7 @@ uvx "sleap-nn[torch-cpu]" track --data_path video.mp4 --model_paths model_ckpt_d
 ```
 
 !!! warning "Model Compatibility"
-    Make sure the model checkpoint directory contains both `best.ckpt` (or legacy sleap `best_model.h5`) and `training_config.yaml` (or legacy sleap `training_config.json`) files. The inference will fail without these files.
+    Make sure the model checkpoint directory contains both `best.ckpt` (or legacy sleap `best_model.h5` - only UNet backbone is supported) and `training_config.yaml` (or legacy sleap `training_config.json` - only UNet backbone is supported) files. The inference will fail without these files.
 
 ---
 

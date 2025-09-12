@@ -34,7 +34,7 @@ Ensure the working directory where you run `uv init` doesn't have an existing `p
 mkdir sleap_nn_notebooks
 cd sleap_nn_notebooks
 
-# initilaize uv
+# initialize uv
 uv init
 
 # Install marimo

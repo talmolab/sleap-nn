@@ -383,8 +383,8 @@ The model configuration section defines the neural network architecture, includi
 
 ### Model Initialization
 - `init_weights`: (str) Model weights initialization method. "default" uses kaiming uniform initialization and "xavier" uses Xavier initialization method. **Default**: `"default"`
-- `pretrained_backbone_weights`: (str) Path to the `ckpt` (or `.h5` file from SLEAP) file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
-- `pretrained_head_weights`: (str) Path to the `ckpt` (or `.h5` file from SLEAP) file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
+- `pretrained_backbone_weights`: (str) Path to the `ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file with which the backbone is initialized. If `None`, random init is used. **Default**: `None`
+- `pretrained_head_weights`: (str) Path to the `ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file with which the head layers are initialized. If `None`, random init is used. **Default**: `None`
 
 ### Backbone Configuration
 **Note**: Configs should be provided only for the model to train and others should be `None`.

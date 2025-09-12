@@ -95,8 +95,8 @@ class LightningModel(L.LightningModule):
             For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
             For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
             For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
-        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
-        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
         trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
@@ -442,8 +442,8 @@ class SingleInstanceLightningModule(LightningModel):
             For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
             For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
             For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
-        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
-        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
         trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
@@ -655,8 +655,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
             For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
             For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
-        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
-        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
         trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
@@ -869,8 +869,8 @@ class CentroidLightningModule(LightningModel):
             For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
             For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
             For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
-        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
-        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
         trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
@@ -1043,8 +1043,8 @@ class BottomUpLightningModule(LightningModel):
             For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
             For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
             For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
-        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
-        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
         trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
@@ -1317,8 +1317,8 @@ class BottomUpMultiClassLightningModule(LightningModel):
             For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
             For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
             For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
-        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
-        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
         trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
@@ -1566,8 +1566,8 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
             For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
             For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
-        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
-        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
         trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
