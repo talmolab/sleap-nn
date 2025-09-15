@@ -5,13 +5,14 @@
 #     "ipython==9.4.0",
 #     "kornia==0.8.1",
 #     "marimo",
-#     "matplotlib==3.9.4",
-#     "numpy==2.0.2",
+#     "matplotlib==3.10.6",
+#     "numpy==2.3.3",
 #     "omegaconf==2.3.0",
-#     "opencv-python==4.12.0.88",
+#     "opencv-python==4.11.0.86",
 #     "pillow==11.3.0",
 #     "seaborn==0.13.2",
-#     "sleap-io==0.4.1",
+#     "sleap-io>=0.5.3",
+#     "sleap-nn>=0.0.1",
 #     "torch==2.7.1",
 #     "torchvision==0.22.1",
 #     "zmq==0.0.0",
@@ -20,7 +21,7 @@
 
 import marimo
 
-__generated_with = "0.14.17"
+__generated_with = "0.15.3"
 app = marimo.App(width="medium")
 
 
@@ -37,6 +38,10 @@ def _():
     import seaborn as sns
     from torchvision import transforms
     from pathlib import Path
+    import imageio.v3 as iio
+
+    import matplotlib.animation as animation
+    import imageio
 
     from omegaconf import OmegaConf
 
@@ -70,6 +75,7 @@ def _():
         LightningModel,
         ModelTrainer,
         OmegaConf,
+        Path,
         TrainingJobConfig,
         cv2,
         get_data_config,
@@ -144,7 +150,10 @@ def _(mo):
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(
-        r"""If you already have `.slp` files to work with, provide the paths below."""
+        r"""
+    If you already have `.slp` files to work with, modify
+    the paths below.
+    """
     )
     return
 
@@ -158,7 +167,9 @@ def _():
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""#### Choose the model type you want to train!""")
+    mo.md(
+        r"""#### Choose the model type you want to train! (To start simple, you could choose single-instance)"""
+    )
     return
 
 
@@ -166,6 +177,7 @@ def _(mo):
 def _(mo):
     model_type = mo.ui.radio(
         options=["single_instance", "centroid", "centered_instance", "bottomup"],
+        value="single_instance",
     )
     model_type
     return (model_type,)
@@ -293,6 +305,7 @@ def _(get_trainer_config, model_type):
         learning_rate=1e-4,
         save_ckpt=True,
         max_epochs=10,
+        ckpt_dir=".",
         run_name=f"{model_type.value}_training",
         lr_scheduler="reduce_lr_on_plateau",
     )
@@ -635,6 +648,7 @@ def _(mo):
 
 @app.cell
 def _(
+    Path,
     mo,
     model_type,
     path_to_val_slp_file,
@@ -702,131 +716,138 @@ def _(mo):
 
 @app.cell(hide_code=True)
 def _(cv2, mo, np, plt, random):
-    import matplotlib.animation as animation
-    from pathlib import Path
-    import imageio
-
-    def plot_preds_gif(
-        gt_labels, pred_labels, num_frames=20, frame_duration=500, random_seed=42
+    def plot_preds_video(
+        gt_labels,
+        pred_labels,
+        num_frames=20,
+        frame_duration=500,  # ms per frame
+        random_seed=42,
+        output_path=None,
     ):
-        """Create a GIF animation comparing ground truth vs predictions over random frames."""
+        """Create an MP4 comparing ground truth vs predictions over random frames."""
+        assert len(pred_labels) == len(
+            gt_labels
+        ), "GT and predictions must be the same length."
 
-        # Set random seed for reproducible frame selection
+        # Don't sample more frames than available
+        num_frames = min(num_frames, len(pred_labels))
+        if num_frames == 0:
+            raise ValueError("No frames available to plot.")
+
         random.seed(random_seed)
+        selected_frames = random.sample(range(len(pred_labels)), num_frames)
 
-        # Randomly sample frames
-        selected_frames = random.sample(list(range(len(pred_labels))), num_frames)
+        frames_bgr = []
 
-        # Create frames for GIF
-        frames = []
+        for i in range(num_frames):
+            fig, ax = plt.subplots(1, 1, figsize=(8, 8), dpi=100)  # dpi sets pixel size
 
-        for frame_idx in range(num_frames):
-            # Create figure for this frame
-            fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-
-            # Get the labeled frame
-            lf_idx = selected_frames[frame_idx]
+            lf_idx = selected_frames[i]
             gt_lf = gt_labels[lf_idx]
             pred_lf = pred_labels[lf_idx]
 
-            # Ensure we're plotting keypoints for the same frame
+            # Sanity check: same underlying frame
             assert (
                 gt_lf.frame_idx == pred_lf.frame_idx
             ), f"Frame mismatch at {lf_idx}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
 
-            # Plot image
-            ax.imshow(gt_lf.image, cmap="gray")
+            # Background image
+            ax.imshow(
+                getattr(gt_lf, "image", None), cmap="gray", interpolation="nearest"
+            )
 
-            # Plot ground truth instances
-            for idx, instance in enumerate(gt_lf.instances):
-                if not instance.is_empty:
-                    gt_pts = instance.numpy()
+            # Ground-truth keypoints
+            for k, inst in enumerate(getattr(gt_lf, "instances", [])):
+                if not inst.is_empty:
+                    pts = inst.numpy()
                     ax.plot(
-                        gt_pts[:, 0],
-                        gt_pts[:, 1],
+                        pts[:, 0],
+                        pts[:, 1],
                         "go",
                         markersize=8,
                         alpha=0.8,
-                        label="Ground Truth" if idx == 0 else "",
+                        label="Ground Truth" if k == 0 else None,
                     )
 
-            # Plot predicted instances
-            for idx, instance in enumerate(pred_lf.instances):
-                if not instance.is_empty:
-                    pred_pts = instance.numpy()
+            # Predicted keypoints
+            for k, inst in enumerate(getattr(pred_lf, "instances", [])):
+                if not inst.is_empty:
+                    pts = inst.numpy()
                     ax.plot(
-                        pred_pts[:, 0],
-                        pred_pts[:, 1],
+                        pts[:, 0],
+                        pts[:, 1],
                         "rx",
                         markersize=8,
                         alpha=0.8,
-                        label="Predictions" if idx == 0 else "",
+                        label="Predictions" if k == 0 else None,
                     )
 
-            # Add legend
-            ax.legend(loc="upper right", fontsize=10)
-            ax.axis("off")
+            handles, labels = ax.get_legend_handles_labels()
+            if handles:
+                ax.legend(loc="upper right", fontsize=10)
 
-            # Add overall title
+            ax.axis("off")
             fig.suptitle(
-                f"Ground Truth vs Predictions Animation ({num_frames} frames, {frame_duration}ms per frame)",
+                f"Ground Truth vs Predictions ({num_frames} frames, {frame_duration} ms/frame)",
                 fontsize=10,
                 fontweight="bold",
             )
+            fig.tight_layout()
 
-            plt.tight_layout()
-
-            # Convert plot to image array
+            # --- Safe pixel grab on Agg: use buffer_rgba(), then drop alpha
             fig.canvas.draw()
-            img_array = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            img_array = img_array.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            w, h = fig.canvas.get_width_height()
+            buf = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)  # RGBA bytes
+            rgba = buf.reshape(h, w, 4)
+            img_rgb = rgba[..., :3]  # drop alpha
 
-            frames.append(img_array)
-            plt.close(fig)  # Close to free memory
+            # OpenCV expects BGR
+            frame_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+            frames_bgr.append(frame_bgr)
 
-        # Save as MP4 video
-        output_path = f"gt_vs_pred_animation_{random_seed}.mp4"
+            plt.close(fig)
 
-        # Get video dimensions from first frame
-        height, width = frames[0].shape[:2]
+        # Output path
+        if output_path is None:
+            output_path = f"gt_vs_pred_animation_{random_seed}.mp4"
 
-        # Create video writer
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        fps = 1000 / frame_duration  # Convert ms to fps
+        # Write MP4 (OpenCV wants (width, height))
+        height, width = frames_bgr[0].shape[:2]
+        fps = 1000.0 / frame_duration
+        fourcc = cv2.VideoWriter_fourcc(*"avc1")
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-        # Write frames to video
-        for frame in frames:
-            # Convert RGB to BGR (OpenCV expects BGR)
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            out.write(frame_bgr)
-
+        for f in frames_bgr:
+            if f.dtype != np.uint8:
+                f = f.astype(np.uint8)
+            if f.ndim != 3 or f.shape[2] != 3:
+                raise ValueError(f"Unexpected frame shape {f.shape}")
+            out.write(f)
         out.release()
 
+        total_secs = (num_frames * frame_duration) / 1000.0
         return mo.md(
             f"""
-        ## 🎬 Animation Created!
+    ## 🎬 Video Created!
 
-        **Frames:** {num_frames} randomly selected frames  
-        **Duration:** {frame_duration}ms per frame  
-        **Random Seed:** {random_seed}  
-        **Total Animation Time:** {(num_frames * frame_duration) / 1000:.1f} seconds
+    **Frames:** {num_frames} randomly selected  
+    **Duration:** {frame_duration} ms per frame  
+    **Random Seed:** {random_seed}  
+    **Total Time:** {total_secs:.1f} s
 
-        **File saved as:** `{output_path}`
-
-        You can now download and view the GIF file!
-        """
+    **Saved as:** `{output_path}`
+    """
         )
 
-    return (plot_preds_gif,)
+    return (plot_preds_video,)
 
 
 @app.cell(hide_code=True)
-def _(gt_labels, mo, plot_preds_gif, pred_labels):
+def _(gt_labels, mo, plot_preds_video, pred_labels):
     random_seed = 42
 
     # Create the animation
-    plot_preds_gif(
+    plot_preds_video(
         gt_labels,
         pred_labels,
         num_frames=20,
@@ -834,13 +855,27 @@ def _(gt_labels, mo, plot_preds_gif, pred_labels):
         random_seed=random_seed,
     )
 
-    mo.video(f"gt_vs_pred_animation_{random_seed}.mp4")
+    # mo.video(f"./gt_vs_pred_animation_{random_seed}.mp4",
+    #         autoplay=True,
+    #     loop=True,
+    #     controls=True,
+    #     muted=True,
+    #     width=800,
+    #         height=800)
+
+    mo.video(
+        f"gt_vs_pred_animation_{random_seed}.mp4",
+        autoplay=True,
+        loop=True,
+        controls=True,
+        muted=True,
+    )
     return
 
 
 @app.cell(hide_code=True)
-def _(mo):
-    lf_index = mo.ui.number(start=0, stop=100, label="LF index")
+def _(mo, pred_labels):
+    lf_index = mo.ui.number(start=0, stop=len(pred_labels) - 1, label="LF index")
     return (lf_index,)
 
 

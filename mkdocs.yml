@@ -105,14 +105,14 @@ extra:
 nav:
   - Overview: index.md
   - Installation: installation.md
-  - Tutorials:
-    - Example Notebooks: example_notebooks.md
-    - Step-by-Step Tutorial: step_by_step_tutorial.md
   - How-to guides:
     - Configuration Setup: config.md
     - Training: training.md
     - Inference & Tracking: inference.md
-  - Reference:
+  - Tutorials:
+    - Example Notebooks: example_notebooks.md
+    - Step-by-Step Tutorial: step_by_step_tutorial.md
+  - Additional Resources:
     - Core Components: core_components.md
     - Model Architectures: models.md
     - Full API: api/

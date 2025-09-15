@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides a detailed guide to all configuration options available for training and running inference with sleap-nn models.
+This page provides a detailed guide to all configuration options available for training with sleap-nn.
 
 The config file has three main sections:
 

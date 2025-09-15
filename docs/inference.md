@@ -5,7 +5,7 @@ SLEAP-NN provides powerful inference capabilities for pose estimation with suppo
 - **Videos**: Any format supported by OpenCV
 - **SLEAP Labels**: `.slp` files
 
-!!! note
+!!! info "Using uv workflow"
     This section assumes you have `sleap-nn` installed. If not, refer to the [installation guide](installation.md).
     
     - If you're using the `uvx` workflow, you do **not** need to install anything; just run:
@@ -43,18 +43,20 @@ sleap-nn track \
     --backbone_ckpt_path models/backbone.ckpt
 ```
 
-For two-stage models (topdown and multiclass topdown), both the centroid and centered-instance model ckpts should be provided as given below:
-```bash
-sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/centroid_unet/ \
-    --model_paths models/centered_instance_unet/
-```
+!!! info "Inference on TopDown models"
 
-!!! info
-    **_Note (for centroid-only inference)_**:  
+    For two-stage models (topdown and multiclass topdown), both the centroid and centered-instance model ckpts should be provided as given below:
+        ```bash
+        sleap-nn track \
+            --data_path video.mp4 \
+            --model_paths models/centroid_unet/ \
+            --model_paths models/centered_instance_unet/
+        ```
 
-    The centroid model is the first stage of the TopDown workflow and only predicts centers, not keypoints. In centroid-only inference, each predicted centroid is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display (thus, the pipeline always expects ground-truth pose data to be available when running inference on just the centroid model). As a result, an OKS mAP of 1.0 simply means all instances were detected—it does **not** measure pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) instead of centroid-only inference.
+!!! note "Centroid-only / Centered-instance-only inference"
+    You can run inference using only the centroid model or only the centered-instance model. However, both modes require ground-truth (GT) instances to be present in the `.slp` file, so this type of inference can only be performed on datasets that already have GT labels.
+    
+    **_Note_**: In centroid-only inference, each predicted centroid (single-keypoint) is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display (thus, the pipeline always expects ground-truth pose data to be available when running inference on just the centroid model). As a result, an OKS mAP of 1.0 for a centroid model simply means all instances were detected—it does **not** measure pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) instead of centroid-only inference.
 
 ### Arguments for CLI
 

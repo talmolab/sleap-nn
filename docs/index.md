@@ -23,9 +23,8 @@
 
 Let's start SLEAPiNNg !!! 🐭🐭
 
-> **Prerequisite:**  
-> 
-> Install [`uv`](https://github.com/astral-sh/uv), a fast Python package manager for modern projects. See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for instructions.
+!!! info "Prerequisite: uv installation"
+    Install [`uv`](https://github.com/astral-sh/uv), a fast Python package manager for modern projects. See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for instructions.
 
 ### Step - 1 : Set Up Your Configuration
 
@@ -44,7 +43,7 @@ uvx "sleap-nn[torch-cpu]" train --config-name config.yaml --config-dir /path/to/
 !!! tip "GPU Acceleration"
     For faster training, use `torch-cuda118` or `torch-cuda128` instead of `torch-cpu`:
     ```bash
-    uvx "sleap-nn[torch-cuda118]" train --config-name config.yaml --config-dir /path/to/config_dir/
+    uvx "sleap-nn[torch-cuda118]" train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]
     ```
 
 
@@ -56,8 +55,8 @@ To run inference:
 uvx "sleap-nn[torch-cpu]" track --data_path video.mp4 --model_paths model_ckpt_dir/
 ```
 
-!!! warning "Model Compatibility"
-    Make sure the model checkpoint directory contains both `best.ckpt` (or legacy sleap `best_model.h5` - only UNet backbone is supported) and `training_config.yaml` (or legacy sleap `training_config.json` - only UNet backbone is supported) files. The inference will fail without these files.
+!!! warning "Model Paths"
+    `--model-paths` should be set to `<config.trainer_config.config_dir>/<config.trainer_config.run_name>`. Make sure the model checkpoint directory contains both `best.ckpt` (or legacy sleap `best_model.h5` - only UNet backbone is supported) and `training_config.yaml` (or legacy sleap `training_config.json` - only UNet backbone is supported) files. The inference will fail without these files.
 
 ---
 

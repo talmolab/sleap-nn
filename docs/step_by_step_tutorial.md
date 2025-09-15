@@ -135,9 +135,9 @@ trainer_config:   # How to train the model, setup hyparameters
 
 #### **Data Configuration (`data_config`)**
 
-Set the `train_labels_path` to the path of your training `.slp` file, or a list of `.slp` files if you have multiple datasets. The `val_labels_path` is optional—if you leave it out, the training data will be automatically split into training and validation sets based on the `validation_fraction` parameter. 
-
 > Download sample [`train.pkg.slp`](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and [`val.pkg.slp`](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp).
+
+Set the `train_labels_path` to the path of your training `.slp` file, or a list of `.slp` files if you have multiple datasets. The `val_labels_path` is optional—if you leave it out, the training data will be automatically split into training and validation sets based on the `validation_fraction` parameter. 
 
 Choose the appropriate `data_pipeline_fw` based on your dataset size and hardware:
 

@@ -4,7 +4,7 @@
 #     "kornia==0.8.1",
 #     "marimo",
 #     "matplotlib==3.9.4",
-#     "numpy==2.0.2",
+#     "numpy",
 #     "omegaconf==2.3.0",
 #     "opencv-python==4.12.0.88",
 #     "pillow==11.3.0",
@@ -18,8 +18,25 @@
 
 import marimo
 
-__generated_with = "0.14.17"
+__generated_with = "0.15.3"
 app = marimo.App(width="medium")
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""# Receptive Field Guide""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    _**Note**_:
+    This notebook executes automatically; there is no need to run individual cells, as all interactions are managed through the provided UI elements (sliders, buttons, etc.). Just upload a sample image and click `"Start exploring receptive fields!"` button!
+    """
+    )
+    return
 
 
 @app.cell(hide_code=True)
@@ -40,11 +57,33 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     image = mo.ui.file(kind="area", label="Upload a sample training image")
     image
     return (image,)
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    run_rf = mo.ui.run_button(label="Start exploring receptive fields!")
+    run_rf
+    return (run_rf,)
+
+
+@app.cell(hide_code=True)
+def _(Image, image, io, mo, run_rf):
+    if not run_rf.value:
+        mo.stop("Click `Start exploring receptive fields!` to start.")
+
+    if image.value is not None:
+        src_image = Image.open(io.BytesIO(image.value[0].contents))
+
+    mo.vstack(
+        [mo.image(src_image, caption="Source image", width=400, height=250)],
+        align="center",
+    )
+    return (src_image,)
 
 
 @app.cell(hide_code=True)
@@ -302,10 +341,7 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(Image, image, io, max_stride, np, plot_receptive_field, scale):
-    if image.value is not None:
-        src_image = Image.open(io.BytesIO(image.value[0].contents))
-
+def _(max_stride, np, plot_receptive_field, scale, src_image):
     rf_size = plot_receptive_field(
         image=np.array(src_image),
         max_stride=max_stride.value,

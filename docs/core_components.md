@@ -1,5 +1,3 @@
-## 🛠️ Core Components
-
 SLEAP-NN provides a modular, PyTorch-based architecture:
 
 ### **Data Pipeline**
@@ -23,7 +21,7 @@ SLEAP-NN provides a modular, PyTorch-based architecture:
 
 > - **Supervised ID or Multi-Class**: Pose estimation + ID assignment for multi-instance scenarios
 
-> Explore detailed descriptions of all supported architectures in the [Model Types Guide](models.md).
+> Detailed descriptions of all supported architectures are provided in the [Model Types Guide](models.md).
 
 ### **Training Engine**
 

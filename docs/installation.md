@@ -49,14 +49,12 @@
     - **No Conflicts**: Won't interfere with your existing Python packages
     - **Uses recent pkgs**: Uses the latest version from PyPI
 
-!!! note "Performance Note"
-    `uvx` downloads packages each time, so it's slower than persistent installation. Use `pip` or `uv sync` for regular use.
+!!! note "uvx Installation"
+    Because `uvx` installs packages fresh on every run, it's ideal for quick tests or use in remote environments. For regular use, you could also install with `pip` or setting up a development environment with `uv sync` to avoid repeated downloads.
 
 ---
 
 ## Installation with pip
-
-For regular use, install sleap-nn permanently on your system.
 
 ### Platform-Specific Installation
 
@@ -97,14 +95,14 @@ For contributing to sleap-nn or development workflows.
 !!! info "uv sync"
     `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
 
-### 1. Clone the Repository
+#### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/talmolab/sleap-nn.git
 cd sleap-nn
 ```
 
-### 2. Install uv
+#### 2. Install uv
 
 === "macOS/Linux"
     ```bash
@@ -116,7 +114,7 @@ cd sleap-nn
     powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
     ```
 
-### 3. Install Dependencies
+#### 3. Install Dependencies
 
 === "Windows/Linux (CUDA 11.8)"
     ```bash
@@ -133,7 +131,7 @@ cd sleap-nn
     uv sync --extra dev --extra torch-cpu
     ```
 
-### 4. Verify Development Setup
+#### 4. Verify Development Setup
 
 ```bash
 # Run tests
@@ -142,6 +140,10 @@ uv run pytest tests
 # Check code formatting
 uv run black --check sleap_nn tests
 uv run ruff check sleap_nn/
+
+# Run CLI commands
+uv run sleap-nn train ...
+uv run sleap-nn track ...
 ```
 
 ---

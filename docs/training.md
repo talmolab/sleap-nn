@@ -4,7 +4,7 @@
 
   SLEAP-NN leverages a flexible, configuration-driven training workflow built on Hydra and OmegaConf. This guide will walk you through the essential steps for training pose estimation models using SLEAP-NN, whether you prefer the command-line interface or Python APIs. 
 
-!!! note
+!!! info "Using uv workflow"
     This section assumes you have `sleap-nn` installed. If not, refer to the [installation guide](installation.md).
     
     - If you're using the `uvx` workflow, you do **not** need to install anything; just run:
@@ -29,7 +29,7 @@ sleap-nn train --config-name config --config-dir /path/to/config_dir
 - `config-name`: Name of the config file
 - `config-dir`: Path to the config file
 
-If yor config file is in the path: `/path/to/config_dir/config.yaml`, then `config-name` would be `config.yaml` and `config-dir` would be `/path/to/config_dir`.
+If your config file is in the path: `/path/to/config_dir/config.yaml`, then `config-name` would be `config.yaml` and `config-dir` would be `/path/to/config_dir`.
 
 
 Override any configuration from command line:
@@ -48,22 +48,22 @@ sleap-nn train --config-name config --config-dir /path/to/config_dir/ trainer_co
 sleap-nn train --config-name config --config-dir /path/to/config_dir/ trainer_config.optimizer.lr=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
-!!! note
+!!! note "Training TopDown Model"
     For topdown, we need to train two models (centroid → instance). To know more about topdown models, refer [Model types](models.md/#-top-down)
 
-```bash
-# Train centroid model
-sleap-nn train \
-    --config-dir /path/to/config_dir/ \
-    --config-name centroid_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+    ```bash
+    # Train centroid model
+    sleap-nn train \
+        --config-dir /path/to/config_dir/ \
+        --config-name centroid_unet \
+        "data_config.train_labels_path=[labels.pkg.slp]"
 
-# Train centered instance model
-sleap-nn train \
-    --config-dir /path/to/config_dir/ \
-    --config-name centered_instance_unet \ 
-    "data_config.train_labels_path=[labels.pkg.slp]"
-```  
+    # Train centered instance model
+    sleap-nn train \
+        --config-dir /path/to/config_dir/ \
+        --config-name centered_instance_unet \ 
+        "data_config.train_labels_path=[labels.pkg.slp]"
+    ```  
 
 ### Using `ModelTrainer` API
 
@@ -155,8 +155,8 @@ train(
   - A CSV log tracking train/validation loss, times, and learning rate across epochs
 
 
-### Training Visualization
-  To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when `visualize_preds_during_training` is set to `True`. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting `trainer_config.keep_viz` to `True`. If WandB logging is enabled, these visualizations are also uploaded to your WandB dashboard.
+### Visualizing training performance
+  To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when `trainer_config.visualize_preds_during_training` is set to `True`. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting `trainer_config.keep_viz` to `True`. If WandB logging is enabled, these visualizations are also uploaded to your WandB dashboard.
 
 ## Advanced Options
 
@@ -203,9 +203,9 @@ ckpt_dir: models
   trainer_strategy: "ddp"
 ```
 
-!!! note
+!!! note "Training steps in multi-gpu setting"
     In a multi-gpu training setup, the effective steps during training would be `config.trainer_config.trainer_steps_per_epoch` / `config.trainer_config.trainer_devices`. 
-!!! note
+!!! note "Multi-node training"
     Multi-node trainings have not been validated and should be considered experimental.
 
 ## Best Practices
@@ -225,11 +225,12 @@ For large models or datasets:
 
 - Reduce `batch_size`
 - Reduce model size (fewer filters/layers)
+- Reduce number of workers
 
 ### Slow Training
 
+- Use caching methods (`data_config.data_pipeline_fw`)
 - Increase `num_workers` for data loading
-- Use SSD for data storage
 - Check GPU utilization
 
 ### Poor Performance
