@@ -9,7 +9,7 @@ from sleap_nn.evaluation import (
     compute_instance_area,
     compute_oks,
 )
-from sleap_nn.evaluation import Evaluator, main
+from sleap_nn.evaluation import Evaluator
 from loguru import logger
 import sys
 

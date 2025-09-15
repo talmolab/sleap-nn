@@ -1046,9 +1046,8 @@ def test_predict_main(
     cmd = [
         "uv",
         "run",
-        "python",
-        "-m",
-        "sleap_nn.predict",
+        "sleap-nn",
+        "track",
         "--model_paths",
         minimal_instance_centroid_ckpt,
         "--model_paths",
