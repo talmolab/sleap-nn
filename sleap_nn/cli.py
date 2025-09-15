@@ -420,7 +420,7 @@ def track(**kwargs):
 )
 @click.option("--oks_scale", type=float, help="Scale factor for OKS calculation")
 @click.option(
-    "--match_threshold", type=float, default=0.5, help="Threshold for instance matching"
+    "--match_threshold", type=float, default=0.0, help="Threshold for instance matching"
 )
 @click.option(
     "--user_labels_only", is_flag=True, help="Only evaluate user-labeled frames"

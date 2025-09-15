@@ -26,6 +26,14 @@ sleap-nn track \
     --model_paths models/ckpt_folder/
 ```
 
+To run inference on a specific cuda device (say cuda:0 - first gpu),
+```bash
+sleap-nn track \
+    --data_path video.mp4 \
+    --model_paths models/ckpt_folder/
+    --device cuda:0
+```
+
 To run inference on video files with specific frames
 ```bash
 sleap-nn track \
@@ -64,11 +72,13 @@ sleap-nn track \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--data_path` | Path to `.slp` file or `.mp4` to run inference on | Required |
-| `--model_paths` | List of paths to the directory where the best.ckpt and training_config.yaml are saved | Required |
-| `--output_path` | The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp' | `[input].slp` |
-| `--device` | Device on which torch.Tensor will be allocated. One of ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen) | `auto` |
-| `--batch_size` | Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory | `4` |
+| `--data_path` / `-i` | Path to `.slp` file or `.mp4` to run inference on | Required |
+| `--model_paths` / `-m` | List of paths to the directory where the best.ckpt and training_config.yaml are saved | Required |
+| `--output_path` / `-o` | The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp' | `<data_path>.predictions.slp` |
+| `--device` / `-d` | Device on which torch.Tensor will be allocated. One of ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen) | `auto` |
+| `--batch_size` / `-b` | Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory | `4` |
+| `--max_instances` / `-n` | Limit maximum number of instances in multi-instance models. Not available for ID models | `None` |
+| `--tracking` / `-t` | If True, runs tracking on the predicted instances | `False` |
 | `--peak_threshold` | Minimum confidence map value to consider a peak as valid | `0.2` |
 | `--integral_refinement` | If `None`, returns the grid-aligned peaks with no refinement. If `'integral'`, peaks will be refined with integral regression. Default: 'integral'. | `integral` |
 
@@ -78,7 +88,6 @@ sleap-nn track \
 |-----------|-------------|---------|
 | `--backbone_ckpt_path` | To run inference on any `.ckpt` other than `best.ckpt` from the `model_paths` dir, the path to the `.ckpt` file should be passed here | `None` |
 | `--head_ckpt_path` | Path to `.ckpt` file if a different set of head layer weights are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt from `backbone_ckpt_path` if provided) | `None` |
-| `--max_instances` | Limit maximum number of instances in multi-instance models. Not available for ID models | `None` |
 
 #### Image Pre-processing
 
@@ -155,7 +164,7 @@ When using the `sleap-nn track` CLI command with both `--model_paths` and `--tra
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--tracking` | If True, runs tracking on the predicted instances | `False` |
+| `--tracking` / `-t` | If True, runs tracking on the predicted instances | `False` |
 | `--tracking_window_size` | Number of frames to look for in the candidate instances to match with the current detections | `5` |
 | `--min_new_track_points` | We won't spawn a new track for an instance with fewer than this many points | `0` |
 | `--candidates_method` | Either of `fixed_window` or `local_queues`. In fixed window method, candidates from the last `window_size` frames. In local queues, last `window_size` instances for each track ID is considered for matching against the current detection | `fixed_window` |
@@ -178,9 +187,9 @@ This method maintains a fixed-size queue with the last N frames and uses all ins
 
 ```bash
 sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/bottomup_unet/ \
-    --tracking \
+    -i video.mp4 \
+    -m models/bottomup_unet/ \
+    -t \
     --candidates_method fixed_window \
     --tracking_window_size 10
 ```
@@ -191,9 +200,9 @@ This method maintains separate queues for each track ID, keeping the last N inst
 
 ```bash
 sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/bottomup_unet/ \
-    --tracking \
+    -i video.mp4 \
+    -m models/bottomup_unet/ \
+    -t \
     --candidates_method local_queues \
     --tracking_window_size 5
 ```
@@ -204,9 +213,9 @@ This method uses optical flow to shift the candidates onto the frame to be track
 
 ```bash
 sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/bottomup_unet/ \
-    --tracking \
+    -i video.mp4 \
+    -m models/bottomup_unet/ \
+    -t \
     --use_flow
 ```
 
@@ -215,8 +224,8 @@ You can perform tracking on existing user-labeled instances—without running in
 
 ```bash
 sleap-nn track \
-    --data_path labels.slp \
-    --tracking \
+    -i labels.slp \
+    -t \
 ```
 
 ## Legacy SLEAP Model Support
@@ -238,6 +247,16 @@ sleap-nn eval \
     --predicted_path pred_labels.slp \
     --save_metrics pred_metrics.npz \
 ```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--ground_truth_path` / `-g` | Path to ground truth labels file (.slp) | Required |
+| `--predicted_path` / `-p` | Path to predicted labels file (.slp) | Required |
+| `--save_metrics` / `-s` | Path to save metrics (.npz file) | `None` |
+| `--oks_stddev` | Standard deviation for OKS calculation | `0.05` |
+| `--oks_scale` | Scale factor for OKS calculation | `None` |
+| `--match_threshold` | Threshold for instance matching | `0.0` |
+| `--user_labels_only` | Only evaluate user-labeled frames | `False` |
 
 Using `Evaluator` API:
 ```python linenums="1"
