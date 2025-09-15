@@ -1151,6 +1151,11 @@ class TopDownPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         preds = defaultdict(list)
         predicted_frames = []
         skeleton_idx = 0
@@ -1544,6 +1549,11 @@ class SingleInstancePredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         predicted_frames = []
 
         skeleton_idx = 0
@@ -1971,6 +1981,11 @@ class BottomUpPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         predicted_frames = []
 
         skeleton_idx = 0
@@ -2396,6 +2411,11 @@ class BottomUpMultiClassPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         predicted_frames = []
         tracks = [
             sio.Track(name=x)
@@ -3136,6 +3156,11 @@ class TopDownMultiClassPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         preds = defaultdict(list)
         predicted_frames = []
         skeleton_idx = 0
