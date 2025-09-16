@@ -967,9 +967,9 @@ class ModelConfig:
     Attributes:
         init_weights: (str) model weights initialization method. "default" uses kaiming
             uniform initialization and "xavier" uses Xavier initialization method.
-        pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the backbone
+        pretrained_backbone_weights: Path of the `ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file with which the backbone
             is initialized. If `None`, random init is used.
-        pretrained_head_weights: Path of the `ckpt` (or `.h5` file from SLEAP) file with which the head layers
+        pretrained_head_weights: Path of the `ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file with which the head layers
             are initialized. If `None`, random init is used.
         backbone_config: initialize either UNetConfig, ConvNextConfig, or SwinTConfig
             based on input from backbone_type

@@ -892,11 +892,17 @@ class ModelTrainer:
         self.lightning_model = LightningModel.get_lightning_model_from_config(
             config=self.config,
         )
+        logger.info(f"Backbone model: {self.lightning_model.model.backbone}")
+        logger.info(f"Head model: {self.lightning_model.model.head_layers}")
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
+        logger.info(f"Total model parameters: {total_params}")
         self.config.model_config.total_params = total_params
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
+        logger.info(
+            f"Input image shape: {train_dataset[0]['image'].shape if 'image' in train_dataset[0] else train_dataset[0]['instance_image'].shape}"
+        )
         train_dataloader, val_dataloader = get_train_val_dataloaders(
             train_dataset=train_dataset,
             val_dataset=val_dataset,

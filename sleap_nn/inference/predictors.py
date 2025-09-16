@@ -133,7 +133,7 @@ class Predictor(ABC):
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
         Args:
-            model_paths: (List[str]) List of paths to the directory where the best.ckpt (or from SLEAP <=1.4 best_model.h5)
+            model_paths: (List[str]) List of paths to the directory where the best.ckpt (or from SLEAP <=1.4 best_model - only UNet backbone is supported)
                 and training_config.yaml (or from SLEAP <=1.4 training_config.json) are saved.
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
@@ -155,7 +155,7 @@ class Predictor(ABC):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                ("cpu", "cuda", "mps").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -537,7 +537,7 @@ class TopDownPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            ("cpu", "cuda", "mps").
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
             in the `data_config.preprocessing` section.
@@ -692,8 +692,8 @@ class TopDownPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            centroid_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5)  and training_config.yaml (or from SLEAP <=1.4 training_config.json).
-            confmap_ckpt_path: Path to a centered-instance ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
+            centroid_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5 - only UNet backbone is supported) and training_config.yaml (or from SLEAP <=1.4 training_config.json - only UNet backbone is supported).
+            confmap_ckpt_path: Path to a centered-instance ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5 - only UNet backbone is supported) and training_config.yaml (or from SLEAP <=1.4 training_config.json - only UNet backbone is supported).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -711,7 +711,7 @@ class TopDownPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                ("cpu", "cuda", "mps").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -1240,7 +1240,7 @@ class SingleInstancePredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            ("cpu", "cuda", "mps").
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -1295,7 +1295,7 @@ class SingleInstancePredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            confmap_ckpt_path: Path to a single instance ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
+            confmap_ckpt_path: Path to a single instance ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5 - only UNet backbone is supported) and training_config.yaml (or from SLEAP <=1.4 training_config.json - only UNet backbone is supported).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -1312,7 +1312,7 @@ class SingleInstancePredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                ("cpu", "cuda", "mps").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -1635,7 +1635,7 @@ class BottomUpPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            ("cpu", "cuda", "mps").
             Default: "cpu".
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -1723,7 +1723,7 @@ class BottomUpPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            bottomup_ckpt_path: Path to a bottom-up ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
+            bottomup_ckpt_path: Path to a bottom-up ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model - only UNet backbone is supported) and training_config.yaml (or from SLEAP <=1.4 training_config.json - only UNet backbone is supported).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -1741,7 +1741,7 @@ class BottomUpPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                ("cpu", "cuda", "mps").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -2080,7 +2080,7 @@ class BottomUpMultiClassPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            ("cpu", "cuda", "mps").
             Default: "cpu".
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -2139,7 +2139,7 @@ class BottomUpMultiClassPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            bottomup_ckpt_path: Path to a multi-class bottom-up ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
+            bottomup_ckpt_path: Path to a multi-class bottom-up ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5 - only UNet backbone is supported) and training_config.yaml (or from SLEAP <=1.4 training_config.json - only UNet backbone is supported).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -2157,7 +2157,7 @@ class BottomUpMultiClassPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                ("cpu", "cuda", "mps").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.
@@ -2517,7 +2517,7 @@ class TopDownMultiClassPredictor(Predictor):
         return_confmaps: (bool) If `True`, predicted confidence maps will be returned
             along with the predicted peak values and points. Default: False.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-            ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+            ("cpu", "cuda", "mps").
             Default: "cpu"
         preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
             in the `data_config.preprocessing` section.
@@ -2663,8 +2663,8 @@ class TopDownMultiClassPredictor(Predictor):
         """Create predictor from saved models.
 
         Args:
-            centroid_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
-            confmap_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5) and training_config.yaml (or from SLEAP <=1.4 training_config.json).
+            centroid_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5 - only UNet backbone is supported) and training_config.yaml (or from SLEAP <=1.4 training_config.json - only UNet backbone is supported).
+            confmap_ckpt_path: Path to a centroid ckpt dir with best.ckpt (or from SLEAP <=1.4 best_model.h5 - only UNet backbone is supported) and training_config.yaml (or from SLEAP <=1.4 training_config.json - only UNet backbone is supported).
             backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
                 from the `model_paths` dir, the path to the `.ckpt` file should be passed here.
             head_ckpt_path: (str) Path to `.ckpt` file if a different set of head layer weights
@@ -2682,7 +2682,7 @@ class TopDownMultiClassPredictor(Predictor):
             return_confmaps: (bool) If `True`, predicted confidence maps will be returned
                 along with the predicted peak values and points. Default: False.
             device: (str) Device on which torch.Tensor will be allocated. One of the
-                ("cpu", "cuda", "mkldnn", "opengl", "opencl", "ideep", "hip", "msnpu").
+                ("cpu", "cuda", "mps").
                 Default: "cpu"
             preprocess_config: (OmegaConf) OmegaConf object with keys as the parameters
                 in the `data_config.preprocessing` section.

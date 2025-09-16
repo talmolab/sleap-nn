@@ -47,9 +47,9 @@ Common overrides:
 
 Examples:
   Start new run:
-    sleap-nn train --config-dir . --config-name myrun
+    sleap-nn train --config-dir /path/to/config_dir/ --config-name myrun
   Resume 20 more epochs:
-    sleap-nn train --config-dir . --config-name myrun \\
+    sleap-nn train --config-dir /path/to/config_dir/ --config-name myrun \\
       trainer_config.resume_ckpt_path=<path/to/ckpt> \\
       trainer_config.max_epochs=20
 
@@ -72,9 +72,9 @@ def train(config_name, config_dir, overrides):
     """Run training workflow with Hydra config overrides.
 
     Examples:
-        sleap-nn train --config-name myconfig --config-dir ./configs
-        sleap-nn train -c myconfig -d ./configs trainer_config.max_epochs=100
-        sleap-nn train -c myconfig -d ./configs +experiment=new_model
+        sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
+        sleap-nn train -c myconfig -d /path/to/config_dir/ trainer_config.max_epochs=100
+        sleap-nn train -c myconfig -d /path/to/config_dir/ +experiment=new_model
     """
     # Show help if no config name provided
     if not config_name:
@@ -124,7 +124,7 @@ def train(config_name, config_dir, overrides):
     "-d",
     type=str,
     default="auto",
-    help="Device on which torch.Tensor will be allocated. One of the ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen).",
+    help="Device on which torch.Tensor will be allocated. One of the ('cpu', 'cuda', 'mps', 'auto'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen). If `cuda` is available, you could also use `cuda:0` to specify the device.",
 )
 @click.option(
     "--batch_size",
@@ -420,7 +420,7 @@ def track(**kwargs):
 )
 @click.option("--oks_scale", type=float, help="Scale factor for OKS calculation")
 @click.option(
-    "--match_threshold", type=float, default=0.5, help="Threshold for instance matching"
+    "--match_threshold", type=float, default=0.0, help="Threshold for instance matching"
 )
 @click.option(
     "--user_labels_only", is_flag=True, help="Only evaluate user-labeled frames"

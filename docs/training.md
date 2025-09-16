@@ -2,12 +2,20 @@
 
 ## Overview
 
-  SLEAP-NN leverages a flexible, configuration-driven training workflow built on Hydra and OmegaConf. This guide will walk you through the essential steps for training pose estimation models using SLEAP-NN, whether you prefer the command-line interface or Python APIs.
+  SLEAP-NN leverages a flexible, configuration-driven training workflow built on Hydra and OmegaConf. This guide will walk you through the essential steps for training pose estimation models using SLEAP-NN, whether you prefer the command-line interface or Python APIs. 
 
-!!! note
-    Training is only supported with SLEAP label files with ground truth annotations in `.slp` or `.pkg.slp` format.
+!!! info "Using uv workflow"
+    This section assumes you have `sleap-nn` installed. If not, refer to the [installation guide](installation.md).
+    
+    - If you're using the `uvx` workflow, you do **not** need to install anything; just run:
+      
+          `uvx sleap-nn[torch-cpu] train ...`
 
-## Training with Config
+      (See [installation using uvx](installation.md#installation-using-uvx) for more details.)
+    
+    - If you are using `uv sync`, add `uv run` as a prefix to all CLI commands shown below, for example:
+
+          `uv run sleap-nn train ...`
 
 This section explains how to train a model using an existing configuration file. If you need help creating or editing a config, see the [configuration guide](config.md). 
 
@@ -15,66 +23,83 @@ This section explains how to train a model using an existing configuration file.
 
 To train a model using CLI, 
 ```bash
-sleap-nn train --config-name config --config-dir path/to/config_dir
+sleap-nn train --config-name config --config-dir /path/to/config_dir
 ```
 
-- `config-name`: Name of the config file
-- `config-dir`: Path to the config file
+- `config-name` or `-c`: Name of the config file
+- `config-dir` or `-d`: Path to the config file
 
-If yor config file is in the path: `/path/to/config/file/config.yaml`, then `config-name` would be `config.yaml` and `config-dir` would be `/path/to/config/file`.
+If your config file is in the path: `/path/to/config_dir/config.yaml`, then `config-name` would be `config.yaml` and `config-dir` would be `/path/to/config_dir`.
 
 
 Override any configuration from command line:
 
 ```bash
 # Train on list of .slp files
-sleap-nn train --config-name config --config-dir path/to/config_dir "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
+sleap-nn train -c config -d /path/to/config_dir/ "data_config.train_labels_path=[labels.pkg.slp,labels.pkg.slp]"
 
 # Change batch size
-sleap-nn train --config-name config --config-dir path/to/config_dir trainer_config.train_data_loader.batch_size=8 trainer_config.val_data_loader.batch_size=8 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -c config -d /path/to/config_dir/ trainer_config.train_data_loader.batch_size=8 trainer_config.val_data_loader.batch_size=8 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Set number of GPUs to be used
-sleap-nn train --config-name config --config-dir path/to/config_dir trainer_config.trainer_devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -c config -d /path/to/config_dir/ trainer_config.trainer_devices=1 "data_config.train_labels_path=[labels.pkg.slp]"
 
 # Change learning rate
-sleap-nn train --config-name config --config-dir path/to/config_dir trainer_config.optimizer.lr=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
+sleap-nn train -c config -d /path/to/config_dir/ trainer_config.optimizer.lr=5e-4 "data_config.train_labels_path=[labels.pkg.slp]"
 ```
 
-!!! note
-    For topdown, we need to train two models (centroid → instance):
+!!! note "Training TopDown Model"
+    For topdown, we need to train two models (centroid → instance). To know more about topdown models, refer [Model types](models.md/#-top-down)
 
-```bash
-# Train centroid model
-sleap-nn train \
-    --config-dir configs \
-    --config-name centroid_unet \
-    "data_config.train_labels_path=[labels.pkg.slp]"
+    ```bash
+    # Train centroid model
+    sleap-nn train \
+        -d /path/to/config_dir/ \
+        -c centroid_unet \
+        "data_config.train_labels_path=[labels.pkg.slp]"
 
-# Train centered instance model
-sleap-nn train \
-    --config-dir configs \
-    --config-name centered_instance_unet \ 
-    "data_config.train_labels_path=[labels.pkg.slp]"
-```  
+    # Train centered instance model
+    sleap-nn train \
+        -d /path/to/config_dir/ \
+        -c centered_instance_unet \ 
+        "data_config.train_labels_path=[labels.pkg.slp]"
+    ```  
 
 ### Using `ModelTrainer` API
 
-```python
-from omegaconf import OmegaConf
-from sleap_nn.training.model_trainer import ModelTrainer
+To train a model using the sleap-nn APIs:
 
-config = OmegaConf.load("config.yaml")
-trainer = ModelTrainer.get_model_trainer_from_config(config=config)
-trainer.train()
-```
+  ```python linenums="1"
+  from omegaconf import OmegaConf
+  from sleap_nn.training.model_trainer import ModelTrainer
+
+  # load config
+  config = OmegaConf.load("config.yaml")
+
+  # create trainer instance
+  trainer = ModelTrainer.get_model_trainer_from_config(config=config)
+
+  # start training
+  trainer.train()
+  ```
 
 If you have a cutsom labels object which is not in a slp file:
-```python
+```python linenums="1"
 from omegaconf import OmegaConf
+import sleap_io as sio
 from sleap_nn.training.model_trainer import ModelTrainer
 
+# create `sio.Labels` objects
+train_labels = sio.load_slp("train.slp")
+val_labels = sio.load_slp("val.slp")
+
+# load config
 config = OmegaConf.load("config.yaml")
+
+# create trainer instance
 trainer = ModelTrainer.get_model_trainer_from_config(config=config, train_labels=[train_labels], val_labels=[val_labels])
+
+# start training
 trainer.train()
 ```
 
@@ -86,11 +111,11 @@ This approach is much simpler than manually specifying every parameter for each 
 
 For a full list of available arguments and their descriptions, see the [`train()` API reference](../api/train/#sleap_nn.train.train) in the documentation.
 
-```python
+```python linenums="1"
 from sleap_nn.train import train
 
 train(
-    train_labels_path=["labels.slp"], # or list of labels
+    train_labels_path=["labels.slp"],
     backbone_config="unet_medium_rf",
     head_configs="bottomup",
     save_ckpt=True,
@@ -100,7 +125,7 @@ train(
 
 Applying data augmentation is also much simpler—you can just specify the augmentation names directly (as a string or list), instead of writing out a full configuration.
 
-```python
+```python linenums="1"
 from sleap_nn.train import train
 
 train(
@@ -130,20 +155,28 @@ train(
   - A CSV log tracking train/validation loss, times, and learning rate across epochs
 
 
-### Training Visualization
-  To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when `visualize_preds_during_training` is set to `True`. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting `trainer_config.keep_viz` to `True`. If WandB logging is enabled, these visualizations are also uploaded to your WandB dashboard.
+### Visualizing training performance
+  To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when `trainer_config.visualize_preds_during_training` is set to `True`. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting `trainer_config.keep_viz` to `True`. If WandB logging is enabled, these visualizations are also uploaded to your WandB dashboard.
 
 ## Advanced Options
 
+### Fine-tuning / Transfer Learning
+
+SLEAP-NN makes it easy to fine-tune or transfer-learn from existing models. To initialize your model with pre-trained weights, simply set the following options in your configuration:
+
+- `model_config.pretrained_backbone_weights`: Path to a checkpoint file (or `.h5` file path from SLEAP <=1.4 - only UNet backbone is supported) containing the backbone weights you want to load. This will initialize the backbone (e.g., UNet, Swin Transformer) with the specified weights.
+- `model_config.pretrained_head_weights`: Path to a checkpoint file (or `.h5` file from SLEAP ≤1.4 - only UNet backbone is supported) to initialize the model's head weights (e.g., for bottomup or topdown heads). The head and backbone weights are usually the same checkpoint, but you can specify a different file here if you want to use separate weights for the head (for example, when adapting a model to a new output head or architecture).
+
+By specifying these options, your model will be initialized with the provided weights, allowing you to fine-tune on new data or adapt to a new task. You can use this for transfer learning from a model trained on a different dataset, or to continue training with a modified head or backbone.
+
 ### Resume Training
 
-To resume training from a previous checkpoint, 
+To resume training from a previous checkpoint (restoring both model weights and optimizer state), simply provide the path to your previous checkpoint file using the `trainer_config.resume_ckpt_path` option. This allows you to continue training seamlessly from where you left off.
 
 ```bash
 sleap-nn train \
-    --config-name config \
-    --config-dir path/to/config_dir \ 
-    trainer_config.ckpt_path=/path/to/checkpoint.ckpt \
+    -c config \
+    -d /path/to/config_dir/ \ 
     trainer_config.resume_ckpt_path=/path/to/prv_trained/checkpoint.ckpt \
     "data_config.train_labels_path=[labels.pkg.slp]"
 ```
@@ -185,15 +218,15 @@ ckpt_dir: models
   trainer_strategy: "ddp"
 ```
 
-!!! note
+!!! note "Training steps in multi-gpu setting"
     In a multi-gpu training setup, the effective steps during training would be `config.trainer_config.trainer_steps_per_epoch` / `config.trainer_config.trainer_devices`. 
-!!! note
+!!! note "Multi-node training"
     Multi-node trainings have not been validated and should be considered experimental.
 
 ## Best Practices
 
 1. **Start Simple**: Begin with default configurations
-2. **Cache data**: If you want to get faster training time, consider caching the images on memory (or disk) by setting the relevant `data_config.data_pipeline_fw`.
+2. **Cache data**: If you want to get faster training time, consider caching the images on memory (or disk) by setting the relevant `data_config.data_pipeline_fw`. (num_workers could be set >0 if caching frameworks are used!)
 3. **Monitor Overfitting**: Watch validation metrics
 4. **Adjust Learning Rate**: Use learning rate scheduling
 5. **Data Augmentation**: Enable augmentations for better generalization
@@ -206,15 +239,13 @@ ckpt_dir: models
 For large models or datasets:
 
 - Reduce `batch_size`
-- Enable gradient accumulation
-- Use mixed precision training
 - Reduce model size (fewer filters/layers)
+- Reduce number of workers
 
 ### Slow Training
 
+- Use caching methods (`data_config.data_pipeline_fw`)
 - Increase `num_workers` for data loading
-- Enable mixed precision
-- Use SSD for data storage
 - Check GPU utilization
 
 ### Poor Performance

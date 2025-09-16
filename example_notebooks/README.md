@@ -1,50 +1,51 @@
 # Example Notebooks
 
-This folder contains all tutorial notebooks created with marimo. These notebooks are **sandboxed**, which means you don't need to create a separate sleap-nn environment. The sandbox environment will handle all dependencies automatically. Just install `uv`, add `marimo`, and run the notebooks with the commands below. 
+This document provides information on how to access and use the example notebooks from the sleap-nn GitHub repository.
+
+## Accessing Example Notebooks
+
+The example notebooks are available in the [sleap-nn GitHub repository](https://github.com/talmolab/sleap-nn) in the `example_notebooks/` folder. These notebooks are created with [marimo](https://docs.marimo.io/) and provide interactive tutorials for various sleap-nn workflows.
 
 ## Getting Started with Marimo
 
+The example notebooks use marimo, which provides a **sandboxed environment** that automatically handles all dependencies. You don't need to create a separate sleap-nn environment.
+
 ### Prerequisites
 
-1. **Install [uv](https://github.com/astral-sh/uv)**: 
+**Install [uv](https://github.com/astral-sh/uv)**: 
+Install [`uv`](https://github.com/astral-sh/uv) first - a fast Python package manager:
    ```bash
-   pip install uv
-   ```
-
-2. **Create a new folder**:
-
-   Clone the `sleap-nn` repo
-   ```bash
-   cd sleap-nn/example_notebooks
-   ```
+   # macOS/Linux
+   curl -LsSf https://astral.sh/uv/install.sh | sh
    
-   Or make a new directory
-   ```bash
-   mkdir sleap-nn-tutorials
-   ```
-
-3. **Initialize uv**:
-
-   Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml`.
-   ```bash
-   uv init
+   # Windows
+   powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
 ### Setup
 
-1. **Add [marimo](https://github.com/marimo-team/marimo) to your project**:
+**Step-1 : Add [marimo](https://github.com/marimo-team/marimo) to your project**
 
-   Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml` as `uv add` will try to add marimo to the existing `.toml`.
+Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml` as `uv add` will try to add marimo to the existing `.toml`.
 
-   ```bash
-   uv add marimo
-   ```
+```bash
+# move to a new dir
+mkdir sleap_nn_notebooks
+cd sleap_nn_notebooks
 
-2. **Run the marimo notebooks**
+# initialize uv
+uv init
 
-Ensure the python scripts are in your current working directory!
+# Install marimo
+uv add marimo
+```
+
+**Step-2 : Run the marimo notebooks**
+
+Download the notebooks from [here](https://github.com/talmolab/sleap-nn/tree/main/example_notebooks) and ensure the python scripts are in your current working directory!
 
 (i) Training Demo Notebook
+
 - **Description**: End-to-end demo on creating config files and running training, inference, and evaluation using sleap-nn APIs.
 
 ```bash
@@ -52,6 +53,7 @@ Ensure the python scripts are in your current working directory!
 ```
 
 (ii) Augmentation Guide Notebook
+
 - **Description**: Visualize the different data augmentation techniques available in sleap-nn.
 
 ```bash
@@ -59,9 +61,9 @@ Ensure the python scripts are in your current working directory!
 ```
 
 (iii) Receptive Field Guide Notebook
+
 - **Description**: Visualize how the receptive field could be set by changing the config parameters.
 
 ```bash
    uvx marimo edit --sandbox receptive_field_guide.py
 ```
-

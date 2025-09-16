@@ -1,10 +1,10 @@
 # /// script
-# requires-python = ">=3.9"
+# requires-python = ">=3.11"
 # dependencies = [
 #     "kornia==0.8.1",
 #     "marimo",
 #     "matplotlib==3.9.4",
-#     "numpy==2.0.2",
+#     "numpy",
 #     "pillow==11.3.0",
 #     "seaborn==0.13.2",
 #     "torch==2.7.1",
@@ -14,13 +14,24 @@
 
 import marimo
 
-__generated_with = "0.14.16"
+__generated_with = "0.15.3"
 app = marimo.App(width="medium")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Visualizing Data Augmentations with SLEAP-NN""")
+    return
+
+
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(
+        r"""
+    _**Note**_:
+    This notebook executes automatically; there is no need to run individual cells, as all interactions are managed through the provided UI elements (sliders, buttons, etc.). Just upload a sample image and click `"Start exploring augmentations!"` button!
+    """
+    )
     return
 
 
@@ -32,7 +43,7 @@ def _(mo):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""Upload a sample image:""")
     return
@@ -46,7 +57,17 @@ def _(mo):
 
 
 @app.cell(hide_code=True)
-def _(Image, file, io, mo):
+def _(mo):
+    run_aug = mo.ui.run_button(label="Start exploring augmentations!")
+    run_aug
+    return (run_aug,)
+
+
+@app.cell(hide_code=True)
+def _(Image, file, io, mo, run_aug):
+    if not run_aug.value:
+        mo.stop("Click `Start exploring augmentations!` to start.")
+
     if file.value is not None:
         src_image = Image.open(io.BytesIO(file.value[0].contents))
 

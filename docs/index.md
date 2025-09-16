@@ -3,8 +3,10 @@
 [![CI](https://github.com/talmolab/sleap-nn/actions/workflows/ci.yml/badge.svg)](https://github.com/talmolab/sleap-nn/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/talmolab/sleap-nn/branch/main/graph/badge.svg?token=Sj8kIFl3pi)](https://codecov.io/gh/talmolab/sleap-nn)
 [![code](https://img.shields.io/github/stars/talmolab/sleap-nn)](https://github.com/talmolab/sleap-nn)
-<!-- [![Release](https://img.shields.io/github/v/release/talmolab/sleap-nn?label=Latest)](https://github.com/talmolab/sleap-nn/releases/)
--->
+[![Release](https://img.shields.io/github/v/release/talmolab/sleap-nn?label=Latest)](https://github.com/talmolab/sleap-nn/releases/)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/sleap-nn)
+[![PyPI](https://img.shields.io/pypi/v/sleap-nn?label=PyPI)](https://pypi.org/project/sleap-nn)
+
 **SLEAP-NN** is the deep learning engine that powers [SLEAP](https://sleap.ai) (Social LEAP Estimates Animal Poses), providing neural network architectures for multi-instance animal pose estimation and tracking. Built on PyTorch, SLEAP-NN offers an end-to-end training workflow, supporting multiple model types (Single Instance, Top-Down, Bottom-Up, Multi-Class), and seamless integration with SLEAP's GUI and command-line tools.
 
 ## ✨ Features 
@@ -21,103 +23,61 @@
 
 Let's start SLEAPiNNg !!! 🐭🐭
 
-#### 1. Install `sleap-nn`
+!!! info "Prerequisite: uv installation"
+    Install [`uv`](https://github.com/astral-sh/uv), a fast Python package manager for modern projects. See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for instructions.
 
-- **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+### Step - 1 : Set Up Your Configuration
 
-```bash
-pip install sleap-nn[torch-cuda118]
-```
+Create a `config.yaml` file for your experiment. Use a sample config from [`docs/sample_configs`](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
 
-- **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
+### Step - 2 : Train a Model
 
-```bash
-pip install sleap-nn[torch-cuda128]
-```
+We use `uvx` here which automatically installs sleap-nn from PyPI with all dependencies and runs the command in a single step. Check out [`Installation.md`](installation.md) for different installation options.
 
-- **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
-Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
-```bash
-pip install sleap-nn[torch-cpu]
-```
-
-> Refer [Installation](installation.md) for more details on how to install sleap-nn package for your specific hardware.
-
-#### 2. Set Up Your Configuration
-
-Create a `config.yaml` file for your experiment.
-
-> - Refer to the [Configuration Guide](config.md) for detailed options.
-  - Or, use a sample config from [`docs/sample_configs`](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
-
-#### 3. Train a model
-
-> Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
+> **Quick Start Data:** Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
 ```bash
-sleap-nn train --config-name config.yaml --config-dir configs/ "data_config.train_labels_path=[labels.pkg.slp]"
+uvx "sleap-nn[torch-cpu]" train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
 ```
-> For detailed information on training workflows, configuration options, and advanced usage, please refer to the [Training Guide](training.md).
 
-#### 4. Run inference on the trained model
+!!! tip "GPU Acceleration"
+    For faster training, use `torch-cuda118` or `torch-cuda128` instead of `torch-cpu`:
+    ```bash
+    uvx "sleap-nn[torch-cuda118]" train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]
+    ```
+
+
+### Step - 3 : Run Inference on the Trained Model
 
 To run inference:
+
 ```bash
-sleap-nn track --data-path video.mp4 --model-paths model_ckpt_dir/
+uvx "sleap-nn[torch-cpu]" track --data_path video.mp4 --model_paths model_ckpt_dir/
 ```
-> More options for running inference and tracking workflows are available in the [Inference Guide](inference.md).
 
-!!! note
-    **Note:** For step-by-step tutorial on our entire workflow, check out [Step--by-Step guide](step_by_step_guide.md).
-
-!!! note
-    **Note:** For tutorials, sample notebooks, and instructions on how to use the interactive notebooks, please see [Example notebooks](example_notebooks.md).
+!!! warning "Model Paths"
+    `--model-paths` should be set to `<config.trainer_config.config_dir>/<config.trainer_config.run_name>`. Make sure the model checkpoint directory contains both `best.ckpt` (or legacy sleap `best_model.h5` - only UNet backbone is supported) and `training_config.yaml` (or legacy sleap `training_config.json` - only UNet backbone is supported) files. The inference will fail without these files.
 
 ---
 
+## 📚 Documentation Structure
 
-## 🛠️ Core Components
+- **[Installation Guide](installation.md)** - Complete installation instructions with different options (CPU, GPU, development)
 
-SLEAP-NN provides a modular, PyTorch-based architecture:
+#### **How-to Guides**
+- **[Configuration Guide](config.md)** - Detailed explanation of all configuration parameters and how to set up your config file for training
+- **[Training Guide](training.md)** - How to train models using the CLI or Python API and advanced training options
+- **[Inference Guide](inference.md)** - How to run inference and tracking with CLI/ APIs and evaluate the models
 
-### **Data Pipeline**
+#### **Tutorials**
+- **[Example Notebooks](example_notebooks.md)** - Interactive marimo-based tutorial notebooks
+- **[Step-by-Step tutorial](step_by_step_tutorial.md)** - Comprehensive walkthrough of the entire workflow
 
-- Efficient loading of data from SLEAP label files
-- Parallelized data loading using PyTorch's multiprocessing for high throughput
-- Caching (memory/ disk) to accelerate repeated data access and minimize I/O bottlenecks
+#### **Additional Resources**
 
-### **Model System**
-
-- **Pluggable Design**: Easy to add new backbones/ head modules
-- **Backbone Networks**: UNet, ConvNeXt, Swin Transformer  
-    - See [Backbone Architectures](models.md#backbone-architectures) for more details.
-- **Model Types**: Single Instance, Top-Down, Bottom-Up, Multi-Class (Supervised ID models) variants
-
-> - **Single Instance**: Direct pose prediction for single animals
-
-> - **Top-Down**: Two-stage (centroid → centered-instance) for multi-animal scenarios
-
-> - **Bottom-Up**: Simultaneous keypoint detection and association using Part Affinity Fields (PAFs).
-
-> - **Supervised ID or Multi-Class**: Pose estimation + ID assignment for multi-instance scenarios
-
-> Explore detailed descriptions of all supported architectures in the [Model Types Guide](models.md).
-
-### **Training Engine**
-
-- PyTorch Lightning integration with custom callbacks
-- In-built multi-GPU and distributed training support
-- Experiment tracking with visualizers and WandB
-
-### **Inference Pipeline**
-
-- Optimized inference workflow for different model types
-- Integration with SLEAP's labeling interface
-
-### **Tracking System**
-
-- Multi-instance tracking across frames
-- Flow-shift based tracker for robust tracking
+- **[Model Architectures](models.md)** — Explore supported model types, backbone networks, and architecture details.
+- **[Core Components](core_components.md)** — Main building blocks of the sleap-nn pipeline.
+- **[API Reference](api/index.md)** — Complete API documentation for all `sleap-nn` modules and functions.
 
 
 ---

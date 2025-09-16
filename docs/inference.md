@@ -5,12 +5,33 @@ SLEAP-NN provides powerful inference capabilities for pose estimation with suppo
 - **Videos**: Any format supported by OpenCV
 - **SLEAP Labels**: `.slp` files
 
+!!! info "Using uv workflow"
+    This section assumes you have `sleap-nn` installed. If not, refer to the [installation guide](installation.md).
+    
+    - If you're using the `uvx` workflow, you do **not** need to install anything; just run:
+      
+          `uvx sleap-nn[torch-cpu] track ...`
+
+      (See [installation using uvx](installation.md#installation-using-uvx) for more details.)
+    
+    - If you are using `uv sync`, add `uv run` as a prefix to all CLI commands shown below, for example:
+
+          `uv run sleap-nn track ...`
+
 ## Run Inference with CLI
 
 ```bash
 sleap-nn track \
     --data_path video.mp4 \
     --model_paths models/ckpt_folder/
+```
+
+To run inference on a specific cuda device (say cuda:0 - first gpu),
+```bash
+sleap-nn track \
+    --data_path video.mp4 \
+    --model_paths models/ckpt_folder/
+    --device cuda:0
 ```
 
 To run inference on video files with specific frames
@@ -30,16 +51,20 @@ sleap-nn track \
     --backbone_ckpt_path models/backbone.ckpt
 ```
 
-For two-stage models (topdown and multiclass topdown), both the centroid and centered-instance model ckpts should be provided as given below:
-```bash
-sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/centroid_unet/ \
-    --model_paths models/centered_instance_unet/
-```
+!!! info "Inference on TopDown models"
 
-!!! note
-    **_Note (for centroid-only inference)_**: The centroid model is essentially the first stage of TopDown model workflow, which only predicts centers, not keypoints. In centroid-only inference, each predicted centroid is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display. Therefore, an OKS mAP of 1.0 just means all instances were detected—it does not reflect pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) rather than centroid-only inference.
+    For two-stage models (topdown and multiclass topdown), both the centroid and centered-instance model ckpts should be provided as given below:
+        ```bash
+        sleap-nn track \
+            --data_path video.mp4 \
+            --model_paths models/centroid_unet/ \
+            --model_paths models/centered_instance_unet/
+        ```
+
+!!! note "Centroid-only / Centered-instance-only inference"
+    You can run inference using only the centroid model or only the centered-instance model. However, both modes require ground-truth (GT) instances to be present in the `.slp` file, so this type of inference can only be performed on datasets that already have GT labels.
+    
+    **_Note_**: In centroid-only inference, each predicted centroid (single-keypoint) is matched (by Euclidean distance) to the nearest ground-truth instance, and the ground-truth keypoints are copied for display (thus, the pipeline always expects ground-truth pose data to be available when running inference on just the centroid model). As a result, an OKS mAP of 1.0 for a centroid model simply means all instances were detected—it does **not** measure pose/keypoint accuracy. To evaluate keypoints, run the second stage (the pose model) instead of centroid-only inference.
 
 ### Arguments for CLI
 
@@ -47,11 +72,13 @@ sleap-nn track \
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--data_path` | Path to `.slp` file or `.mp4` to run inference on | Required |
-| `--model_paths` | List of paths to the directory where the best.ckpt and training_config.yaml are saved | Required |
-| `--output_path` | The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp' | `[input].slp` |
-| `--device` | Device on which torch.Tensor will be allocated. One of ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen) | `auto` |
-| `--batch_size` | Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory | `4` |
+| `--data_path` / `-i` | Path to `.slp` file or `.mp4` to run inference on | Required |
+| `--model_paths` / `-m` | List of paths to the directory where the best.ckpt and training_config.yaml are saved | Required |
+| `--output_path` / `-o` | The output filename to use for the predicted data. If not provided, defaults to '[data_path].slp' | `<data_path>.predictions.slp` |
+| `--device` / `-d` | Device on which torch.Tensor will be allocated. One of ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen) | `auto` |
+| `--batch_size` / `-b` | Number of frames to predict at a time. Larger values result in faster inference speeds, but require more memory | `4` |
+| `--max_instances` / `-n` | Limit maximum number of instances in multi-instance models. Not available for ID models | `None` |
+| `--tracking` / `-t` | If True, runs tracking on the predicted instances | `False` |
 | `--peak_threshold` | Minimum confidence map value to consider a peak as valid | `0.2` |
 | `--integral_refinement` | If `None`, returns the grid-aligned peaks with no refinement. If `'integral'`, peaks will be refined with integral regression. Default: 'integral'. | `integral` |
 
@@ -61,7 +88,6 @@ sleap-nn track \
 |-----------|-------------|---------|
 | `--backbone_ckpt_path` | To run inference on any `.ckpt` other than `best.ckpt` from the `model_paths` dir, the path to the `.ckpt` file should be passed here | `None` |
 | `--head_ckpt_path` | Path to `.ckpt` file if a different set of head layer weights are to be used. If `None`, the `best.ckpt` from `model_paths` dir is used (or the ckpt from `backbone_ckpt_path` if provided) | `None` |
-| `--max_instances` | Limit maximum number of instances in multi-instance models. Not available for ID models | `None` |
 
 #### Image Pre-processing
 
@@ -92,11 +118,53 @@ sleap-nn track \
 |-----------|-------------|---------|
 | `--queue_maxsize` | Maximum size of the frame buffer queue | `8` |
 
+
+## Run inference with API
+
+To return predictions as list of dictionaries:
+
+```python linenums="1"
+from sleap_nn.predict import run_inference
+
+# Run inference
+labels = run_inference(
+    data_path="video.mp4",
+    model_paths=["models/unet/"],
+    make_labels=False,
+    return_confmaps=True
+)
+```
+Setting `return_confmaps=True` will also return the raw confidence maps generated by the model, allowing you to inspect or analyze the model's outputs alongside the predicted poses.
+
+To return predictions as a `sleap_io.Labels` object, 
+
+```python linenums="1"
+from sleap_nn.predict import run_inference
+
+# Run inference
+labels = run_inference(
+    data_path="video.mp4",
+    model_paths=["models/unet/"],
+    output_path="predictions.slp",
+    make_labels=True,
+)
+```
+
+For a detailed explanation of all available parameters for `run_inference`, see the API docs for [run_inference()](../api/predict/#sleap_nn.predict.run_inference).
+
+## Tracking
+
+SLEAP-NN provides advanced tracking capabilities for multi-instance pose estimation. When running inference, the output labels object (or `.slp` file) will include track IDs assigned to the predicted instances (or user-labeled instances). 
+
+When using the `sleap-nn track` CLI command with both `--model_paths` and `--tracking` specified, the tool will perform both pose prediction and track assignment in a single step—automatically generating pose predictions and associating them into tracks.
+
+### Tracking Methods
+
 #### Tracking Parameters
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--tracking` | If True, runs tracking on the predicted instances | `False` |
+| `--tracking` / `-t` | If True, runs tracking on the predicted instances | `False` |
 | `--tracking_window_size` | Number of frames to look for in the candidate instances to match with the current detections | `5` |
 | `--min_new_track_points` | We won't spawn a new track for an instance with fewer than this many points | `0` |
 | `--candidates_method` | Either of `fixed_window` or `local_queues`. In fixed window method, candidates from the last `window_size` frames. In local queues, last `window_size` instances for each track ID is considered for matching against the current detection | `fixed_window` |
@@ -113,54 +181,15 @@ sleap-nn track \
 | `--of_max_levels` | Number of pyramid scale levels to consider. This is different from the scale parameter, which determines the initial image scaling (only if `use_flow` is True) | `3` |
 | `--post_connect_single_breaks` | If True and `max_tracks` is not None with local queues candidate method, connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame | `False` |
 
-
-## Run inference with API
-
-To return predictions as list of dictionaries, 
-
-```python
-from sleap_nn.predict import run_inference
-
-# Run inference
-labels = run_inference(
-    data_path="video.mp4",
-    model_paths=["models/unet/"],
-    make_labels=False,
-    return_confmaps=True
-)
-```
-
-To return predictions as a `sleap_io.Labels` object, 
-
-```python
-from sleap_nn.predict import run_inference
-
-# Run inference
-labels = run_inference(
-    data_path="video.mp4",
-    model_paths=["models/unet/"],
-    output_path="predictions.slp",
-    make_labels=True,
-)
-```
-
-For a detailed explanation of all available parameters for `run_inference`, see the API docs for [run_inference()](../api/inference/predictors/#sleap_nn.inference.predictors.run_inference).
-
-## Tracking
-
-SLEAP-NN includes sophisticated tracking capabilities for multi-instance scenarios. The output labels object (or `.slp` file) will have track IDs associated to the predicted instances (or user-labeled instances).
-
-### Tracking Methods
-
 #### Fixed Window Tracking
 
-This method maintains a fixed-size window of the last N frames and uses all instances from those frames as candidates for matching.
+This method maintains a fixed-size queue with the last N frames and uses all instances from those frames as candidates for matching.
 
 ```bash
 sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/bottomup_unet/ \
-    --tracking \
+    -i video.mp4 \
+    -m models/bottomup_unet/ \
+    -t \
     --candidates_method fixed_window \
     --tracking_window_size 10
 ```
@@ -171,9 +200,9 @@ This method maintains separate queues for each track ID, keeping the last N inst
 
 ```bash
 sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/bottomup_unet/ \
-    --tracking \
+    -i video.mp4 \
+    -m models/bottomup_unet/ \
+    -t \
     --candidates_method local_queues \
     --tracking_window_size 5
 ```
@@ -184,30 +213,28 @@ This method uses optical flow to shift the candidates onto the frame to be track
 
 ```bash
 sleap-nn track \
-    --data_path video.mp4 \
-    --model_paths models/bottomup_unet/ \
-    --tracking \
+    -i video.mp4 \
+    -m models/bottomup_unet/ \
+    -t \
     --use_flow
 ```
 
 ### Track-only workflow
-You can perform tracking on existing user-labeled instances—without running inference to get new predictions—by enabling tracking (`--tracking`) and omitting the `--model-paths` argument. This will associate tracks using only the provided labels.
+You can perform tracking on existing user-labeled instances—without running inference to get new predictions—by enabling tracking (`--tracking`) and omitting the `--model-paths` argument.
 
 ```bash
 sleap-nn track \
-    --data_path video.mp4 \
-    --tracking \
-    --candidates_method fixed_window \
-    --tracking_window_size 10
+    -i labels.slp \
+    -t \
 ```
 
 ## Legacy SLEAP Model Support
 
 SLEAP-NN supporting running inference with models trained using the original SLEAP TensorFlow/Keras backend (sleap <= 1.4), **but only for UNet backbone models**.
-To run inference with legacy SLEAP models (trained with TensorFlow/Keras, sleap ≤ 1.4), simply use the same CLI or API workflows described above in the [With CLI](#with-cli) and [With API](#with-api) sections. 
+To run inference with legacy SLEAP models (trained with TensorFlow/Keras, sleap ≤ 1.4), simply use the same CLI or API workflows described above in the [With CLI](#with-cli) and [With API](#with-api) sections. Just provide the path to the directory containing both `best_model.h5` and `training_config.json` from your SLEAP training run as your `model_paths` argument. SLEAP-NN will automatically detect and load these legacy models for inference.
 
-Just provide the path to the directory containing both `best_model.h5` and `training_config.json` from your SLEAP training run as your `--model-paths` (CLI) or `model_paths` (API) argument. SLEAP-NN will automatically detect and load these legacy models for inference.
-
+!!! warning "Legacy support Limitation"
+    **Currently, only UNet backbone models are supported for inference when converting legacy SLEAP (≤1.4) models.**  
 
 ## Evaluation Metrics
 
@@ -221,8 +248,18 @@ sleap-nn eval \
     --save_metrics pred_metrics.npz \
 ```
 
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--ground_truth_path` / `-g` | Path to ground truth labels file (.slp) | Required |
+| `--predicted_path` / `-p` | Path to predicted labels file (.slp) | Required |
+| `--save_metrics` / `-s` | Path to save metrics (.npz file) | `None` |
+| `--oks_stddev` | Standard deviation for OKS calculation | `0.05` |
+| `--oks_scale` | Scale factor for OKS calculation | `None` |
+| `--match_threshold` | Threshold for instance matching | `0.0` |
+| `--user_labels_only` | Only evaluate user-labeled frames | `False` |
+
 Using `Evaluator` API:
-```python
+```python linenums="1"
 import sleap_io as sio
 from sleap_nn.evaluation import Evaluator
 

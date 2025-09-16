@@ -4,7 +4,15 @@ This tutorial will walk you through the complete process of training a pose esti
 
 ## 📋 Prerequisites
 
-Before starting, make sure you have `SLEAP-NN` installed (Refer [`Installation docs`](installation.md))
+Before starting, make sure you have `sleap-nn` installed (Refer [`Installation docs`](installation.md))
+
+!!! note "API-based Tutorial"
+
+    In this tutorial, we use the **Python API** for all steps, which is ideal for running in a notebook or Python script. The `uvx` workflow **will not work** with the API-based approach.  
+
+      - **Installation:** Make sure you have installed `sleap-nn` using either [pip](installation.md#installation-using-pip) or the [uv sync workflow](installation.md#installation-using-uv-sync).
+
+      - **Command Line Interface (CLI):** If you prefer using the CLI, or want to see all available CLI options, refer to the [Training Guide](training.md) and [Inference Guide](inference.md).
 
 ---
 
@@ -121,16 +129,16 @@ Your config file has three main sections:
 ```yaml
 data_config:      # How to load and process your data
 model_config:     # What model architecture to use
-trainer_config:   # How to train the model
+trainer_config:   # How to train the model, setup hyparameters
 ```
 
 ### 1.3 Key Parameters to Modify
 
 #### **Data Configuration (`data_config`)**
 
-Set the `train_labels_path` to the path of your training `.slp` file, or a list of `.slp` files if you have multiple datasets. The `val_labels_path` is optional—if you leave it out, the training data will be automatically split into training and validation sets based on the `validation_fraction` parameter. 
-
 > Download sample [`train.pkg.slp`](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and [`val.pkg.slp`](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp).
+
+Set the `train_labels_path` to the path of your training `.slp` file, or a list of `.slp` files if you have multiple datasets. The `val_labels_path` is optional—if you leave it out, the training data will be automatically split into training and validation sets based on the `validation_fraction` parameter. 
 
 Choose the appropriate `data_pipeline_fw` based on your dataset size and hardware:
 
@@ -220,25 +228,25 @@ The `trainer_config` section controls the training process, including key hyperp
 
 - **Data Loader Workers (`num_workers`):**  
     - For the default data pipeline (`torch_dataset`), set `num_workers: 0` because `.slp` video objects cannot be pickled for multiprocessing.
-    - If you use a caching data pipeline (e.g., `torch_dataset_cache_img_memory` or `torch_dataset_cache_img_disk`), you can increase `num_workers` (>0) to speed up data loading.
+    - If you use a caching data pipeline (e.g., `torch_dataset_cache_img_memory` or `torch_dataset_cache_img_disk` for `data_config.data_pipeline_fw`), you can increase `num_workers` (>0) to speed up data loading.
 
 - **Epochs and Checkpoints:**  
     - Set `max_epochs` to control how many epochs to train for.
-    - Use `ckpt_dir` and `run_name` to specify where model checkpoints are saved. If not set, a default folder in the working dir will be created using a timestamp and model type.
+    - Use `ckpt_dir` and `run_name` to specify where model checkpoints are saved. If both are `None`, a default folder will be created in the working directory using a timestamp and model type.
     - For multi-GPU training, always set a static `run_name` so all workers write to the same location.
 
 - **Device and Accelerator:**  
     - `trainer_accelerator` can be `"cpu"`, `"gpu"`, `"mps"`, or `"auto"`.  
             - `"auto"` lets Lightning choose the best device based on your hardware.
     - `trainer_device_indices` is a list of ints used to set the device indices.
-    - `trainer_devices` can be set to specify the number of devices (e.g., GPUs) to use.
+    - `trainer_devices` can be set to specify the number of devices (e.g., GPUs) to use. If `None`, the number of devices is inferred from the underlying hardware in the training workflow. 
 
 - **Other Tips:**  
     - Adjust `batch_size` and learning rate (`optimizer.lr`) as needed for your dataset and hardware.
     - Enable `visualize_preds_during_training` to see predictions during training.
     - Use `use_wandb: true` to log training metrics to Weights & Biases (optional).
 
-For a full list of options and explanations, see the [Config Reference](config.md#trainer-configuration-trainer_config).
+For a full list of options and explanations for the `trainer_config` parameters, see the [Config Guide](config.md#trainer-configuration-trainer_config).
 
 ```yaml
 trainer_config:
@@ -287,23 +295,11 @@ trainer_config:
 
 ## 🤖 Step 2: Training Your Model
 
-Now that you have your configuration file, let's train your model! SLEAP-NN provides two ways to train: command-line interface (CLI) and Python API.
+Now that you have your configuration file, let's train your model!
 
-### 2.1 Training with Command Line Interface (CLI)
+### 2.1 Training with Python API
 
-The CLI is perfect for quick training runs and automation:
-
-```bash
-sleap-nn train \
-    --config-name my_config.yaml \
-    --config-dir /path/to/config/directory
-```
-
-### 2.2 Training with Python API
-
-The Python API gives you more control and is great for custom training workflows:
-
-```python
+```python linenums="1"
 from omegaconf import OmegaConf
 from sleap_nn.training.model_trainer import ModelTrainer
 
@@ -319,7 +315,7 @@ trainer.train()
 
 If you want to use custom `sleap_io.Labels` objects,
 
-```python
+```python linenums="1"
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_io import Labels
 
@@ -338,11 +334,14 @@ trainer = ModelTrainer.get_model_trainer_from_config(
 trainer.train()
 ```
 
-### 2.3 Training Output
+> For more details and advanced training options, see the [Training Guide](training.md).
+
+
+### 2.2 Training Output
 
 After training, you'll find:
 ```
-my_model_ckpt_dir/
+my_model_ckpt_dir/my_run_1
 ├── best.ckpt                  # Best model weights
 ├── initial_config.yaml        # Initial training configuration
 ├── training_config.yaml       # Final training configuration
@@ -361,30 +360,47 @@ my_model_ckpt_dir/
 
 Now that you have a trained model, let's use it to make predictions on new data!
 
-### 3.1 Inference on Videos
+### 3.1 Inference
 
-```bash
-# Basic inference on a slp file
-sleap-nn track \
-    --data_path test.slp \
-    --model_paths my_model \
-    --output_path my_predictions.slp
+To run inference on a `.slp` file, 
 
-# Inference on specific frames on a video
-sleap-nn track \
-    --data_path video.mp4 \
-    --frames "1-100" \
-    --model_paths my_model \
-    --output_path my_predictions.slp
+```python linenums="1"
+from sleap_nn.predict import run_inference
 
-# Inference on a video + tracking
-sleap-nn track \
-    --data_path video.mp4 \
-    --frames "1-100" \
-    --model_paths my_model \
-    --output_path my_predictions.slp \
-    --tracking
+pred_labels = run_inference(
+  data_path="test.slp",
+  model_paths=["/path/to/model/dir"],
+  output_path="preds.slp",
+)
 ```
+
+To run inference on a video on specific frames, 
+
+```python linenums="1"
+from sleap_nn.predict import run_inference
+
+pred_labels = run_inference(
+  data_path="test.mp4",
+  model_paths=["/path/to/model/dir"],
+  output_path="preds.slp",
+  frames=list(range(100)), # run on the first 100 frames
+)
+```
+
+To run inference on a video with tracking, 
+
+```python linenums="1"
+from sleap_nn.predict import run_inference
+
+pred_labels = run_inference(
+  data_path="test.mp4",
+  model_paths=["/path/to/model/dir"],
+  output_path="preds.slp",
+  tracking=True
+)
+```
+
+> For more details and advanced inference options, see the [Inference Guide](inference.md).
 
 ### 3.2 Inference Parameters
 
@@ -415,10 +431,7 @@ ground_truth = sio.load_slp("ground_truth.slp")
 predictions = sio.load_slp("predictions.slp")
 
 # Create evaluator
-evaluator = Evaluator(
-    ground_truth=ground_truth,
-    predicted=predictions
-)
+evaluator = Evaluator(ground_truth, predictions)
 
 # Run evaluation
 metrics = evaluator.evaluate()
@@ -434,21 +447,21 @@ print(f"Dist p90: {metrics['distance_metrics']['p90']:.3f}")
 import sleap_io as sio
 import matplotlib.pyplot as plt
 
-def plot_preds(gt_labels, lf_index, pred_labels):
+def plot_preds(gt_labels, pred_labels, lf_index):
     _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
 
     # Plot each frame
-    gt_lf = gt_labels[lf_index.value]
-    pred_lf = pred_labels[lf_index.value]
+    gt_lf = gt_labels[lf_index]
+    pred_lf = pred_labels[lf_index]
 
     # Ensure we're plotting keypoints for the same frame
     assert (
         gt_lf.frame_idx == pred_lf.frame_idx
-    ), f"Frame mismatch at {lf_index.value}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
+    ), f"Frame mismatch at {lf_index}: GT={gt_lf.frame_idx}, Pred={pred_lf.frame_idx}"
 
     _ax.imshow(gt_lf.image, cmap="gray")
     _ax.set_title(
-        f"Frame {gt_lf.frame_idx} (lf idx: {lf_index.value})",
+        f"Frame {gt_lf.frame_idx} (lf idx: {lf_index})",
         fontsize=12,
         fontweight="bold",
     )
