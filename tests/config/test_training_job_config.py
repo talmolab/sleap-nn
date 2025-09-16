@@ -183,6 +183,7 @@ def test_load_bottomup_multiclass_training_config_from_file(
     assert config.trainer_config.optimizer_name == "Adam"
     assert config.trainer_config.optimizer.lr == 0.0001
     assert config.trainer_config.trainer_devices is None  # Default value
+    assert config.trainer_config.trainer_device_indices is None  # Default value
     assert config.trainer_config.trainer_accelerator == "auto"  # Default value
     assert config.trainer_config.enable_progress_bar is True  # Default value
     assert config.trainer_config.train_data_loader.batch_size == 4  # From the JSON file

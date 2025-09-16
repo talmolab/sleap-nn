@@ -652,6 +652,7 @@ def get_trainer_config(
     ckpt_save_top_k: int = 1,
     ckpt_save_last: Optional[bool] = None,
     trainer_num_devices: Optional[Union[str, int]] = None,
+    trainer_device_indices: Optional[List[int]] = None,
     trainer_accelerator: str = "auto",
     enable_progress_bar: bool = True,
     min_train_steps_per_epoch: int = 200,
@@ -708,9 +709,9 @@ def get_trainer_config(
             On a local filesystem, this will be a symbolic link, and otherwise a copy of
             the checkpoint file. This allows accessing the latest checkpoint in a deterministic
             manner. Default: False.
-        trainer_num_devices: Number of devices to train on (int), which devices to train
-            on (list or str), or "auto" to select automatically. If `None`, it's set to "auto". Default: None.
-        trainer_accelerator: One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises
+        trainer_num_devices: Number of devices to use or "auto" to let Lightning decide. If `None`, it defaults to `"auto"` when `trainer_device_indices` is also `None`, otherwise its value is inferred from trainer_device_indices. Default: None.
+        trainer_device_indices: List of device indices to use. For example, `[0, 1]` selects two devices and overrides `trainer_devices`, while `[2]` with `trainer_devices=2` still runs only on `device 2` (not two devices). If `None`, the number of devices is taken from `trainer_devices`, starting from index 0. Default: `None`.
+        trainer_accelerator: One of the ("cpu", "gpu", "mps", "auto"). "auto" recognises
             the machine the model is running on and chooses the appropriate accelerator for
             the `Trainer` to be connected to. Default: "auto".
         enable_progress_bar: When True, enables printing the logs during training. Default: False.
@@ -821,6 +822,7 @@ def get_trainer_config(
             save_top_k=ckpt_save_top_k, save_last=ckpt_save_last
         ),
         trainer_devices=trainer_num_devices,
+        trainer_device_indices=trainer_device_indices,
         trainer_accelerator=trainer_accelerator,
         enable_progress_bar=enable_progress_bar,
         min_train_steps_per_epoch=min_train_steps_per_epoch,

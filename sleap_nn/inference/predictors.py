@@ -765,7 +765,6 @@ class TopDownPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=centroid_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=centroid_config.trainer_config.lr_scheduler,
                     online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -790,7 +789,6 @@ class TopDownPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=centroid_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=centroid_config.trainer_config.lr_scheduler,
                     online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -882,7 +880,6 @@ class TopDownPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=confmap_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=confmap_config.trainer_config.lr_scheduler,
                     online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -910,7 +907,6 @@ class TopDownPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=confmap_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=confmap_config.trainer_config.lr_scheduler,
                     online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -1151,6 +1147,11 @@ class TopDownPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         preds = defaultdict(list)
         predicted_frames = []
         skeleton_idx = 0
@@ -1357,7 +1358,6 @@ class SingleInstancePredictor(Predictor):
                 pretrained_backbone_weights=None,
                 pretrained_head_weights=None,
                 init_weights=confmap_config.model_config.init_weights,
-                trainer_accelerator=device,
                 lr_scheduler=confmap_config.trainer_config.lr_scheduler,
                 backbone_type=backbone_type,
                 online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
@@ -1381,7 +1381,6 @@ class SingleInstancePredictor(Predictor):
                 pretrained_backbone_weights=None,
                 pretrained_head_weights=None,
                 init_weights=confmap_config.model_config.init_weights,
-                trainer_accelerator=device,
                 lr_scheduler=confmap_config.trainer_config.lr_scheduler,
                 online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
                 hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -1544,6 +1543,11 @@ class SingleInstancePredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         predicted_frames = []
 
         skeleton_idx = 0
@@ -1783,7 +1787,6 @@ class BottomUpPredictor(Predictor):
                 pretrained_backbone_weights=None,
                 pretrained_head_weights=None,
                 init_weights=bottomup_config.model_config.init_weights,
-                trainer_accelerator=device,
                 lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
                 online_mining=bottomup_config.trainer_config.online_hard_keypoint_mining.online_mining,
                 hard_to_easy_ratio=bottomup_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -1807,7 +1810,6 @@ class BottomUpPredictor(Predictor):
                 pretrained_backbone_weights=None,
                 pretrained_head_weights=None,
                 init_weights=bottomup_config.model_config.init_weights,
-                trainer_accelerator=device,
                 lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
                 backbone_type=backbone_type,
                 model_type="bottomup",
@@ -1971,6 +1973,11 @@ class BottomUpPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         predicted_frames = []
 
         skeleton_idx = 0
@@ -2199,7 +2206,6 @@ class BottomUpMultiClassPredictor(Predictor):
                 pretrained_backbone_weights=None,
                 pretrained_head_weights=None,
                 init_weights=bottomup_config.model_config.init_weights,
-                trainer_accelerator=device,
                 lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
                 online_mining=bottomup_config.trainer_config.online_hard_keypoint_mining.online_mining,
                 hard_to_easy_ratio=bottomup_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -2222,7 +2228,6 @@ class BottomUpMultiClassPredictor(Predictor):
                 pretrained_backbone_weights=None,
                 pretrained_head_weights=None,
                 init_weights=bottomup_config.model_config.init_weights,
-                trainer_accelerator=device,
                 lr_scheduler=bottomup_config.trainer_config.lr_scheduler,
                 online_mining=bottomup_config.trainer_config.online_hard_keypoint_mining.online_mining,
                 hard_to_easy_ratio=bottomup_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -2396,6 +2401,11 @@ class BottomUpMultiClassPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         predicted_frames = []
         tracks = [
             sio.Track(name=x)
@@ -2731,7 +2741,6 @@ class TopDownMultiClassPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=centroid_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=centroid_config.trainer_config.lr_scheduler,
                     online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -2756,7 +2765,6 @@ class TopDownMultiClassPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=centroid_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=centroid_config.trainer_config.lr_scheduler,
                     online_mining=centroid_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=centroid_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -2857,7 +2865,6 @@ class TopDownMultiClassPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=confmap_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=confmap_config.trainer_config.lr_scheduler,
                     online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -2881,7 +2888,6 @@ class TopDownMultiClassPredictor(Predictor):
                     pretrained_backbone_weights=None,
                     pretrained_head_weights=None,
                     init_weights=confmap_config.model_config.init_weights,
-                    trainer_accelerator=device,
                     lr_scheduler=confmap_config.trainer_config.lr_scheduler,
                     online_mining=confmap_config.trainer_config.online_hard_keypoint_mining.online_mining,
                     hard_to_easy_ratio=confmap_config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -3136,6 +3142,11 @@ class TopDownMultiClassPredictor(Predictor):
             A `sio.Labels` object with `sio.PredictedInstance`s created from
             arrays returned from the inference result generator.
         """
+        # open video backend for tracking
+        for video in self.videos:
+            if not video.open_backend:
+                video.open()
+
         preds = defaultdict(list)
         predicted_frames = []
         skeleton_idx = 0

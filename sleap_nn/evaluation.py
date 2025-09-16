@@ -668,7 +668,8 @@ class Evaluator:
     def evaluate(self):
         """Return the evaluation metrics."""
         metrics = {}
-        metrics["voc_metrics"] = self.voc_metrics()
+        metrics["voc_metrics"] = self.voc_metrics(match_score_by="oks")
+        metrics["voc_metrics"].update(self.voc_metrics(match_score_by="pck"))
         metrics["mOKS"] = self.mOKS()
         metrics["distance_metrics"] = self.distance_metrics()
         metrics["pck_metrics"] = self.pck_metrics()

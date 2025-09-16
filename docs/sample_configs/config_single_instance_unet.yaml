@@ -91,6 +91,7 @@ trainer_config:
     save_top_k: 1
     save_last: false
   trainer_devices:
+  trainer_device_indices:
   trainer_accelerator: auto
   profiler: null
   trainer_strategy: auto

@@ -93,6 +93,7 @@ trainer_config:
     save_top_k: 1
     save_last: false
   trainer_devices:
+  trainer_device_indices:
   trainer_accelerator: auto
   min_train_steps_per_epoch: 200
   visualize_preds_during_training: true
@@ -235,9 +236,15 @@ The `trainer_config` section controls the training process, including key hyperp
     - For multi-GPU training, always set a static `run_name` so all workers write to the same location.
 
 - **Device and Accelerator:**  
-    - `trainer_accelerator` can be `"cpu"`, `"cuda"`, `"mps"`, or `"auto"`.  
+    - `trainer_accelerator` can be `"cpu"`, `"gpu"`, `"mps"`, or `"auto"`.  
             - `"auto"` lets Lightning choose the best device based on your hardware.
-    - `trainer_devices` can be set to specify the number of devices (e.g., GPUs) to use. If `None`, the number of devices is inferred from the underlying hardware in the training workflow.  
+    - `trainer_device_indices` is a list of ints used to set the device indices.
+    - `trainer_devices` can be set to specify the number of devices (e.g., GPUs) to use. If `None`, the number of devices is inferred from the underlying hardware in the training workflow. 
+
+- **Other Tips:**  
+    - Adjust `batch_size` and learning rate (`optimizer.lr`) as needed for your dataset and hardware.
+    - Enable `visualize_preds_during_training` to see predictions during training.
+    - Use `use_wandb: true` to log training metrics to Weights & Biases (optional).
 
 For a full list of options and explanations for the `trainer_config` parameters, see the [Config Guide](config.md#trainer-configuration-trainer_config).
 
@@ -255,6 +262,7 @@ trainer_config:
     save_top_k: 1
     save_last: false
   trainer_devices:
+  trainer_device_indices:
   trainer_accelerator: auto
   min_train_steps_per_epoch: 200
   visualize_preds_during_training: true

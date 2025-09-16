@@ -7,7 +7,7 @@ import sleap_io as sio
 from queue import Queue
 from threading import Thread
 import torch
-import copy
+from copy import deepcopy
 from loguru import logger
 
 
@@ -128,6 +128,17 @@ class VideoReader(Thread):
         if self.frames is None:
             self.frames = [x for x in range(0, len(self.video))]
 
+        # Close the backend
+        self.video.close()
+        self.backend_status = self.video.open_backend
+        self.video.open_backend = False
+
+        # Make a thread-local copy
+        self.local_video_copy = deepcopy(self.video)
+
+        # Set it to open the backend on first read
+        self.local_video_copy.open_backend = True
+
     def total_len(self):
         """Returns the total number of frames in the video."""
         return len(self.frames)
@@ -166,7 +177,7 @@ class VideoReader(Thread):
         """Adds frames to the buffer queue."""
         try:
             for idx in self.frames:
-                img = self.video[idx]
+                img = self.local_video_copy[idx]
                 img = np.transpose(img, (2, 0, 1))  # convert H,W,C to C,H,W
                 img = np.expand_dims(img, axis=0)  # (1, C, H, W)
 
@@ -239,12 +250,28 @@ class LabelsReader(Thread):
         elif self.only_suggested_frames:
             self.filtered_lfs = []
             for suggestion in self.labels.suggestions:
-                lf = self.labels.find(suggestion.video, suggestion.frame_idx)[0]
-                if lf is None or not lf.has_user_instances:
-                    self.filtered_lfs.append(lf)
+                lf = self.labels.find(suggestion.video, suggestion.frame_idx)
+                if len(lf) == 0 or not lf[0].has_user_instances:
+                    new_lf = sio.LabeledFrame(
+                        video=suggestion.video, frame_idx=suggestion.frame_idx
+                    )
+                    self.filtered_lfs.append(new_lf)
 
         else:
             self.filtered_lfs = [lf for lf in self.labels]
+
+        # Close the backend
+        self.local_video_copy = []
+        for video in self.labels.videos:
+            video.close()
+            self.backend_status = video.open_backend
+            video.open_backend = False
+
+            # make a thread-local copy
+            self.local_video_copy.append(deepcopy(video))
+
+            # Set it to open the backend on first read
+            self.local_video_copy[-1].open_backend = True
 
     def total_len(self):
         """Returns the total number of frames in the video."""
@@ -281,16 +308,15 @@ class LabelsReader(Thread):
         """Adds frames to the buffer queue."""
         try:
             for lf in self.filtered_lfs:
-                img = lf.image
+                video_idx = self.labels.videos.index(lf.video)
+                img = self.local_video_copy[video_idx][lf.frame_idx]
                 img = np.transpose(img, (2, 0, 1))  # convert H,W,C to C,H,W
                 img = np.expand_dims(img, axis=0)  # (1, C, H, W)
 
                 sample = {
                     "image": torch.from_numpy(img.copy()),
                     "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
-                    "video_idx": torch.tensor(
-                        self.labels.videos.index(lf.video), dtype=torch.int32
-                    ),
+                    "video_idx": torch.tensor(video_idx, dtype=torch.int32),
                     "orig_size": torch.Tensor(img.shape[-2:]),
                 }
 

@@ -302,6 +302,20 @@ class ModelTrainer:
                 if self.config.trainer_config.trainer_devices is not None
                 else "auto"
             )
+            if (
+                trainer_devices == "auto"
+                and OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                is not None
+            ):
+                trainer_devices = len(
+                    OmegaConf.select(
+                        self.config,
+                        "trainer_config.trainer_device_indices",
+                        default=None,
+                    )
+                )
             if trainer_devices == "auto":
                 if torch.cuda.is_available():
                     trainer_devices = torch.cuda.device_count()
@@ -388,12 +402,7 @@ class ModelTrainer:
             if self.config.model_config.pretrained_backbone_weights.endswith(".ckpt"):
                 pretrained_backbone_ckpt = torch.load(
                     self.config.model_config.pretrained_backbone_weights,
-                    map_location=(
-                        self.config.trainer_config.trainer_accelerator
-                        if self.config.trainer_config.trainer_accelerator is not None
-                        or self.config.trainer_config.trainer_accelerator != "auto"
-                        else "cpu"
-                    ),
+                    map_location="cpu",  # this will be loaded on cpu as it's just used to get the input channels
                     weights_only=False,
                 )
                 input_channels = list(pretrained_backbone_ckpt["state_dict"].values())[
@@ -492,11 +501,21 @@ class ModelTrainer:
         self.config = check_output_strides(self.config)
 
         # if trainer_devices is None, set it to "auto"
-        self.config.trainer_config.trainer_devices = (
-            "auto"
-            if self.config.trainer_config.trainer_devices is None
-            else self.config.trainer_config.trainer_devices
-        )
+        if self.config.trainer_config.trainer_devices is None:
+            self.config.trainer_config.trainer_devices = (
+                "auto"
+                if OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                is None
+                else len(
+                    OmegaConf.select(
+                        self.config,
+                        "trainer_config.trainer_device_indices",
+                        default=None,
+                    )
+                )
+            )
 
         # setup checkpoint path
         self._setup_ckpt_path()
@@ -825,7 +844,16 @@ class ModelTrainer:
             callbacks=callbacks,
             logger=loggers,
             enable_checkpointing=self.config.trainer_config.save_ckpt,
-            devices=self.config.trainer_config.trainer_devices,
+            devices=(
+                OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                if OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                is not None
+                else self.config.trainer_config.trainer_devices
+            ),
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
@@ -855,25 +883,14 @@ class ModelTrainer:
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
         )
 
-        # set devices and accelrator
-        if (
-            self.config.trainer_config.trainer_devices is None
-            or self.config.trainer_config.trainer_devices == "auto"
-        ):
-            self.config.trainer_config.trainer_devices = self.trainer.num_devices
-        if (
-            self.config.trainer_config.trainer_accelerator is None
-            or self.config.trainer_config.trainer_accelerator == "auto"
-        ):
-            self.config.trainer_config.trainer_accelerator = (
-                self.trainer.strategy.root_device
-            )
+        logger.info(f"Training on {self.trainer.num_devices} device(s)")
+        logger.info(f"Training on {self.trainer.strategy.root_device} accelerator")
 
         # initialize the lightning model.
         # need to initialize after Trainer is initialized (for trainer accelerator)
         logger.info(f"Setting up lightning module for {self.model_type} model...")
         self.lightning_model = LightningModel.get_lightning_model_from_config(
-            config=self.config
+            config=self.config,
         )
         logger.info(f"Backbone model: {self.lightning_model.model.backbone}")
         logger.info(f"Head model: {self.lightning_model.model.head_layers}")
@@ -893,7 +910,7 @@ class ModelTrainer:
             rank=self.trainer.global_rank,
             train_steps_per_epoch=self.config.trainer_config.train_steps_per_epoch,
             val_steps_per_epoch=val_steps_per_epoch,
-            trainer_devices=self.config.trainer_config.trainer_devices,
+            trainer_devices=self.trainer.num_devices,
         )
 
         if self.trainer.global_rank == 0:  # save config only in rank 0 process

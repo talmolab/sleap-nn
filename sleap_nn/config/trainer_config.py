@@ -205,8 +205,9 @@ class TrainerConfig:
         train_data_loader: (Note: Any parameters from Torch's DataLoader could be used.)
         val_data_loader: (Similar to train_data_loader)
         model_ckpt: (Note: Any parameters from Lightning's ModelCheckpoint could be used.)
-        trainer_devices: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. If `None`, it's set to "auto". *Default*: `None`.
-        trainer_accelerator: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the Trainer to be connected to. *Default*: `"auto"`.
+        trainer_num_devices: (int) Number of devices to use or "auto" to let Lightning decide. If `None`, it defaults to `"auto"` when `trainer_device_indices` is also `None`, otherwise its value is inferred from trainer_device_indices. Default: None.
+        trainer_device_indices: (list) List of device indices to use. For example, `[0, 1]` selects two devices and overrides `trainer_devices`, while `[2]` with `trainer_devices=2` still runs only on `device 2` (not two devices). If `None`, the number of devices is taken from `trainer_devices`, starting from index 0. Default: `None`.
+        trainer_accelerator: (str) One of the ("cpu", "gpu", "mps", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the Trainer to be connected to. *Default*: `"auto"`.
         profiler: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"]. *Default*: `None`.
         trainer_strategy: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. *Default*: `"auto"`.
         enable_progress_bar: (bool) When True, enables printing the logs during training. *Default*: `True`.
@@ -236,6 +237,7 @@ class TrainerConfig:
         default=None,
         validator=lambda inst, attr, val: TrainerConfig.validate_trainer_devices(val),
     )
+    trainer_device_indices: Optional[List[int]] = None
     trainer_accelerator: str = "auto"
     profiler: Optional[str] = None
     trainer_strategy: str = "auto"
@@ -279,10 +281,6 @@ class TrainerConfig:
         if value is None:
             return
         if isinstance(value, int) and value >= 0:
-            return
-        if isinstance(value, list) and all(
-            isinstance(x, int) and x >= 0 for x in value
-        ):
             return
         if isinstance(value, str) and value == "auto":
             return

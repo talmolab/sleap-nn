@@ -101,6 +101,7 @@ trainer_config:
     save_top_k: 1
     save_last: false
   trainer_devices:
+  trainer_device_indices:
   trainer_accelerator: auto
   enable_progress_bar: true
   min_train_steps_per_epoch: 200
@@ -714,8 +715,9 @@ trainer_config:
     - `save_last`: (bool) When True, saves a last.ckpt whenever a checkpoint file gets saved. On a local filesystem, this will be a symbolic link, and otherwise a copy of the checkpoint file. This allows accessing the latest checkpoint in a deterministic manner. **Default**: `None`
 
 ### Hardware Configuration
-- `trainer_devices`: (int) Number of devices to train on (int), which devices to train on (list or str), or "auto" to select automatically. If `None`, it's set to "auto". **Default**: `None`
-- `trainer_accelerator`: (str) One of the ("cpu", "gpu", "tpu", "ipu", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to. **Default**: `"auto"`
+- `trainer_devices`: (int) Number of devices to use or "auto" to let Lightning decide. If `None`, it defaults to `"auto"` when `trainer_device_indices` is also `None`, otherwise its value is inferred from trainer_device_indices. **Default**: `None`.
+- `trainer_device_indices`: (list) List of device indices to use. For example, `[0, 1]` selects two devices and overrides `trainer_devices`, while `[2]` with `trainer_devices=2` still runs only on `device 2` (not two devices). If `None`, the number of devices is taken from `trainer_devices`, starting from index 0. Default: `None`.
+- `trainer_accelerator`: (str) One of the ("cpu", "gpu", "mps", "auto"). "auto" recognises the machine the model is running on and chooses the appropriate accelerator for the `Trainer` to be connected to. **Default**: `"auto"`
 - `profiler`: (str) Profiler for pytorch Trainer. One of ["advanced", "passthrough", "pytorch", "simple"]. **Default**: `None`
 - `trainer_strategy`: (str) Training strategy, one of ["auto", "ddp", "fsdp", "ddp_find_unused_parameters_false", "ddp_find_unused_parameters_true", ...]. This supports any training strategy that is supported by `lightning.Trainer`. **Default**: `"auto"`
 
