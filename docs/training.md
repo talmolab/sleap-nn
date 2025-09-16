@@ -156,7 +156,8 @@ trainer_config:
   ckpt_dir: models
   run_name: multi_gpu_training_1
   trainer_accelerator: "auto"
-  trainer_devices: "auto" # or null
+  trainer_devices:
+  trainer_device_indices:
   trainer_strategy: "auto"
 ```
 
@@ -167,6 +168,20 @@ ckpt_dir: models
   run_name: multi_gpu_training_1
   trainer_accelerator: "gpu"
   trainer_devices: 4
+  trainer_device_indices:
+  trainer_strategy: "ddp"
+```
+
+To set the devices to use (use first and third gpu):
+```yaml
+trainer_config:
+ckpt_dir: models
+  run_name: multi_gpu_training_1
+  trainer_accelerator: "gpu"
+  trainer_devices: 2
+  trainer_device_indices:
+    - 0
+    - 2
   trainer_strategy: "ddp"
 ```
 

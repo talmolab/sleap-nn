@@ -302,6 +302,20 @@ class ModelTrainer:
                 if self.config.trainer_config.trainer_devices is not None
                 else "auto"
             )
+            if (
+                trainer_devices == "auto"
+                and OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                is not None
+            ):
+                trainer_devices = len(
+                    OmegaConf.select(
+                        self.config,
+                        "trainer_config.trainer_device_indices",
+                        default=None,
+                    )
+                )
             if trainer_devices == "auto":
                 if torch.cuda.is_available():
                     trainer_devices = torch.cuda.device_count()
@@ -487,11 +501,21 @@ class ModelTrainer:
         self.config = check_output_strides(self.config)
 
         # if trainer_devices is None, set it to "auto"
-        self.config.trainer_config.trainer_devices = (
-            "auto"
-            if self.config.trainer_config.trainer_devices is None
-            else self.config.trainer_config.trainer_devices
-        )
+        if self.config.trainer_config.trainer_devices is None:
+            self.config.trainer_config.trainer_devices = (
+                "auto"
+                if OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                is None
+                else len(
+                    OmegaConf.select(
+                        self.config,
+                        "trainer_config.trainer_device_indices",
+                        default=None,
+                    )
+                )
+            )
 
         # setup checkpoint path
         self._setup_ckpt_path()
@@ -820,7 +844,16 @@ class ModelTrainer:
             callbacks=callbacks,
             logger=loggers,
             enable_checkpointing=self.config.trainer_config.save_ckpt,
-            devices=self.config.trainer_config.trainer_devices,
+            devices=(
+                OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                if OmegaConf.select(
+                    self.config, "trainer_config.trainer_device_indices", default=None
+                )
+                is not None
+                else self.config.trainer_config.trainer_devices
+            ),
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
@@ -850,25 +883,14 @@ class ModelTrainer:
             batch_size=self.config.trainer_config.val_data_loader.batch_size,
         )
 
-        # set devices and accelrator
-        if (
-            self.config.trainer_config.trainer_devices is None
-            or self.config.trainer_config.trainer_devices == "auto"
-        ):
-            self.config.trainer_config.trainer_devices = self.trainer.num_devices
-        if (
-            self.config.trainer_config.trainer_accelerator is None
-            or self.config.trainer_config.trainer_accelerator == "auto"
-        ):
-            self.config.trainer_config.trainer_accelerator = (
-                self.trainer.strategy.root_device
-            )
+        logger.info(f"Training on {self.trainer.num_devices} device(s)")
+        logger.info(f"Training on {self.trainer.strategy.root_device} accelerator")
 
         # initialize the lightning model.
         # need to initialize after Trainer is initialized (for trainer accelerator)
         logger.info(f"Setting up lightning module for {self.model_type} model...")
         self.lightning_model = LightningModel.get_lightning_model_from_config(
-            config=self.config
+            config=self.config,
         )
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
         self.config.model_config.total_params = total_params
@@ -882,7 +904,7 @@ class ModelTrainer:
             rank=self.trainer.global_rank,
             train_steps_per_epoch=self.config.trainer_config.train_steps_per_epoch,
             val_steps_per_epoch=val_steps_per_epoch,
-            trainer_devices=self.config.trainer_config.trainer_devices,
+            trainer_devices=self.trainer.num_devices,
         )
 
         if self.trainer.global_rank == 0:  # save config only in rank 0 process

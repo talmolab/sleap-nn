@@ -283,6 +283,7 @@ def test_trainer_mapper():
 
     # Test for default values (unspecified by legacy config)
     assert config.trainer_devices is None
+    assert config.trainer_device_indices is None
     assert config.trainer_accelerator == "auto"
     assert config.enable_progress_bar is True
     assert config.min_train_steps_per_epoch == 200
