@@ -124,7 +124,7 @@ def train(config_name, config_dir, overrides):
     "-d",
     type=str,
     default="auto",
-    help="Device on which torch.Tensor will be allocated. One of the ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen).",
+    help="Device on which torch.Tensor will be allocated. One of the ('cpu', 'cuda', 'mps', 'auto'). Default: 'auto' (based on available backend either cuda, mps or cpu is chosen). If `cuda` is available, you could also use `cuda:0` to specify the device.",
 )
 @click.option(
     "--batch_size",

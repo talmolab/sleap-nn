@@ -180,7 +180,7 @@ def run_inference(
                 Default is current working directory.
         device: (str) Device on which torch.Tensor will be allocated. One of the
                 ('cpu', 'cuda', 'mps', 'auto').
-                Default: "auto" (based on available backend either cuda, mps or cpu is chosen).
+                Default: "auto" (based on available backend either cuda, mps or cpu is chosen). If `cuda` is available, you could also use `cuda:0` to specify the device.
         tracking: (bool) If True, runs tracking on the predicted instances.
         tracking_window_size: Number of frames to look for in the candidate instances to match
                 with the current detections. Default: 5.

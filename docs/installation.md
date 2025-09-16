@@ -4,7 +4,7 @@
 
 !!! tip "Choose Your Installation Method"
     - **[Installation with uvx](#installation-with-uvx)**: Use `uvx` for one-off commands (no installation needed)
-    - **[Installation with pip](#installation-with-pip)**: Use `pip` for persistent installation. (Recommended to use with a conda env)
+    - **[Installation with pip](#installation-with-pip)**: Use `pip` to install from pypi in a conda env. (Recommended to use with a conda env)
     - **[Installation from source](#development-setup-with-uv)**: Use `uv sync` to install from source (for developmental purposes)
 
 ---
