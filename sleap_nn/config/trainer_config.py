@@ -248,7 +248,7 @@ class TrainerConfig:
     seed: int = 0
     use_wandb: bool = False
     save_ckpt: bool = False
-    ckpt_dir: str = "."
+    ckpt_dir: Optional[str] = "."
     run_name: Optional[str] = None
     resume_ckpt_path: Optional[str] = None
     wandb: WandBConfig = field(factory=WandBConfig)
