@@ -1170,7 +1170,6 @@ def test_loading_pretrained_weights(
     sleap_nn_config.model_config.pretrained_head_weights = (
         Path(sleap_centered_instance_model_path) / "best_model.h5"
     )
-    sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
     sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
@@ -1200,7 +1199,6 @@ def test_loading_pretrained_weights(
     )
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
-    sleap_nn_config.trainer_config.trainer_accelerator = "cpu"
     sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
     sleap_nn_config.trainer_config.run_name = "test_loading_weights"
     trainer = ModelTrainer.get_model_trainer_from_config(

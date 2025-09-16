@@ -99,6 +99,7 @@ def sample_config(tmp_path, minimal_instance):
                     "patience": 20,
                 },
                 "trainer_devices": 1,
+                "trainer_device_indices": None,
                 "trainer_accelerator": "cpu",
                 "max_epochs": 1,
                 "seed": 42,

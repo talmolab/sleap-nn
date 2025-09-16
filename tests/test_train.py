@@ -102,6 +102,7 @@ def sample_cfg(minimal_instance, tmp_path):
                     "patience": 20,
                 },
                 "trainer_devices": 1,
+                "trainer_device_indices": None,
                 "trainer_accelerator": "auto",
                 "enable_progress_bar": False,
                 "min_train_steps_per_epoch": 5,

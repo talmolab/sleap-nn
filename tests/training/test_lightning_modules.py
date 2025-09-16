@@ -55,7 +55,6 @@ def test_topdown_centered_instance_model(
         pretrained_head_weights=config.model_config.pretrained_head_weights,
         init_weights=config.model_config.init_weights,
         lr_scheduler=config.trainer_config.lr_scheduler,
-        trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         optimizer="AdamW",
     )
     OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
@@ -528,11 +527,6 @@ def test_incorrect_model_type(config, caplog, tmp_path: str):
 
 def test_load_trained_ckpts(config, tmp_path, minimal_instance_centered_instance_ckpt):
     """Test loading trained weights for backbone and head layers."""
-    if torch.cuda.is_available():
-        OmegaConf.update(config, "trainer_config.trainer_accelerator", "cuda")
-    else:
-        OmegaConf.update(config, "trainer_config.trainer_accelerator", "cpu")
-
     OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
     OmegaConf.update(
         config, "trainer_config.run_name", "test_model_trainer_load_trained_ckpts"

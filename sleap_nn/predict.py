@@ -179,7 +179,7 @@ def run_inference(
         output_path: (str) Path to save the labels file if `make_labels` is True.
                 Default is current working directory.
         device: (str) Device on which torch.Tensor will be allocated. One of the
-                ('cpu', 'cuda', 'mps', 'auto', 'opencl', 'ideep', 'hip', 'msnpu').
+                ('cpu', 'cuda', 'mps', 'auto').
                 Default: "auto" (based on available backend either cuda, mps or cpu is chosen).
         tracking: (bool) If True, runs tracking on the predicted instances.
         tracking_window_size: Number of frames to look for in the candidate instances to match

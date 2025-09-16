@@ -98,7 +98,6 @@ class LightningModel(L.LightningModule):
         pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
         pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
-        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
         online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
         hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
@@ -119,7 +118,6 @@ class LightningModel(L.LightningModule):
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
         init_weights: Optional[str] = "xavier",
-        trainer_accelerator: Optional[str] = "cpu",
         lr_scheduler: Optional[Union[str, DictConfig]] = None,
         online_mining: Optional[bool] = False,
         hard_to_easy_ratio: Optional[float] = 2.0,
@@ -148,14 +146,6 @@ class LightningModel(L.LightningModule):
         self.in_channels = self.backbone_config[f"{self.backbone_type}"]["in_channels"]
         self.input_expand_channels = self.in_channels
         self.init_weights = init_weights
-        self.trainer_accelerator = trainer_accelerator
-        if self.trainer_accelerator == "auto":
-            if torch.cuda.is_available():
-                self.trainer_accelerator = "cuda"
-            elif torch.mps.is_available():
-                self.trainer_accelerator = "mps"
-            else:
-                self.trainer_accelerator = "cpu"
         self.lr_scheduler = lr_scheduler
         self.online_mining = online_mining
         self.hard_to_easy_ratio = hard_to_easy_ratio
@@ -210,11 +200,7 @@ class LightningModel(L.LightningModule):
             if self.pretrained_backbone_weights.endswith(".ckpt"):
                 ckpt = torch.load(
                     self.pretrained_backbone_weights,
-                    map_location=(
-                        self.trainer_accelerator
-                        if not self.trainer_accelerator == "gpu"
-                        else "cuda"
-                    ),
+                    map_location="cpu",
                     weights_only=False,
                 )
                 ckpt["state_dict"] = {
@@ -243,11 +229,7 @@ class LightningModel(L.LightningModule):
             if self.pretrained_head_weights.endswith(".ckpt"):
                 ckpt = torch.load(
                     self.pretrained_head_weights,
-                    map_location=(
-                        self.trainer_accelerator
-                        if not self.trainer_accelerator == "gpu"
-                        else "cuda"
-                    ),
+                    map_location="cpu",
                     weights_only=False,
                 )
                 ckpt["state_dict"] = {
@@ -296,7 +278,6 @@ class LightningModel(L.LightningModule):
             pretrained_backbone_weights=config.model_config.pretrained_backbone_weights,
             pretrained_head_weights=config.model_config.pretrained_head_weights,
             init_weights=config.model_config.init_weights,
-            trainer_accelerator=config.trainer_config.trainer_accelerator,
             lr_scheduler=config.trainer_config.lr_scheduler,
             online_mining=config.trainer_config.online_hard_keypoint_mining.online_mining,
             hard_to_easy_ratio=config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
@@ -453,7 +434,6 @@ class SingleInstanceLightningModule(LightningModel):
         pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
         pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
-        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
         online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
         hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
@@ -474,7 +454,6 @@ class SingleInstanceLightningModule(LightningModel):
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
         init_weights: Optional[str] = "xavier",
-        trainer_accelerator: Optional[str] = "cpu",
         lr_scheduler: Optional[Union[str, DictConfig]] = None,
         online_mining: Optional[bool] = False,
         hard_to_easy_ratio: Optional[float] = 2.0,
@@ -494,7 +473,6 @@ class SingleInstanceLightningModule(LightningModel):
             pretrained_backbone_weights=pretrained_backbone_weights,
             pretrained_head_weights=pretrained_head_weights,
             init_weights=init_weights,
-            trainer_accelerator=trainer_accelerator,
             lr_scheduler=lr_scheduler,
             online_mining=online_mining,
             hard_to_easy_ratio=hard_to_easy_ratio,
@@ -666,7 +644,6 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
         pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
-        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
         online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
         hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
@@ -687,7 +664,6 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
         init_weights: Optional[str] = "xavier",
-        trainer_accelerator: Optional[str] = "cpu",
         lr_scheduler: Optional[Union[str, DictConfig]] = None,
         online_mining: Optional[bool] = False,
         hard_to_easy_ratio: Optional[float] = 2.0,
@@ -707,7 +683,6 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             pretrained_backbone_weights=pretrained_backbone_weights,
             pretrained_head_weights=pretrained_head_weights,
             init_weights=init_weights,
-            trainer_accelerator=trainer_accelerator,
             lr_scheduler=lr_scheduler,
             online_mining=online_mining,
             hard_to_easy_ratio=hard_to_easy_ratio,
@@ -880,7 +855,6 @@ class CentroidLightningModule(LightningModel):
         pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
         pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
-        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
         online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
         hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
@@ -901,7 +875,6 @@ class CentroidLightningModule(LightningModel):
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
         init_weights: Optional[str] = "xavier",
-        trainer_accelerator: Optional[str] = "cpu",
         lr_scheduler: Optional[Union[str, DictConfig]] = None,
         online_mining: Optional[bool] = False,
         hard_to_easy_ratio: Optional[float] = 2.0,
@@ -921,7 +894,6 @@ class CentroidLightningModule(LightningModel):
             pretrained_backbone_weights=pretrained_backbone_weights,
             pretrained_head_weights=pretrained_head_weights,
             init_weights=init_weights,
-            trainer_accelerator=trainer_accelerator,
             lr_scheduler=lr_scheduler,
             online_mining=online_mining,
             hard_to_easy_ratio=hard_to_easy_ratio,
@@ -1054,7 +1026,6 @@ class BottomUpLightningModule(LightningModel):
         pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
         pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
-        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
         online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
         hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
@@ -1075,7 +1046,6 @@ class BottomUpLightningModule(LightningModel):
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
         init_weights: Optional[str] = "xavier",
-        trainer_accelerator: Optional[str] = "cpu",
         lr_scheduler: Optional[Union[str, DictConfig]] = None,
         online_mining: Optional[bool] = False,
         hard_to_easy_ratio: Optional[float] = 2.0,
@@ -1095,7 +1065,6 @@ class BottomUpLightningModule(LightningModel):
             pretrained_backbone_weights=pretrained_backbone_weights,
             pretrained_head_weights=pretrained_head_weights,
             init_weights=init_weights,
-            trainer_accelerator=trainer_accelerator,
             lr_scheduler=lr_scheduler,
             online_mining=online_mining,
             hard_to_easy_ratio=hard_to_easy_ratio,
@@ -1328,7 +1297,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
         pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
         pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
-        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
         online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
         hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
@@ -1349,7 +1317,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
         init_weights: Optional[str] = "xavier",
-        trainer_accelerator: Optional[str] = "cpu",
         lr_scheduler: Optional[Union[str, DictConfig]] = None,
         online_mining: Optional[bool] = False,
         hard_to_easy_ratio: Optional[float] = 2.0,
@@ -1369,7 +1336,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
             pretrained_backbone_weights=pretrained_backbone_weights,
             pretrained_head_weights=pretrained_head_weights,
             init_weights=init_weights,
-            trainer_accelerator=trainer_accelerator,
             lr_scheduler=lr_scheduler,
             online_mining=online_mining,
             hard_to_easy_ratio=hard_to_easy_ratio,
@@ -1577,7 +1543,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for backbone initialization. If None, random initialization is used.
         pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP) file for head layers initialization. If None, random initialization is used.
         init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
-        trainer_accelerator: Training accelerator. One of ("cpu", "gpu", "tpu", "ipu", "auto").
         lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
         online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
         hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
@@ -1598,7 +1563,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         pretrained_backbone_weights: Optional[str] = None,
         pretrained_head_weights: Optional[str] = None,
         init_weights: Optional[str] = "xavier",
-        trainer_accelerator: Optional[str] = "cpu",
         lr_scheduler: Optional[Union[str, DictConfig]] = None,
         online_mining: Optional[bool] = False,
         hard_to_easy_ratio: Optional[float] = 2.0,
@@ -1618,7 +1582,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             pretrained_backbone_weights=pretrained_backbone_weights,
             pretrained_head_weights=pretrained_head_weights,
             init_weights=init_weights,
-            trainer_accelerator=trainer_accelerator,
             lr_scheduler=lr_scheduler,
             online_mining=online_mining,
             hard_to_easy_ratio=hard_to_easy_ratio,
