@@ -685,8 +685,8 @@ def get_trainer_config(
     min_hard_keypoints: int = 2,
     max_hard_keypoints: Optional[int] = None,
     loss_scale: float = 5.0,
-    zmq_publish_address: Optional[str] = None,
-    zmq_controller_address: Optional[str] = None,
+    zmq_publish_port: Optional[int] = None,
+    zmq_controller_port: Optional[int] = None,
     zmq_controller_timeout: int = 10,
 ):
     """Train a pose-estimation model with SLEAP-NN framework.
@@ -777,8 +777,8 @@ def get_trainer_config(
             ratio and result in loss scaling being applied to most keypoints, which can
             reduce the impact of hard mining altogether.
         loss_scale: Factor to scale the hard keypoint losses by for oks.
-        zmq_publish_address: (str) Specifies the address and port to which the training logs (loss values) should be sent to.
-        zmq_controller_address: (str) Specifies the address and port to listen to to stop the training (specific to SLEAP GUI).
+        zmq_publish_port: (int) Specifies the port to which the training logs (loss values) should be sent to.
+        zmq_controller_port: (int) Specifies the port to listen to to stop the training (specific to SLEAP GUI).
         zmq_controller_timeout: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller
             should wait to receive a response and should be set to a small value to minimize the impact on training speed.
     """
@@ -861,9 +861,9 @@ def get_trainer_config(
             loss_scale=loss_scale,
         ),
         zmq=ZMQConfig(
-            controller_address=zmq_controller_address,
+            controller_port=zmq_controller_port,
             controller_polling_timeout=zmq_controller_timeout,
-            publish_address=zmq_publish_address,
+            publish_port=zmq_publish_port,
         ),
     )
     return trainer_config

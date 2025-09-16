@@ -187,14 +187,14 @@ class ZMQConfig:
     """Configuration of ZeroMQ-based monitoring of the training.
 
     Attributes:
-        controller_address: IP address/hostname and port number of the endpoint to listen for command messages from. For TCP-based endpoints, this must be in the form of "tcp://{ip_address}:{port_number}". Defaults to None. *Default*: `None`.
+        controller_port: Port number of the endpoint to listen for command messages from. "tcp://tcp://127.0.0.1:{port_number}". Set to `None` to disable log publishing. *Default*: `None`.
         controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. *Default*: `10`.
-        publish_address: IP address/hostname and port number of the endpoint to publish updates to. For TCP-based endpoints, this must be in the form of "tcp://{ip_address}:{port_number}". Sample: "tcp://127.0.0.1:9001". Defaults to None. *Default*: `None`.
+        publish_port: Port number of the endpoint to publish updates to. "tcp://tcp://127.0.0.1:{port_number}". Set to `None` to disable log publishing. *Default*: `None`.
     """
 
-    controller_address: Optional[str] = None
+    controller_port: Optional[int] = None
     controller_polling_timeout: int = 10
-    publish_address: Optional[str] = None
+    publish_port: Optional[int] = None
 
 
 @define
@@ -559,14 +559,14 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         legacy_config_outputs.get("zmq", {}).get("subscribe_to_controller", None)
         is not None
     ):
-        zmq_cfg_args["controller_address"] = legacy_config_outputs["zmq"][
-            "controller_address"
-        ]
+        zmq_cfg_args["controller_port"] = int(
+            legacy_config_outputs["zmq"]["controller_address"].split(":")[-1]
+        )
 
     if legacy_config_outputs.get("zmq", {}).get("publish_updates", None) is not None:
-        zmq_cfg_args["publish_address"] = legacy_config_outputs["zmq"][
-            "publish_address"
-        ]
+        zmq_cfg_args["publish_port"] = int(
+            legacy_config_outputs["zmq"]["publish_address"].split(":")[-1]
+        )
 
     if (
         legacy_config_outputs.get("zmq", {}).get("controller_polling_timeout", None)

@@ -680,15 +680,15 @@ class ModelTrainer:
             self.config.trainer_config.wandb.api_key = ""
 
         # zmq callbacks
-        controller_address = OmegaConf.select(
-            self.config, "trainer_config.zmq.controller_address", default=None
-        )
-        publish_address = OmegaConf.select(
-            self.config, "trainer_config.zmq.publish_address", default=None
-        )
-        if controller_address is not None:
+        if self.config.trainer_config.zmq.controller_port is not None:
+            controller_address = "tcp://127.0.0.1:" + str(
+                self.config.trainer_config.zmq.controller_port
+            )
             callbacks.append(TrainingControllerZMQ(address=controller_address))
-        if publish_address is not None:
+        if self.config.trainer_config.zmq.publish_port is not None:
+            publish_address = "tcp://127.0.0.1:" + str(
+                self.config.trainer_config.zmq.publish_port
+            )
             callbacks.append(ProgressReporterZMQ(address=publish_address))
 
         # viz callbacks
