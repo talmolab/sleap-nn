@@ -1176,6 +1176,9 @@ def test_loading_pretrained_weights(
     )
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
     sleap_nn_config.trainer_config.max_epochs = 2
+    sleap_nn_config.trainer_config.trainer_accelerator = (
+        "cpu" if torch.mps.is_available() else "auto"
+    )
     sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
     sleap_nn_config.trainer_config.run_name = "test_loading_weights"
 
@@ -1205,6 +1208,9 @@ def test_loading_pretrained_weights(
     sleap_nn_config.trainer_config.max_epochs = 2
     sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
     sleap_nn_config.trainer_config.run_name = "test_loading_weights"
+    sleap_nn_config.trainer_config.trainer_accelerator = (
+        "cpu" if torch.mps.is_available() else "auto"
+    )
     trainer = ModelTrainer.get_model_trainer_from_config(
         config=sleap_nn_config,
         train_labels=[sio.load_slp(minimal_instance)],
