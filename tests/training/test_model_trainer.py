@@ -1160,6 +1160,10 @@ def test_loading_pretrained_weights(
     tmp_path,
 ):
     """Test loading pretrained weights for model initialization."""
+    if torch.mps.is_available():
+        config.trainer_config.trainer_accelerator = "cpu"
+    else:
+        config.trainer_config.trainer_accelerator = "auto"
     # with keras (.h5 weights)
     sleap_nn_config = TrainingJobConfig.load_sleap_config(
         Path(sleap_centered_instance_model_path) / "training_config.json"
