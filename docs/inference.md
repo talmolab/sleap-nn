@@ -38,7 +38,7 @@ To run inference on video files with specific frames
 ```bash
 sleap-nn track \
     --data_path video.mp4 \
-    --frames "1-100,200-300" \
+    --frames "0-100,200-300" \
     --model_paths models/ckpt_folder/
 ```
 
@@ -46,7 +46,7 @@ To run inference with different backbone weights than the one in `models/ckpt_fo
 ```bash
 sleap-nn track \
     --data_path video.mp4 \
-    --frames "1-100,200-300" \
+    --frames "0-100,200-300" \
     --model_paths models/ckpt_folder/ \
     --backbone_ckpt_path models/backbone.ckpt
 ```
@@ -226,6 +226,16 @@ You can perform tracking on existing user-labeled instances—without running in
 sleap-nn track \
     -i labels.slp \
     -t \
+```
+
+To run track-only workflow on select frame indices and video index in a slp file:
+
+```bash
+sleap-nn track \
+    -i labels.slp \
+    -t \
+    --frames 0-100 \
+    --video_index 0
 ```
 
 ## Legacy SLEAP Model Support
