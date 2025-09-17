@@ -125,6 +125,7 @@ class VideoReader(Thread):
         self.video = video
         self.frame_buffer = frame_buffer
         self.frames = frames
+        self._daemonic = True  # needs to be set to True for graceful stop; all threads should be killed when main thread is killed
         if self.frames is None:
             self.frames = [x for x in range(0, len(self.video))]
 
@@ -234,6 +235,8 @@ class LabelsReader(Thread):
         self.frame_buffer = frame_buffer
         self.instances_key = instances_key
         self.max_instances = get_max_instances(self.labels)
+
+        self._daemonic = True  # needs to be set to True for graceful stop; all threads should be killed when main thread is killed
 
         self.only_labeled_frames = only_labeled_frames
         self.only_suggested_frames = only_suggested_frames
