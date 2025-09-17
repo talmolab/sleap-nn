@@ -5,6 +5,8 @@ import shutil
 import copy
 import attrs
 import torch
+import random
+import numpy as np
 import sleap_io as sio
 import time
 import lightning as L
@@ -102,10 +104,16 @@ class ModelTrainer:
         val_labels: Optional[List[sio.Labels]] = None,
     ):
         """Create a model trainer instance from config."""
+        # Verify config structure.
+        config = verify_training_cfg(config)
+
         model_trainer = cls(config=config)
 
         model_trainer.model_type = get_model_type_from_cfg(model_trainer.config)
         model_trainer.backbone_type = get_backbone_type_from_cfg(model_trainer.config)
+
+        if model_trainer.config.trainer_config.seed is not None:
+            model_trainer._set_seed()
 
         if train_labels is None and val_labels is None:
             # read labels from paths provided in the config
@@ -147,6 +155,57 @@ class ModelTrainer:
 
         return model_trainer
 
+    def _set_seed(self):
+        """Set seed for the current experiment."""
+        seed = self.config.trainer_config.seed
+
+        random.seed(seed)
+
+        # torch
+        torch.manual_seed(seed)
+
+        # if cuda is available
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+
+        # lightning
+        L.seed_everything(seed)
+
+        # numpy
+        np.random.seed(seed)
+
+    def _get_trainer_devices(self):
+        """Get trainer devices."""
+        trainer_devices = (
+            self.config.trainer_config.trainer_devices
+            if self.config.trainer_config.trainer_devices is not None
+            else "auto"
+        )
+        if (
+            trainer_devices == "auto"
+            and OmegaConf.select(
+                self.config, "trainer_config.trainer_device_indices", default=None
+            )
+            is not None
+        ):
+            trainer_devices = len(
+                OmegaConf.select(
+                    self.config,
+                    "trainer_config.trainer_device_indices",
+                    default=None,
+                )
+            )
+        elif trainer_devices == "auto":
+            if torch.cuda.is_available():
+                trainer_devices = torch.cuda.device_count()
+            elif torch.backends.mps.is_available():
+                trainer_devices = 1
+            elif torch.xpu.is_available():
+                trainer_devices = torch.xpu.device_count()
+            else:
+                trainer_devices = 1
+        return trainer_devices
+
     def _setup_train_val_labels(
         self,
         labels: Optional[List[sio.Labels]] = None,
@@ -176,9 +235,17 @@ class ModelTrainer:
             val_fraction = OmegaConf.select(
                 self.config, "data_config.validation_fraction", default=0.1
             )
+            seed = (
+                42
+                if (
+                    self.config.trainer_config.seed is None
+                    and self._get_trainer_devices() > 1
+                )
+                else self.config.trainer_config.seed
+            )
             for label in labels:
                 train_split, val_split = label.make_training_splits(
-                    n_train=1 - val_fraction, n_val=val_fraction, seed=42
+                    n_train=1 - val_fraction, n_val=val_fraction, seed=seed
                 )
                 self.train_labels.append(train_split)
                 self.val_labels.append(val_split)
@@ -297,35 +364,7 @@ class ModelTrainer:
         if run_name is None:
             sum_train_lfs = sum([len(train_label) for train_label in self.train_labels])
             sum_val_lfs = sum([len(val_label) for val_label in self.val_labels])
-            trainer_devices = (
-                self.config.trainer_config.trainer_devices
-                if self.config.trainer_config.trainer_devices is not None
-                else "auto"
-            )
-            if (
-                trainer_devices == "auto"
-                and OmegaConf.select(
-                    self.config, "trainer_config.trainer_device_indices", default=None
-                )
-                is not None
-            ):
-                trainer_devices = len(
-                    OmegaConf.select(
-                        self.config,
-                        "trainer_config.trainer_device_indices",
-                        default=None,
-                    )
-                )
-            if trainer_devices == "auto":
-                if torch.cuda.is_available():
-                    trainer_devices = torch.cuda.device_count()
-                elif torch.backends.mps.is_available():
-                    trainer_devices = 1
-                elif torch.xpu.is_available():
-                    trainer_devices = torch.xpu.device_count()
-                else:
-                    trainer_devices = 1
-            if trainer_devices > 1:
+            if self._get_trainer_devices() > 1:
                 run_name = f"{self.model_type}.n={sum_train_lfs+sum_val_lfs}"
             else:
                 run_name = (
@@ -464,9 +503,7 @@ class ModelTrainer:
 
     def setup_config(self):
         """Compute config parameters."""
-        # Verify config structure.
         logger.info("Setting up config...")
-        self.config = verify_training_cfg(self.config)
 
         # compute preprocessing parameters from the labels objects and fill in the config
         self._setup_preprocessing_config()

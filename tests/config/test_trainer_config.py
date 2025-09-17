@@ -287,7 +287,7 @@ def test_trainer_mapper():
     assert config.trainer_accelerator == "auto"
     assert config.enable_progress_bar is True
     assert config.min_train_steps_per_epoch == 200
-    assert config.seed is 0
+    assert config.seed is None
     assert config.use_wandb is False
     assert config.save_ckpt is True
     assert config.resume_ckpt_path is None

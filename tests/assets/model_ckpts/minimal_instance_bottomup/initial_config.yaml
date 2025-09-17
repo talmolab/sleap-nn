@@ -123,7 +123,7 @@ trainer_config:
   visualize_preds_during_training: false
   keep_viz: false
   max_epochs: 10
-  seed: 0
+  seed:
   use_wandb: false
   save_ckpt: true
   ckpt_dir: .

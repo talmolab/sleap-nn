@@ -219,7 +219,8 @@ ckpt_dir: models
 ```
 
 !!! note "Training steps in multi-gpu setting"
-    In a multi-gpu training setup, the effective steps during training would be `config.trainer_config.trainer_steps_per_epoch` / `config.trainer_config.trainer_devices`. 
+    - In a multi-gpu training setup, the effective steps during training would be `config.trainer_config.trainer_steps_per_epoch` / `config.trainer_config.trainer_devices`. 
+    - If validation labels are not provided in a multi-GPU training setup, we now ensure deterministic splitting of labels into train/val sets by seeding with 42 (when no seed is given). This prevents each GPU worker from producing a different split. To generate a different train-val split, set a custom seed via `config.trainer_config.seed`.
 !!! note "Multi-node training"
     Multi-node trainings have not been validated and should be considered experimental.
 
