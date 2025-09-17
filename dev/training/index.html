@@ -2928,7 +2928,10 @@
 </span></code></pre></div></p>
 <div class="admonition note">
 <p class="admonition-title">Training steps in multi-gpu setting</p>
-<p>In a multi-gpu training setup, the effective steps during training would be <code>config.trainer_config.trainer_steps_per_epoch</code> / <code>config.trainer_config.trainer_devices</code>. </p>
+<ul>
+<li>In a multi-gpu training setup, the effective steps during training would be <code>config.trainer_config.trainer_steps_per_epoch</code> / <code>config.trainer_config.trainer_devices</code>. </li>
+<li>If validation labels are not provided in a multi-GPU training setup, we now ensure deterministic splitting of labels into train/val sets by seeding with 42 (when no seed is given). This prevents each GPU worker from producing a different split. To generate a different train-val split, set a custom seed via <code>config.trainer_config.seed</code>.</li>
+</ul>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Multi-node training</p>
