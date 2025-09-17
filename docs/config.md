@@ -137,8 +137,8 @@ trainer_config:
     max_hard_keypoints: null
     loss_scale: 5.0
   zmq:
-    publish_address:
-    controller_address:
+    publish_port:
+    controller_port:
     controller_polling_timeout: 10
 
 name: 'your_experiment_name'
@@ -857,8 +857,8 @@ trainer_config:
 
 ### ZMQ Configuration
 - `zmq`:
-    - `publish_address`: (str) The address (e.g., `tcp://127.0.0.1:9000`) where training logs (such as loss values) will be published in real time (used primarily with the SLEAP GUI). Set to `None` to disable log publishing. **Default**: `None`
-    - `controller_address`: (str) The address and port to listen for external stop/pause commands (used primarily with the SLEAP GUI). Set to `None` to disable remote control. **Default**: `None`
+    - `publish_port`: (int) Port (e.g., `tcp://127.0.0.1:<publish_port>`) where training logs (such as loss values) will be published in real time (used primarily with the SLEAP GUI). Set to `None` to disable log publishing. **Default**: `None`
+    - `controller_port`: (int) Port (e.g., `tcp://127.0.0.1:<controller_port>`) to listen for external stop/pause commands (used primarily with the SLEAP GUI). Set to `None` to disable remote control. **Default**: `None`
     - `controller_polling_timeout`: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. **Default**: `10`
 
 

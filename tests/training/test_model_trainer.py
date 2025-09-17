@@ -568,12 +568,8 @@ def test_zmq_callbacks(config, tmp_path: str):
     )
     OmegaConf.update(config, "trainer_config.run_name", "test_zmq_callbacks")
     OmegaConf.update(config, "trainer_config.ckpt_dir", f"{tmp_path}")
-    OmegaConf.update(
-        config, "trainer_config.zmq.publish_address", "tcp://127.0.0.1:9510"
-    )
-    OmegaConf.update(
-        config, "trainer_config.zmq.controller_address", "tcp://127.0.0.1:9004"
-    )
+    OmegaConf.update(config, "trainer_config.zmq.publish_port", "9510")
+    OmegaConf.update(config, "trainer_config.zmq.controller_port", "9004")
     OmegaConf.update(config, "trainer_config.max_epochs", 1)
 
     model_trainer = ModelTrainer.get_model_trainer_from_config(config)
