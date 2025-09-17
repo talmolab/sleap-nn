@@ -3012,8 +3012,8 @@
 </span><span id="__span-0-106"><a id="__codelineno-0-106" name="__codelineno-0-106" href="#__codelineno-0-106"></a><span class="w">    </span><span class="nt">max_hard_keypoints</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 </span><span id="__span-0-107"><a id="__codelineno-0-107" name="__codelineno-0-107" href="#__codelineno-0-107"></a><span class="w">    </span><span class="nt">loss_scale</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
 </span><span id="__span-0-108"><a id="__codelineno-0-108" name="__codelineno-0-108" href="#__codelineno-0-108"></a><span class="w">  </span><span class="nt">zmq</span><span class="p">:</span>
-</span><span id="__span-0-109"><a id="__codelineno-0-109" name="__codelineno-0-109" href="#__codelineno-0-109"></a><span class="w">    </span><span class="nt">publish_address</span><span class="p">:</span>
-</span><span id="__span-0-110"><a id="__codelineno-0-110" name="__codelineno-0-110" href="#__codelineno-0-110"></a><span class="w">    </span><span class="nt">controller_address</span><span class="p">:</span>
+</span><span id="__span-0-109"><a id="__codelineno-0-109" name="__codelineno-0-109" href="#__codelineno-0-109"></a><span class="w">    </span><span class="nt">publish_port</span><span class="p">:</span>
+</span><span id="__span-0-110"><a id="__codelineno-0-110" name="__codelineno-0-110" href="#__codelineno-0-110"></a><span class="w">    </span><span class="nt">controller_port</span><span class="p">:</span>
 </span><span id="__span-0-111"><a id="__codelineno-0-111" name="__codelineno-0-111" href="#__codelineno-0-111"></a><span class="w">    </span><span class="nt">controller_polling_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span>
 </span><span id="__span-0-112"><a id="__codelineno-0-112" name="__codelineno-0-112" href="#__codelineno-0-112"></a>
 </span><span id="__span-0-113"><a id="__codelineno-0-113" name="__codelineno-0-113" href="#__codelineno-0-113"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;your_experiment_name&#39;</span>
@@ -3738,8 +3738,8 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 <h3 id="zmq-configuration">ZMQ Configuration<a class="headerlink" href="#zmq-configuration" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>zmq</code>:<ul>
-<li><code>publish_address</code>: (str) The address (e.g., <code>tcp://127.0.0.1:9000</code>) where training logs (such as loss values) will be published in real time (used primarily with the SLEAP GUI). Set to <code>None</code> to disable log publishing. <strong>Default</strong>: <code>None</code></li>
-<li><code>controller_address</code>: (str) The address and port to listen for external stop/pause commands (used primarily with the SLEAP GUI). Set to <code>None</code> to disable remote control. <strong>Default</strong>: <code>None</code></li>
+<li><code>publish_port</code>: (int) Port (e.g., <code>tcp://127.0.0.1:&lt;publish_port&gt;</code>) where training logs (such as loss values) will be published in real time (used primarily with the SLEAP GUI). Set to <code>None</code> to disable log publishing. <strong>Default</strong>: <code>None</code></li>
+<li><code>controller_port</code>: (int) Port (e.g., <code>tcp://127.0.0.1:&lt;controller_port&gt;</code>) to listen for external stop/pause commands (used primarily with the SLEAP GUI). Set to <code>None</code> to disable remote control. <strong>Default</strong>: <code>None</code></li>
 <li><code>controller_polling_timeout</code>: (int) Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. <strong>Default</strong>: <code>10</code></li>
 </ul>
 </li>

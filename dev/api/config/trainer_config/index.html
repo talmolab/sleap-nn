@@ -4777,13 +4777,13 @@ the parameters required to initialize the trainer config.</p>
       </thead>
       <tbody>
           <tr class="doc-section-item">
-            <td><code><span title="sleap_nn.config.trainer_config.ZMQConfig.controller_address">controller_address</span></code></td>
+            <td><code><span title="sleap_nn.config.trainer_config.ZMQConfig.controller_port">controller_port</span></code></td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="int">int</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>IP address/hostname and port number of the endpoint to listen for command messages from. For TCP-based endpoints, this must be in the form of "tcp://{ip_address}:{port_number}". Defaults to None. <em>Default</em>: <code>None</code>.</p>
+                <p>Port number of the endpoint to listen for command messages from. "tcp://tcp://127.0.0.1:{port_number}". Set to <code>None</code> to disable log publishing. <em>Default</em>: <code>None</code>.</p>
               </div>
             </td>
           </tr>
@@ -4799,13 +4799,13 @@ the parameters required to initialize the trainer config.</p>
             </td>
           </tr>
           <tr class="doc-section-item">
-            <td><code><span title="sleap_nn.config.trainer_config.ZMQConfig.publish_address">publish_address</span></code></td>
+            <td><code><span title="sleap_nn.config.trainer_config.ZMQConfig.publish_port">publish_port</span></code></td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<span title="str">str</span>]</code>
+                  <code><span title="typing.Optional">Optional</span>[<span title="int">int</span>]</code>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>IP address/hostname and port number of the endpoint to publish updates to. For TCP-based endpoints, this must be in the form of "tcp://{ip_address}:{port_number}". Sample: "tcp://127.0.0.1:9001". Defaults to None. <em>Default</em>: <code>None</code>.</p>
+                <p>Port number of the endpoint to publish updates to. "tcp://tcp://127.0.0.1:{port_number}". Set to <code>None</code> to disable log publishing. <em>Default</em>: <code>None</code>.</p>
               </div>
             </td>
           </tr>
@@ -4843,14 +4843,14 @@ the parameters required to initialize the trainer config.</p>
 </span><span id="__span-0-187"><a id="__codelineno-0-187" name="__codelineno-0-187"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Configuration of ZeroMQ-based monitoring of the training.</span>
 </span><span id="__span-0-188"><a id="__codelineno-0-188" name="__codelineno-0-188"></a>
 </span><span id="__span-0-189"><a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="sd">    Attributes:</span>
-</span><span id="__span-0-190"><a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">        controller_address: IP address/hostname and port number of the endpoint to listen for command messages from. For TCP-based endpoints, this must be in the form of &quot;tcp://{ip_address}:{port_number}&quot;. Defaults to None. *Default*: `None`.</span>
+</span><span id="__span-0-190"><a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="sd">        controller_port: Port number of the endpoint to listen for command messages from. &quot;tcp://tcp://127.0.0.1:{port_number}&quot;. Set to `None` to disable log publishing. *Default*: `None`.</span>
 </span><span id="__span-0-191"><a id="__codelineno-0-191" name="__codelineno-0-191"></a><span class="sd">        controller_polling_timeout: Polling timeout in microseconds specified as an integer. This controls how long the poller should wait to receive a response and should be set to a small value to minimize the impact on training speed. *Default*: `10`.</span>
-</span><span id="__span-0-192"><a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">        publish_address: IP address/hostname and port number of the endpoint to publish updates to. For TCP-based endpoints, this must be in the form of &quot;tcp://{ip_address}:{port_number}&quot;. Sample: &quot;tcp://127.0.0.1:9001&quot;. Defaults to None. *Default*: `None`.</span>
+</span><span id="__span-0-192"><a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">        publish_port: Port number of the endpoint to publish updates to. &quot;tcp://tcp://127.0.0.1:{port_number}&quot;. Set to `None` to disable log publishing. *Default*: `None`.</span>
 </span><span id="__span-0-193"><a id="__codelineno-0-193" name="__codelineno-0-193"></a><span class="sd">    &quot;&quot;&quot;</span>
 </span><span id="__span-0-194"><a id="__codelineno-0-194" name="__codelineno-0-194"></a>
-</span><span id="__span-0-195"><a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">controller_address</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-195"><a id="__codelineno-0-195" name="__codelineno-0-195"></a>    <span class="n">controller_port</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 </span><span id="__span-0-196"><a id="__codelineno-0-196" name="__codelineno-0-196"></a>    <span class="n">controller_polling_timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>
-</span><span id="__span-0-197"><a id="__codelineno-0-197" name="__codelineno-0-197"></a>    <span class="n">publish_address</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-197"><a id="__codelineno-0-197" name="__codelineno-0-197"></a>    <span class="n">publish_port</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -5505,14 +5505,14 @@ the parameters required to initialize the trainer config.</p>
 </span><span id="__span-0-559"><a id="__codelineno-0-559" name="__codelineno-0-559"></a>        <span class="n">legacy_config_outputs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;zmq&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;subscribe_to_controller&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
 </span><span id="__span-0-560"><a id="__codelineno-0-560" name="__codelineno-0-560"></a>        <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
 </span><span id="__span-0-561"><a id="__codelineno-0-561" name="__codelineno-0-561"></a>    <span class="p">):</span>
-</span><span id="__span-0-562"><a id="__codelineno-0-562" name="__codelineno-0-562"></a>        <span class="n">zmq_cfg_args</span><span class="p">[</span><span class="s2">&quot;controller_address&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">legacy_config_outputs</span><span class="p">[</span><span class="s2">&quot;zmq&quot;</span><span class="p">][</span>
-</span><span id="__span-0-563"><a id="__codelineno-0-563" name="__codelineno-0-563"></a>            <span class="s2">&quot;controller_address&quot;</span>
-</span><span id="__span-0-564"><a id="__codelineno-0-564" name="__codelineno-0-564"></a>        <span class="p">]</span>
+</span><span id="__span-0-562"><a id="__codelineno-0-562" name="__codelineno-0-562"></a>        <span class="n">zmq_cfg_args</span><span class="p">[</span><span class="s2">&quot;controller_port&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
+</span><span id="__span-0-563"><a id="__codelineno-0-563" name="__codelineno-0-563"></a>            <span class="n">legacy_config_outputs</span><span class="p">[</span><span class="s2">&quot;zmq&quot;</span><span class="p">][</span><span class="s2">&quot;controller_address&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+</span><span id="__span-0-564"><a id="__codelineno-0-564" name="__codelineno-0-564"></a>        <span class="p">)</span>
 </span><span id="__span-0-565"><a id="__codelineno-0-565" name="__codelineno-0-565"></a>
 </span><span id="__span-0-566"><a id="__codelineno-0-566" name="__codelineno-0-566"></a>    <span class="k">if</span> <span class="n">legacy_config_outputs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;zmq&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;publish_updates&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-567"><a id="__codelineno-0-567" name="__codelineno-0-567"></a>        <span class="n">zmq_cfg_args</span><span class="p">[</span><span class="s2">&quot;publish_address&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">legacy_config_outputs</span><span class="p">[</span><span class="s2">&quot;zmq&quot;</span><span class="p">][</span>
-</span><span id="__span-0-568"><a id="__codelineno-0-568" name="__codelineno-0-568"></a>            <span class="s2">&quot;publish_address&quot;</span>
-</span><span id="__span-0-569"><a id="__codelineno-0-569" name="__codelineno-0-569"></a>        <span class="p">]</span>
+</span><span id="__span-0-567"><a id="__codelineno-0-567" name="__codelineno-0-567"></a>        <span class="n">zmq_cfg_args</span><span class="p">[</span><span class="s2">&quot;publish_port&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span>
+</span><span id="__span-0-568"><a id="__codelineno-0-568" name="__codelineno-0-568"></a>            <span class="n">legacy_config_outputs</span><span class="p">[</span><span class="s2">&quot;zmq&quot;</span><span class="p">][</span><span class="s2">&quot;publish_address&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;:&quot;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+</span><span id="__span-0-569"><a id="__codelineno-0-569" name="__codelineno-0-569"></a>        <span class="p">)</span>
 </span><span id="__span-0-570"><a id="__codelineno-0-570" name="__codelineno-0-570"></a>
 </span><span id="__span-0-571"><a id="__codelineno-0-571" name="__codelineno-0-571"></a>    <span class="k">if</span> <span class="p">(</span>
 </span><span id="__span-0-572"><a id="__codelineno-0-572" name="__codelineno-0-572"></a>        <span class="n">legacy_config_outputs</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;zmq&quot;</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;controller_polling_timeout&quot;</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
