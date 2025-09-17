@@ -863,6 +863,7 @@ def test_tracking_only_pipeline(
     minimal_instance_centroid_ckpt,
     minimal_instance_centered_instance_ckpt,
     centered_instance_video,
+    minimal_instance,
     tmp_path,
 ):
     """Test tracking-only pipeline."""
@@ -891,6 +892,76 @@ def test_tracking_only_pipeline(
     )
 
     assert len(tracked_labels.tracks) == 2
+    assert len(tracked_labels) == 10
+
+    # track-only pipeline with video file
+    with pytest.raises(ValueError):
+        labels = run_inference(
+            data_path=centered_instance_video.as_posix(),
+            tracking=True,
+            integral_refinement=None,
+        )
+
+    # track-only pipeline with select frames
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        post_connect_single_breaks=True,
+    )
+    labels.save(f"{tmp_path}/preds.slp")
+
+    tracked_labels = run_inference(
+        data_path=f"{tmp_path}/preds.slp",
+        tracking=True,
+        post_connect_single_breaks=True,
+        max_instances=2,
+        integral_refinement=None,
+        frames=[x for x in range(0, 5)],
+    )
+
+    assert len(tracked_labels.tracks) == 2
+    assert len(tracked_labels) == 5
+
+    # track-only pipeline with video index
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        post_connect_single_breaks=True,
+    )
+    labels.videos.append(sio.load_video(minimal_instance))
+    assert len(labels.videos) == 2
+    labels.save(f"{tmp_path}/preds.slp")
+
+    tracked_labels = run_inference(
+        data_path=f"{tmp_path}/preds.slp",
+        tracking=True,
+        post_connect_single_breaks=True,
+        max_instances=2,
+        integral_refinement=None,
+        frames=[x for x in range(0, 5)],
+        video_index=0,
+    )
+
+    assert len(tracked_labels.tracks) == 2
+    assert len(tracked_labels) == 5
 
     # neither model nor tracking is provided
     with pytest.raises(Exception):

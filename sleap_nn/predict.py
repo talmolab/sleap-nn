@@ -244,19 +244,37 @@ def run_inference(
             raise ValueError(message)
 
         else:
+            if not data_path.endswith(".slp"):
+                message = "Data path is not a .slp file. To run track-only pipeline, data path must be an .slp file."
+                logger.error(message)
+                raise ValueError(message)
+
             start_inf_time = time()
             start_timestamp = str(datetime.now())
             logger.info(f"Started tracking at: {start_timestamp}")
 
             labels = sio.load_slp(data_path)
-            frames = sorted(labels.labeled_frames, key=lambda lf: lf.frame_idx)
+
+            lf_frames = labels.labeled_frames
+
+            # select video if video_index is provided
+            if video_index is not None:
+                lf_frames = labels.find(video=labels.videos[video_index])
+
+            # sort frames before tracking
+            lf_frames = sorted(lf_frames, key=lambda lf: lf.frame_idx)
+
+            if frames is not None:
+                lf_frames = [lf_frames[fidx] for fidx in frames]
 
             if post_connect_single_breaks:
                 if max_tracks is None:
                     max_tracks = max_instances
 
+            logger.info(f"Running tracking on {len(lf_frames)} frames...")
+
             tracked_frames = run_tracker(
-                untracked_frames=frames,
+                untracked_frames=lf_frames,
                 window_size=tracking_window_size,
                 min_new_track_points=min_new_track_points,
                 candidates_method=candidates_method,
