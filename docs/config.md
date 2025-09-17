@@ -108,7 +108,7 @@ trainer_config:
   visualize_preds_during_training: true
   keep_viz: false
   max_epochs: 200
-  seed: 0
+  seed:
   use_wandb: false
   save_ckpt: true
   ckpt_dir: <ckpt_dir>
@@ -728,7 +728,7 @@ trainer_config:
 - `visualize_preds_during_training`: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. **Default**: `False`
 - `keep_viz`: (bool) If set to `True`, the `viz` folder containing training visualizations will be kept after training completes. If `False`, the folder will be deleted. This parameter only has an effect when `visualize_preds_during_training` is `True`. **Default**: `False`
 - `max_epochs`: (int) Maximum number of epochs to run. **Default**: `10`
-- `seed`: (int) Seed value for the current experiment. **Default**: `0`
+- `seed`: (int) Seed value for the current experiment. If None, no seeding is applied. **Default**: `None`
 - `use_wandb`: (bool) True to enable wandb logging. **Default**: `False`
 - `save_ckpt`: (bool) True to enable checkpointing. **Default**: `False`
 - `ckpt_dir`: (str) Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`

@@ -660,7 +660,7 @@ def get_trainer_config(
     visualize_preds_during_training: bool = False,
     keep_viz: bool = False,
     max_epochs: int = 10,
-    seed: int = 0,
+    seed: Optional[int] = None,
     use_wandb: bool = False,
     save_ckpt: bool = False,
     ckpt_dir: Optional[str] = None,
@@ -726,7 +726,7 @@ def get_trainer_config(
         keep_viz: If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder
             will be deleted after training. Only applies when `visualize_preds_during_training` is `True`.
         max_epochs: Maximum number of epochs to run. Default: 100.
-        seed: Seed value for the current experiment. default: 1000.
+        seed: Seed value for the current experiment. If None, no seeding is applied. Default: None.
         save_ckpt: True to enable checkpointing. Default: False.
         ckpt_dir: Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`
         run_name: Name of the current run. The ckpts will be created in `<ckpt_dir>/<run_name>`. If `None`, a run name is generated with `<timestamp>_<head_name>`. Default: None.
