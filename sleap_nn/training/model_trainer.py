@@ -895,9 +895,11 @@ class ModelTrainer:
             and self.config.trainer_config.trainer_devices < torch.cuda.device_count()
             and self.config.trainer_config.trainer_device_indices is None
         ):
-            devices = np.argsort(get_gpu_memory())[
-                : self.config.trainer_config.trainer_devices
-            ]
+            devices = list(
+                np.argsort(get_gpu_memory())[::-1][
+                    : self.config.trainer_config.trainer_devices
+                ]
+            )
 
         # create lightning.Trainer instance.
         self.trainer = L.Trainer(
