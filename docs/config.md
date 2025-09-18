@@ -725,7 +725,7 @@ trainer_config:
 - `enable_progress_bar`: (bool) When True, enables printing the logs during training. **Default**: `True`
 - `min_train_steps_per_epoch`: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer `limit_train_batches` parameter of Torch `Trainer`. **Default**: `200`
 - `train_steps_per_epoch`: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. **Default**: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`. 
-- `visualize_preds_during_training`: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. **Default**: `False`
+- `visualize_preds_during_training`: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir. **Default**: `False`
 - `keep_viz`: (bool) If set to `True`, the `viz` folder containing training visualizations will be kept after training completes. If `False`, the folder will be deleted. This parameter only has an effect when `visualize_preds_during_training` is `True`. **Default**: `False`
 - `max_epochs`: (int) Maximum number of epochs to run. **Default**: `10`
 - `seed`: (int) Seed value for the current experiment. If None, no seeding is applied. **Default**: `None`
@@ -814,6 +814,7 @@ trainer_config:
     - `project`: (str) Project name for the wandb project. **Default**: `None`
     - `name`: (str) Name of the current run. **Default**: `None`
     - `api_key`: (str) API key. The API key is masked when saved to config files. **Default**: `None`
+    - `save_viz_imgs_wandb`: (bool) If set to `True`, sample predictions (keypoints + confidence maps) that are saved to local `viz` folder in the ckpt dir would also be uploaded to wandb. **Default**: `False`
     - `wandb_mode`: (str) "offline" if only local logging is required. **Default**: `"None"`
     - `prv_runid`: (str) Previous run ID if training should be resumed from a previous ckpt. **Default**: `None`
     - `group`: (str) Group name for the run.

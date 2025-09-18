@@ -159,6 +159,7 @@ def train(
     wandb_name: Optional[str] = None,
     wandb_api_key: Optional[str] = None,
     wandb_mode: Optional[str] = None,
+    wandb_save_viz_imgs_wandb: bool = False,
     wandb_resume_prv_runid: Optional[str] = None,
     wandb_group_name: Optional[str] = None,
     optimizer: str = "Adam",
@@ -313,7 +314,7 @@ def train(
             this is set to the number of batches in the training data or `min_train_steps_per_epoch`,
             whichever is largest. Default: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: If set to `True`, sample predictions (keypoints  + confidence maps)
-            are saved to `viz` folder in the ckpt dir and in wandb table.
+            are saved to `viz` folder in the ckpt dir.
         keep_viz: If set to `True`, the `viz` folder containing training visualizations will be kept after training completes. If `False`, the folder will be deleted. This parameter only has an effect when `visualize_preds_during_training` is `True`. Default: `False`.
         max_epochs: Maximum number of epochs to run. Default: 10.
         seed: Seed value for the current experiment. If None, no seeding is applied. Default: None.
@@ -328,6 +329,7 @@ def train(
         wandb_name: Name of the current wandb run. Default: None.
         wandb_api_key: API key. The API key is masked when saved to config files. Default: None.
         wandb_mode: "offline" if only local logging is required. Default: None.
+        wandb_save_viz_imgs_wandb: If set to `True`, sample predictions (keypoints + confidence maps) that are saved to local `viz` folder in the ckpt dir would also be uploaded to wandb. Default: False.
         wandb_resume_prv_runid: Previous run ID if training should be resumed from a previous
             ckpt. Default: None
         wandb_group_name: Group name for the wandb run. Default: None.
@@ -429,6 +431,7 @@ def train(
         wandb_name=wandb_name,
         wandb_api_key=wandb_api_key,
         wandb_mode=wandb_mode,
+        wandb_save_viz_imgs_wandb=wandb_save_viz_imgs_wandb,
         wandb_resume_prv_runid=wandb_resume_prv_runid,
         wandb_group_name=wandb_group_name,
         optimizer=optimizer,

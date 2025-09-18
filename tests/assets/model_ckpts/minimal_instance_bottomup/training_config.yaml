@@ -136,6 +136,7 @@ trainer_config:
     api_key: null
     wandb_mode: null
     prv_runid: null
+    save_viz_imgs_wandb: false
     group: null
     current_run_id: null
   optimizer_name: Adam
