@@ -361,109 +361,124 @@ class Predictor(ABC):
         total_frames = self.pipeline.total_len()
         done = False
 
-        with Progress(
-            "{task.description}",
-            BarColumn(),
-            "[progress.percentage]{task.percentage:>3.0f}%",
-            MofNCompleteColumn(),
-            "ETA:",
-            TimeRemainingColumn(),
-            "Elapsed:",
-            TimeElapsedColumn(),
-            RateColumn(),
-            auto_refresh=False,
-            refresh_per_second=4,  # Change to self.report_rate if needed
-            speed_estimate_period=5,
-        ) as progress:
+        try:
 
-            task = progress.add_task("Predicting...", total=total_frames)
-            last_report = time()
+            with Progress(
+                "{task.description}",
+                BarColumn(),
+                "[progress.percentage]{task.percentage:>3.0f}%",
+                MofNCompleteColumn(),
+                "ETA:",
+                TimeRemainingColumn(),
+                "Elapsed:",
+                TimeElapsedColumn(),
+                RateColumn(),
+                auto_refresh=False,
+                refresh_per_second=4,  # Change to self.report_rate if needed
+                speed_estimate_period=5,
+            ) as progress:
 
-            done = False
-            while not done:
-                imgs = []
-                fidxs = []
-                vidxs = []
-                org_szs = []
-                instances = []
-                eff_scales = []
-                for _ in range(self.batch_size):
-                    frame = self.pipeline.frame_buffer.get()
-                    if frame["image"] is None:
-                        done = True
-                        break
-                    frame["image"] = apply_normalization(frame["image"])
-                    frame["image"], eff_scale = apply_sizematcher(
-                        frame["image"],
-                        self.preprocess_config["max_height"],
-                        self.preprocess_config["max_width"],
-                    )
-                    if self.instances_key:
-                        frame["instances"] = frame["instances"] * eff_scale
-                    if (
-                        self.preprocess_config["ensure_rgb"]
-                        and frame["image"].shape[-3] != 3
-                    ):
-                        frame["image"] = frame["image"].repeat(1, 3, 1, 1)
-                    elif (
-                        self.preprocess_config["ensure_grayscale"]
-                        and frame["image"].shape[-3] != 1
-                    ):
-                        frame["image"] = F.rgb_to_grayscale(
-                            frame["image"], num_output_channels=1
+                task = progress.add_task("Predicting...", total=total_frames)
+                last_report = time()
+
+                done = False
+                while not done:
+                    imgs = []
+                    fidxs = []
+                    vidxs = []
+                    org_szs = []
+                    instances = []
+                    eff_scales = []
+                    for _ in range(self.batch_size):
+                        frame = self.pipeline.frame_buffer.get()
+                        if frame["image"] is None:
+                            done = True
+                            break
+                        frame["image"] = apply_normalization(frame["image"])
+                        frame["image"], eff_scale = apply_sizematcher(
+                            frame["image"],
+                            self.preprocess_config["max_height"],
+                            self.preprocess_config["max_width"],
                         )
+                        if self.instances_key:
+                            frame["instances"] = frame["instances"] * eff_scale
+                        if (
+                            self.preprocess_config["ensure_rgb"]
+                            and frame["image"].shape[-3] != 3
+                        ):
+                            frame["image"] = frame["image"].repeat(1, 3, 1, 1)
+                        elif (
+                            self.preprocess_config["ensure_grayscale"]
+                            and frame["image"].shape[-3] != 1
+                        ):
+                            frame["image"] = F.rgb_to_grayscale(
+                                frame["image"], num_output_channels=1
+                            )
 
-                    eff_scales.append(torch.tensor(eff_scale))
-                    imgs.append(frame["image"].unsqueeze(dim=0))
-                    fidxs.append(frame["frame_idx"])
-                    vidxs.append(frame["video_idx"])
-                    org_szs.append(frame["orig_size"].unsqueeze(dim=0))
-                    if self.instances_key:
-                        instances.append(frame["instances"].unsqueeze(dim=0))
-                if imgs:
-                    # TODO: all preprocessing should be moved into InferenceModels to be exportable.
-                    imgs = torch.concatenate(imgs, dim=0)
-                    fidxs = torch.tensor(fidxs, dtype=torch.int32)
-                    vidxs = torch.tensor(vidxs, dtype=torch.int32)
-                    org_szs = torch.concatenate(org_szs, dim=0)
-                    eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
-                    if self.instances_key:
-                        instances = torch.concatenate(instances, dim=0)
-                    ex = {
-                        "image": imgs,
-                        "frame_idx": fidxs,
-                        "video_idx": vidxs,
-                        "orig_size": org_szs,
-                        "eff_scale": eff_scales,
-                    }
-                    if self.instances_key:
-                        ex["instances"] = instances
-                    if self.preprocess:
-                        scale = self.preprocess_config["scale"]
-                        if scale != 1.0:
-                            if self.instances_key:
-                                ex["image"], ex["instances"] = apply_resizer(
-                                    ex["image"], ex["instances"]
-                                )
-                            else:
-                                ex["image"] = resize_image(ex["image"], scale)
-                        ex["image"] = apply_pad_to_stride(ex["image"], self.max_stride)
-                    outputs_list = self.inference_model(ex)
-                    if outputs_list is not None:
-                        for output in outputs_list:
-                            output = self._convert_tensors_to_numpy(output)
-                            yield output
+                        eff_scales.append(torch.tensor(eff_scale))
+                        imgs.append(frame["image"].unsqueeze(dim=0))
+                        fidxs.append(frame["frame_idx"])
+                        vidxs.append(frame["video_idx"])
+                        org_szs.append(frame["orig_size"].unsqueeze(dim=0))
+                        if self.instances_key:
+                            instances.append(frame["instances"].unsqueeze(dim=0))
+                    if imgs:
+                        # TODO: all preprocessing should be moved into InferenceModels to be exportable.
+                        imgs = torch.concatenate(imgs, dim=0)
+                        fidxs = torch.tensor(fidxs, dtype=torch.int32)
+                        vidxs = torch.tensor(vidxs, dtype=torch.int32)
+                        org_szs = torch.concatenate(org_szs, dim=0)
+                        eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
+                        if self.instances_key:
+                            instances = torch.concatenate(instances, dim=0)
+                        ex = {
+                            "image": imgs,
+                            "frame_idx": fidxs,
+                            "video_idx": vidxs,
+                            "orig_size": org_szs,
+                            "eff_scale": eff_scales,
+                        }
+                        if self.instances_key:
+                            ex["instances"] = instances
+                        if self.preprocess:
+                            scale = self.preprocess_config["scale"]
+                            if scale != 1.0:
+                                if self.instances_key:
+                                    ex["image"], ex["instances"] = apply_resizer(
+                                        ex["image"], ex["instances"]
+                                    )
+                                else:
+                                    ex["image"] = resize_image(ex["image"], scale)
+                            ex["image"] = apply_pad_to_stride(
+                                ex["image"], self.max_stride
+                            )
+                        outputs_list = self.inference_model(ex)
+                        if outputs_list is not None:
+                            for output in outputs_list:
+                                output = self._convert_tensors_to_numpy(output)
+                                yield output
 
-                    # Advance progress
-                    num_frames = (
-                        len(ex["frame_idx"]) if "frame_idx" in ex else self.batch_size
-                    )
-                    progress.update(task, advance=num_frames)
+                        # Advance progress
+                        num_frames = (
+                            len(ex["frame_idx"])
+                            if "frame_idx" in ex
+                            else self.batch_size
+                        )
+                        progress.update(task, advance=num_frames)
 
-                # Manually refresh progress bar
-                if time() - last_report > 0.25:
-                    progress.refresh()
-                    last_report = time()
+                    # Manually refresh progress bar
+                    if time() - last_report > 0.25:
+                        progress.refresh()
+                        last_report = time()
+
+        except KeyboardInterrupt:
+            logger.info("Inference interrupted by user")
+            raise KeyboardInterrupt
+
+        except Exception as e:
+            message = f"Error in _predict_generator: {e}"
+            logger.error(message)
+            raise Exception(message)
 
         self.pipeline.join()
 
