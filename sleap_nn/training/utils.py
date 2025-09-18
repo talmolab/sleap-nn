@@ -7,6 +7,10 @@ from torch import nn
 import torch.distributed as dist
 import matplotlib
 import seaborn as sns
+from typing import List
+import shutil
+import os
+import subprocess
 
 
 def is_distributed_initialized():
@@ -17,6 +21,45 @@ def is_distributed_initialized():
 def get_dist_rank():
     """Return the rank of the current process if torch.distributed is initialized."""
     return dist.get_rank() if is_distributed_initialized() else None
+
+
+def get_gpu_memory() -> List[int]:
+    """Get the available memory on each GPU.
+
+    Returns:
+        A list of the available memory on each GPU in MiB.
+    """
+    if shutil.which("nvidia-smi") is None:
+        return []
+
+    command = [
+        "nvidia-smi",
+        "--query-gpu=index,memory.free",
+        "--format=csv",
+    ]
+
+    try:
+        memory_poll = subprocess.run(command, capture_output=True)
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return []
+
+    subprocess_result = memory_poll.stdout
+    memory_string = subprocess_result.decode("ascii").split("\n")[1:-1]
+
+    if "CUDA_VISIBLE_DEVICES" in os.environ.keys():
+        cuda_visible_devices = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
+    else:
+        cuda_visible_devices = None
+
+    memory_list = []
+    for row in memory_string:
+        gpu_index, available_memory = row.split(", ")
+        available_memory = available_memory.split(" MiB")[0]
+
+        if cuda_visible_devices is None or gpu_index in cuda_visible_devices:
+            memory_list.append(int(available_memory))
+
+    return memory_list
 
 
 def xavier_init_weights(x):
