@@ -42,6 +42,7 @@ from sleap_nn.config.utils import (
 )
 from sleap_nn.training.lightning_modules import LightningModel
 from sleap_nn.config.utils import check_output_strides
+from sleap_nn.training.utils import get_gpu_memory
 from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
@@ -878,21 +879,40 @@ class ModelTrainer:
                 logger.error(message)
                 raise ValueError(message)
 
+        devices = (
+            OmegaConf.select(
+                self.config, "trainer_config.trainer_device_indices", default=None
+            )
+            if OmegaConf.select(
+                self.config, "trainer_config.trainer_device_indices", default=None
+            )
+            is not None
+            else self.config.trainer_config.trainer_devices
+        )
+        logger.info(f"Trainer devices: {devices}")
+
+        # if trainer devices is set to less than the number of available GPUs, use the least used GPUs
+        if (
+            torch.cuda.is_available()
+            and self.config.trainer_config.trainer_accelerator != "cpu"
+            and isinstance(self.config.trainer_config.trainer_devices, int)
+            and self.config.trainer_config.trainer_devices < torch.cuda.device_count()
+            and self.config.trainer_config.trainer_device_indices is None
+        ):
+            devices = [
+                int(x)
+                for x in np.argsort(get_gpu_memory())[::-1][
+                    : self.config.trainer_config.trainer_devices
+                ]
+            ]
+            logger.info(f"Using GPUs with most available memory: {devices}")
+
         # create lightning.Trainer instance.
         self.trainer = L.Trainer(
             callbacks=callbacks,
             logger=loggers,
             enable_checkpointing=self.config.trainer_config.save_ckpt,
-            devices=(
-                OmegaConf.select(
-                    self.config, "trainer_config.trainer_device_indices", default=None
-                )
-                if OmegaConf.select(
-                    self.config, "trainer_config.trainer_device_indices", default=None
-                )
-                is not None
-                else self.config.trainer_config.trainer_devices
-            ),
+            devices=devices,
             max_epochs=self.config.trainer_config.max_epochs,
             accelerator=self.config.trainer_config.trainer_accelerator,
             enable_progress_bar=self.config.trainer_config.enable_progress_bar,
