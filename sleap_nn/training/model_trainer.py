@@ -805,7 +805,9 @@ class ModelTrainer:
                     )
                 )
 
-            if self.config.trainer_config.use_wandb:
+            if self.config.trainer_config.use_wandb and OmegaConf.select(
+                self.config, "trainer_config.wandb.save_viz_imgs_wandb", default=False
+            ):
                 callbacks.append(
                     WandBPredImageLogger(
                         viz_folder=viz_dir,

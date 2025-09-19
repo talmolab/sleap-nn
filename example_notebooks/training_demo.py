@@ -326,6 +326,7 @@ def _():
     # trainer_config.wandb.entity = "<wandb entity name>"
     # trainer_config.wandb.project = "<wandb project name>"
     # trainer_config.wandb.name =  "<wandb run name>"
+    # trainer_config.wandb.save_viz_imgs_wandb = False
     # trainer_config.wandb.api_key = "<wandb API key>" # this is required to login to your account
     # trainer_config.wandb.group = "<wandb run group name>"
     return

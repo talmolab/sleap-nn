@@ -151,6 +151,7 @@ def config(sleap_nn_data_dir):
                     "project": "test",
                     "name": "test_run",
                     "wandb_mode": "offline",
+                    "save_viz_imgs_wandb": True,
                     "api_key": "",
                     "prv_runid": None,
                     "group": None,

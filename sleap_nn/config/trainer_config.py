@@ -54,6 +54,7 @@ class WandBConfig:
         entity: (str) Entity of wandb project. *Default*: `None`.
         project: (str) Project name for the wandb project. *Default*: `None`.
         name: (str) Name of the current run. *Default*: `None`.
+        save_viz_imgs_wandb: (bool) If set to `True`, sample predictions (keypoints + confidence maps) that are saved to local `viz` folder in the ckpt dir would also be uploaded to wandb. *Default*: `False`.
         api_key: (str) API key. The API key is masked when saved to config files. *Default*: `None`.
         wandb_mode: (str) "offline" if only local logging is required. *Default*: `"None"`.
         prv_runid: (str) Previous run ID if training should be resumed from a previous ckpt. *Default*: `None`.
@@ -64,6 +65,7 @@ class WandBConfig:
     entity: Optional[str] = None
     project: Optional[str] = None
     name: Optional[str] = None
+    save_viz_imgs_wandb: bool = False
     api_key: Optional[str] = None
     wandb_mode: Optional[str] = None
     prv_runid: Optional[str] = None

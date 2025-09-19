@@ -111,6 +111,7 @@ trainer_config:
     entity:
     project: 'project_name'
     name: 'run_name'
+    save_viz_imgs_wandb: false
     wandb_mode: ''
     api_key: ''
     prv_runid:

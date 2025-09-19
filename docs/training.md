@@ -143,7 +143,7 @@ train(
 ## Monitoring Training
 
 ### Weights & Biases (WandB) Integration
-  If you set `trainer_config.use_wandb = True` and provide a valid `trainer_config.wandb_config`, all key training metrics—including losses, training/validation times, and visualizations—are automatically logged to your WandB project. This makes it easy to monitor progress and compare runs.
+  If you set `trainer_config.use_wandb = True` and provide a valid `trainer_config.wandb_config`, all key training metrics—including losses, training/validation times, and visualizations (if `wandb_config.save_viz_imgs_wandb` is set to True)—are automatically logged to your WandB project. This makes it easy to monitor progress and compare runs.
 
 ### Checkpointing & Artifacts
   For every training run, a dedicated checkpoint directory is created. This directory contains:
@@ -156,7 +156,7 @@ train(
 
 
 ### Visualizing training performance
-  To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when `trainer_config.visualize_preds_during_training` is set to `True`. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting `trainer_config.keep_viz` to `True`. If WandB logging is enabled, these visualizations are also uploaded to your WandB dashboard.
+  To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when `trainer_config.visualize_preds_during_training` is set to `True`. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting `trainer_config.keep_viz` to `True`.
 
 ## Advanced Options
 
