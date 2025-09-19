@@ -2868,7 +2868,7 @@
 </span></code></pre></div></td></tr></table></div>
 <h2 id="monitoring-training">Monitoring Training<a class="headerlink" href="#monitoring-training" title="Permanent link">&para;</a></h2>
 <h3 id="weights-biases-wandb-integration">Weights &amp; Biases (WandB) Integration<a class="headerlink" href="#weights-biases-wandb-integration" title="Permanent link">&para;</a></h3>
-<p>If you set <code>trainer_config.use_wandb = True</code> and provide a valid <code>trainer_config.wandb_config</code>, all key training metrics—including losses, training/validation times, and visualizations—are automatically logged to your WandB project. This makes it easy to monitor progress and compare runs.</p>
+<p>If you set <code>trainer_config.use_wandb = True</code> and provide a valid <code>trainer_config.wandb_config</code>, all key training metrics—including losses, training/validation times, and visualizations (if <code>wandb_config.save_viz_imgs_wandb</code> is set to True)—are automatically logged to your WandB project. This makes it easy to monitor progress and compare runs.</p>
 <h3 id="checkpointing-artifacts">Checkpointing &amp; Artifacts<a class="headerlink" href="#checkpointing-artifacts" title="Permanent link">&para;</a></h3>
 <p>For every training run, a dedicated checkpoint directory is created. This directory contains:</p>
 <ul>
@@ -2879,7 +2879,7 @@
 <li>A CSV log tracking train/validation loss, times, and learning rate across epochs</li>
 </ul>
 <h3 id="visualizing-training-performance">Visualizing training performance<a class="headerlink" href="#visualizing-training-performance" title="Permanent link">&para;</a></h3>
-<p>To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when <code>trainer_config.visualize_preds_during_training</code> is set to <code>True</code>. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting <code>trainer_config.keep_viz</code> to <code>True</code>. If WandB logging is enabled, these visualizations are also uploaded to your WandB dashboard.</p>
+<p>To help understand model performance, SLEAP-NN can generate visualizations of model predictions (e.g., confidence maps) after each epoch when <code>trainer_config.visualize_preds_during_training</code> is set to <code>True</code>. By default, these images are saved temporarily (deleted after training is completed), but you can configure the system to keep them by setting <code>trainer_config.keep_viz</code> to <code>True</code>.</p>
 <h2 id="advanced-options">Advanced Options<a class="headerlink" href="#advanced-options" title="Permanent link">&para;</a></h2>
 <h3 id="fine-tuning-transfer-learning">Fine-tuning / Transfer Learning<a class="headerlink" href="#fine-tuning-transfer-learning" title="Permanent link">&para;</a></h3>
 <p>SLEAP-NN makes it easy to fine-tune or transfer-learn from existing models. To initialize your model with pre-trained weights, simply set the following options in your configuration:</p>

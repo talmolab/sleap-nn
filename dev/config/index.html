@@ -3603,7 +3603,7 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 <li><code>enable_progress_bar</code>: (bool) When True, enables printing the logs during training. <strong>Default</strong>: <code>True</code></li>
 <li><code>min_train_steps_per_epoch</code>: (int) Minimum number of iterations in a single epoch. (Useful if model is trained with very few data points). Refer <code>limit_train_batches</code> parameter of Torch <code>Trainer</code>. <strong>Default</strong>: <code>200</code></li>
 <li><code>train_steps_per_epoch</code>: (int) Number of minibatches (steps) to train for in an epoch. If set to <code>None</code>, this is set to the number of batches in the training data or <code>min_train_steps_per_epoch</code>, whichever is largest. <strong>Default</strong>: <code>None</code>. <strong>Note</strong>: In a multi-gpu training setup, the effective steps during training would be the <code>trainer_steps_per_epoch</code> / <code>trainer_devices</code>. </li>
-<li><code>visualize_preds_during_training</code>: (bool) If set to <code>True</code>, sample predictions (keypoints + confidence maps) are saved to <code>viz</code> folder in the ckpt dir and in wandb table. <strong>Default</strong>: <code>False</code></li>
+<li><code>visualize_preds_during_training</code>: (bool) If set to <code>True</code>, sample predictions (keypoints + confidence maps) are saved to <code>viz</code> folder in the ckpt dir. <strong>Default</strong>: <code>False</code></li>
 <li><code>keep_viz</code>: (bool) If set to <code>True</code>, the <code>viz</code> folder containing training visualizations will be kept after training completes. If <code>False</code>, the folder will be deleted. This parameter only has an effect when <code>visualize_preds_during_training</code> is <code>True</code>. <strong>Default</strong>: <code>False</code></li>
 <li><code>max_epochs</code>: (int) Maximum number of epochs to run. <strong>Default</strong>: <code>10</code></li>
 <li><code>seed</code>: (int) Seed value for the current experiment. If None, no seeding is applied. <strong>Default</strong>: <code>None</code></li>
@@ -3699,6 +3699,7 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 <li><code>project</code>: (str) Project name for the wandb project. <strong>Default</strong>: <code>None</code></li>
 <li><code>name</code>: (str) Name of the current run. <strong>Default</strong>: <code>None</code></li>
 <li><code>api_key</code>: (str) API key. The API key is masked when saved to config files. <strong>Default</strong>: <code>None</code></li>
+<li><code>save_viz_imgs_wandb</code>: (bool) If set to <code>True</code>, sample predictions (keypoints + confidence maps) that are saved to local <code>viz</code> folder in the ckpt dir would also be uploaded to wandb. <strong>Default</strong>: <code>False</code></li>
 <li><code>wandb_mode</code>: (str) "offline" if only local logging is required. <strong>Default</strong>: <code>"None"</code></li>
 <li><code>prv_runid</code>: (str) Previous run ID if training should be resumed from a previous ckpt. <strong>Default</strong>: <code>None</code></li>
 <li><code>group</code>: (str) Group name for the run.</li>
