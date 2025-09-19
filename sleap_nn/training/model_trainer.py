@@ -887,10 +887,12 @@ class ModelTrainer:
             is not None
             else self.config.trainer_config.trainer_devices
         )
+        logger.info(f"Trainer devices: {devices}")
 
         # if trainer devices is set to less than the number of available GPUs, use the least used GPUs
         if (
             torch.cuda.is_available()
+            and self.config.trainer_config.trainer_accelerator != "cpu"
             and isinstance(self.config.trainer_config.trainer_devices, int)
             and self.config.trainer_config.trainer_devices < torch.cuda.device_count()
             and self.config.trainer_config.trainer_device_indices is None
@@ -901,6 +903,7 @@ class ModelTrainer:
                     : self.config.trainer_config.trainer_devices
                 ]
             ]
+            logger.info(f"Using GPUs with most available memory: {devices}")
 
         # create lightning.Trainer instance.
         self.trainer = L.Trainer(
