@@ -695,7 +695,7 @@ def load_metrics(model_path: str, split="val"):
     if not metrics_path.exists():
         raise FileNotFoundError(f"Metrics file not found at {metrics_path}")
     with np.load(metrics_path, allow_pickle=True) as data:
-        return data
+        return data["metrics"].item()
 
 
 def run_evaluation(
