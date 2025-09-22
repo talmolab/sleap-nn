@@ -106,6 +106,9 @@ def run_training(config: DictConfig):
                 logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
                 logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
                 logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
+                logger.info(
+                    f"metrics saved to {Path(trainer.config.trainer_config.ckpt_dir) / trainer.config.trainer_config.run_name / (d_name + '_pred_metrics.npz')}"
+                )
 
 
 def train(

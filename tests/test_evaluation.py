@@ -9,10 +9,10 @@ from sleap_nn.evaluation import (
     compute_instance_area,
     compute_oks,
 )
-from sleap_nn.evaluation import Evaluator
+from sleap_nn.evaluation import Evaluator, load_metrics
 from loguru import logger
 import sys
-
+from sleap_nn.train import train
 from _pytest.logging import LogCaptureFixture
 
 
@@ -572,3 +572,37 @@ def test_evaluator_logging_empty_frame_pairs(caplog, minimal_instance):
 
     # Check that the expected log message was captured
     assert "Empty Frame Pairs. No match found for the video frames" in caplog.text
+
+
+def test_load_metrics(small_robot_minimal, tmp_path):
+    """Test load_metrics function."""
+    train(
+        train_labels_path=[small_robot_minimal.as_posix()],
+        val_labels_path=[small_robot_minimal.as_posix()],
+        test_file_path=small_robot_minimal.as_posix(),
+        max_epochs=6,
+        head_configs="single_instance",
+        save_ckpt=True,
+        ckpt_dir=tmp_path,
+        run_name="test_load_metrics",
+    )
+    metrics = load_metrics(Path(tmp_path) / "test_load_metrics", "val")
+    assert "voc_metrics" in metrics
+    assert "mOKS" in metrics
+    assert "distance_metrics" in metrics
+    assert "pck_metrics" in metrics
+    assert "visibility_metrics" in metrics
+
+    # test with .npz file
+    metrics = load_metrics(
+        Path(tmp_path) / "test_load_metrics" / "test_pred_metrics.npz"
+    )
+    assert "voc_metrics" in metrics
+    assert "mOKS" in metrics
+    assert "distance_metrics" in metrics
+    assert "pck_metrics" in metrics
+    assert "visibility_metrics" in metrics
+
+    # test with invalid path
+    with pytest.raises(FileNotFoundError):
+        metrics = load_metrics(Path(tmp_path) / "test_load_metrics" / "invalid.npz")

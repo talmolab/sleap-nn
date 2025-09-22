@@ -678,6 +678,26 @@ class Evaluator:
         return metrics
 
 
+def load_metrics(model_path: str, split="val"):
+    """Load the metrics for a given model and split.
+
+    Args:
+        model_path: Path to a model folder or metrics file (.npz).
+        split: Name of the split to load the metrics for. Must be `"train"`, `"val"` or
+            `"test"` (default: `"val"`). Ignored if a path to a metrics NPZ file is
+            provided.
+
+    """
+    if Path(model_path).suffix == ".npz":
+        metrics_path = model_path
+    else:
+        metrics_path = Path(model_path) / f"{split}_0_pred_metrics.npz"
+    if not metrics_path.exists():
+        raise FileNotFoundError(f"Metrics file not found at {metrics_path}")
+    with np.load(metrics_path, allow_pickle=True) as data:
+        return data
+
+
 def run_evaluation(
     ground_truth_path: str,
     predicted_path: str,
