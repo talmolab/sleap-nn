@@ -1,0 +1,131 @@
+data_config:
+  train_labels_path:
+  - /Users/divyasesh/Desktop/talmolab/sleap-nn/tests/assets/datasets/small_robot_minimal.slp
+  val_labels_path:
+  - /Users/divyasesh/Desktop/talmolab/sleap-nn/tests/assets/datasets/small_robot_minimal.slp
+  validation_fraction: 0.1
+  test_file_path: /Users/divyasesh/Desktop/talmolab/sleap-nn/tests/assets/datasets/small_robot_minimal.slp
+  provider: LabelsReader
+  user_instances_only: true
+  data_pipeline_fw: torch_dataset
+  cache_img_path: null
+  use_existing_imgs: false
+  delete_cache_imgs_after_training: true
+  preprocessing:
+    ensure_rgb: false
+    ensure_grayscale: false
+    max_height: 320
+    max_width: 560
+    scale: 1.0
+    crop_size: null
+    min_crop_size: 100
+  use_augmentations_train: false
+  augmentation_config: null
+  skeletons:
+  - nodes:
+    - name: A
+    - name: B
+    edges:
+    - source:
+        name: A
+      destination:
+        name: B
+    symmetries: []
+    name: Skeleton-0
+model_config:
+  init_weights: default
+  pretrained_backbone_weights: null
+  pretrained_head_weights: null
+  backbone_config:
+    unet:
+      in_channels: 3
+      kernel_size: 3
+      filters: 32
+      filters_rate: 1.5
+      max_stride: 16
+      stem_stride: null
+      middle_block: true
+      up_interpolate: true
+      stacks: 1
+      convs_per_block: 2
+      output_stride: 1
+    convnext: null
+    swint: null
+  head_configs:
+    single_instance:
+      confmaps:
+        part_names:
+        - A
+        - B
+        sigma: 5.0
+        output_stride: 1
+    centroid: null
+    centered_instance: null
+    bottomup: null
+    multi_class_bottomup: null
+    multi_class_topdown: null
+  total_params: 1327994
+trainer_config:
+  train_data_loader:
+    batch_size: 1
+    shuffle: false
+    num_workers: 0
+  val_data_loader:
+    batch_size: 1
+    shuffle: false
+    num_workers: 0
+  model_ckpt:
+    save_top_k: 1
+    save_last: null
+  trainer_devices: auto
+  trainer_device_indices: null
+  trainer_accelerator: auto
+  profiler: null
+  trainer_strategy: auto
+  enable_progress_bar: true
+  min_train_steps_per_epoch: 100
+  train_steps_per_epoch: 100
+  visualize_preds_during_training: false
+  keep_viz: false
+  max_epochs: 5
+  seed: null
+  use_wandb: false
+  save_ckpt: true
+  ckpt_dir: .
+  run_name: single_instance_ckpt_with_metrics-1
+  resume_ckpt_path: null
+  wandb:
+    entity: null
+    project: null
+    name: null
+    save_viz_imgs_wandb: false
+    api_key: null
+    wandb_mode: null
+    prv_runid: null
+    group: null
+    current_run_id: null
+  optimizer_name: Adam
+  optimizer:
+    lr: 0.001
+    amsgrad: false
+  lr_scheduler:
+    step_lr: null
+    reduce_lr_on_plateau: null
+  early_stopping:
+    min_delta: 0.0
+    patience: 1
+    stop_training_on_plateau: false
+  online_hard_keypoint_mining:
+    online_mining: false
+    hard_to_easy_ratio: 2.0
+    min_hard_keypoints: 2
+    max_hard_keypoints: null
+    loss_scale: 5.0
+  zmq:
+    controller_port: null
+    controller_polling_timeout: 10
+    publish_port: null
+name: ''
+description: ''
+sleap_nn_version: 0.0.1
+filename: ''
