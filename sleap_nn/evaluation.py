@@ -689,7 +689,7 @@ def load_metrics(model_path: str, split="val"):
 
     """
     if Path(model_path).suffix == ".npz":
-        metrics_path = model_path
+        metrics_path = Path(model_path)
     else:
         metrics_path = Path(model_path) / f"{split}_0_pred_metrics.npz"
     if not metrics_path.exists():
