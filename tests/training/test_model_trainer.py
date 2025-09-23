@@ -1257,6 +1257,11 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
         "trainer_config.run_name",
         "test_saved_ckpt",
     )
+    OmegaConf.update(
+        config_duplicate_ckpt_path,
+        "trainer_config.save_ckpt",
+        True,
+    )
     labels = sio.load_slp(minimal_instance)
     trainer = ModelTrainer.get_model_trainer_from_config(
         config_duplicate_ckpt_path, train_labels=[labels], val_labels=[labels]

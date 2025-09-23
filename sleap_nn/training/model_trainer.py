@@ -377,6 +377,9 @@ class ModelTrainer:
         if (Path(ckpt_dir) / run_name).exists() and (
             Path(ckpt_dir) / run_name / "best.ckpt"
         ).exists():
+            logger.info(
+                f"Checkpoint path already exists: {Path(ckpt_dir) / run_name}... adding suffix to prevent overwriting."
+            )
             for i in count(1):
                 new_run_name = f"{run_name}-{i}"
                 if not (Path(ckpt_dir) / new_run_name).exists():
