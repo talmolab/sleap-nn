@@ -48,3 +48,9 @@ def minimal_instance_multi_class_topdown_ckpt(sleap_nn_model_ckpts_dir):
     return (
         Path(sleap_nn_model_ckpts_dir) / "minimal_instance_multiclass_centered_instance"
     )
+
+
+@pytest.fixture
+def single_instance_with_metrics_ckpt(sleap_nn_model_ckpts_dir):
+    """Checkpoint file for topdown ID model."""
+    return Path(sleap_nn_model_ckpts_dir) / "single_instance_with_metrics"

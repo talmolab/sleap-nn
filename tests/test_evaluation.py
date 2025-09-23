@@ -575,27 +575,9 @@ def test_evaluator_logging_empty_frame_pairs(caplog, minimal_instance):
     assert "Empty Frame Pairs. No match found for the video frames" in caplog.text
 
 
-@pytest.mark.skipif(
-    sys.platform.startswith("li")
-    and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
-    reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
-)
-def test_load_metrics(small_robot_minimal, tmp_path):
+def test_load_metrics(single_instance_with_metrics_ckpt, tmp_path):
     """Test load_metrics function."""
-    train(
-        train_labels_path=[small_robot_minimal.as_posix()],
-        val_labels_path=[small_robot_minimal.as_posix()],
-        test_file_path=small_robot_minimal.as_posix(),
-        max_epochs=5,
-        head_configs="single_instance",
-        backbone_config="unet",
-        save_ckpt=True,
-        ckpt_dir=tmp_path,
-        min_train_steps_per_epoch=50,
-        trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
-        run_name="test_load_metrics",
-    )
-    metrics = load_metrics(Path(tmp_path) / "test_load_metrics", "val")
+    metrics = load_metrics(single_instance_with_metrics_ckpt, "val")
     assert "voc_metrics" in metrics
     assert "mOKS" in metrics
     assert "distance_metrics" in metrics
@@ -604,7 +586,7 @@ def test_load_metrics(small_robot_minimal, tmp_path):
 
     # test with .npz file
     metrics = load_metrics(
-        Path(tmp_path) / "test_load_metrics" / "test_pred_metrics.npz"
+        single_instance_with_metrics_ckpt / "train_0_pred_metrics.npz"
     )
     assert "voc_metrics" in metrics
     assert "mOKS" in metrics
