@@ -374,7 +374,9 @@ class ModelTrainer:
                 )
 
         # If checkpoint path already exists, add suffix to prevent overwriting
-        if (Path(ckpt_dir) / run_name).exists():
+        if (Path(ckpt_dir) / run_name).exists() and (
+            Path(ckpt_dir) / run_name / "best.ckpt"
+        ).exists():
             for i in count(1):
                 new_run_name = f"{run_name}-{i}"
                 if not (Path(ckpt_dir) / new_run_name).exists():
