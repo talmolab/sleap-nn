@@ -82,6 +82,8 @@ def train(config_name, config_dir, overrides):
         return
 
     # Initialize Hydra manually
+    # resolve the path to the config directory (hydra expects absolute path)
+    config_dir = Path(config_dir).resolve().as_posix()
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
         # Compose config with overrides
         cfg = hydra.compose(config_name=config_name, overrides=list(overrides))
