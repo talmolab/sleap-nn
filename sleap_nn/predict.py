@@ -38,7 +38,9 @@ def frame_list(frame_str: str) -> Optional[List[int]]:
 
 
 def run_inference(
-    data_path: str,
+    data_path: Optional[str] = None,
+    input_labels: Optional[sio.Labels] = None,
+    input_video: Optional[sio.Video] = None,
     model_paths: Optional[List[str]] = None,
     backbone_ckpt_path: Optional[str] = None,
     head_ckpt_path: Optional[str] = None,
@@ -95,6 +97,8 @@ def run_inference(
 
     Args:
         data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+        input_labels: (sio.Labels) Labels object to run inference on. This is an alternative to specifying the data_path.
+        input_video: (sio.Video) Video to run inference on. This is an alternative to specifying the data_path. If both input_labels and input_video are provided, input_labels are used.
         model_paths: (List[str]) List of paths to the directory where the best.ckpt
                 and training_config.yaml are saved.
         backbone_ckpt_path: (str) To run inference on any `.ckpt` other than `best.ckpt`
@@ -244,7 +248,9 @@ def run_inference(
             raise ValueError(message)
 
         else:
-            if not data_path.endswith(".slp"):
+            if (data_path is not None and not data_path.endswith(".slp")) or (
+                input_labels is not None and not isinstance(input_labels, sio.Labels)
+            ):
                 message = "Data path is not a .slp file. To run track-only pipeline, data path must be an .slp file."
                 logger.error(message)
                 raise ValueError(message)
@@ -253,7 +259,7 @@ def run_inference(
             start_timestamp = str(datetime.now())
             logger.info(f"Started tracking at: {start_timestamp}")
 
-            labels = sio.load_slp(data_path)
+            labels = sio.load_slp(data_path) if input_labels is None else input_labels
 
             lf_frames = labels.labeled_frames
 
@@ -265,7 +271,11 @@ def run_inference(
             lf_frames = sorted(lf_frames, key=lambda lf: lf.frame_idx)
 
             if frames is not None:
-                lf_frames = [lf_frames[fidx] for fidx in frames]
+                filtered_frames = []
+                for lf in lf_frames:
+                    if lf.frame_idx in frames:
+                        filtered_frames.append(lf)
+                lf_frames = filtered_frames
 
             if post_connect_single_breaks:
                 if max_tracks is None:
@@ -389,11 +399,15 @@ def run_inference(
         # initialize make_pipeline function
 
         predictor.make_pipeline(
-            data_path,
-            queue_maxsize,
-            frames,
-            only_labeled_frames,
-            only_suggested_frames,
+            inference_object=(
+                input_labels
+                if input_labels is not None
+                else input_video if input_video is not None else data_path
+            ),
+            queue_maxsize=queue_maxsize,
+            frames=frames,
+            only_labeled_frames=only_labeled_frames,
+            only_suggested_frames=only_suggested_frames,
             video_index=video_index,
             video_dataset=video_dataset,
             video_input_format=video_input_format,
@@ -443,7 +457,9 @@ def run_inference(
 
     if make_labels:
         if output_path is None:
-            output_path = Path(data_path).with_suffix(".predictions.slp")
+            output_path = Path(
+                data_path if data_path is not None else "results"
+            ).with_suffix(".predictions.slp")
         output.save(Path(output_path).as_posix(), restore_original_videos=False)
     finish_timestamp = str(datetime.now())
     logger.info(f"Predictions output path: {output_path}")
