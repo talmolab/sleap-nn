@@ -4177,7 +4177,7 @@ the parameters required to initialize the trainer config.</p>
           <tr class="doc-section-item">
             <td><code><span title="sleap_nn.config.trainer_config.TrainerConfig.early_stopping">early_stopping</span></code></td>
             <td>
-                  <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="&lt;code&gt;EarlyStoppingConfig&lt;/code&gt; (&lt;code&gt;sleap_nn.config.trainer_config.EarlyStoppingConfig&lt;/code&gt;)" href="#sleap_nn.config.trainer_config.EarlyStoppingConfig">EarlyStoppingConfig</a>]</code>
+                  <code><a class="autorefs autorefs-internal" title="&lt;code&gt;EarlyStoppingConfig&lt;/code&gt; (&lt;code&gt;sleap_nn.config.trainer_config.EarlyStoppingConfig&lt;/code&gt;)" href="#sleap_nn.config.trainer_config.EarlyStoppingConfig">EarlyStoppingConfig</a></code>
             </td>
             <td>
               <div class="doc-md-description">
@@ -4402,7 +4402,7 @@ the parameters required to initialize the trainer config.</p>
 </span><span id="__span-0-262"><a id="__codelineno-0-262" name="__codelineno-0-262"></a>    <span class="p">)</span>
 </span><span id="__span-0-263"><a id="__codelineno-0-263" name="__codelineno-0-263"></a>    <span class="n">optimizer</span><span class="p">:</span> <span class="n">OptimizerConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">factory</span><span class="o">=</span><span class="n">OptimizerConfig</span><span class="p">)</span>
 </span><span id="__span-0-264"><a id="__codelineno-0-264" name="__codelineno-0-264"></a>    <span class="n">lr_scheduler</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">LRSchedulerConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-265"><a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="n">early_stopping</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">EarlyStoppingConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-265"><a id="__codelineno-0-265" name="__codelineno-0-265"></a>    <span class="n">early_stopping</span><span class="p">:</span> <span class="n">EarlyStoppingConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">factory</span><span class="o">=</span><span class="n">EarlyStoppingConfig</span><span class="p">)</span>
 </span><span id="__span-0-266"><a id="__codelineno-0-266" name="__codelineno-0-266"></a>    <span class="n">online_hard_keypoint_mining</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">HardKeypointMiningConfig</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span>
 </span><span id="__span-0-267"><a id="__codelineno-0-267" name="__codelineno-0-267"></a>        <span class="n">factory</span><span class="o">=</span><span class="n">HardKeypointMiningConfig</span>
 </span><span id="__span-0-268"><a id="__codelineno-0-268" name="__codelineno-0-268"></a>    <span class="p">)</span>
