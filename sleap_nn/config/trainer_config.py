@@ -262,7 +262,7 @@ class TrainerConfig:
     )
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
     lr_scheduler: Optional[LRSchedulerConfig] = None
-    early_stopping: Optional[EarlyStoppingConfig] = None
+    early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
     )

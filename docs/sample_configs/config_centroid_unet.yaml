@@ -14,7 +14,7 @@ data_config:
     ensure_grayscale: false
     max_height: null
     max_width: null
-    scale: 1.0
+    scale: 0.5
     crop_size: null
     min_crop_size: 100
   use_augmentations_train: true
@@ -102,7 +102,7 @@ trainer_config:
   keep_viz: false
   max_epochs: 30
   seed:
-  use_wandb: true
+  use_wandb: false
   save_ckpt: true
   ckpt_dir:
   run_name:

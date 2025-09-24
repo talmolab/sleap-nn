@@ -146,6 +146,24 @@ def test_topdown_predictor(
     assert len(pred_labels) == 1
     assert len(pred_labels[0].instances) <= 6
 
+    # centroid + centroid instance model with labels
+    pred_labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        input_labels=sio.load_slp(minimal_instance.as_posix()),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=6,
+        peak_threshold=[0.0, 0.0],
+        device="cpu",
+        integral_refinement="integral",
+    )
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 1
+    assert len(pred_labels[0].instances) <= 6
+
     # centroid model
     max_instances = 6
     pred_labels = run_inference(
@@ -700,6 +718,23 @@ def test_bottomup_predictor(
     assert len(pred_labels) == 100
     assert len(pred_labels[0].instances) <= 6
 
+    # change to video object
+    pred_labels = run_inference(
+        model_paths=[minimal_instance_bottomup_ckpt],
+        input_video=sio.load_video(centered_instance_video.as_posix()),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=6,
+        peak_threshold=0.05,
+        frames=[x for x in range(100)],
+        device="cpu",
+        integral_refinement=None,
+    )
+
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 100
+    assert len(pred_labels[0].instances) <= 6
+
     # check if dictionaries are created when make labels is set to False
     preds = run_inference(
         model_paths=[minimal_instance_bottomup_ckpt],
@@ -806,6 +841,25 @@ def test_multi_class_bottomup_predictor(
     assert tuple(preds[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
     assert tuple(preds[0]["pred_peak_values"][0].shape)[1:] == (2,)
 
+    # check with labels object
+    preds_with_labels = run_inference(
+        model_paths=[minimal_instance_multi_class_bottomup_ckpt],
+        input_labels=sio.load_slp(minimal_instance.as_posix()),
+        make_labels=False,
+        max_instances=6,
+        peak_threshold=0.03,
+        device="cpu",
+        integral_refinement=None,
+    )
+    assert isinstance(preds_with_labels, list)
+    assert len(preds_with_labels) == 1
+    assert isinstance(preds_with_labels[0], dict)
+    assert "pred_confmaps" not in preds_with_labels[0].keys()
+    assert "pred_class_maps" not in preds_with_labels[0].keys()
+    assert isinstance(preds_with_labels[0]["pred_instance_peaks"], list)
+    assert tuple(preds_with_labels[0]["pred_instance_peaks"][0].shape)[1:] == (2, 2)
+    assert tuple(preds_with_labels[0]["pred_peak_values"][0].shape)[1:] == (2,)
+
     # with video_index
     preds = run_inference(
         model_paths=[minimal_instance_multi_class_bottomup_ckpt],
@@ -825,6 +879,24 @@ def test_multi_class_bottomup_predictor(
     pred_labels = run_inference(
         model_paths=[minimal_instance_multi_class_bottomup_ckpt],
         data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=6,
+        peak_threshold=0.03,
+        frames=[x for x in range(100)],
+        device="cpu",
+        integral_refinement=None,
+    )
+
+    assert isinstance(pred_labels, sio.Labels)
+    assert len(pred_labels) == 100
+    assert len(pred_labels[0].instances) <= 6
+    assert len(pred_labels.tracks) <= 6
+
+    # change to video object
+    pred_labels = run_inference(
+        model_paths=[minimal_instance_multi_class_bottomup_ckpt],
+        input_video=sio.load_video(centered_instance_video.as_posix()),
         make_labels=True,
         output_path=tmp_path,
         max_instances=6,

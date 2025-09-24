@@ -11,6 +11,7 @@ import torchvision.transforms.v2.functional as F
 import torch
 import attrs
 import lightning as L
+from queue import Queue
 from omegaconf import OmegaConf
 from loguru import logger
 from sleap_nn.data.providers import LabelsReader, VideoReader
@@ -1070,7 +1071,7 @@ class TopDownPredictor(Predictor):
 
     def make_pipeline(
         self,
-        data_path: str,
+        inference_object: Union[str, Path, sio.Labels, sio.Video],
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
@@ -1082,7 +1083,7 @@ class TopDownPredictor(Predictor):
         """Make a data loading pipeline.
 
         Args:
-            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
@@ -1096,15 +1097,28 @@ class TopDownPredictor(Predictor):
             This method initiates the reader class (doesn't return a pipeline) and the
             Thread is started in Predictor._predict_generator() method.
         """
+        if isinstance(inference_object, str) or isinstance(inference_object, Path):
+            inference_object = (
+                sio.load_slp(inference_object)
+                if inference_object.endswith(".slp")
+                else sio.load_video(
+                    inference_object,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+            )
+
         # LabelsReader provider
-        if data_path.endswith(".slp") and video_index is None:
+        if isinstance(inference_object, sio.Labels) and video_index is None:
             provider = LabelsReader
 
             self.preprocess = False
 
-            self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
+            frame_buffer = Queue(maxsize=queue_maxsize)
+
+            self.pipeline = provider(
+                labels=inference_object,
+                frame_buffer=frame_buffer,
                 instances_key=self.instances_key,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
@@ -1123,8 +1137,8 @@ class TopDownPredictor(Predictor):
 
             self.preprocess = False
 
-            if data_path.endswith(".slp") and video_index is not None:
-                labels = sio.load_slp(data_path)
+            if isinstance(inference_object, sio.Labels) and video_index is not None:
+                labels = inference_object
                 self.pipeline = provider.from_video(
                     video=labels.videos[video_index],
                     queue_maxsize=queue_maxsize,
@@ -1132,12 +1146,11 @@ class TopDownPredictor(Predictor):
                 )
 
             else:  # for mp4 or hdf5 videos
-                self.pipeline = provider.from_filename(
-                    filename=data_path,
-                    queue_maxsize=queue_maxsize,
+                frame_buffer = Queue(maxsize=queue_maxsize)
+                self.pipeline = provider(
+                    video=inference_object,
+                    frame_buffer=frame_buffer,
                     frames=frames,
-                    dataset=video_dataset,
-                    input_format=video_input_format,
                 )
 
             self.videos = [self.pipeline.video]
@@ -1476,7 +1489,7 @@ class SingleInstancePredictor(Predictor):
 
     def make_pipeline(
         self,
-        data_path: str,
+        inference_object: Union[str, Path, sio.Labels, sio.Video],
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
@@ -1488,7 +1501,7 @@ class SingleInstancePredictor(Predictor):
         """Make a data loading pipeline.
 
         Args:
-            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
@@ -1503,15 +1516,27 @@ class SingleInstancePredictor(Predictor):
             Thread is started in Predictor._predict_generator() method.
 
         """
+        if isinstance(inference_object, str) or isinstance(inference_object, Path):
+            inference_object = (
+                sio.load_slp(inference_object)
+                if inference_object.endswith(".slp")
+                else sio.load_video(
+                    inference_object,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+            )
+
+        self.preprocess = True
         # LabelsReader provider
-        if data_path.endswith(".slp") and video_index is None:
+        if isinstance(inference_object, sio.Labels) and video_index is None:
             provider = LabelsReader
 
-            self.preprocess = False
+            frame_buffer = Queue(maxsize=queue_maxsize)
 
-            self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
+            self.pipeline = provider(
+                labels=inference_object,
+                frame_buffer=frame_buffer,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
             )
@@ -1519,10 +1544,9 @@ class SingleInstancePredictor(Predictor):
 
         else:
             provider = VideoReader
-            self.preprocess = True
 
-            if data_path.endswith(".slp") and video_index is not None:
-                labels = sio.load_slp(data_path)
+            if isinstance(inference_object, sio.Labels) and video_index is not None:
+                labels = inference_object
                 self.pipeline = provider.from_video(
                     video=labels.videos[video_index],
                     queue_maxsize=queue_maxsize,
@@ -1530,12 +1554,11 @@ class SingleInstancePredictor(Predictor):
                 )
 
             else:  # for mp4 or hdf5 videos
-                self.pipeline = provider.from_filename(
-                    filename=data_path,
-                    queue_maxsize=queue_maxsize,
+                frame_buffer = Queue(maxsize=queue_maxsize)
+                self.pipeline = provider(
+                    video=inference_object,
+                    frame_buffer=frame_buffer,
                     frames=frames,
-                    dataset=video_dataset,
-                    input_format=video_input_format,
                 )
 
             self.videos = [self.pipeline.video]
@@ -1905,7 +1928,7 @@ class BottomUpPredictor(Predictor):
 
     def make_pipeline(
         self,
-        data_path: str,
+        inference_object: Union[str, Path, sio.Labels, sio.Video],
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
@@ -1917,7 +1940,7 @@ class BottomUpPredictor(Predictor):
         """Make a data loading pipeline.
 
         Args:
-            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
@@ -1931,26 +1954,39 @@ class BottomUpPredictor(Predictor):
             This method initiates the reader class (doesn't return a pipeline) and the
             Thread is started in Predictor._predict_generator() method.
         """
+        if isinstance(inference_object, str) or isinstance(inference_object, Path):
+            inference_object = (
+                sio.load_slp(inference_object)
+                if inference_object.endswith(".slp")
+                else sio.load_video(
+                    inference_object,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+            )
+
+        self.preprocess = True
+
         # LabelsReader provider
-        if data_path.endswith(".slp") and video_index is None:
+        if isinstance(inference_object, sio.Labels) and video_index is None:
             provider = LabelsReader
 
-            self.preprocess = False
+            frame_buffer = Queue(maxsize=queue_maxsize)
 
-            self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
+            self.pipeline = provider(
+                labels=inference_object,
+                frame_buffer=frame_buffer,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
             )
+
             self.videos = self.pipeline.labels.videos
 
         else:
             provider = VideoReader
-            self.preprocess = True
 
-            if data_path.endswith(".slp") and video_index is not None:
-                labels = sio.load_slp(data_path)
+            if isinstance(inference_object, sio.Labels) and video_index is not None:
+                labels = inference_object
                 self.pipeline = provider.from_video(
                     video=labels.videos[video_index],
                     queue_maxsize=queue_maxsize,
@@ -1958,12 +1994,11 @@ class BottomUpPredictor(Predictor):
                 )
 
             else:  # for mp4 or hdf5 videos
-                self.pipeline = provider.from_filename(
-                    filename=data_path,
-                    queue_maxsize=queue_maxsize,
+                frame_buffer = Queue(maxsize=queue_maxsize)
+                self.pipeline = provider(
+                    video=inference_object,
+                    frame_buffer=frame_buffer,
                     frames=frames,
-                    dataset=video_dataset,
-                    input_format=video_input_format,
                 )
 
             self.videos = [self.pipeline.video]
@@ -2329,7 +2364,7 @@ class BottomUpMultiClassPredictor(Predictor):
 
     def make_pipeline(
         self,
-        data_path: str,
+        inference_object: Union[str, Path, sio.Labels, sio.Video],
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
@@ -2341,7 +2376,7 @@ class BottomUpMultiClassPredictor(Predictor):
         """Make a data loading pipeline.
 
         Args:
-            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
@@ -2355,30 +2390,41 @@ class BottomUpMultiClassPredictor(Predictor):
             This method initiates the reader class (doesn't return a pipeline) and the
             Thread is started in Predictor._predict_generator() method.
         """
-        # LabelsReader provider
-        if data_path.endswith(".slp") and video_index is None:
-            provider = LabelsReader
+        if isinstance(inference_object, str) or isinstance(inference_object, Path):
+            inference_object = (
+                sio.load_slp(inference_object)
+                if inference_object.endswith(".slp")
+                else sio.load_video(
+                    inference_object,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+            )
 
+        self.preprocess = True
+        # LabelsReader provider
+        if isinstance(inference_object, sio.Labels) and video_index is None:
+            provider = LabelsReader
             max_stride = self.bottomup_config.model_config.backbone_config[
                 f"{self.backbone_type}"
             ]["max_stride"]
 
-            self.preprocess = False
+            frame_buffer = Queue(maxsize=queue_maxsize)
 
-            self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
+            self.pipeline = provider(
+                labels=inference_object,
+                frame_buffer=frame_buffer,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
             )
+
             self.videos = self.pipeline.labels.videos
 
         else:
             provider = VideoReader
-            self.preprocess = True
 
-            if data_path.endswith(".slp") and video_index is not None:
-                labels = sio.load_slp(data_path)
+            if isinstance(inference_object, sio.Labels) and video_index is not None:
+                labels = inference_object
                 self.pipeline = provider.from_video(
                     video=labels.videos[video_index],
                     queue_maxsize=queue_maxsize,
@@ -2386,12 +2432,11 @@ class BottomUpMultiClassPredictor(Predictor):
                 )
 
             else:  # for mp4 or hdf5 videos
-                self.pipeline = provider.from_filename(
-                    filename=data_path,
-                    queue_maxsize=queue_maxsize,
+                frame_buffer = Queue(maxsize=queue_maxsize)
+                self.pipeline = provider(
+                    video=inference_object,
+                    frame_buffer=frame_buffer,
                     frames=frames,
-                    dataset=video_dataset,
-                    input_format=video_input_format,
                 )
 
             self.videos = [self.pipeline.video]
@@ -3065,7 +3110,7 @@ class TopDownMultiClassPredictor(Predictor):
 
     def make_pipeline(
         self,
-        data_path: str,
+        inference_object: Union[str, Path, sio.Labels, sio.Video],
         queue_maxsize: int = 8,
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
@@ -3077,7 +3122,7 @@ class TopDownMultiClassPredictor(Predictor):
         """Make a data loading pipeline.
 
         Args:
-            data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+            inference_object: (str) Path to `.slp` file or `.mp4` or sio.Labels or sio.Video to run inference on.
             queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
@@ -3091,15 +3136,28 @@ class TopDownMultiClassPredictor(Predictor):
             This method initiates the reader class (doesn't return a pipeline) and the
             Thread is started in Predictor._predict_generator() method.
         """
+        if isinstance(inference_object, str) or isinstance(inference_object, Path):
+            inference_object = (
+                sio.load_slp(inference_object)
+                if inference_object.endswith(".slp")
+                else sio.load_video(
+                    inference_object,
+                    dataset=video_dataset,
+                    input_format=video_input_format,
+                )
+            )
+
         # LabelsReader provider
-        if data_path.endswith(".slp") and video_index is None:
+        if isinstance(inference_object, sio.Labels) and video_index is None:
             provider = LabelsReader
 
             self.preprocess = False
 
-            self.pipeline = provider.from_filename(
-                filename=data_path,
-                queue_maxsize=queue_maxsize,
+            frame_buffer = Queue(maxsize=queue_maxsize)
+
+            self.pipeline = provider(
+                labels=inference_object,
+                frame_buffer=frame_buffer,
                 instances_key=self.instances_key,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
@@ -3118,8 +3176,8 @@ class TopDownMultiClassPredictor(Predictor):
 
             self.preprocess = False
 
-            if data_path.endswith(".slp") and video_index is not None:
-                labels = sio.load_slp(data_path)
+            if isinstance(inference_object, sio.Labels) and video_index is not None:
+                labels = inference_object
                 self.pipeline = provider.from_video(
                     video=labels.videos[video_index],
                     queue_maxsize=queue_maxsize,
@@ -3127,12 +3185,11 @@ class TopDownMultiClassPredictor(Predictor):
                 )
 
             else:  # for mp4 or hdf5 videos
-                self.pipeline = provider.from_filename(
-                    filename=data_path,
-                    queue_maxsize=queue_maxsize,
+                frame_buffer = Queue(maxsize=queue_maxsize)
+                self.pipeline = provider(
+                    video=inference_object,
+                    frame_buffer=frame_buffer,
                     frames=frames,
-                    dataset=video_dataset,
-                    input_format=video_input_format,
                 )
 
             self.videos = [self.pipeline.video]

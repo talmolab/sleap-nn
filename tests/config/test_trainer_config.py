@@ -207,7 +207,7 @@ def test_trainer_config(caplog):
     assert conf_structured.model_ckpt.save_top_k == 1
     assert conf_structured.optimizer.lr == 1e-3
     assert conf_structured.lr_scheduler is None
-    assert conf_structured.early_stopping is None
+    assert conf_structured.early_stopping.stop_training_on_plateau is False
     assert conf_structured.use_wandb is False
     assert conf_structured.ckpt_dir == "."
     assert conf_structured.run_name is None
