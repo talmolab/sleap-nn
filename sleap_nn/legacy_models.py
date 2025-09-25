@@ -236,7 +236,7 @@ def map_legacy_to_pytorch_layers(
             search_name = layer_name_clean if "Head" in layer_name else layer_name
             if search_name in pytorch_name and pytorch_name.endswith(f".{weight_type}"):
                 # For kernel weights, we need to check shape after conversion
-                if weight_type == "weight":
+                if weight_type == "weight" and weight.ndim == 4:
                     # Convert Keras kernel to PyTorch format for shape comparison
                     if "trans_conv" in legacy_path:
                         converted_weight = convert_keras_to_pytorch_conv2d_transpose(
@@ -245,6 +245,9 @@ def map_legacy_to_pytorch_layers(
                     else:
                         converted_weight = convert_keras_to_pytorch_conv2d(weight)
                     shape_to_check = converted_weight.shape
+                elif weight_type == "weight" and weight.ndim == 2:
+                    # for linear weights, we need to transpose the shape
+                    shape_to_check = weight.shape[::-1]
                 else:
                     # Bias weights don't need conversion
                     shape_to_check = weight.shape
@@ -310,15 +313,17 @@ def load_legacy_model_weights(
         info = parse_keras_layer_name(legacy_path)
 
         # Convert weight format if needed
-        if info["weight_type"] == "kernel":
+        if info["weight_type"] == "kernel" and weight.ndim == 4:
             if "trans_conv" in legacy_path:
                 weight = convert_keras_to_pytorch_conv2d_transpose(weight)
             else:
                 weight = convert_keras_to_pytorch_conv2d(weight)
+        elif info["weight_type"] == "kernel" and weight.ndim != 4:
+            # for linear weights, we need to transpose the shape
+            weight = torch.from_numpy(weight.transpose(1, 0)).float()
         else:
             # Bias weights don't need conversion
             weight = torch.from_numpy(weight).float()
-
         # Set the parameter using state_dict
         try:
             state_dict = pytorch_model.state_dict()
@@ -379,7 +384,7 @@ def load_legacy_model_weights(
             original_weight = legacy_weights[legacy_path]
             info = parse_keras_layer_name(legacy_path)
 
-            if info["weight_type"] == "kernel":
+            if info["weight_type"] == "kernel" and original_weight.ndim == 4:
                 # Convert Keras to PyTorch format
                 torch_weight = convert_keras_to_pytorch_conv2d(original_weight)
                 # Keras: (H, W, C_in, C_out), PyTorch: (C_out, C_in, H, W)
@@ -404,9 +409,17 @@ def load_legacy_model_weights(
                     message = f"Channel verification failed for {pytorch_name}: {'; '.join(channel_errors)}"
                     logger.error(message)
                     verification_errors.append(message)
-
+            elif info["weight_type"] == "kernel" and original_weight.ndim == 2:
+                # for linear weights, we need to transpose the shape
+                keras_mean = np.mean(original_weight.transpose(1, 0))
+                torch_mean = torch.mean(
+                    torch.from_numpy(original_weight.transpose(1, 0)).float()
+                ).item()
+                diff = abs(keras_mean - torch_mean)
+                if diff > 1e-6:
+                    message = f"Weight verification failed for {pytorch_name} linear): keras={keras_mean:.6f}, torch={torch_mean:.6f}, diff={diff:.6e}"
             else:
-                # Bias: just compare all values
+                # Bias : just compare all values
                 keras_mean = np.mean(original_weight)
                 torch_mean = torch.mean(
                     torch.from_numpy(original_weight).float()
