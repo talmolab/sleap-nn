@@ -317,6 +317,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         if run_name_prefix is not None
         else "" + run_name + run_name_suffix if run_name_prefix is not None else ""
     )
+    run_name = None if run_name == "" else run_name
 
     trainer_cfg_args = {}
     train_dataloader_cfg_args = {}

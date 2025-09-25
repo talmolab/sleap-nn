@@ -151,18 +151,17 @@ filename: ''
 
 Refer to the sample configuration files [here](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
 
-
-- `config_single_instance_unet.yaml` - Basic single instance detection with UNet backbone
-- `config_centroid_unet.yaml` - Centroid-based detection with UNet backbone
-- `config_centroid_swint.yaml` - Centroid-based detection with Swin Transformer backbone
-
-- `config_topdown_centered_instance_unet.yaml` - Top-down centered instance detection with UNet backbone
-- `config_topdown_multi_class_centered_instance_unet.yaml` - Top-down multi-class centered instance detection with UNet backbone
-
-- `config_bottomup_unet.yaml` - Bottom-up detection with UNet backbone
-- `config_bottomup_convnext.yaml` - Bottom-up detection with ConvNeXt backbone
-- `config_multi_class_bottomup_unet.yaml` - Multi-class bottom-up detection with UNet backbone
-
+- `config_single_instance_unet_medium_rf.yaml` - Single instance model with UNet backbone (medium receptive field)
+- `config_single_instance_unet_large_rf.yaml` - Single instance model with UNet backbone (large receptive field)
+- `config_centroid_unet.yaml` - Centroid-based model with UNet backbone
+- `config_centroid_swint.yaml` - Centroid-based model with Swin Transformer backbone
+- `config_topdown_centered_instance_unet_medium_rf.yaml` - Top-down centered instance model with UNet backbone (medium receptive field)
+- `config_topdown_centered_instance_unet_large_rf.yaml` - Top-down centered instance model with UNet backbone (large receptive field)
+- `config_topdown_multi_class_centered_instance_unet.yaml` - Top-down multi-class centered instance model with UNet backbone
+- `config_bottomup_unet_medium_rf.yaml` - Bottom-up model with UNet backbone (medium receptive field)
+- `config_bottomup_unet_large_rf.yaml` - Bottom-up model with UNet backbone (large receptive field)
+- `config_bottomup_convnext.yaml` - Bottom-up model with ConvNeXt backbone
+- `config_multi_class_bottomup_unet.yaml` - Multi-class bottom-up model with UNet backbone
 
 ---
 
