@@ -24,7 +24,14 @@
 Let's start SLEAPiNNg !!! 🐭🐭
 
 !!! info "Prerequisite: uv installation"
-    Install [`uv`](https://github.com/astral-sh/uv), a fast Python package manager for modern projects. See the [uv installation guide](https://docs.astral.sh/uv/getting-started/installation/) for instructions.
+    Install [`uv`](https://github.com/astral-sh/uv), a fast Python package manager for modern projects:
+    ```bash
+    # macOS/Linux
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    
+    # Windows
+    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+    ```
 
 ### Step - 1 : Set Up Your Configuration
 
@@ -32,28 +39,55 @@ Create a `config.yaml` file for your experiment. Use a sample config from [`docs
 
 ### Step - 2 : Train a Model
 
-We use `uvx` here which automatically installs sleap-nn from PyPI with all dependencies and runs the command in a single step. Check out [`Installation.md`](installation.md) for different installation options.
+We use `uvx` here which automatically installs sleap-nn from PyPI with all dependencies and runs the command in a single step. `uvx` automatically installs sleap-nn and runs your command inside a temporary virtual environment (venv). This means each run is fully isolated and leaves no trace on your system—perfect for trying out sleap-nn without any permanent installation. Check out [Installation docs](installation.md) for different installation options. 
 
 > **Quick Start Data:** Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
-```bash
-uvx "sleap-nn[torch-cpu]" train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
-```
-
-!!! tip "GPU Acceleration"
-    For faster training, use `torch-cuda118` or `torch-cuda128` instead of `torch-cpu`:
+=== "Windows/Linux (CUDA)"
     ```bash
-    uvx "sleap-nn[torch-cuda118]" train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]
+    uvx --from "sleap-nn[torch]" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128 sleap-nn train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
     ```
+
+=== "Windows/Linux (CPU)"
+    ```bash
+    uvx --from "sleap-nn[torch]" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu sleap-nn train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
+    ```
+
+=== "macOS"
+    ```bash
+    uvx sleap-nn[torch] train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
+    ```
+
+!!! info
+    - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
+      The `--extra-index-url` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+    - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 
 ### Step - 3 : Run Inference on the Trained Model
 
 To run inference:
 
-```bash
-uvx "sleap-nn[torch-cpu]" track --data_path video.mp4 --model_paths model_ckpt_dir/
-```
+=== "Windows/Linux (CUDA)"
+    ```bash
+    uvx --from "sleap-nn[torch]" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128 sleap-nn track --data-path video.mp4 --model-paths model_ckpt_dir/
+    ```
+
+=== "Windows/Linux (CPU)"
+    ```bash
+    uvx --from "sleap-nn[torch]" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu sleap-nn track --data-path video.mp4 --model-paths model_ckpt_dir/
+    ```
+
+=== "macOS"
+    ```bash
+    uvx sleap-nn[torch] track --data-path video.mp4 --model-paths model_ckpt_dir/
+    ```
+
+!!! info
+    - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
+      The `--extra-index-url` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+    - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
+
 
 !!! warning "Model Paths"
     `--model-paths` should be set to `<config.trainer_config.config_dir>/<config.trainer_config.run_name>`. Make sure the model checkpoint directory contains both `best.ckpt` (or legacy sleap `best_model.h5` - only UNet backbone is supported) and `training_config.yaml` (or legacy sleap `training_config.json` - only UNet backbone is supported) files. The inference will fail without these files.
