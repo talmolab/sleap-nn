@@ -2507,27 +2507,71 @@
 <p>Let's start SLEAPiNNg !!! 🐭🐭</p>
 <div class="admonition info">
 <p class="admonition-title">Prerequisite: uv installation</p>
-<p>Install <a href="https://github.com/astral-sh/uv"><code>uv</code></a>, a fast Python package manager for modern projects. See the <a href="https://docs.astral.sh/uv/getting-started/installation/">uv installation guide</a> for instructions.</p>
+<p>Install <a href="https://github.com/astral-sh/uv"><code>uv</code></a>, a fast Python package manager for modern projects:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># macOS/Linux</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># Windows</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>powershell<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
+</span></code></pre></div></p>
 </div>
 <h3 id="step-1-set-up-your-configuration">Step - 1 : Set Up Your Configuration<a class="headerlink" href="#step-1-set-up-your-configuration" title="Permanent link">&para;</a></h3>
 <p>Create a <code>config.yaml</code> file for your experiment. Use a sample config from <a href="https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs"><code>docs/sample_configs</code></a>.</p>
 <h3 id="step-2-train-a-model">Step - 2 : Train a Model<a class="headerlink" href="#step-2-train-a-model" title="Permanent link">&para;</a></h3>
-<p>We use <code>uvx</code> here which automatically installs sleap-nn from PyPI with all dependencies and runs the command in a single step. Check out <a href="installation/"><code>Installation.md</code></a> for different installation options.</p>
+<p>We use <code>uvx</code> here which automatically installs sleap-nn from PyPI with all dependencies and runs the command in a single step. <code>uvx</code> automatically installs sleap-nn and runs your command inside a temporary virtual environment (venv). This means each run is fully isolated and leaves no trace on your system—perfect for trying out sleap-nn without any permanent installation. Check out <a href="installation/">Installation docs</a> for different installation options. </p>
 <blockquote>
 <p><strong>Quick Start Data:</strong> Download sample training data from <a href="https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp">here</a> and validation data from <a href="https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp">here</a> for quick experimentation.</p>
 </blockquote>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>uvx<span class="w"> </span><span class="s2">&quot;sleap-nn[torch-cpu]&quot;</span><span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Windows/Linux (CUDA)</label><label for="__tabbed_1_2">Windows/Linux (CPU)</label><label for="__tabbed_1_3">macOS</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
 </span></code></pre></div>
-<div class="admonition tip">
-<p class="admonition-title">GPU Acceleration</p>
-<p>For faster training, use <code>torch-cuda118</code> or <code>torch-cuda128</code> instead of <code>torch-cpu</code>:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>uvx<span class="w"> </span><span class="s2">&quot;sleap-nn[torch-cuda118]&quot;</span><span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]</span>
-</span></code></pre></div></p>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uvx<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<ul>
+<li>For more information on which CUDA version to use for your system, see the <a href="https://pytorch.org/get-started/locally/">PyTorch installation guide</a>.<br />
+  The <code>--extra-index-url</code> in the install command should match the CUDA version you need (e.g., <code>https://download.pytorch.org/whl/cuda118</code> for CUDA 11.8, <code>https://download.pytorch.org/whl/cuda128</code> for CUDA 12.8, etc.).</li>
+<li>On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.</li>
+</ul>
 </div>
 <h3 id="step-3-run-inference-on-the-trained-model">Step - 3 : Run Inference on the Trained Model<a class="headerlink" href="#step-3-run-inference-on-the-trained-model" title="Permanent link">&para;</a></h3>
 <p>To run inference:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uvx<span class="w"> </span><span class="s2">&quot;sleap-nn[torch-cpu]&quot;</span><span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>model_ckpt_dir/
+<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Windows/Linux (CUDA)</label><label for="__tabbed_2_2">Windows/Linux (CPU)</label><label for="__tabbed_2_3">macOS</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
 </span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uvx<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<ul>
+<li>For more information on which CUDA version to use for your system, see the <a href="https://pytorch.org/get-started/locally/">PyTorch installation guide</a>.<br />
+  The <code>--extra-index-url</code> in the install command should match the CUDA version you need (e.g., <code>https://download.pytorch.org/whl/cuda118</code> for CUDA 11.8, <code>https://download.pytorch.org/whl/cuda128</code> for CUDA 12.8, etc.).</li>
+<li>On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.</li>
+</ul>
+</div>
 <div class="admonition warning">
 <p class="admonition-title">Model Paths</p>
 <p><code>--model-paths</code> should be set to <code>&lt;config.trainer_config.config_dir&gt;/&lt;config.trainer_config.run_name&gt;</code>. Make sure the model checkpoint directory contains both <code>best.ckpt</code> (or legacy sleap <code>best_model.h5</code> - only UNet backbone is supported) and <code>training_config.yaml</code> (or legacy sleap <code>training_config.json</code> - only UNet backbone is supported) files. The inference will fail without these files.</p>
