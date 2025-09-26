@@ -10,49 +10,13 @@ Neural network backend for training and inference for animal pose estimation.
 
 This is the deep learning engine that powers [SLEAP](https://sleap.ai) (Social LEAP Estimates Animal Poses), providing neural network architectures for multi-instance animal pose estimation and tracking. Built on PyTorch, SLEAP-NN offers an end-to-end training workflow, supporting multiple model types (Single Instance, Top-Down, Bottom-Up, Multi-Class), and seamless integration with SLEAP's GUI and command-line tools.
 
+Need a quick start? Refer to our [Quick Start guide](https://nn.sleap.ai/latest/#quick-start) in the docs.
+
 ## Documentation
 
 **📚 [Documentation](https://nn.sleap.ai)** - Comprehensive guides and API reference
 
-## Quick Start
-
-Let's start SLEAPiNNg !!! 🐭🐭
-
-> For detailed information on setting up config, training/ inference workflows, please refer to our [docs](https://nn.sleap.ai).
-
-#### 1. Install uv
-Install [`uv`](https://github.com/astral-sh/uv) first - a fast Python package manager:
-```bash
-# macOS/Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-#### 2. Set Up Your Configuration
-
-Create a `config.yaml` file for your experiment.
-
-> Use a sample config from [`docs/sample_configs`](https://github.com/talmolab/sleap-nn/tree/main/docs/sample_configs).
-
-#### 3. Train a model
-
-> Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
-
-```bash
-uvx sleap-nn[torch-cpu] train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[labels.pkg.slp]"
-```
-
-#### 4. Run inference on the trained model
-
-To run inference:
-```bash
-uvx sleap-nn[torch-cpu] track --data-path video.mp4 --model-paths model_ckpt_dir/
-```
-
-
-### For development setup
+## For development setup
 
 1. **Clone the sleap-nn repo**
 
