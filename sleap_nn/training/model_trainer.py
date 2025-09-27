@@ -80,8 +80,8 @@ class ModelTrainer:
 
     config: DictConfig
     _initial_config: Optional[DictConfig] = None
-    train_labels: List[sio.Labels] = []
-    val_labels: List[sio.Labels] = []
+    train_labels: List[sio.Labels] = attrs.field(factory=list)
+    val_labels: List[sio.Labels] = attrs.field(factory=list)
     skeletons: Optional[List[sio.Skeleton]] = None
 
     lightning_model: Optional[LightningModel] = None
