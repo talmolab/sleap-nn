@@ -3,11 +3,11 @@
 **Prerequisites:** Python 3.11+ (required for all installation methods)
 
 !!! tip "Choose Your Installation Method"
-    - **[Installation as a system-wide tool with uv](#installation-as-a-system-wide-tool-with-uv)**: Use `uv tool install` to install sleap-nn globally as a CLI tool
+    - **[Installation as a system-wide tool with uv](#installation-as-a-system-wide-tool-with-uv)**: **(Recommended)** Use `uv tool install` to install sleap-nn globally as a CLI tool
     - **[Installation with uvx](#installation-with-uvx)**: Use `uvx` for one-off commands (no installation needed)
     - **[Installation with uv pip](#installation-with-uv-pip)**: Use `uv pip` to install from pypi in a uv virtual env.
     - **[Installation with pip](#installation-with-pip)**: Use `pip` to install from pypi in a conda env. (Recommended to use with a conda env)
-    - **[Installation from source](#development-setup-with-uv)**: Use `uv sync` to install from source (for developmental purposes)
+    - **[Installation from source](#installation-from-source)**: Use `uv sync` to install from source (for developmental purposes)
 
 ---
 
@@ -43,13 +43,20 @@
 
 === "macOS"
     ```bash
-    uv tool install sleap-nn[torch]
+    uv tool install "sleap-nn[torch]"
     ```
 
 !!! info
     - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
       The `--extra-index-url` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
+
+### Verify installation
+
+```bash
+# Test the installation
+sleap-nn --help
+```
 
 ---
 
@@ -105,7 +112,7 @@
 
 ## Installation with uv pip
 
-This method creates a dedicated project environment using uv's modern Python project management. It initializes a new project with `uv init`, creates an isolated virtual environment with `uv venv`, and installs sleap-nn using `uv pip`.
+This method creates a dedicated project environment using uv's modern Python project management. It initializes a new project with `uv init`, creates an isolated virtual environment with `uv venv`, and installs sleap-nn using `uv pip`. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
 
 !!! note "Install and set-up uv"
     Step-1: Install [`uv`](https://github.com/astral-sh/uv) - a fast Python package manager:
@@ -141,7 +148,7 @@ This method creates a dedicated project environment using uv's modern Python pro
 
 === "macOS"
     ```bash
-    uv pip install sleap-nn[torch]
+    uv pip install "sleap-nn[torch]"
     ```
 
 !!! info
@@ -149,12 +156,37 @@ This method creates a dedicated project environment using uv's modern Python pro
       The `--extra-index-url` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
+### Verify Installation
+
+```bash
+# Test the installation
+uv run sleap-nn --help
+```
+
+!!! warning "sleap-nn not recognized after installation?"
+
+    If running the verification step above gives an error like `sleap-nn: command not found` or `'sleap-nn' is not recognized as an internal or external command`, try the following workarounds:
+
+    - Activate your virtual environment (the venv name should be the same as your current working dir name). If you used `uv`, activate it and then run:
+      ```bash
+      uv run --active sleap-nn --help
+      ```
+      This ensures the command runs in the correct environment.
+
+    - **Another workaround (not recommended):**  
+      Check if you have any *empty* `pyproject.toml` or `uv.lock` files in `Users/<your-user-name>`. If you find empty files with these names, delete them and try again. (Empty files here can sometimes interfere with uv's environment resolution.)
+
 ---
 
 ## Installation with pip
 
 We recommend creating a dedicated environment with [conda](https://docs.conda.io/en/latest/miniconda.html) or [mamba/miniforge](https://github.com/conda-forge/miniforge) before installing `sleap-nn` with pip. This helps avoid dependency conflicts and keeps your Python setup clean. After installing Miniconda or Miniforge, create and activate an environment, then run the pip install commands below inside the activated environment.
 
+To create a conda environment, run:
+```bash
+conda create -n sleap-nn-env python=3.12
+conda activate sleap-nn-env
+```
 
 ### Platform-Specific Installation
 
@@ -174,7 +206,7 @@ We recommend creating a dedicated environment with [conda](https://docs.conda.io
 
 === "macOS"
     ```bash
-    pip install sleap-nn[torch]
+    pip install "sleap-nn[torch]"
     ```
 
 !!! info
@@ -238,7 +270,9 @@ cd sleap-nn
     uv sync --extra dev --extra torch-cpu
     ```
 
-#### 4. Verify Development Setup
+### Verify Installation
+
+In your working dir (where you ran `uv sync`):
 
 ```bash
 # Run tests
