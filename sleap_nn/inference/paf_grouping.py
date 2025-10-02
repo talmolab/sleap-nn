@@ -579,9 +579,7 @@ def match_candidates_sample(
                 if mask.any():
                     # `line_scores_k` is already on CPU; `.item()` does not trigger
                     # a device synchronization and matches the original behaviour.
-                    cost_matrix[i, j] = -line_scores_k[
-                        mask
-                    ].item()  # Flip sign for maximization.
+                    cost_matrix[i, j] = -line_scores_k[mask].item()
 
         # Convert cost matrix to numpy for use with scipy's linear_sum_assignment.
         cost_matrix_np = cost_matrix.numpy()
