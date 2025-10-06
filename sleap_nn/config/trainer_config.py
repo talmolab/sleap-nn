@@ -14,9 +14,7 @@ import re
 
 @define
 class DataLoaderConfig:
-    """Train and val DataLoaderConfig.
-
-    Any parameters from Torch's DataLoader could be used.
+    """Train DataLoaderConfig.
 
     Attributes:
         batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
@@ -27,6 +25,32 @@ class DataLoaderConfig:
     batch_size: int = 1
     shuffle: bool = False
     num_workers: int = 0
+
+
+@define
+class TrainDataLoaderConfig(DataLoaderConfig):
+    """Train DataLoaderConfig.
+
+    Attributes:
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `True`.
+        num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
+    """
+
+    shuffle: bool = True
+
+
+@define
+class ValDataLoaderConfig(DataLoaderConfig):
+    """Validation DataLoaderConfig.
+
+    Attributes:
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
+        num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
+    """
+
+    shuffle: bool = False
 
 
 @define
@@ -232,8 +256,8 @@ class TrainerConfig:
         zmq: Zmq config with publish and controller port addresses.
     """
 
-    train_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
-    val_data_loader: DataLoaderConfig = field(factory=DataLoaderConfig)
+    train_data_loader: TrainDataLoaderConfig = field(factory=TrainDataLoaderConfig)
+    val_data_loader: ValDataLoaderConfig = field(factory=ValDataLoaderConfig)
     model_ckpt: ModelCkptConfig = field(factory=ModelCkptConfig)
     trainer_devices: Optional[Any] = field(
         default=None,
@@ -346,7 +370,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             "num_workers"
         ]
 
-    trainer_cfg_args["train_data_loader"] = DataLoaderConfig(
+    trainer_cfg_args["train_data_loader"] = TrainDataLoaderConfig(
         **train_dataloader_cfg_args
     )
 
@@ -359,7 +383,7 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
             "num_workers"
         ]
 
-    trainer_cfg_args["val_data_loader"] = DataLoaderConfig(**val_dataloader_cfg_args)
+    trainer_cfg_args["val_data_loader"] = ValDataLoaderConfig(**val_dataloader_cfg_args)
 
     # model ckpt
     if (

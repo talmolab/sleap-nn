@@ -78,12 +78,12 @@ def test_topdown_centered_instance_model(
     input_cm = input_["confidence_maps"]
     preds = model(input_["instance_image"])
 
-    # check the output shape
-    assert preds.shape == (1, 2, 80, 80)
-
     # check the loss value
     loss = model.training_step(input_, 0)
-    assert abs(loss - mse_loss(preds, input_cm)) < 1e-3
+    assert abs(loss - mse_loss(preds, input_cm[0])) < 1e-3
+
+    # check the output shape
+    assert preds.shape == (1, 2, 80, 80)
 
     # convnext with pretrained weights
     OmegaConf.update(config, "model_config.backbone_config.unet", None)
