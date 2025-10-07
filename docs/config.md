@@ -689,9 +689,9 @@ The trainer configuration section controls the training process, including data 
 ### Data Loader Settings
 - `train_data_loader`:
     - `batch_size`: (int) Number of samples per batch or batch size for training data. **Default**: `1`
-    - `shuffle`: (bool) True to have the data reshuffled at every epoch. **Default**: `False`
+    - `shuffle`: (bool) True to have the data reshuffled at every epoch. **Default**: `True`
     - `num_workers`: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. **Default**: `0`
-- `val_data_loader`: (Similar to `train_data_loader`)
+- `val_data_loader`: (Similar to `train_data_loader`, but `shuffle` is set to `False` by default)
 
 **Example Data Loader configurations:**
 

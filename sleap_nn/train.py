@@ -138,7 +138,7 @@ def train(
     backbone_config: Union[str, Dict[str, Any]] = "unet",
     head_configs: Union[str, Dict[str, Any]] = None,
     batch_size: int = 1,
-    shuffle_train: bool = False,
+    shuffle_train: bool = True,
     num_workers: int = 0,
     ckpt_save_top_k: int = 1,
     ckpt_save_last: Optional[bool] = None,
@@ -291,7 +291,7 @@ def train(
                             }
                     }
         batch_size: Number of samples per batch or batch size for training data. Default: 1.
-        shuffle_train: True to have the train data reshuffled at every epoch. Default: False.
+        shuffle_train: True to have the train data reshuffled at every epoch. Default: True.
         num_workers: Number of subprocesses to use for data loading. 0 means that the data
             will be loaded in the main process. Default: 0.
         ckpt_save_top_k: If save_top_k == k, the best k models according to the quantity

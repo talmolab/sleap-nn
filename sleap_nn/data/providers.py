@@ -93,7 +93,7 @@ def process_lf(
         "instances": instances,
         "video_idx": torch.tensor(video_idx, dtype=torch.int32),
         "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
-        "orig_size": torch.Tensor([img_height, img_width]),
+        "orig_size": torch.Tensor([img_height, img_width]).unsqueeze(0),
         "num_instances": num_instances,
     }
 
@@ -187,7 +187,7 @@ class VideoReader(Thread):
                         "image": torch.from_numpy(img.copy()),
                         "frame_idx": torch.tensor(idx, dtype=torch.int32),
                         "video_idx": torch.tensor(0, dtype=torch.int32),
-                        "orig_size": torch.Tensor(img.shape[-2:]),
+                        "orig_size": torch.Tensor(img.shape[-2:]).unsqueeze(0),
                     }
                 )
 
@@ -320,7 +320,7 @@ class LabelsReader(Thread):
                     "image": torch.from_numpy(img.copy()),
                     "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
                     "video_idx": torch.tensor(video_idx, dtype=torch.int32),
-                    "orig_size": torch.Tensor(img.shape[-2:]),
+                    "orig_size": torch.Tensor(img.shape[-2:]).unsqueeze(0),
                 }
 
                 if self.instances_key:
