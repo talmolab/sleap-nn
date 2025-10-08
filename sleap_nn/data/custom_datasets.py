@@ -499,10 +499,8 @@ class BottomUpMultiClassDataset(BaseDataset):
         )
         self.confmap_head_config = confmap_head_config
         self.class_maps_head_config = class_maps_head_config
-        self.tracks = []
-        for train_label in self.labels:
-            self.tracks.extend([x.name for x in train_label.tracks if x is not None])
-        self.tracks = list(set(self.tracks))
+
+        self.class_names = self.class_maps_head_config.classes
         self.class_map_threshold = class_map_threshold
 
     def __getitem__(self, index) -> Dict:
@@ -537,11 +535,10 @@ class BottomUpMultiClassDataset(BaseDataset):
             max_instances=self.max_instances,
             user_instances_only=self.user_instances_only,
         )
-
-        sample["track_ids"] = torch.Tensor(
+        track_ids = torch.Tensor(
             [
                 (
-                    self.tracks.index(lf.instances[idx].track.name)
+                    self.class_names.index(lf.instances[idx].track.name)
                     if lf.instances[idx].track is not None
                     else -1
                 )
@@ -549,7 +546,7 @@ class BottomUpMultiClassDataset(BaseDataset):
             ]
         ).to(torch.int32)
 
-        sample["num_tracks"] = torch.tensor(len(self.tracks), dtype=torch.int32)
+        sample["num_tracks"] = torch.tensor(len(self.class_names), dtype=torch.int32)
 
         # apply normalization
         sample["image"] = apply_normalization(sample["image"])
@@ -613,7 +610,7 @@ class BottomUpMultiClassDataset(BaseDataset):
             instances=sample["instances"],
             img_hw=img_hw,
             num_instances=sample["num_instances"],
-            class_inds=sample["track_ids"],
+            class_inds=track_ids,
             num_tracks=sample["num_tracks"],
             class_map_threshold=self.class_map_threshold,
             sigma=self.class_maps_head_config.sigma,
@@ -669,6 +666,8 @@ class CenteredInstanceDataset(BaseDataset):
         crop_size: Crop size of each instance for centered-instance model.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        confmap_head_config: DictConfig object with all the keys in the `head_config` section.
+            (required keys: `sigma`, `output_stride`, `part_names` and `anchor_part` depending on the model type ).
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -823,7 +822,9 @@ class CenteredInstanceDataset(BaseDataset):
         sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
-        sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
+        sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width]).unsqueeze(
+            0
+        )
         sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # apply augmentation
@@ -928,6 +929,10 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         crop_size: Crop size of each instance for centered-instance model.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        confmap_head_config: DictConfig object with all the keys in the `head_config` section.
+            (required keys: `sigma`, `output_stride`, `part_names` and `anchor_part` depending on the model type ).
+        class_vectors_head_config: DictConfig object with all the keys in the `head_config` section.
+            (required keys: `classes`, `num_fc_layers`, `num_fc_units`, `output_stride`, `loss_weight`).
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -938,6 +943,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         labels: List[sio.Labels],
         crop_size: int,
         confmap_head_config: DictConfig,
+        class_vectors_head_config: DictConfig,
         max_stride: int,
         anchor_ind: Optional[int] = None,
         user_instances_only: bool = True,
@@ -973,10 +979,8 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             use_existing_imgs=use_existing_imgs,
             rank=rank,
         )
-        self.tracks = []
-        for train_label in self.labels:
-            self.tracks.extend([x.name for x in train_label.tracks if x is not None])
-        self.tracks = list(set(self.tracks))
+        self.class_vectors_head_config = class_vectors_head_config
+        self.class_names = self.class_vectors_head_config.classes
 
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
@@ -1055,7 +1059,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         track_ids = torch.Tensor(
             [
                 (
-                    self.tracks.index(lf.instances[idx].track.name)
+                    self.class_names.index(lf.instances[idx].track.name)
                     if lf.instances[idx].track is not None
                     else -1
                 )
@@ -1064,7 +1068,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         ).to(torch.int32)
         class_vectors = make_class_vectors(
             class_inds=track_ids,
-            n_classes=torch.tensor(len(self.tracks), dtype=torch.int32),
+            n_classes=torch.tensor(len(self.class_names), dtype=torch.int32),
         )
 
         # get the centroids based on the anchor idx
@@ -1082,7 +1086,9 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
-        sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width])
+        sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width]).unsqueeze(
+            0
+        )
         sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
 
         # apply augmentation
@@ -1140,7 +1146,6 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             output_stride=self.confmap_head_config.output_stride,
         )
 
-        sample["track_id"] = track_ids[inst_idx]
         sample["class_vectors"] = class_vectors[inst_idx].to(torch.float32)
 
         sample["confidence_maps"] = confidence_maps
@@ -1370,7 +1375,7 @@ class SingleInstanceDataset(BaseDataset):
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
-        (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
+        (required keys: `sigma`, `output_stride` and `part_names` depending on the model type ).
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
     """
@@ -1834,6 +1839,7 @@ def get_train_val_datasets(
         train_dataset = TopDownCenteredInstanceMultiClassDataset(
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.multi_class_topdown.confmaps,
+            class_vectors_head_config=config.model_config.head_configs.multi_class_topdown.class_vectors,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
@@ -1866,6 +1872,7 @@ def get_train_val_datasets(
         val_dataset = TopDownCenteredInstanceMultiClassDataset(
             labels=val_labels,
             confmap_head_config=config.model_config.head_configs.multi_class_topdown.confmaps,
+            class_vectors_head_config=config.model_config.head_configs.multi_class_topdown.class_vectors,
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],

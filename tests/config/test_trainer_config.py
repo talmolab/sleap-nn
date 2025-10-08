@@ -11,7 +11,8 @@ from loguru import logger
 from _pytest.logging import LogCaptureFixture
 
 from sleap_nn.config.trainer_config import (
-    DataLoaderConfig,
+    TrainDataLoaderConfig,
+    ValDataLoaderConfig,
     ModelCkptConfig,
     WandBConfig,
     OptimizerConfig,
@@ -63,8 +64,16 @@ def test_dataloader_config():
     Check default values and customization
     """
     # Check default values
-    conf = OmegaConf.structured(DataLoaderConfig)
-    conf_instance = OmegaConf.structured(DataLoaderConfig())
+    conf = OmegaConf.structured(TrainDataLoaderConfig)
+    conf_instance = OmegaConf.structured(TrainDataLoaderConfig())
+    assert conf == conf_instance
+    assert conf.batch_size == 1
+    assert conf.shuffle is True
+    assert conf.num_workers == 0
+
+    # Check default values
+    conf = OmegaConf.structured(ValDataLoaderConfig)
+    conf_instance = OmegaConf.structured(ValDataLoaderConfig())
     assert conf == conf_instance
     assert conf.batch_size == 1
     assert conf.shuffle is False
@@ -72,7 +81,7 @@ def test_dataloader_config():
 
     # Test customization
     custom_conf = OmegaConf.structured(
-        DataLoaderConfig(batch_size=16, shuffle=True, num_workers=4)
+        TrainDataLoaderConfig(batch_size=16, shuffle=True, num_workers=4)
     )
     assert custom_conf.batch_size == 16
     assert custom_conf.shuffle is True
@@ -215,8 +224,8 @@ def test_trainer_config(caplog):
     # Test customization
     custom_conf = TrainerConfig(
         max_epochs=20,
-        train_data_loader=DataLoaderConfig(batch_size=32),
-        val_data_loader=DataLoaderConfig(batch_size=32),
+        train_data_loader=TrainDataLoaderConfig(batch_size=32),
+        val_data_loader=ValDataLoaderConfig(batch_size=32),
         optimizer=OptimizerConfig(lr=0.01),
         use_wandb=True,
     )

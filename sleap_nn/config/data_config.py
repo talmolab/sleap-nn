@@ -466,6 +466,10 @@ def data_mapper(legacy_config: dict) -> DataConfig:
     data_cfg_args["use_augmentations_train"] = (
         True if any(intensity_args.values()) or any(geometric_args.values()) else False
     )
-    data_cfg_args["skeletons"] = skeletons_list
+    data_cfg_args["skeletons"] = (
+        skeletons_list
+        if skeletons_list is not None and len(skeletons_list) > 0
+        else None
+    )
 
     return DataConfig(**data_cfg_args)

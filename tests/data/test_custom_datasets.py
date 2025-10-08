@@ -249,7 +249,13 @@ def test_bottomup_multiclass_dataset(minimal_instance, tmp_path):
     )
 
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2})
-    class_maps_head = DictConfig({"sigma": 4, "output_stride": 4, "classes": None})
+    class_maps_head = DictConfig(
+        {
+            "sigma": 4,
+            "output_stride": 4,
+            "classes": [x.name for x in tracked_labels.tracks],
+        }
+    )
 
     dataset = BottomUpMultiClassDataset(
         max_stride=32,
@@ -270,7 +276,6 @@ def test_bottomup_multiclass_dataset(minimal_instance, tmp_path):
         "num_instances",
         "class_maps",
         "labels_idx",
-        "track_ids",
         "num_tracks",
         "eff_scale",
     ]
@@ -686,13 +691,16 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
     )
 
     confmap_head = DictConfig({"sigma": 1.5, "output_stride": 2, "anchor_part": None})
-    class_vectors_head = DictConfig({"classes": None})
+    class_vectors_head = DictConfig(
+        {"classes": [x.name for x in tracked_labels.tracks]}
+    )
 
     ## save imgs
     dataset = TopDownCenteredInstanceMultiClassDataset(
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
+        class_vectors_head_config=class_vectors_head,
         crop_size=crop_size,
         labels=[
             tracked_labels,
@@ -716,7 +724,6 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         "orig_size",
         "num_instances",
         "labels_idx",
-        "track_id",
         "class_vectors",
         "eff_scale",
     ]
@@ -736,6 +743,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=1.0,
         confmap_head_config=confmap_head,
+        class_vectors_head_config=class_vectors_head,
         crop_size=crop_size,
         labels=[tracked_labels],
         cache_img="memory",
@@ -803,6 +811,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         ensure_rgb=True,
         ensure_grayscale=False,
         confmap_head_config=confmap_head,
+        class_vectors_head_config=class_vectors_head,
         crop_size=100,
         labels=[tracked_labels],
         apply_aug=base_topdown_data_config.use_augmentations_train,
@@ -867,6 +876,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         max_stride=16,
         scale=2.0,
         confmap_head_config=confmap_head,
+        class_vectors_head_config=class_vectors_head,
         crop_size=100,
         labels=[tracked_labels],
         apply_aug=base_topdown_data_config.use_augmentations_train,

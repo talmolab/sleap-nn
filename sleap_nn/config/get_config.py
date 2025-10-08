@@ -37,7 +37,8 @@ from sleap_nn.config.model_config import (
 from sleap_nn.config.data_config import DataConfig, PreprocessingConfig
 from sleap_nn.config.model_config import ModelConfig
 from sleap_nn.config.trainer_config import (
-    DataLoaderConfig,
+    TrainDataLoaderConfig,
+    ValDataLoaderConfig,
     LRSchedulerConfig,
     StepLRConfig,
     EarlyStoppingConfig,
@@ -647,7 +648,7 @@ def get_model_config(
 
 def get_trainer_config(
     batch_size: int = 1,
-    shuffle_train: bool = False,
+    shuffle_train: bool = True,
     num_workers: int = 0,
     ckpt_save_top_k: int = 1,
     ckpt_save_last: Optional[bool] = None,
@@ -697,7 +698,7 @@ def get_trainer_config(
 
     Args:
         batch_size: Number of samples per batch or batch size for training data. Default: 4.
-        shuffle_train: True to have the train data reshuffled at every epoch. Default: False.
+        shuffle_train: True to have the train data reshuffled at every epoch. Default: True.
         num_workers: Number of subprocesses to use for data loading. 0 means that the data
             will be loaded in the main process. Default: 0.
         ckpt_save_top_k: If save_top_k == k, the best k models according to the quantity
@@ -785,10 +786,10 @@ def get_trainer_config(
             should wait to receive a response and should be set to a small value to minimize the impact on training speed.
     """
     # constrict trainer config
-    train_dataloader_cfg = DataLoaderConfig(
+    train_dataloader_cfg = TrainDataLoaderConfig(
         batch_size=batch_size, shuffle=shuffle_train, num_workers=num_workers
     )
-    val_dataloader_cfg = DataLoaderConfig(
+    val_dataloader_cfg = ValDataLoaderConfig(
         batch_size=batch_size, shuffle=False, num_workers=num_workers
     )
 
