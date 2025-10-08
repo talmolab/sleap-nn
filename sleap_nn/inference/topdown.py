@@ -221,6 +221,8 @@ class CentroidCrop(L.LightningModule):
             scaled_image = apply_pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
+        if isinstance(cms, list):  # only one head for centroid model
+            cms = cms[0]
 
         refined_peaks, peak_vals, peak_sample_inds, _ = find_local_peaks(
             cms.detach(),
@@ -518,8 +520,7 @@ class FindInstancePeaks(L.LightningModule):
         self.max_stride = max_stride
 
     def forward(
-        self,
-        inputs: Dict[str, torch.Tensor],
+        self, inputs: Dict[str, torch.Tensor], output_head_skeleton_num: int = 0
     ) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
 
@@ -530,6 +531,9 @@ class FindInstancePeaks(L.LightningModule):
             inputs: Dictionary with keys:
                 `"instance_image"`: Cropped images.
                 Other keys will be passed down the pipeline.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             A dictionary of outputs with keys:
@@ -552,6 +556,8 @@ class FindInstancePeaks(L.LightningModule):
             input_image = apply_pad_to_stride(input_image, self.max_stride)
 
         cms = self.torch_model(input_image)
+        if isinstance(cms, list):
+            cms = cms[output_head_skeleton_num]
 
         peak_points, peak_vals = find_global_peaks(
             cms.detach(),
@@ -750,6 +756,9 @@ class TopDownInferenceModel(L.LightningModule):
             or `FindInstancePeaksGroundTruth` or `TopDownMultiClassFindInstancePeaks`. This layer takes as input the output of the centroid cropper
             (if CentroidCrop not None else the image is cropped with the InstanceCropper module)
             and outputs the detected peaks for the instances within each crop.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
     """
 
     def __init__(
@@ -760,11 +769,13 @@ class TopDownInferenceModel(L.LightningModule):
             FindInstancePeaksGroundTruth,
             TopDownMultiClassFindInstancePeaks,
         ],
+        output_head_skeleton_num: int = 0,
     ):
         """Initialize the class with Inference models."""
         super().__init__()
         self.centroid_crop = centroid_crop
         self.instance_peaks = instance_peaks
+        self.output_head_skeleton_num = output_head_skeleton_num
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict instances for one batch of images.
@@ -807,7 +818,7 @@ class TopDownInferenceModel(L.LightningModule):
                     self.instance_peaks.eval()
                     peaks_output.append(
                         self.instance_peaks(
-                            i,
+                            i, output_head_skeleton_num=self.output_head_skeleton_num
                         )
                     )
             return peaks_output
