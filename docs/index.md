@@ -43,6 +43,14 @@ We use `uvx` here which automatically installs sleap-nn from PyPI with all depen
 
 > **Quick Start Data:** Download sample training data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/train.pkg.slp) and validation data from [here](https://storage.googleapis.com/sleap-data/datasets/BermanFlies/random_split1/val.pkg.slp) for quick experimentation.
 
+!!! warning "Python 3.14 is not yet supported"
+    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** If you have Python 3.14 installed, you must specify the Python version in the install commands by adding `--python 3.13`.  
+    For example:
+    ```bash
+    uvx --python 3.13  ...
+    ```
+    Replace `...` with the rest of your install command as needed.
+
 === "Windows/Linux (CUDA)"
     ```bash
     uvx --from "sleap-nn[torch]" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128 sleap-nn train --config-name config.yaml --config-dir /path/to/config_dir/ "data_config.train_labels_path=[train.pkg.slp]" "data_config.val_labels_path=[val.pkg.slp]"
