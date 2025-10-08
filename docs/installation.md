@@ -2,6 +2,14 @@
 
 **Prerequisites:** Python 3.11+ (required for all installation methods)
 
+!!! warning "Python 3.14 is not yet supported"
+    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** If you have Python 3.14 installed, you must specify the Python version in all `uv` install commands by adding `--python 3.13`.  
+    For example:
+    ```bash
+    uv tool install --python 3.13 "sleap-nn[torch]"  ...
+    ```
+    Replace `...` with the rest of your install command as needed.
+
 !!! tip "Choose Your Installation Method"
     - **[Installation as a system-wide tool with uv](#installation-as-a-system-wide-tool-with-uv)**: **(Recommended)** Use `uv tool install` to install sleap-nn globally as a CLI tool
     - **[Installation with uvx](#installation-with-uvx)**: Use `uvx` for one-off commands (no installation needed)
@@ -26,6 +34,14 @@
     ```
 
 ### Platform-Specific Installation
+
+!!! warning "Python 3.14 is not yet supported"
+    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** If you have Python 3.14 installed, you must specify the Python version in the install commands by adding `--python 3.13`.  
+    For example:
+    ```bash
+    uv tool install --python 3.13 "sleap-nn[torch]"  ...
+    ```
+    Replace `...` with the rest of your install command as needed.
 
 === "Windows/Linux (CUDA)"
     ```bash
@@ -76,6 +92,14 @@ sleap-nn --help
 
 ### Platform-Specific Commands
 
+!!! warning "Python 3.14 is not yet supported"
+    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** If you have Python 3.14 installed, you must specify the Python version in the install commands by adding `--python 3.13`.  
+    For example:
+    ```bash
+    uvx --python 3.13  ...
+    ```
+    Replace `...` with the rest of your install command as needed.
+
 === "Windows/Linux (CUDA)"
     ```bash
     uvx --from "sleap-nn[torch]" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128 sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
@@ -113,6 +137,14 @@ sleap-nn --help
 ## Installation with uv pip
 
 This method creates a dedicated project environment using uv's modern Python project management. It initializes a new project with `uv init`, creates an isolated virtual environment with `uv venv`, and installs sleap-nn using `uv pip`. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
+
+!!! warning "Python 3.14 is not yet supported"
+    `slepa-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** `uv` will use the system-installed python by default. If you have python 3.14 installed on your system, then specify the Python version (<=3.13) in the venv command.  
+    For example:
+    ```bash
+    uv venv --python 3.13  ...
+    ```
+    Replace `...` with the rest of your install command as needed.
 
 !!! note "Install and set-up uv"
     Step-1: Install [`uv`](https://github.com/astral-sh/uv) - a fast Python package manager:
@@ -182,9 +214,12 @@ uv run sleap-nn --help
 
 We recommend creating a dedicated environment with [conda](https://docs.conda.io/en/latest/miniconda.html) or [mamba/miniforge](https://github.com/conda-forge/miniforge) before installing `sleap-nn` with pip. This helps avoid dependency conflicts and keeps your Python setup clean. After installing Miniconda or Miniforge, create and activate an environment, then run the pip install commands below inside the activated environment.
 
+!!! warning "Python 3.14 is not yet supported"
+    SLEAP currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.**
+
 To create a conda environment, run:
 ```bash
-conda create -n sleap-nn-env python=3.12
+conda create -n sleap-nn-env python=3.13
 conda activate sleap-nn-env
 ```
 
@@ -254,6 +289,14 @@ cd sleap-nn
     ```
 
 #### 3. Install Dependencies
+
+!!! warning "Python 3.14 is not yet supported"
+    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** `uv` will use the system-installed python by default. If you have python 3.14 installed on your system, then specify the Python version (<=3.13) in the installation command.  
+    For example:
+    ```bash
+    uv sync --python 3.13 ...
+    ```
+    Replace `...` with the rest of your install command as needed.
 
 === "Windows/Linux (CUDA 11.8)"
     ```bash
