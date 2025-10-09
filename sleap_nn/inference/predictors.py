@@ -664,14 +664,18 @@ class TopDownPredictor(Predictor):
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=centroid_peak_threshold,
-                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride[self.output_head_skeleton_num],
+                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride[
+                    self.output_head_skeleton_num
+                ],
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.centroid_config.data_config.preprocessing.scale[self.output_head_skeleton_num],
+                input_scale=self.centroid_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ],
                 crop_hw=(
                     self.preprocess_config.crop_size,
                     self.preprocess_config.crop_size,
@@ -691,15 +695,21 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=centered_instance_peak_threshold,
-                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride[self.output_head_skeleton_num],
+                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride[
+                    self.output_head_skeleton_num
+                ],
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
-                input_scale=self.confmap_config.data_config.preprocessing.scale[self.output_head_skeleton_num],
+                input_scale=self.confmap_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ],
             )
             centroid_crop_layer.precrop_resize = (
-                self.confmap_config.data_config.preprocessing.scale[self.output_head_skeleton_num]
+                self.confmap_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
             )
 
         if self.centroid_config is None and self.confmap_config is not None:
@@ -709,7 +719,8 @@ class TopDownPredictor(Predictor):
 
         # Initialize the inference model with centroid and instance peak layers
         self.inference_model = TopDownInferenceModel(
-            centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer,
+            centroid_crop=centroid_crop_layer,
+            instance_peaks=instance_peaks_layer,
             output_head_skeleton_num=self.output_head_skeleton_num,
         )
 
@@ -1024,7 +1035,9 @@ class TopDownPredictor(Predictor):
 
         if centroid_config is not None:
             preprocess_config["scale"] = (
-                centroid_config.data_config.preprocessing.scale[output_head_skeleton_num]
+                centroid_config.data_config.preprocessing.scale[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["scale"] is None
                 else preprocess_config["scale"]
             )
@@ -1039,12 +1052,16 @@ class TopDownPredictor(Predictor):
                 else preprocess_config["ensure_grayscale"]
             )
             preprocess_config["max_height"] = (
-                centroid_config.data_config.preprocessing.max_height[output_head_skeleton_num]
+                centroid_config.data_config.preprocessing.max_height[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_height"] is None
                 else preprocess_config["max_height"]
             )
             preprocess_config["max_width"] = (
-                centroid_config.data_config.preprocessing.max_width[output_head_skeleton_num]
+                centroid_config.data_config.preprocessing.max_width[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_width"] is None
                 else preprocess_config["max_width"]
             )
@@ -1066,12 +1083,16 @@ class TopDownPredictor(Predictor):
                 else preprocess_config["ensure_grayscale"]
             )
             preprocess_config["max_height"] = (
-                confmap_config.data_config.preprocessing.max_height[output_head_skeleton_num]
+                confmap_config.data_config.preprocessing.max_height[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_height"] is None
                 else preprocess_config["max_height"]
             )
             preprocess_config["max_width"] = (
-                confmap_config.data_config.preprocessing.max_width[output_head_skeleton_num]
+                confmap_config.data_config.preprocessing.max_width[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_width"] is None
                 else preprocess_config["max_width"]
             )

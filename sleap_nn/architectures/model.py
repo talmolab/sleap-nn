@@ -221,12 +221,26 @@ class MultiHeadModel(nn.Module):
         self.backbone_config = backbone_config
         self.head_configs = head_configs
 
-        self.heads = get_head(model_type, self.head_configs)
+        self.model_type = model_type
+        self.heads = []
+
+        if self.model_type == "centered_instance":
+            for d_num, _ in self.head_configs.confmaps.items():
+                self.heads.append(
+                    CenteredInstanceConfmapsHead(**self.head_configs.confmaps[d_num])
+                )
+
+        elif self.model_type == "centroid":
+            centroid_confmaps = self.head_configs.confmaps[0].copy()
+            centroid_confmaps.anchor_part = None
+            self.heads.append(CentroidConfmapsHead(**centroid_confmaps))
 
         output_strides = []
         for head_type in head_configs:
             head_config = head_configs[head_type]
-            output_strides.append(head_config.output_stride)
+            output_strides.extend(
+                [head_config[cfg].output_stride for cfg in head_config]
+            )
 
         min_output_stride = min(output_strides)
         min_output_stride = min(min_output_stride, self.backbone_config.output_stride)
@@ -264,7 +278,7 @@ class MultiHeadModel(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the model.
-        
+
         Args:
             x: Input image.
 

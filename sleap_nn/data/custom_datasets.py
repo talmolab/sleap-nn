@@ -2138,6 +2138,7 @@ def get_steps_per_epoch(dataset: BaseDataset, batch_size: int):
     """Compute the number of steps (iterations) per epoch for the given dataset."""
     return (len(dataset) // batch_size) + (1 if (len(dataset) % batch_size) else 0)
 
+
 def get_train_val_datasets_multi_head(
     train_labels: sio.Labels,
     val_labels: sio.Labels,
@@ -2305,14 +2306,18 @@ def get_train_val_datasets_multi_head(
         )
 
     elif model_type == "centered_instance":
-        nodes = config.model_config.head_configs.centered_instance.confmaps[d_idx]["part_names"]
-        anchor_part = (
-            config.model_config.head_configs.centered_instance.confmaps[d_idx]["anchor_part"]
-        )
+        nodes = config.model_config.head_configs.centered_instance.confmaps[d_idx][
+            "part_names"
+        ]
+        anchor_part = config.model_config.head_configs.centered_instance.confmaps[
+            d_idx
+        ]["anchor_part"]
         anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
         train_dataset = CenteredInstanceDataset(
             labels=train_labels,
-            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps[d_idx],
+            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps[
+                d_idx
+            ],
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
@@ -2344,7 +2349,9 @@ def get_train_val_datasets_multi_head(
         )
         val_dataset = CenteredInstanceDataset(
             labels=val_labels,
-            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps[d_idx],
+            confmap_head_config=config.model_config.head_configs.centered_instance.confmaps[
+                d_idx
+            ],
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
@@ -2432,11 +2439,15 @@ def get_train_val_datasets_multi_head(
 
     elif model_type == "centroid":
         nodes = [x["name"] for x in config.data_config.skeletons[d_idx]["nodes"]]
-        anchor_part = config.model_config.head_configs.centroid.confmaps[d_idx]["anchor_part"]
+        anchor_part = config.model_config.head_configs.centroid.confmaps[d_idx][
+            "anchor_part"
+        ]
         anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
         train_dataset = CentroidDataset(
             labels=train_labels,
-            confmap_head_config=config.model_config.head_configs.centroid.confmaps[d_idx],
+            confmap_head_config=config.model_config.head_configs.centroid.confmaps[
+                d_idx
+            ],
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],
@@ -2467,7 +2478,9 @@ def get_train_val_datasets_multi_head(
         )
         val_dataset = CentroidDataset(
             labels=val_labels,
-            confmap_head_config=config.model_config.head_configs.centroid.confmaps[d_idx],
+            confmap_head_config=config.model_config.head_configs.centroid.confmaps[
+                d_idx
+            ],
             max_stride=config.model_config.backbone_config[f"{backbone_type}"][
                 "max_stride"
             ],

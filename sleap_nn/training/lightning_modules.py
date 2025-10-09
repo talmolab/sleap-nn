@@ -1853,6 +1853,9 @@ class MultiHeadLightningModel(L.LightningModule):
         self.val_loss = {}
         self.learning_rate = {}
 
+        self.loss_func = nn.MSELoss()
+        self.automatic_optimization = False
+
         # Initialization for encoder and decoder stacks.
         if self.init_weights == "xavier":
             self.model.apply(xavier_init_weights)
@@ -1934,8 +1937,8 @@ class MultiHeadLightningModel(L.LightningModule):
 
         lightning_models = {
             "single_instance": SingleInstanceLightningModule,
-            "centroid": CentroidLightningModule,
-            "centered_instance": TopDownCenteredInstanceLightningModule,
+            "centroid": CentroidMultiHeadLightningModule,
+            "centered_instance": TopDownCenteredInstanceMultiHeadLightningModule,
             "bottomup": BottomUpLightningModule,
             "multi_class_bottomup": BottomUpMultiClassLightningModule,
             "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
@@ -2076,6 +2079,7 @@ class MultiHeadLightningModel(L.LightningModule):
             },
         }
 
+
 class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
     """Lightning Module for CentroidMultiHeadLightningModule Model."""
 
@@ -2135,7 +2139,9 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
         gt_centroids = ex["centroids"].cpu().numpy()
-        self.centroid_inf_layer.output_stride = self.head_configs.centroid.confmaps[d_idx]["output_stride"]
+        self.centroid_inf_layer.output_stride = self.head_configs.centroid.confmaps[
+            d_idx
+        ]["output_stride"]
         output = self.centroid_inf_layer(ex)
         peaks = output["centroids"][0].cpu().numpy()
         img = (
@@ -2166,7 +2172,9 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         opt.zero_grad()
         for d_num in batch.keys():
             batch_data = batch[d_num]
-            X, y = torch.squeeze(batch_data["image"], dim=1), torch.squeeze(batch_data["centroids_confidence_maps"], dim=1)
+            X, y = torch.squeeze(batch_data["image"], dim=1), torch.squeeze(
+                batch_data["centroids_confidence_maps"], dim=1
+            )
 
             output = self.model(X)["CentroidConfmapsHead"]
 
@@ -2193,7 +2201,9 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         """Perform validation step."""
         total_loss = 0
         for d_num in batch.keys():
-            X, y = torch.squeeze(batch[d_num]["image"], dim=1), torch.squeeze(batch[d_num]["centroids_confidence_maps"], dim=1)
+            X, y = torch.squeeze(batch[d_num]["image"], dim=1), torch.squeeze(
+                batch[d_num]["centroids_confidence_maps"], dim=1
+            )
 
             y_preds = self.model(X)["CentroidConfmapsHead"][0]
             curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
@@ -2226,6 +2236,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
             on_epoch=True,
             logger=True,
         )
+
+
 class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
     """Lightning Module for TopDownCenteredInstanceMultiHeadLightningModule Model."""
 
@@ -2272,18 +2284,22 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             torch_model=self.forward,
             peak_threshold=0.2,
             return_confmaps=True,
-            output_stride=self.head_configs.centered_instance.confmaps[0]["output_stride"],
+            output_stride=self.head_configs.centered_instance.confmaps[0][
+                "output_stride"
+            ],
         )
 
         self.node_names = {}
         for d_num in range(len(self.head_configs.centered_instance.confmaps)):
-            self.node_names[d_num] = self.head_configs.centered_instance.confmaps[d_num]["part_names"]
+            self.node_names[d_num] = self.head_configs.centered_instance.confmaps[
+                d_num
+            ]["part_names"]
 
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
         return self.model(img)["CenteredInstanceConfmapsHead"]
-    
+
     def visualize_example(self, sample, d_idx):
         """Visualize predictions during training (used with callbacks)."""
         ex = sample.copy()
@@ -2292,7 +2308,9 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             if isinstance(v, torch.Tensor):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
-        self.instance_peaks_inf_layer.output_stride = self.head_configs.centered_instance.confmaps[d_idx]["output_stride"]
+        self.instance_peaks_inf_layer.output_stride = (
+            self.head_configs.centered_instance.confmaps[d_idx]["output_stride"]
+        )
         output = self.instance_peaks_inf_layer(ex)
         peaks = output["pred_instance_peaks"].cpu().numpy()
         img = (
@@ -2312,7 +2330,6 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         plot_peaks(gt_instances, peaks, paired=True)
         return fig
 
-    
     def training_step(self, batch, batch_idx):
         """Training step."""
         loss = 0
@@ -2320,7 +2337,9 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         opt.zero_grad()
         for d_num in batch.keys():
             batch_data = batch[d_num]
-            X, y = torch.squeeze(batch_data["instance_image"], dim=1), torch.squeeze(batch_data["confidence_maps"], dim=1)
+            X, y = torch.squeeze(batch_data["instance_image"], dim=1), torch.squeeze(
+                batch_data["confidence_maps"], dim=1
+            )
 
             output = self.model(X)["CenteredInstanceConfmapsHead"]
 
@@ -2382,12 +2401,14 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         opt.step()
 
         return loss
-    
+
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
         total_loss = 0
         for d_num in batch.keys():
-            X, y = torch.squeeze(batch[d_num]["instance_image"], dim=1), torch.squeeze(batch[d_num]["confidence_maps"], dim=1)
+            X, y = torch.squeeze(batch[d_num]["instance_image"], dim=1), torch.squeeze(
+                batch[d_num]["confidence_maps"], dim=1
+            )
 
             y_preds = self.model(X)["CenteredInstanceConfmapsHead"][d_num]
             curr_loss = 1.0 * nn.MSELoss()(y_preds, y)

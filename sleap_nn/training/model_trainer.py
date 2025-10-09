@@ -1187,7 +1187,9 @@ class MultiHeadModelTrainer:
         logger.info(f"Creating train-val split...")
         total_train_lfs = 0
         total_val_lfs = 0
-        self.skeletons = [x.skeletons[0] for x in labels] # load all skeletons from the labels
+        self.skeletons = [
+            x.skeletons[0] for x in labels
+        ]  # load all skeletons from the labels
 
         self.train_labels = labels
         self.val_labels = val_labels
@@ -1226,7 +1228,7 @@ class MultiHeadModelTrainer:
                             f"{self.backbone_type}"
                         ]["max_stride"],
                         min_crop_size=self.config.data_config.preprocessing.min_crop_size,
-                        input_scaling=self.config.data_config.preprocessing.scale,
+                        input_scaling=self.config.data_config.preprocessing.scale[idx],
                     )
 
         self.config.data_config.preprocessing.max_height = max_height
@@ -1245,9 +1247,9 @@ class MultiHeadModelTrainer:
             for key in head_config:
                 if "part_names" in head_config[key][d_idx].keys():
                     if head_config[key][d_idx]["part_names"] is None:
-                        self.config.model_config.head_configs[self.model_type][key][d_idx][
-                            "part_names"
-                        ] = self.skeletons[d_idx].node_names
+                        self.config.model_config.head_configs[self.model_type][key][
+                            d_idx
+                        ]["part_names"] = self.skeletons[d_idx].node_names
 
                 if "edges" in head_config[key][d_idx].keys():
                     if head_config[key][d_idx]["edges"] is None:
@@ -1255,9 +1257,9 @@ class MultiHeadModelTrainer:
                             (x.source.name, x.destination.name)
                             for x in self.skeletons[d_idx].edges
                         ]
-                        self.config.model_config.head_configs[self.model_type][key][d_idx][
-                            "edges"
-                        ] = edges
+                        self.config.model_config.head_configs[self.model_type][key][
+                            d_idx
+                        ]["edges"] = edges
 
                 # removed multi-class head config setup
 
@@ -1305,7 +1307,7 @@ class MultiHeadModelTrainer:
 
     def _verify_model_input_channels(self):
         """Verify input channels in model_config based on input image and pretrained model weights."""
-        pass # not implementing for multi-head model for now
+        pass  # not implementing for multi-head model for now
 
     def setup_config(self):
         """Compute config parameters."""
@@ -1401,14 +1403,17 @@ class MultiHeadModelTrainer:
         train_datasets = {}
         val_datasets = {}
 
-        for d_idx in range(len(self.train_labels)):
-            train_datasets[d_idx], val_datasets[d_idx] = get_train_val_datasets_multi_head(
-                                        train_labels=self.train_labels[d_idx],
-                                        val_labels=self.val_labels[d_idx],
-                                        config=data_viz_config,
-                                        rank=-1,
-                                        d_idx=d_idx
-                                    )
+        for viz_didx in range(len(self.train_labels)):
+            print(f"Setting up visualization train and val datasets for {viz_didx}...")
+            train_datasets[viz_didx], val_datasets[viz_didx] = (
+                get_train_val_datasets_multi_head(
+                    train_labels=[self.train_labels[viz_didx]],
+                    val_labels=[self.val_labels[viz_didx]],
+                    config=data_viz_config,
+                    rank=-1,
+                    d_idx=viz_didx,
+                )
+            )
         return train_datasets, val_datasets
 
     def _setup_datasets(self):
@@ -1445,12 +1450,14 @@ class MultiHeadModelTrainer:
         val_datasets = {}
 
         for d_idx in range(len(self.train_labels)):
-            train_datasets[d_idx], val_datasets[d_idx] = get_train_val_datasets_multi_head(
-                train_labels=self.train_labels[d_idx],
-                val_labels=self.val_labels[d_idx],
-                config=self.config,
-                rank=self.trainer.global_rank,
-                d_idx=d_idx
+            train_datasets[d_idx], val_datasets[d_idx] = (
+                get_train_val_datasets_multi_head(
+                    train_labels=[self.train_labels[d_idx]],
+                    val_labels=[self.val_labels[d_idx]],
+                    config=self.config,
+                    rank=self.trainer.global_rank,
+                    d_idx=d_idx,
+                )
             )
 
         return train_datasets, val_datasets
@@ -1485,8 +1492,12 @@ class MultiHeadModelTrainer:
                 "train_time",
                 "val_time",
             ]
-            csv_log_keys.extend([f"val_loss_on_head_{x}" for x in range(len(self.train_labels))])
-            csv_log_keys.extend([f"train_loss_on_head_{x}" for x in range(len(self.train_labels))])
+            csv_log_keys.extend(
+                [f"val_loss_on_head_{x}" for x in range(len(self.train_labels))]
+            )
+            csv_log_keys.extend(
+                [f"train_loss_on_head_{x}" for x in range(len(self.train_labels))]
+            )
             # if self.model_type in [
             #     "single_instance",
             #     "centered_instance",
@@ -1551,14 +1562,14 @@ class MultiHeadModelTrainer:
 
         # viz callbacks
         if self.config.trainer_config.visualize_preds_during_training:
-            for d_idx in range(len(self.train_labels)):
-                train_viz_pipeline = cycle(viz_train_datasets[d_idx])
-                val_viz_pipeline = cycle(viz_val_datasets[d_idx])
+            for viz_data_idx in range(len(self.train_labels)):
+                train_viz_pipeline = cycle(viz_train_datasets[viz_data_idx])
+                val_viz_pipeline = cycle(viz_val_datasets[viz_data_idx])
 
                 viz_dir = (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name
-                    / f"viz_{d_idx}"
+                    / f"viz_{viz_data_idx}"
                 )
                 if not Path(viz_dir).exists():
                     if RANK in [0, -1]:
@@ -1567,19 +1578,19 @@ class MultiHeadModelTrainer:
                 callbacks.append(
                     MatplotlibSaver(
                         save_folder=viz_dir,
-                        plot_fn=lambda: self.lightning_model.visualize_example(
-                            next(train_viz_pipeline), d_idx=d_idx
+                        plot_fn=lambda train_pipe=train_viz_pipeline, idx=viz_data_idx: self.lightning_model.visualize_example(
+                            next(train_pipe), d_idx=idx
                         ),
-                        prefix=f"train_{d_idx}",
+                        prefix=f"train_{viz_data_idx}",
                     )
                 )
                 callbacks.append(
                     MatplotlibSaver(
                         save_folder=viz_dir,
-                        plot_fn=lambda: self.lightning_model.visualize_example(
-                            next(val_viz_pipeline), d_idx=d_idx
+                        plot_fn=lambda val_pipe=val_viz_pipeline, idx=viz_data_idx: self.lightning_model.visualize_example(
+                            next(val_pipe), d_idx=idx
                         ),
-                        prefix=f"validation_{d_idx}",
+                        prefix=f"validation_{viz_data_idx}",
                     )
                 )
 
@@ -1628,7 +1639,9 @@ class MultiHeadModelTrainer:
                 #     )
 
                 if self.config.trainer_config.use_wandb and OmegaConf.select(
-                    self.config, "trainer_config.wandb.save_viz_imgs_wandb", default=False
+                    self.config,
+                    "trainer_config.wandb.save_viz_imgs_wandb",
+                    default=False,
                 ):
                     callbacks.append(
                         WandBPredImageLogger(
@@ -1639,26 +1652,6 @@ class MultiHeadModelTrainer:
                     )
 
         return loggers, callbacks
-
-    # def _delete_cache_imgs(self):
-    #     """Delete cache images in disk."""
-    #     base_cache_img_path = Path(self.config.data_config.cache_img_path)
-    #     train_cache_img_path = Path(base_cache_img_path) / "train_imgs"
-    #     val_cache_img_path = Path(base_cache_img_path) / "val_imgs"
-
-    #     if (train_cache_img_path).exists():
-    #         logger.info(f"Deleting cache imgs from `{train_cache_img_path}`...")
-    #         shutil.rmtree(
-    #             (train_cache_img_path).as_posix(),
-    #             ignore_errors=True,
-    #         )
-
-    #     if (val_cache_img_path).exists():
-    #         logger.info(f"Deleting cache imgs from `{val_cache_img_path}`...")
-    #         shutil.rmtree(
-    #             (val_cache_img_path).as_posix(),
-    #             ignore_errors=True,
-    #         )
 
     def train(self):
         """Train the lightning model."""
@@ -1781,20 +1774,23 @@ class MultiHeadModelTrainer:
 
         # setup dataloaders
         # need to set up dataloaders after Trainer is initialized (for ddp). DistributedSampler depends on the rank
-        logger.info(
-            f"Input image shape: {train_datasets[0]['image'].shape if 'image' in train_datasets[0] else train_datasets[0]['instance_image'].shape}"
-        )
+        # logger.info(
+        #     f"Input image shape: {train_datasets[0]['image'].shape if 'image' in train_datasets[0] else train_datasets[0]['instance_image'].shape}"
+        # )
         train_dataloaders = {}
         val_dataloaders = {}
         for d_idx in range(len(self.train_labels)):
-            train_dataloaders[d_idx], val_dataloaders[d_idx] = get_train_val_dataloaders_multi_head(
-                train_dataset=train_datasets[d_idx],
-                val_dataset=val_datasets[d_idx],
-                config=self.config,
-                rank=self.trainer.global_rank,
-                d_idx=d_idx,
-                trainer_devices=self.trainer.num_devices,
+            train_dataloaders[d_idx], val_dataloaders[d_idx] = (
+                get_train_val_dataloaders_multi_head(
+                    train_dataset=train_datasets[d_idx],
+                    val_dataset=val_datasets[d_idx],
+                    config=self.config,
+                    rank=self.trainer.global_rank,
+                    d_idx=d_idx,
+                    trainer_devices=self.trainer.num_devices,
+                )
             )
+            logger.info(f"Setup dataloaders for dataset {d_idx}")
 
         if self.trainer.global_rank == 0:  # save config only in rank 0 process
             ckpt_path = (
@@ -1842,18 +1838,18 @@ class MultiHeadModelTrainer:
             )
             logger.info(f"Starting training loop...")
             start_train_time = time.time()
-            self.combined_train_dataloader = CombinedLoader(
+            combined_train_dataloader = CombinedLoader(
                 train_dataloaders,
                 mode=self.config.trainer_config.combined_loader_mode,
             )
-            self.combined_val_dataloader = CombinedLoader(
+            combined_val_dataloader = CombinedLoader(
                 val_dataloaders,
                 mode=self.config.trainer_config.combined_loader_mode,
             )
             self.trainer.fit(
                 self.lightning_model,
-                self.combined_train_dataloader,
-                self.combined_val_dataloader,
+                combined_train_dataloader,
+                combined_val_dataloader,
                 ckpt_path=self.config.trainer_config.resume_ckpt_path,
             )
 
