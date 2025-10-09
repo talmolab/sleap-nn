@@ -38,6 +38,20 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
 3. **Install sleap-nn dependencies based on your platform**\
 
+> **Python 3.14 is not yet supported**
+>
+> `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**.  
+> **Python 3.14 is not yet tested or supported.**  
+> By default, `uv` will use your system-installed Python.  
+> If you have Python 3.14 installed, you must specify the Python version (≤3.13) in the install command.  
+>
+> For example:
+>
+> ```bash
+> uv sync --python 3.13 ...
+> ```
+> Replace `...` with the rest of your install command as needed.
+
 - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
    - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 

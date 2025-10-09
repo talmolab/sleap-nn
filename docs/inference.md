@@ -10,7 +10,7 @@ SLEAP-NN provides powerful inference capabilities for pose estimation with suppo
     
     - If you're using the `uvx` workflow, you do **not** need to install anything. (See [installation using uvx](installation.md#installation-using-uvx) for more details.)
     
-    - If you are using `uv sync` or `uv pip` installation methods, add `uv run` as a prefix to all CLI commands shown below, for example:
+    - If you are using `uv sync` or `uv add` installation methods, add `uv run` as a prefix to all CLI commands shown below, for example:
 
           `uv run sleap-nn track ...`
 
