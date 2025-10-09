@@ -490,7 +490,7 @@ def run_inference(
         )  # TODO: add number of predicted frames
 
     if no_empty_frames:
-        output.clean(frames=True)
+        output.clean(frames=True, skeletons=False)
 
     if make_labels:
         if output_path is None:
