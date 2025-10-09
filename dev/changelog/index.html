@@ -1,0 +1,2756 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://nn.sleap.ai/dev/changelog/">
+      
+      
+        <link rel="prev" href="../api/training/utils/">
+      
+      
+      
+      <link rel="icon" href="../assets/favicon.ico">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.21">
+    
+    
+      
+        <title>Changelog - sleap-nn documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.2a3383ac.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.06af60db.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+      
+  <img src="../assets/sleap-logo.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sleap-nn documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/talmolab/sleap-nn" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+      
+  <img src="../assets/sleap-logo.png" alt="logo">
+
+    </a>
+    sleap-nn documentation
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/talmolab/sleap-nn" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Overview
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    How-to guides
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            How-to guides
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Configuration Setup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../training/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Training
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Inference & Tracking
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Tutorials
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Tutorials
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example_notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Example Notebooks
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../step_by_step_tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Step-by-Step Tutorial
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    Additional Resources
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            Additional Resources
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../core_components/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Core Components
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Model Architectures
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Full API
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3">
+            <span class="md-nav__icon md-icon"></span>
+            Full API
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    sleap_nn
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1" id="__nav_5_3_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1">
+            <span class="md-nav__icon md-icon"></span>
+            sleap_nn
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/architectures/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    architectures
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1_1" id="__nav_5_3_1_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1_1">
+            <span class="md-nav__icon md-icon"></span>
+            architectures
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/common/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    common
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/convnext/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    convnext
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/encoder_decoder/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    encoder_decoder
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/heads/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    heads
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    model
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/swint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    swint
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/unet/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    unet
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/architectures/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    utils
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    cli
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/config/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    config
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1_3" id="__nav_5_3_1_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1_3">
+            <span class="md-nav__icon md-icon"></span>
+            config
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/data_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    data_config
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/get_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    get_config
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/model_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    model_config
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/trainer_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    trainer_config
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/training_job_config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    training_job_config
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/config/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    utils
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/data/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    data
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1_4" id="__nav_5_3_1_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1_4">
+            <span class="md-nav__icon md-icon"></span>
+            data
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    augmentation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/confidence_maps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    confidence_maps
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/custom_datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    custom_datasets
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/edge_maps/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    edge_maps
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    identity
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/instance_centroids/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    instance_centroids
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/instance_cropping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    instance_cropping
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/normalization/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    normalization
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    providers
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/resizing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    resizing
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/data/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    utils
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/evaluation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    evaluation
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/inference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    inference
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1_6" id="__nav_5_3_1_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1_6">
+            <span class="md-nav__icon md-icon"></span>
+            inference
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/bottomup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    bottomup
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/identity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    identity
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/paf_grouping/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    paf_grouping
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/peak_finding/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    peak_finding
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/predictors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    predictors
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/single_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    single_instance
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/topdown/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    topdown
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    utils
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/legacy_models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    legacy_models
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/predict/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    predict
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_9" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/tracking/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    tracking
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1_9" id="__nav_5_3_1_9_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1_9">
+            <span class="md-nav__icon md-icon"></span>
+            tracking
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_9_1" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/tracking/candidates/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    candidates
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1_9_1" id="__nav_5_3_1_9_1_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="5" aria-labelledby="__nav_5_3_1_9_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1_9_1">
+            <span class="md-nav__icon md-icon"></span>
+            candidates
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tracking/candidates/fixed_window/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    fixed_window
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tracking/candidates/local_queues/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    local_queues
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tracking/track_instance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    track_instance
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tracking/tracker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    tracker
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/tracking/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    utils
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/train/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    train
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_11" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../api/training/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    training
+    
+  </span>
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5_3_1_11" id="__nav_5_3_1_11_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_11_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5_3_1_11">
+            <span class="md-nav__icon md-icon"></span>
+            training
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/training/callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    callbacks
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/training/lightning_modules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    lightning_modules
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/training/losses/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    losses
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/training/model_trainer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    model_trainer
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/training/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    utils
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Changelog
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Changelog
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v002" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.2
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v001" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.1
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://github.com/talmolab/sleap-nn/releases" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Releases
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v002" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.2
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#v001" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.1
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v002"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.2">v0.0.2</a><a class="headerlink" href="#v002" title="Permanent link">&para;</a></h2>
+<h2>Summary</h2>
+<p>This release focuses on several bug fixes and improvements across the training, inference, and CLI components of sleap-nn. It includes bug fixes for model backbones and loaders, enhancements to the configuration and CLI experience, improved robustness in multi-GPU training, and new options for device selection and tracking. Documentation and installation guides have also been updated, along with internal refactors to streamline the code consistency.</p>
+<h2>Major changes</h2>
+<ul>
+<li>
+<p>Backbones &amp; Models:</p>
+<ul>
+<li>Fixed bugs in Swin Transformer and UNet backbone filter computations.</li>
+<li>Corrected weight mapping for legacy TopDown ID models.</li>
+</ul>
+</li>
+<li>
+<p>Inference &amp; Tracking:</p>
+<ul>
+<li>Removed unintended loading of pretrained weights during inference.</li>
+<li>Fixed inference with suggestion frames and improved stalling handling.</li>
+<li>Added option to run tracking on selected frames and video indices.</li>
+<li>Added thread-safe video access to prevent backend crashes.</li>
+<li>Added function to load metrics for better evaluation reporting.</li>
+</ul>
+</li>
+<li>
+<p>Training Pipeline:</p>
+<ul>
+<li>Fixed bugs in the training workflow with the infinite dataloader handling.</li>
+<li>Improved seeding behavior for reproducible label splits in multi-GPU setups.</li>
+<li>Fixed experiment run name generation across multi-GPU workers.</li>
+</ul>
+</li>
+<li>
+<p>CLI &amp; Config:</p>
+<ul>
+<li>Introduced unified sleap-nn CLI with subcommands (train, track, eval) and more robust help injection.</li>
+<li>Removed deprecated CLI commands and cleaned up legacy imports.</li>
+<li>Added option to specify which devices to use, with auto-selection of GPUs based on available memory.</li>
+<li>Updated sample configs and sleap-io skeleton function usage.</li>
+<li>Minor parameter name and default updates for consistency with SLEAP.</li>
+</ul>
+</li>
+<li>
+<p>Documentation &amp; Installation:</p>
+<ul>
+<li>Fixed broken documentation pages and improved menu structure.</li>
+<li>Updated installation instructions with CUDA support for uv-based workflows.</li>
+</ul>
+</li>
+</ul>
+<h2>What's Changed</h2>
+<ul>
+<li>Fix Bug for SwinT Backbone Model by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/7174Andy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/7174Andy">@7174Andy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3342646395" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/304" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/304/hovercard" href="https://github.com/talmolab/sleap-nn/pull/304">#304</a></li>
+<li>More robust help injection in CLI by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/tom21100227/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/tom21100227">@tom21100227</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3342602524" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/303" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/303/hovercard" href="https://github.com/talmolab/sleap-nn/pull/303">#303</a></li>
+<li>Remove loading pretrained weights during inference pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3346300620" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/305" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/305/hovercard" href="https://github.com/talmolab/sleap-nn/pull/305">#305</a></li>
+<li>Remove <code>back</code> import in lightning module by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3378294892" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/312" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/312/hovercard" href="https://github.com/talmolab/sleap-nn/pull/312">#312</a></li>
+<li>Fix compute filters in unet by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3378478569" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/313" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/313/hovercard" href="https://github.com/talmolab/sleap-nn/pull/313">#313</a></li>
+<li>Update CLI commands by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3381653044" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/314" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/314/hovercard" href="https://github.com/talmolab/sleap-nn/pull/314">#314</a></li>
+<li>Update sleap-io skeleton functions usage by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3382043358" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/315" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/315/hovercard" href="https://github.com/talmolab/sleap-nn/pull/315">#315</a></li>
+<li>Minor updates to config parameters by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3385100289" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/316" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/316/hovercard" href="https://github.com/talmolab/sleap-nn/pull/316">#316</a></li>
+<li>Minor bug fixes by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3388554198" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/317" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/317/hovercard" href="https://github.com/talmolab/sleap-nn/pull/317">#317</a></li>
+<li>Fix Inference on SuggestionFrames by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/7174Andy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/7174Andy">@7174Andy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3395314790" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/318" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/318/hovercard" href="https://github.com/talmolab/sleap-nn/pull/318">#318</a></li>
+<li>Add pck to voc metrics by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3396150846" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/320" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/320/hovercard" href="https://github.com/talmolab/sleap-nn/pull/320">#320</a></li>
+<li>Fix bugs in training pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3400436571" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/322" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/322/hovercard" href="https://github.com/talmolab/sleap-nn/pull/322">#322</a></li>
+<li>Add option to specify which devices to use by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3423118506" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/327" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/327/hovercard" href="https://github.com/talmolab/sleap-nn/pull/327">#327</a></li>
+<li>Fix bug in infinite data loader by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3411359647" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/325" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/325/hovercard" href="https://github.com/talmolab/sleap-nn/pull/325">#325</a></li>
+<li>Add thread-safe video access by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3419244864" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/326" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/326/hovercard" href="https://github.com/talmolab/sleap-nn/pull/326">#326</a></li>
+<li>Fix bugs in docs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3395319964" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/319" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/319/hovercard" href="https://github.com/talmolab/sleap-nn/pull/319">#319</a></li>
+<li>Change zmq address to port arguments by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3424081535" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/328" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/328/hovercard" href="https://github.com/talmolab/sleap-nn/pull/328">#328</a></li>
+<li>Add option to run tracking on select frames by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3424618075" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/329" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/329/hovercard" href="https://github.com/talmolab/sleap-nn/pull/329">#329</a></li>
+<li>Fix seeding in training workflow by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3427062724" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/330" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/330/hovercard" href="https://github.com/talmolab/sleap-nn/pull/330">#330</a></li>
+<li>Fix inference stalling by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3428009662" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/331" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/331/hovercard" href="https://github.com/talmolab/sleap-nn/pull/331">#331</a></li>
+<li>Make wandb artifact logging optional by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3431141744" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/332" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/332/hovercard" href="https://github.com/talmolab/sleap-nn/pull/332">#332</a></li>
+<li>Auto-select GPUs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3432203925" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/333" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/333/hovercard" href="https://github.com/talmolab/sleap-nn/pull/333">#333</a></li>
+<li>Add function to load metrics by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3443114343" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/334" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/334/hovercard" href="https://github.com/talmolab/sleap-nn/pull/334">#334</a></li>
+<li>Fix experiment run name in multi-gpu training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3446180609" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/336" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/336/hovercard" href="https://github.com/talmolab/sleap-nn/pull/336">#336</a></li>
+<li>Add option to pass labels and video objects by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3447998254" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/337" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/337/hovercard" href="https://github.com/talmolab/sleap-nn/pull/337">#337</a></li>
+<li>Fix mapping for legacy topdown id models by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3455290598" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/339" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/339/hovercard" href="https://github.com/talmolab/sleap-nn/pull/339">#339</a></li>
+<li>Modify uv installation docs for cuda support by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3459380309" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/340" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/340/hovercard" href="https://github.com/talmolab/sleap-nn/pull/340">#340</a></li>
+<li>Update sample configs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3451891672" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/338" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/338/hovercard" href="https://github.com/talmolab/sleap-nn/pull/338">#338</a></li>
+<li>Bump up sleap-nn version for v0.0.2 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3466217330" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/341" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/341/hovercard" href="https://github.com/talmolab/sleap-nn/pull/341">#341</a></li>
+</ul>
+<p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.0.1...v0.0.2"><tt>v0.0.1...v0.0.2</tt></a></p>
+<h2 id="v001"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.1">v0.0.1</a><a class="headerlink" href="#v001" title="Permanent link">&para;</a></h2>
+<h2>SLEAP-NN v0.0.1 - Initial Release</h2>
+<p>SLEAP-NN is a PyTorch-based deep learning framework for pose estimation, built on top of the SLEAP (Social LEAP Estimates Animal Poses) platform. This framework provides efficient training, inference, and evaluation tools for multi-animal pose estimation tasks.</p>
+<p>Documentation: <a href="https://nn.sleap.ai/" rel="nofollow">https://nn.sleap.ai/</a></p>
+<h2>Quick start</h2>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Install with PyTorch CPU support
+pip install sleap-nn[torch-cpu]
+
+# Train a model
+sleap-nn train --config-name config.yaml --config-dir configs/
+
+# Run inference
+sleap-nn track --model_paths model.ckpt --data_path video.mp4
+
+# Evaluate predictions
+sleap-nn eval --ground_truth_path gt.slp --predicted_path pred.slp
+"><pre><span class="pl-c"><span class="pl-c">#</span> Install with PyTorch CPU support</span>
+pip install sleap-nn[torch-cpu]
+
+<span class="pl-c"><span class="pl-c">#</span> Train a model</span>
+sleap-nn train --config-name config.yaml --config-dir configs/
+
+<span class="pl-c"><span class="pl-c">#</span> Run inference</span>
+sleap-nn track --model_paths model.ckpt --data_path video.mp4
+
+<span class="pl-c"><span class="pl-c">#</span> Evaluate predictions</span>
+sleap-nn <span class="pl-c1">eval</span> --ground_truth_path gt.slp --predicted_path pred.slp
+</pre></div>
+<h2>What's Changed</h2>
+<ul>
+<li>Core Data Loader Implementation by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/davidasamy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/davidasamy">@davidasamy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1790464399" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/4" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/4/hovercard" href="https://github.com/talmolab/sleap-nn/pull/4">#4</a></li>
+<li>Add centroid finder block by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/davidasamy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/davidasamy">@davidasamy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1814901180" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/7" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/7/hovercard" href="https://github.com/talmolab/sleap-nn/pull/7">#7</a></li>
+<li>Add DataBlocks for rotation and scaling by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1816270846" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/8" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/8/hovercard" href="https://github.com/talmolab/sleap-nn/pull/8">#8</a></li>
+<li>Refactor datapipes by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1816514609" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/9" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/9/hovercard" href="https://github.com/talmolab/sleap-nn/pull/9">#9</a></li>
+<li>Instance Cropping by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/davidasamy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/davidasamy">@davidasamy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1829880462" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/13" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/13/hovercard" href="https://github.com/talmolab/sleap-nn/pull/13">#13</a></li>
+<li>Add more Kornia augmentations by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1825160161" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/12" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/12/hovercard" href="https://github.com/talmolab/sleap-nn/pull/12">#12</a></li>
+<li>Confidence Map Generation by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/davidasamy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/davidasamy">@davidasamy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1823673315" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/11" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/11/hovercard" href="https://github.com/talmolab/sleap-nn/pull/11">#11</a></li>
+<li>Peak finding by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1845742978" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/14" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/14/hovercard" href="https://github.com/talmolab/sleap-nn/pull/14">#14</a></li>
+<li>UNet Implementation by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1857376991" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/15" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/15/hovercard" href="https://github.com/talmolab/sleap-nn/pull/15">#15</a></li>
+<li>Top-down Centered-instance Pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1874498019" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/16" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/16/hovercard" href="https://github.com/talmolab/sleap-nn/pull/16">#16</a></li>
+<li>Adding ruff to ci.yml by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1904584502" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/21" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/21/hovercard" href="https://github.com/talmolab/sleap-nn/pull/21">#21</a></li>
+<li>Implement base Model and Head classes by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1883566166" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/17" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/17/hovercard" href="https://github.com/talmolab/sleap-nn/pull/17">#17</a></li>
+<li>Add option to Filter to user instances by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1895796029" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/20" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/20/hovercard" href="https://github.com/talmolab/sleap-nn/pull/20">#20</a></li>
+<li>Add Evaluation Module by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1907258264" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/22" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/22/hovercard" href="https://github.com/talmolab/sleap-nn/pull/22">#22</a></li>
+<li>Add metadata to dictionary by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1953074282" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/24" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/24/hovercard" href="https://github.com/talmolab/sleap-nn/pull/24">#24</a></li>
+<li>Added SingleInstanceConfmapsPipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1946182096" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/23" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/23/hovercard" href="https://github.com/talmolab/sleap-nn/pull/23">#23</a></li>
+<li>modify keys by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2033325565" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/31" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/31/hovercard" href="https://github.com/talmolab/sleap-nn/pull/31">#31</a></li>
+<li>Small fix to find_global_peaks_rough by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2025413583" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/28" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/28/hovercard" href="https://github.com/talmolab/sleap-nn/pull/28">#28</a></li>
+<li>Add trainer by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2026693759" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/29" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/29/hovercard" href="https://github.com/talmolab/sleap-nn/pull/29">#29</a></li>
+<li>PAF Grouping by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2048289009" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/33" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/33/hovercard" href="https://github.com/talmolab/sleap-nn/pull/33">#33</a></li>
+<li>Add predictor class by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2059010106" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/36" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/36/hovercard" href="https://github.com/talmolab/sleap-nn/pull/36">#36</a></li>
+<li>Edge Maps by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alckasoc/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alckasoc">@alckasoc</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2081346839" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/38" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/38/hovercard" href="https://github.com/talmolab/sleap-nn/pull/38">#38</a></li>
+<li>Add ConvNext Backbone by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2186828338" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/40" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/40/hovercard" href="https://github.com/talmolab/sleap-nn/pull/40">#40</a></li>
+<li>Add VideoReader by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2277324739" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/45" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/45/hovercard" href="https://github.com/talmolab/sleap-nn/pull/45">#45</a></li>
+<li>Refactor model pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2303378647" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/51" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/51/hovercard" href="https://github.com/talmolab/sleap-nn/pull/51">#51</a></li>
+<li>Add BottomUp model pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2308773218" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/52" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/52/hovercard" href="https://github.com/talmolab/sleap-nn/pull/52">#52</a></li>
+<li>Remove Part-names and Edge dependency in config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2347988120" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/54" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/54/hovercard" href="https://github.com/talmolab/sleap-nn/pull/54">#54</a></li>
+<li>Refactor model config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2380799596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/61" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/61/hovercard" href="https://github.com/talmolab/sleap-nn/pull/61">#61</a></li>
+<li>Refactor Augmentation config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2426285806" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/67" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/67/hovercard" href="https://github.com/talmolab/sleap-nn/pull/67">#67</a></li>
+<li>Add minimal pretrained checkpoints for tests and fix PAF grouping interpolation by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gqcpm/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gqcpm">@gqcpm</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2454352120" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/73" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/73/hovercard" href="https://github.com/talmolab/sleap-nn/pull/73">#73</a></li>
+<li>Fix augmentation in TopdownConfmaps pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2521351040" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/86" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/86/hovercard" href="https://github.com/talmolab/sleap-nn/pull/86">#86</a></li>
+<li>Implement tracker module by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2521398150" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/87" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/87/hovercard" href="https://github.com/talmolab/sleap-nn/pull/87">#87</a></li>
+<li>Resume training and automatically compute crop size for TopDownConfmaps pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2521497876" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/88" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/88/hovercard" href="https://github.com/talmolab/sleap-nn/pull/88">#88</a></li>
+<li>LitData Refactor PR1: Get individual functions for data pipelines by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2522968783" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/90" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/90/hovercard" href="https://github.com/talmolab/sleap-nn/pull/90">#90</a></li>
+<li>Add function to load trained weights for backbone model by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2551369969" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/95" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/95/hovercard" href="https://github.com/talmolab/sleap-nn/pull/95">#95</a></li>
+<li>Remove IterDataPipe from Inference pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2553353627" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/96" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/96/hovercard" href="https://github.com/talmolab/sleap-nn/pull/96">#96</a></li>
+<li>Move ld.optimize to a subprocess by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2565158911" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/100" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/100/hovercard" href="https://github.com/talmolab/sleap-nn/pull/100">#100</a></li>
+<li>Auto compute max height and width from labels by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2567250697" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/101" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/101/hovercard" href="https://github.com/talmolab/sleap-nn/pull/101">#101</a></li>
+<li>Fix sizematcher in Inference data pipline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2568285976" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/102" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/102/hovercard" href="https://github.com/talmolab/sleap-nn/pull/102">#102</a></li>
+<li>Convert Tensor images to PIL by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2606818482" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/105" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/105/hovercard" href="https://github.com/talmolab/sleap-nn/pull/105">#105</a></li>
+<li>Add threshold mode in config for learning rate scheduler by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2609295190" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/106" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/106/hovercard" href="https://github.com/talmolab/sleap-nn/pull/106">#106</a></li>
+<li>Add option to specify <code>.bin</code> file directory in config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2614563263" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/107" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/107/hovercard" href="https://github.com/talmolab/sleap-nn/pull/107">#107</a></li>
+<li>Add StepLR scheduler by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2619674855" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/109" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/109/hovercard" href="https://github.com/talmolab/sleap-nn/pull/109">#109</a></li>
+<li>Add config to WandB by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2625532614" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/113" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/113/hovercard" href="https://github.com/talmolab/sleap-nn/pull/113">#113</a></li>
+<li>Add option to load trained weights for Head layers by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2626913612" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/114" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/114/hovercard" href="https://github.com/talmolab/sleap-nn/pull/114">#114</a></li>
+<li>Add option to load ckpts for backbone and head for running inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2629367155" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/115" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/115/hovercard" href="https://github.com/talmolab/sleap-nn/pull/115">#115</a></li>
+<li>Add option to reuse <code>.bin</code> files by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2630060199" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/116" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/116/hovercard" href="https://github.com/talmolab/sleap-nn/pull/116">#116</a></li>
+<li>Fix Normalization order in data pipelines by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2653992090" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/118" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/118/hovercard" href="https://github.com/talmolab/sleap-nn/pull/118">#118</a></li>
+<li>Add torch Dataset classes by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2662338964" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/120" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/120/hovercard" href="https://github.com/talmolab/sleap-nn/pull/120">#120</a></li>
+<li>Fix Pafs shape by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2684588253" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/121" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/121/hovercard" href="https://github.com/talmolab/sleap-nn/pull/121">#121</a></li>
+<li>Add caching to Torch Datasets pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2733734699" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/123" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/123/hovercard" href="https://github.com/talmolab/sleap-nn/pull/123">#123</a></li>
+<li>Remove <code>random_crop</code> augmentation by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2733883963" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/124" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/124/hovercard" href="https://github.com/talmolab/sleap-nn/pull/124">#124</a></li>
+<li>Generate np chunks for caching by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2734331217" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/125" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/125/hovercard" href="https://github.com/talmolab/sleap-nn/pull/125">#125</a></li>
+<li>Add <code>group</code> to wandb config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2738844294" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/126" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/126/hovercard" href="https://github.com/talmolab/sleap-nn/pull/126">#126</a></li>
+<li>Fix crop size by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2739009973" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/127" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/127/hovercard" href="https://github.com/talmolab/sleap-nn/pull/127">#127</a></li>
+<li>Resize images before cropping in Centered-instance model by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2766509760" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/129" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/129/hovercard" href="https://github.com/talmolab/sleap-nn/pull/129">#129</a></li>
+<li>Check memory before caching by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2768179107" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/130" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/130/hovercard" href="https://github.com/talmolab/sleap-nn/pull/130">#130</a></li>
+<li>Replace <code>eval</code> with an explicit mapping dictionary by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2771243340" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/131" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/131/hovercard" href="https://github.com/talmolab/sleap-nn/pull/131">#131</a></li>
+<li>Add <code>CyclerDataLoader</code> to ensure minimum steps per epoch by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2776531454" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/132" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/132/hovercard" href="https://github.com/talmolab/sleap-nn/pull/132">#132</a></li>
+<li>Fix running inference on Bottom-up models with CUDA by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2791015050" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/133" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/133/hovercard" href="https://github.com/talmolab/sleap-nn/pull/133">#133</a></li>
+<li>Fix caching in datasets by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2791054463" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/134" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/134/hovercard" href="https://github.com/talmolab/sleap-nn/pull/134">#134</a></li>
+<li>Save <code>.slp</code> file after inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2791139034" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/135" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/135/hovercard" href="https://github.com/talmolab/sleap-nn/pull/135">#135</a></li>
+<li>Add option to reuse np chunks by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2836484841" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/136" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/136/hovercard" href="https://github.com/talmolab/sleap-nn/pull/136">#136</a></li>
+<li>Filter instances while generating indices by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2838877789" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/138" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/138/hovercard" href="https://github.com/talmolab/sleap-nn/pull/138">#138</a></li>
+<li>Fix config format while logging to wandb by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2849510918" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/144" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/144/hovercard" href="https://github.com/talmolab/sleap-nn/pull/144">#144</a></li>
+<li>Add multi-gpu support by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2851678327" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/145" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/145/hovercard" href="https://github.com/talmolab/sleap-nn/pull/145">#145</a></li>
+<li>Implement Omegaconfig PR1: basic functionality by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gqcpm/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gqcpm">@gqcpm</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2553359143" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/97" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/97/hovercard" href="https://github.com/talmolab/sleap-nn/pull/97">#97</a></li>
+<li>Move all params to config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2852338408" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/146" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/146/hovercard" href="https://github.com/talmolab/sleap-nn/pull/146">#146</a></li>
+<li>Add output stride to backbone config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2854730305" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/147" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/147/hovercard" href="https://github.com/talmolab/sleap-nn/pull/147">#147</a></li>
+<li>Change backbone config structure by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2867318015" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/149" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/149/hovercard" href="https://github.com/talmolab/sleap-nn/pull/149">#149</a></li>
+<li>Add an entry point train function by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2879242053" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/150" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/150/hovercard" href="https://github.com/talmolab/sleap-nn/pull/150">#150</a></li>
+<li>Add logger by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gqcpm/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gqcpm">@gqcpm</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2861535546" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/148" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/148/hovercard" href="https://github.com/talmolab/sleap-nn/pull/148">#148</a></li>
+<li>Fix preprocessing during inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2903756847" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/156" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/156/hovercard" href="https://github.com/talmolab/sleap-nn/pull/156">#156</a></li>
+<li>Add CLI for training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2897935222" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/155" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/155/hovercard" href="https://github.com/talmolab/sleap-nn/pull/155">#155</a></li>
+<li>Specify custom anchor index in Inference pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2912472669" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/157" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/157/hovercard" href="https://github.com/talmolab/sleap-nn/pull/157">#157</a></li>
+<li>Fix lr scheduler config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2915884764" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/158" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/158/hovercard" href="https://github.com/talmolab/sleap-nn/pull/158">#158</a></li>
+<li>Add max stride to Convnext and Swint backbones by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2920733895" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/159" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/159/hovercard" href="https://github.com/talmolab/sleap-nn/pull/159">#159</a></li>
+<li>Fix length in custom datasets by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2929333681" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/160" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/160/hovercard" href="https://github.com/talmolab/sleap-nn/pull/160">#160</a></li>
+<li>Add <code>scale</code> argument to custom datasets by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2970884309" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/166" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/166/hovercard" href="https://github.com/talmolab/sleap-nn/pull/166">#166</a></li>
+<li>Fix size matcher by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2972734596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/167" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/167/hovercard" href="https://github.com/talmolab/sleap-nn/pull/167">#167</a></li>
+<li>Fix max instances in TopDown Inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2972983355" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/168" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/168/hovercard" href="https://github.com/talmolab/sleap-nn/pull/168">#168</a></li>
+<li>Move lightning modules by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2973955622" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/169" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/169/hovercard" href="https://github.com/talmolab/sleap-nn/pull/169">#169</a></li>
+<li>Save config with chunks by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2994645110" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/174" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/174/hovercard" href="https://github.com/talmolab/sleap-nn/pull/174">#174</a></li>
+<li>Add profiler and strategy parameters by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2998604511" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/175" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/175/hovercard" href="https://github.com/talmolab/sleap-nn/pull/175">#175</a></li>
+<li>Add docker img for remote dev by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3000596284" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/176" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/176/hovercard" href="https://github.com/talmolab/sleap-nn/pull/176">#176</a></li>
+<li>Save files only in rank: 0 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3003057546" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/177" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/177/hovercard" href="https://github.com/talmolab/sleap-nn/pull/177">#177</a></li>
+<li>Minor changes to validate configs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3006158989" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/179" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/179/hovercard" href="https://github.com/talmolab/sleap-nn/pull/179">#179</a></li>
+<li>Fix multi-gpu training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3008944325" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/184" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/184/hovercard" href="https://github.com/talmolab/sleap-nn/pull/184">#184</a></li>
+<li>Cache only images by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3012687311" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/186" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/186/hovercard" href="https://github.com/talmolab/sleap-nn/pull/186">#186</a></li>
+<li>Add a new data pipeline strategy without caching by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3015428724" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/187" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/187/hovercard" href="https://github.com/talmolab/sleap-nn/pull/187">#187</a></li>
+<li>Minor fixes to lightning modules by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3016285286" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/189" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/189/hovercard" href="https://github.com/talmolab/sleap-nn/pull/189">#189</a></li>
+<li>Fix caching when imgs path already exist by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3018229363" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/191" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/191/hovercard" href="https://github.com/talmolab/sleap-nn/pull/191">#191</a></li>
+<li>Ensure caching of images to disk in rank:0 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3021584437" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/193" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/193/hovercard" href="https://github.com/talmolab/sleap-nn/pull/193">#193</a></li>
+<li>Fix bug in caching images to disk by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3022018970" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/194" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/194/hovercard" href="https://github.com/talmolab/sleap-nn/pull/194">#194</a></li>
+<li>Close videos before creating data loaders by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3029655477" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/195" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/195/hovercard" href="https://github.com/talmolab/sleap-nn/pull/195">#195</a></li>
+<li>Update instance creation for sleap-io v0.3.0 compatibility by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3050231628" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/196" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/196/hovercard" href="https://github.com/talmolab/sleap-nn/pull/196">#196</a></li>
+<li>Fix up block computation for swint and convnext by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3050361406" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/197" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/197/hovercard" href="https://github.com/talmolab/sleap-nn/pull/197">#197</a></li>
+<li>Bump up to python 3.11 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3080951949" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/200" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/200/hovercard" href="https://github.com/talmolab/sleap-nn/pull/200">#200</a></li>
+<li>Map legacy SLEAP <code>json</code> configs to SLEAP-NN <code>OmegaConf</code> objects by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gqcpm/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gqcpm">@gqcpm</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2929838965" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/162" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/162/hovercard" href="https://github.com/talmolab/sleap-nn/pull/162">#162</a></li>
+<li>Add option to get validation data from train labels by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3084145650" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/201" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/201/hovercard" href="https://github.com/talmolab/sleap-nn/pull/201">#201</a></li>
+<li>Fix anchor part in config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3087153978" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/203" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/203/hovercard" href="https://github.com/talmolab/sleap-nn/pull/203">#203</a></li>
+<li>Minor fixes to config mapper by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3087239648" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/204" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/204/hovercard" href="https://github.com/talmolab/sleap-nn/pull/204">#204</a></li>
+<li>Save labels with centroid inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3094686997" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/205" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/205/hovercard" href="https://github.com/talmolab/sleap-nn/pull/205">#205</a></li>
+<li>Add custom callbacks to publish metrics during training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3098812105" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/207" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/207/hovercard" href="https://github.com/talmolab/sleap-nn/pull/207">#207</a></li>
+<li>Add visualizer by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3107805849" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/208" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/208/hovercard" href="https://github.com/talmolab/sleap-nn/pull/208">#208</a></li>
+<li>Add CLI for inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3115606512" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/209" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/209/hovercard" href="https://github.com/talmolab/sleap-nn/pull/209">#209</a></li>
+<li>Add option to parse frame ranges for videos by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3116171471" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/211" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/211/hovercard" href="https://github.com/talmolab/sleap-nn/pull/211">#211</a></li>
+<li>Add control flags to run inference on select LabeledFrames by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3118504860" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/212" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/212/hovercard" href="https://github.com/talmolab/sleap-nn/pull/212">#212</a></li>
+<li>Add support to run inference on specific video in a .slp file by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3119759572" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/213" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/213/hovercard" href="https://github.com/talmolab/sleap-nn/pull/213">#213</a></li>
+<li>Minor fixes to tracking by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3122561017" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/214" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/214/hovercard" href="https://github.com/talmolab/sleap-nn/pull/214">#214</a></li>
+<li>Fix bug in evaluation by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3123088140" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/215" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/215/hovercard" href="https://github.com/talmolab/sleap-nn/pull/215">#215</a></li>
+<li>Save train, val, test predictions after training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3126046262" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/216" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/216/hovercard" href="https://github.com/talmolab/sleap-nn/pull/216">#216</a></li>
+<li>Add option to auto-select device for inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3126494704" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/217" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/217/hovercard" href="https://github.com/talmolab/sleap-nn/pull/217">#217</a></li>
+<li>Add option to pass multiple .slp files for training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/papamanu/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/papamanu">@papamanu</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3134993258" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/218" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/218/hovercard" href="https://github.com/talmolab/sleap-nn/pull/218">#218</a></li>
+<li>Add logs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3144348933" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/219" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/219/hovercard" href="https://github.com/talmolab/sleap-nn/pull/219">#219</a></li>
+<li>Bug fixes to model architecture and trainer by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3154077400" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/220" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/220/hovercard" href="https://github.com/talmolab/sleap-nn/pull/220">#220</a></li>
+<li>Remove <code>nested</code> tensors to support <code>mps</code> for BottomUp models by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3157437378" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/221" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/221/hovercard" href="https://github.com/talmolab/sleap-nn/pull/221">#221</a></li>
+<li>Modify viz functions by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3172493247" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/223" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/223/hovercard" href="https://github.com/talmolab/sleap-nn/pull/223">#223</a></li>
+<li>Add <code>ensure_grayscale</code> parameter by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3173180270" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/224" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/224/hovercard" href="https://github.com/talmolab/sleap-nn/pull/224">#224</a></li>
+<li>Fix bugs with zmq config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3173511202" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/225" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/225/hovercard" href="https://github.com/talmolab/sleap-nn/pull/225">#225</a></li>
+<li>Log part-wise losses by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3177295466" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/226" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/226/hovercard" href="https://github.com/talmolab/sleap-nn/pull/226">#226</a></li>
+<li>Fix trainer config mappings and add option to load config from json str by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3180041285" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/227" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/227/hovercard" href="https://github.com/talmolab/sleap-nn/pull/227">#227</a></li>
+<li>Refactor ModelTrainer class by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3186259686" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/228" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/228/hovercard" href="https://github.com/talmolab/sleap-nn/pull/228">#228</a></li>
+<li>Fix infinite data loader and update steps per epoch by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3189675789" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/229" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/229/hovercard" href="https://github.com/talmolab/sleap-nn/pull/229">#229</a></li>
+<li>Add online hard keypoint mining by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3158530625" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/222" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/222/hovercard" href="https://github.com/talmolab/sleap-nn/pull/222">#222</a></li>
+<li>Add more features to Tracker by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3200951845" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/231" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/231/hovercard" href="https://github.com/talmolab/sleap-nn/pull/231">#231</a></li>
+<li>Remove litdata and iterdatapipe pipelines by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3209699238" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/232" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/232/hovercard" href="https://github.com/talmolab/sleap-nn/pull/232">#232</a></li>
+<li>Add CLAUDE.md and update .gitignore for Claude Code integration by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3209973748" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/233" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/233/hovercard" href="https://github.com/talmolab/sleap-nn/pull/233">#233</a></li>
+<li>Add length parameter to InfiniteDataLoader by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3216605037" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/237" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/237/hovercard" href="https://github.com/talmolab/sleap-nn/pull/237">#237</a></li>
+<li>Get sleap-nn pip package ready to publish by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/eberrigan/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/eberrigan">@eberrigan</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3210140281" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/236" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/236/hovercard" href="https://github.com/talmolab/sleap-nn/pull/236">#236</a></li>
+<li>Map sleap (json) skeleton to sleap-nn (yaml) format by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3216931077" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/238" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/238/hovercard" href="https://github.com/talmolab/sleap-nn/pull/238">#238</a></li>
+<li>Enable tracking on user-labeled instances by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3217260144" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/239" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/239/hovercard" href="https://github.com/talmolab/sleap-nn/pull/239">#239</a></li>
+<li>Add ID models by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3210029532" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/234" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/234/hovercard" href="https://github.com/talmolab/sleap-nn/pull/234">#234</a></li>
+<li>Add codespell workflow for spell checking by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3229330874" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/241" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/241/hovercard" href="https://github.com/talmolab/sleap-nn/pull/241">#241</a></li>
+<li>Make torch dependencies optional by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/eberrigan/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/eberrigan">@eberrigan</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3230274014" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/243" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/243/hovercard" href="https://github.com/talmolab/sleap-nn/pull/243">#243</a></li>
+<li>Reorganize assets and revise checkpoints by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3230175518" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/242" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/242/hovercard" href="https://github.com/talmolab/sleap-nn/pull/242">#242</a></li>
+<li>Refactor architectures per SLEAP by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3230350030" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/245" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/245/hovercard" href="https://github.com/talmolab/sleap-nn/pull/245">#245</a></li>
+<li>Add <code>keep-viz</code> parameter by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3238277135" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/246" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/246/hovercard" href="https://github.com/talmolab/sleap-nn/pull/246">#246</a></li>
+<li>Format <code>config.md</code> by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3257500958" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/249" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/249/hovercard" href="https://github.com/talmolab/sleap-nn/pull/249">#249</a></li>
+<li>Fix minor bugs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3257782840" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/250" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/250/hovercard" href="https://github.com/talmolab/sleap-nn/pull/250">#250</a></li>
+<li>Setup docs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3264420336" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/251" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/251/hovercard" href="https://github.com/talmolab/sleap-nn/pull/251">#251</a></li>
+<li>Remove broken Docker image by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3265948242" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/254" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/254/hovercard" href="https://github.com/talmolab/sleap-nn/pull/254">#254</a></li>
+<li>Import legacy SLEAP model weights by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3210111541" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/235" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/235/hovercard" href="https://github.com/talmolab/sleap-nn/pull/235">#235</a></li>
+<li>Fix wandb logging by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3275478370" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/255" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/255/hovercard" href="https://github.com/talmolab/sleap-nn/pull/255">#255</a></li>
+<li>Fix preprocess config in inference by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3281415081" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/257" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/257/hovercard" href="https://github.com/talmolab/sleap-nn/pull/257">#257</a></li>
+<li>Update ckpts and cfgs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3284514438" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/259" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/259/hovercard" href="https://github.com/talmolab/sleap-nn/pull/259">#259</a></li>
+<li>Minor bug fixes in training pipeline by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3285417155" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/260" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/260/hovercard" href="https://github.com/talmolab/sleap-nn/pull/260">#260</a></li>
+<li>Revert "Minor bug fixes in training pipeline" by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3285449111" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/261" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/261/hovercard" href="https://github.com/talmolab/sleap-nn/pull/261">#261</a></li>
+<li>Fix minor bugs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3285639650" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/262" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/262/hovercard" href="https://github.com/talmolab/sleap-nn/pull/262">#262</a></li>
+<li>Update in channels for torch with keras weights by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3287431751" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/263" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/263/hovercard" href="https://github.com/talmolab/sleap-nn/pull/263">#263</a></li>
+<li>Move convnext/ swint pretrained weights by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3287622926" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/264" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/264/hovercard" href="https://github.com/talmolab/sleap-nn/pull/264">#264</a></li>
+<li>Refactor lightning module parameters by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3291557826" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/265" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/265/hovercard" href="https://github.com/talmolab/sleap-nn/pull/265">#265</a></li>
+<li>Fix skeletons structure in config by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3295010763" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/266" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/266/hovercard" href="https://github.com/talmolab/sleap-nn/pull/266">#266</a></li>
+<li>Ensure consistent types for augmentation parameters by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3297420762" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/267" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/267/hovercard" href="https://github.com/talmolab/sleap-nn/pull/267">#267</a></li>
+<li>Add CLI entry-point functions and shortcuts by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3298430179" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/270" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/270/hovercard" href="https://github.com/talmolab/sleap-nn/pull/270">#270</a></li>
+<li>Ensure only rank-0 handles writing files in ddp training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3305463497" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/271" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/271/hovercard" href="https://github.com/talmolab/sleap-nn/pull/271">#271</a></li>
+<li>Fix bug in centered-instance dataset by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3315203226" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/272" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/272/hovercard" href="https://github.com/talmolab/sleap-nn/pull/272">#272</a></li>
+<li>Add eff_scale to dataset by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3316907185" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/273" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/273/hovercard" href="https://github.com/talmolab/sleap-nn/pull/273">#273</a></li>
+<li>Update docs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3277948756" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/256" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/256/hovercard" href="https://github.com/talmolab/sleap-nn/pull/256">#256</a></li>
+<li>Add self-hosted runner to CI by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3319433591" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/277" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/277/hovercard" href="https://github.com/talmolab/sleap-nn/pull/277">#277</a></li>
+<li>Minor changes to data pipeline and training guide notebook by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3331144037" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/280" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/280/hovercard" href="https://github.com/talmolab/sleap-nn/pull/280">#280</a></li>
+<li>Add support to load keras weights for model init by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3332059908" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/285" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/285/hovercard" href="https://github.com/talmolab/sleap-nn/pull/285">#285</a></li>
+<li>Self-hosted Runners Tests and Trainer Accelerator by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alicup29/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alicup29">@alicup29</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3331695581" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/281" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/281/hovercard" href="https://github.com/talmolab/sleap-nn/pull/281">#281</a></li>
+<li>Check memory with source images by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/eberrigan/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/eberrigan">@eberrigan</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3331835367" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/283" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/283/hovercard" href="https://github.com/talmolab/sleap-nn/pull/283">#283</a></li>
+<li>Fix <code>@oneof</code> Validation and Add Support for None for train_labels_path by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/7174Andy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/7174Andy">@7174Andy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3331730774" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/282" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/282/hovercard" href="https://github.com/talmolab/sleap-nn/pull/282">#282</a></li>
+<li>Parallelizing dataset caching by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/emdavis02/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/emdavis02">@emdavis02</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3332048190" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/284" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/284/hovercard" href="https://github.com/talmolab/sleap-nn/pull/284">#284</a></li>
+<li>Remove Permanent File Creations After Testing Locally by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/7174Andy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/7174Andy">@7174Andy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3335743181" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/292" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/292/hovercard" href="https://github.com/talmolab/sleap-nn/pull/292">#292</a></li>
+<li>Add file existence tracking to trainer and related tests by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/tom21100227/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/tom21100227">@tom21100227</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3335662541" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/291" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/291/hovercard" href="https://github.com/talmolab/sleap-nn/pull/291">#291</a></li>
+<li>Fix transitive torch/torchvision installation &amp; platform compatilibility by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alicup29/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alicup29">@alicup29</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3298048216" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/268" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/268/hovercard" href="https://github.com/talmolab/sleap-nn/pull/268">#268</a></li>
+<li>Add more documentation by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3334912802" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/287" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/287/hovercard" href="https://github.com/talmolab/sleap-nn/pull/287">#287</a></li>
+<li>Update build CI by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/talmo/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/talmo">@talmo</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3339030277" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/295" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/295/hovercard" href="https://github.com/talmolab/sleap-nn/pull/295">#295</a></li>
+<li>Add build ci option to release to testpypi by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3339106431" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/296" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/296/hovercard" href="https://github.com/talmolab/sleap-nn/pull/296">#296</a></li>
+<li>Add testpypi index to toml by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3339139807" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/297" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/297/hovercard" href="https://github.com/talmolab/sleap-nn/pull/297">#297</a></li>
+<li>Minor fixes to pyproject.toml by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3339345974" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/298" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/298/hovercard" href="https://github.com/talmolab/sleap-nn/pull/298">#298</a></li>
+<li>Add Hyphen to Checkpoint Paths when Duplication Found by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/7174Andy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/7174Andy">@7174Andy</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3339724043" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/299" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/299/hovercard" href="https://github.com/talmolab/sleap-nn/pull/299">#299</a></li>
+<li>Add helpful CLI message to <code>sleap-nn-train</code> by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/tom21100227/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/tom21100227">@tom21100227</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3338985750" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/294" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/294/hovercard" href="https://github.com/talmolab/sleap-nn/pull/294">#294</a></li>
+</ul>
+<h2>New Contributors</h2>
+<ul>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/davidasamy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/davidasamy">@davidasamy</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="1790464399" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/4" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/4/hovercard" href="https://github.com/talmolab/sleap-nn/pull/4">#4</a></li>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gqcpm/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gqcpm">@gqcpm</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="2454352120" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/73" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/73/hovercard" href="https://github.com/talmolab/sleap-nn/pull/73">#73</a></li>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/papamanu/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/papamanu">@papamanu</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3134993258" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/218" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/218/hovercard" href="https://github.com/talmolab/sleap-nn/pull/218">#218</a></li>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/eberrigan/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/eberrigan">@eberrigan</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3210140281" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/236" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/236/hovercard" href="https://github.com/talmolab/sleap-nn/pull/236">#236</a></li>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/alicup29/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/alicup29">@alicup29</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3331695581" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/281" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/281/hovercard" href="https://github.com/talmolab/sleap-nn/pull/281">#281</a></li>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/7174Andy/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/7174Andy">@7174Andy</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3331730774" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/282" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/282/hovercard" href="https://github.com/talmolab/sleap-nn/pull/282">#282</a></li>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/emdavis02/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/emdavis02">@emdavis02</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3332048190" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/284" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/284/hovercard" href="https://github.com/talmolab/sleap-nn/pull/284">#284</a></li>
+<li><a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/tom21100227/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/tom21100227">@tom21100227</a> made their first contribution in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3335662541" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/291" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/291/hovercard" href="https://github.com/talmolab/sleap-nn/pull/291">#291</a></li>
+</ul>
+<p><strong>Full Changelog</strong>: <a href="https://github.com/talmolab/sleap-nn/commits/v0.0.1">https://github.com/talmolab/sleap-nn/commits/v0.0.1</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/talmolab" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://twitter.com/talmop" target="_blank" rel="noopener" title="twitter.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.0.1 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M357.2 48h70.6L273.6 224.2 455 464H313L201.7 318.6 74.5 464H3.8l164.9-188.5L-5.2 48h145.6l100.5 132.9zm-24.8 373.8h39.1L119.1 88h-42z"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+    
+  </body>
+</html>
