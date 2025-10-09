@@ -249,6 +249,7 @@ def test_topdown_predictor(
         output_path=tmp_path,
         max_instances=2,
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
         max_tracks=None,
         device="cpu",
         peak_threshold=0.1,
@@ -275,6 +276,7 @@ def test_topdown_predictor(
             output_path=tmp_path,
             max_instances=None,
             post_connect_single_breaks=True,
+            tracking_target_instance_count=0,
             max_tracks=None,
             device="cpu",
             peak_threshold=0.1,
@@ -282,7 +284,7 @@ def test_topdown_predictor(
             tracking=True,
             integral_refinement=None,
         )
-        assert "Max_tracks (and max instances) is None" in caplog.text
+        assert "tracking_target_instance_count is 0" in caplog.text
 
 
 def test_multiclass_topdown_predictor(
@@ -765,7 +767,6 @@ def test_bottomup_predictor(
         tracking=True,
         candidates_method="local_queues",
         max_tracks=6,
-        post_connect_single_breaks=True,
         device="cpu",
         integral_refinement=None,
     )
@@ -952,6 +953,7 @@ def test_tracking_only_pipeline(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     labels.save(f"{tmp_path}/preds.slp")
 
@@ -961,6 +963,7 @@ def test_tracking_only_pipeline(
         post_connect_single_breaks=True,
         max_instances=2,
         integral_refinement=None,
+        tracking_target_instance_count=2,
     )
 
     assert len(tracked_labels.tracks) == 2
@@ -988,6 +991,7 @@ def test_tracking_only_pipeline(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     labels.save(f"{tmp_path}/preds.slp")
 
@@ -995,6 +999,7 @@ def test_tracking_only_pipeline(
         data_path=f"{tmp_path}/preds.slp",
         tracking=True,
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
         max_instances=2,
         integral_refinement=None,
         frames=[x for x in range(0, 5)],
@@ -1017,6 +1022,7 @@ def test_tracking_only_pipeline(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     labels.videos.append(sio.load_video(minimal_instance))
     assert len(labels.videos) == 2
@@ -1027,6 +1033,7 @@ def test_tracking_only_pipeline(
         tracking=True,
         post_connect_single_breaks=True,
         max_instances=2,
+        tracking_target_instance_count=2,
         integral_refinement=None,
         frames=[x for x in range(0, 5)],
         video_index=0,

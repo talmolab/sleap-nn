@@ -28,6 +28,8 @@ from sleap_nn.tracking.utils import (
     compute_euclidean_distance,
     compute_iou,
     compute_cosine_sim,
+    cull_instances,
+    cull_frame_instances,
 )
 
 
@@ -74,6 +76,9 @@ class Tracker:
     robust_best_instance: float = 1.0
     use_flow: bool = False
     is_local_queue: bool = False
+    tracking_target_instance_count: int = 0
+    tracking_pre_cull_to_target: int = 0
+    tracking_pre_cull_iou_threshold: float = 0
     _scoring_functions: Dict[str, Any] = {
         "oks": compute_oks,
         "iou": compute_iou,
@@ -114,6 +119,9 @@ class Tracker:
         of_img_scale: float = 1.0,
         of_window_size: int = 21,
         of_max_levels: int = 3,
+        tracking_target_instance_count: int = 0,
+        tracking_pre_cull_to_target: int = 0,
+        tracking_pre_cull_iou_threshold: float = 0,
     ):
         """Create `Tracker` from config.
 
@@ -154,6 +162,9 @@ class Tracker:
             of_max_levels: Number of pyramid scale levels to consider. This is different
                 from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True)
+            tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+            tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
+            tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
 
         """
         if candidates_method == "fixed_window":
@@ -189,6 +200,9 @@ class Tracker:
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
                 is_local_queue=is_local_queue,
+                tracking_target_instance_count=tracking_target_instance_count,
+                tracking_pre_cull_to_target=tracking_pre_cull_to_target,
+                tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
             )
 
         tracker = cls(
@@ -201,6 +215,9 @@ class Tracker:
             track_matching_method=track_matching_method,
             use_flow=use_flow,
             is_local_queue=is_local_queue,
+            tracking_target_instance_count=tracking_target_instance_count,
+            tracking_pre_cull_to_target=tracking_pre_cull_to_target,
+            tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
         )
         return tracker
 
@@ -220,6 +237,12 @@ class Tracker:
         Returns:
             List of `sio.PredictedInstance` objects, each having an assigned track.
         """
+        if self.tracking_target_instance_count and self.tracking_pre_cull_to_target:
+            untracked_instances = cull_frame_instances(
+                untracked_instances,
+                self.tracking_target_instance_count,
+                self.tracking_pre_cull_iou_threshold,
+            )
         # get features for the untracked instances.
         current_instances = self.get_features(untracked_instances, frame_idx, image)
 
@@ -469,6 +492,9 @@ class FlowShiftTracker(Tracker):
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
             Default: 3
+        tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+        tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
+        tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
 
     """
 
@@ -703,6 +729,11 @@ def run_tracker(
     of_window_size: int = 21,
     of_max_levels: int = 3,
     post_connect_single_breaks: bool = False,
+    tracking_target_instance_count: int = 0,
+    tracking_pre_cull_to_target: int = 0,
+    tracking_pre_cull_iou_threshold: float = 0,
+    tracking_clean_instance_count: int = 0,
+    tracking_clean_iou_threshold: float = 0,
 ) -> List[sio.LabeledFrame]:
     """Run tracking on a given set of frames.
 
@@ -746,6 +777,11 @@ def run_tracker(
                 Default: 3. (only if `use_flow` is True).
         post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
             connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
+        tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+        tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
+        tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
+        tracking_clean_instance_count: Target number of instances to clean *after* tracking. (default: 0)
+        tracking_clean_iou_threshold: IOU to use when culling instances *after* tracking. (default: 0)
 
     Returns:
         `sio.Labels` object with tracked instances.
@@ -766,6 +802,9 @@ def run_tracker(
         of_img_scale=of_img_scale,
         of_window_size=of_window_size,
         of_max_levels=of_max_levels,
+        tracking_target_instance_count=tracking_target_instance_count,
+        tracking_pre_cull_to_target=tracking_pre_cull_to_target,
+        tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
     )
     tracked_lfs = []
     for lf in untracked_frames:
@@ -791,9 +830,18 @@ def run_tracker(
             )
         )
 
+    if tracking_clean_instance_count > 0:
+        tracked_lfs = cull_instances(
+            tracked_lfs, tracking_clean_instance_count, tracking_clean_iou_threshold
+        )
+        if not post_connect_single_breaks:
+            tracked_lfs = connect_single_breaks(
+                tracked_lfs, tracking_clean_instance_count
+            )
+
     if post_connect_single_breaks:
-        if max_tracks is None:
-            message = "Max_tracks is None. To connect single breaks, max_tracks should be set to an integer."
+        if not tracking_target_instance_count:
+            message = "tracking_target_instance_count is 0. To connect single breaks, tracking_target_instance_count should be set to an integer."
             logger.error(message)
             raise ValueError(message)
         start_final_pass_time = time()
@@ -801,7 +849,9 @@ def run_tracker(
         logger.info(
             f"Started final-pass (connecting single breaks) at: {start_fp_timestamp}"
         )
-        tracked_lfs = connect_single_breaks(tracked_lfs, max_instances=max_tracks)
+        tracked_lfs = connect_single_breaks(
+            tracked_lfs, max_instances=tracking_target_instance_count
+        )
         finish_fp_timestamp = str(datetime.now())
         total_fp_elapsed = time() - start_final_pass_time
         logger.info(
