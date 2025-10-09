@@ -453,7 +453,7 @@ def run_inference(
                     corrected_lfs = connect_single_breaks(
                         lfs, tracking_clean_instance_count
                     )
-            if post_connect_single_breaks:
+            elif post_connect_single_breaks:
                 if not tracking_target_instance_count:
                     message = "tracking_target_instance_count is 0. To connect single breaks, tracking_target_instance_count should be set to an integer."
                     logger.error(message)
@@ -473,6 +473,8 @@ def run_inference(
                     f"Finished final-pass (connecting single breaks) at: {finish_fp_timestamp}"
                 )
                 logger.info(f"Total runtime: {total_fp_elapsed} secs")
+            else:
+                corrected_lfs = lfs
 
             output = sio.Labels(
                 labeled_frames=corrected_lfs,

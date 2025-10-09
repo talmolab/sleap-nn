@@ -547,3 +547,35 @@ def test_run_tracker(
         skeletons=labels.skeletons,
     )
     assert len(output.tracks) == 2
+
+
+def test_post_clean_up(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    centered_instance_video,
+    tmp_path,
+):
+    """Tests for post clean up."""
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        scoring_reduction="robust_quantile",
+    )
+
+    # test post clean up
+    tracked_lfs = run_tracker(
+        untracked_frames=[x for x in labels],
+        max_tracks=2,
+        candidates_method="local_queues",
+        tracking_clean_instance_count=1,
+    )
+    assert len(tracked_lfs[0].instances) == 1
