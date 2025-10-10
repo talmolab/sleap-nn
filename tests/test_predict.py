@@ -1289,6 +1289,24 @@ def test_topdown_predictor_with_tracking_cleaning(
     tmp_path,
 ):
     """Test topdown predictor with tracking cleaning."""
+    # pre tracking cleaning
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        tracking=True,
+        tracking_target_instance_count=1,
+        tracking_pre_cull_to_target=1,
+    )
+    assert len(labels[0].instances) == 1
+
     labels = run_inference(
         model_paths=[
             minimal_instance_centroid_ckpt,
