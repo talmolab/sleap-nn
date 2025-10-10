@@ -1,7 +1,7 @@
 """Predictors for running inference."""
 
 from collections import defaultdict
-from typing import Dict, List, Optional, Union, Iterator, Text
+from typing import Any, Dict, List, Optional, Union, Iterator, Text
 from pathlib import Path
 from abc import ABC, abstractmethod
 import numpy as np
@@ -72,6 +72,25 @@ class RateColumn(rich.progress.ProgressColumn):
         return rich.progress.Text(f"{speed:.1f} FPS", style="progress.data.speed")
 
 
+class _StagedOutput:
+    """Container for asynchronously copied inference outputs."""
+
+    __slots__ = ("event", "payload")
+
+    def __init__(self, payload: Any, event: Optional[torch.cuda.Event] = None) -> None:
+        self.payload = payload
+        self.event = event
+
+    def ready(self) -> bool:
+        """True when the associated transfer event has completed."""
+        return True if self.event is None else self.event.query()
+
+    def wait(self) -> None:
+        """Block until the payload is ready for CPU consumption."""
+        if self.event is not None:
+            self.event.synchronize()
+
+
 @attrs.define
 class Predictor(ABC):
     """Base interface class for predictors.
@@ -114,6 +133,9 @@ class Predictor(ABC):
     ] = None
     instances_key: bool = False
     max_stride: int = 16
+    _cpu_transfer_stream: Optional[torch.cuda.Stream] = attrs.field(
+        init=False, default=None, repr=False
+    )
 
     @classmethod
     def from_model_paths(
@@ -331,15 +353,86 @@ class Predictor(ABC):
     def _initialize_inference_model(self):
         """Initialize the Inference model."""
 
+    def _ensure_cpu_transfer_stream(self) -> Optional[torch.cuda.Stream]:
+        """Initialize and cache the async CPU transfer stream when CUDA is available."""
+
+        if not torch.cuda.is_available():
+            return None
+        if self._cpu_transfer_stream is None:
+            self._cpu_transfer_stream = torch.cuda.Stream()
+        return self._cpu_transfer_stream
+
+    def _stage_output_for_numpy(self, output: Dict[str, Any]) -> _StagedOutput:
+        """Schedule an async GPU→CPU copy for the inference output.
+
+        Args:
+            output: The raw output dictionary returned by the model.
+
+        Returns:
+            A `_StagedOutput` whose payload is CPU-resident tensors ready for numpy
+            conversion once the associated CUDA event completes.
+        """
+
+        stream = self._ensure_cpu_transfer_stream()
+        has_cuda_tensor = False
+
+        def copy_value(value: Any) -> Any:
+            nonlocal has_cuda_tensor
+
+            if torch.is_tensor(value):
+                tensor = value.detach()
+                if tensor.device.type == "cuda":
+                    has_cuda_tensor = True
+                    if stream is None:
+                        return tensor.cpu()
+                    tensor = tensor.contiguous()
+                    cpu_tensor = torch.empty_like(tensor, device="cpu").pin_memory()
+                    cpu_tensor.copy_(tensor, non_blocking=True)
+                    tensor.record_stream(stream)
+                    return cpu_tensor
+                if tensor.device.type == "cpu":
+                    return tensor.contiguous()
+                return tensor.to(device="cpu")
+
+            if isinstance(value, dict):
+                return {k: copy_value(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [copy_value(v) for v in value]
+            if isinstance(value, tuple):
+                return tuple(copy_value(v) for v in value)
+
+            return value
+
+        if stream is not None:
+            with torch.cuda.stream(stream):
+                staged_payload = {k: copy_value(v) for k, v in output.items()}
+                event = (
+                    torch.cuda.Event(enable_timing=False) if has_cuda_tensor else None
+                )
+                if event is not None:
+                    event.record(stream)
+        else:
+            staged_payload = {k: copy_value(v) for k, v in output.items()}
+            event = None
+
+        return _StagedOutput(staged_payload, event)
+
     def _convert_tensors_to_numpy(self, output):
         """Convert tensors in output dictionary to numpy arrays."""
-        for k, v in output.items():
-            if isinstance(v, torch.Tensor):
-                output[k] = output[k].cpu().numpy()
-            if isinstance(v, list) and isinstance(v[0], torch.Tensor):
-                for n in range(len(v)):
-                    v[n] = v[n].cpu().numpy()
-        return output
+        def to_numpy(value: Any) -> Any:
+            if torch.is_tensor(value):
+                if value.device.type != "cpu":
+                    value = value.detach().to(device="cpu")
+                return value.detach().numpy()
+            if isinstance(value, dict):
+                return {k: to_numpy(v) for k, v in value.items()}
+            if isinstance(value, list):
+                return [to_numpy(v) for v in value]
+            if isinstance(value, tuple):
+                return tuple(to_numpy(v) for v in value)
+            return value
+
+        return {k: to_numpy(v) for k, v in output.items()}
 
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
         """Create a generator that yields batches of inference results.
@@ -381,6 +474,7 @@ class Predictor(ABC):
 
                 task = progress.add_task("Predicting...", total=total_frames)
                 last_report = time()
+                pending_outputs: List[_StagedOutput] = []
 
                 done = False
                 while not done:
@@ -456,8 +550,10 @@ class Predictor(ABC):
                         outputs_list = self.inference_model(ex)
                         if outputs_list is not None:
                             for output in outputs_list:
-                                output = self._convert_tensors_to_numpy(output)
-                                yield output
+                                pending_outputs.append(
+                                    self._stage_output_for_numpy(output)
+                                )
+                            del outputs_list
 
                         # Advance progress
                         num_frames = (
@@ -467,10 +563,24 @@ class Predictor(ABC):
                         )
                         progress.update(task, advance=num_frames)
 
+                    while pending_outputs and pending_outputs[0].ready():
+                        staged_output = pending_outputs.pop(0)
+                        staged_output.wait()
+                        result = self._convert_tensors_to_numpy(staged_output.payload)
+                        staged_output.payload = None
+                        yield result
+
                     # Manually refresh progress bar
                     if time() - last_report > 0.25:
                         progress.refresh()
                         last_report = time()
+
+                while pending_outputs:
+                    staged_output = pending_outputs.pop(0)
+                    staged_output.wait()
+                    result = self._convert_tensors_to_numpy(staged_output.payload)
+                    staged_output.payload = None
+                    yield result
 
         except KeyboardInterrupt:
             logger.info("Inference interrupted by user")
