@@ -81,3 +81,10 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
    uv run black --check sleap_nn tests
    uv run ruff check sleap_nn/
    ```
+
+> **Upgrading All Dependencies**
+> To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
+> ```bash
+> uv sync --extra dev --upgrade
+> ```
+> This will upgrade all installed packages in your environment to the latest available versions compatible with your `pyproject.toml`.

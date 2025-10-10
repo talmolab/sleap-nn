@@ -23,15 +23,16 @@
 
 Let's start SLEAPiNNg !!! 🐭🐭
 
-!!! info "Prerequisite: uv installation"
-    Install [`uv`](https://github.com/astral-sh/uv), a fast Python package manager for modern projects:
-    ```bash
-    # macOS/Linux
-    curl -LsSf https://astral.sh/uv/install.sh | sh
-    
-    # Windows
-    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-    ```
+**Prerequisite: uv installation**
+
+Install [`uv`](https://github.com/astral-sh/uv), a fast Python package manager for modern projects:
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
 
 ### Step - 1 : Set Up Your Configuration
 
@@ -68,7 +69,7 @@ We use `uvx` here which automatically installs sleap-nn from PyPI with all depen
 
 !!! info
     - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 
@@ -93,7 +94,7 @@ To run inference:
 
 !!! info
     - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 

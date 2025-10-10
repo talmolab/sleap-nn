@@ -41,7 +41,12 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
      ```bash
       uv sync --extra dev --extra torch-cpu
       ```
-
+> **Upgrading All Dependencies**
+> To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
+> ```bash
+> uv sync --extra dev --upgrade
+> ```
+> This will upgrade all installed packages in your environment to the latest available versions compatible with your `pyproject.toml`.
 
 ## Code Style
 
