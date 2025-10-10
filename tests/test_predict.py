@@ -249,6 +249,7 @@ def test_topdown_predictor(
         output_path=tmp_path,
         max_instances=2,
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
         max_tracks=None,
         device="cpu",
         peak_threshold=0.1,
@@ -275,6 +276,7 @@ def test_topdown_predictor(
             output_path=tmp_path,
             max_instances=None,
             post_connect_single_breaks=True,
+            tracking_target_instance_count=0,
             max_tracks=None,
             device="cpu",
             peak_threshold=0.1,
@@ -282,7 +284,7 @@ def test_topdown_predictor(
             tracking=True,
             integral_refinement=None,
         )
-        assert "Max_tracks (and max instances) is None" in caplog.text
+        assert "tracking_target_instance_count is 0" in caplog.text
 
 
 def test_multiclass_topdown_predictor(
@@ -765,7 +767,6 @@ def test_bottomup_predictor(
         tracking=True,
         candidates_method="local_queues",
         max_tracks=6,
-        post_connect_single_breaks=True,
         device="cpu",
         integral_refinement=None,
     )
@@ -952,6 +953,7 @@ def test_tracking_only_pipeline(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     labels.save(f"{tmp_path}/preds.slp")
 
@@ -961,6 +963,7 @@ def test_tracking_only_pipeline(
         post_connect_single_breaks=True,
         max_instances=2,
         integral_refinement=None,
+        tracking_target_instance_count=2,
     )
 
     assert len(tracked_labels.tracks) == 2
@@ -988,6 +991,7 @@ def test_tracking_only_pipeline(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     labels.save(f"{tmp_path}/preds.slp")
 
@@ -995,6 +999,7 @@ def test_tracking_only_pipeline(
         data_path=f"{tmp_path}/preds.slp",
         tracking=True,
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
         max_instances=2,
         integral_refinement=None,
         frames=[x for x in range(0, 5)],
@@ -1017,6 +1022,7 @@ def test_tracking_only_pipeline(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     labels.videos.append(sio.load_video(minimal_instance))
     assert len(labels.videos) == 2
@@ -1027,6 +1033,7 @@ def test_tracking_only_pipeline(
         tracking=True,
         post_connect_single_breaks=True,
         max_instances=2,
+        tracking_target_instance_count=2,
         integral_refinement=None,
         frames=[x for x in range(0, 5)],
         video_index=0,
@@ -1202,10 +1209,147 @@ def test_predict_main(
         "--output_path",
         f"{tmp_path}/test.slp",
         "--frames",
-        "0-99",
+        "0-9",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
 
     labels = sio.load_slp(f"{tmp_path}/test.slp")
-    assert len(labels) == 100
+    assert len(labels) == 10
+
+    # pre tracking cleaning
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "track",
+        "--model_paths",
+        minimal_instance_centroid_ckpt,
+        "--model_paths",
+        minimal_instance_centered_instance_ckpt,
+        "--data_path",
+        centered_instance_video.as_posix(),
+        "--max_instances",
+        "6",
+        "--output_path",
+        f"{tmp_path}/test.slp",
+        "--frames",
+        "0-9",
+        "--tracking",
+        "--no_empty_frames",
+        "--tracking_target_instance_count",
+        "1",
+        "--tracking_pre_cull_to_target",
+        "1",
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert Path(f"{tmp_path}/test.slp").exists()
+
+    labels = sio.load_slp(f"{tmp_path}/test.slp")
+    assert len(labels) == 10
+
+    assert len(labels[0].instances) == 1
+
+    # with post tracking cleaning
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "track",
+        "--model_paths",
+        minimal_instance_centroid_ckpt,
+        "--model_paths",
+        minimal_instance_centered_instance_ckpt,
+        "--data_path",
+        centered_instance_video.as_posix(),
+        "--max_instances",
+        "6",
+        "--output_path",
+        f"{tmp_path}/test.slp",
+        "--frames",
+        "0-9",
+        "--tracking",
+        "--no_empty_frames",
+        "--tracking_clean_instance_count",
+        "1",
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert Path(f"{tmp_path}/test.slp").exists()
+
+    labels = sio.load_slp(f"{tmp_path}/test.slp")
+    assert len(labels) == 10
+
+    assert len(labels[0].instances) == 1
+
+
+def test_topdown_predictor_with_tracking_cleaning(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    centered_instance_video,
+    tmp_path,
+):
+    """Test topdown predictor with tracking cleaning."""
+    # pre tracking cleaning
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        tracking=True,
+        tracking_target_instance_count=1,
+        tracking_pre_cull_to_target=1,
+    )
+    assert len(labels[0].instances) == 1
+
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        tracking=True,
+        tracking_clean_instance_count=1,
+    )
+    assert len(labels[0].instances) == 1
+
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        tracking=True,
+        tracking_clean_instance_count=2,
+    )
+    assert len(labels[0].instances) == 2
+
+    # no empty frames
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        no_empty_frames=True,
+        frames=[x for x in range(0, 10)],
+        peak_threshold=1.0,
+        output_path=tmp_path,
+    )
+    assert len(labels) < 10

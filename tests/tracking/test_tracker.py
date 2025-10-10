@@ -8,6 +8,12 @@ from sleap_nn.tracking.track_instance import (
     TrackInstanceLocalQueue,
     TrackInstances,
 )
+from sleap_nn.tracking.utils import (
+    nms_fast,
+    nms_instances,
+    cull_instances,
+    cull_frame_instances,
+)
 import math
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
@@ -45,6 +51,119 @@ def get_pred_instances(
         pred_instances.extend(lf.instances)
         imgs.append(lf.image)
     return pred_instances, imgs
+
+
+def centered_pair_predictions(
+    minimal_instance_centered_instance_ckpt,
+    minmal_instance_centroid_ckpt,
+    centered_instance_video,
+    tmp_path,
+):
+    """Test centered pair predictions."""
+    result_labels = run_inference(
+        model_paths=[
+            minmal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=2,
+        peak_threshold=0.0,
+        integral_refinement="integral",
+        frames=[x for x in range(0, 65)],
+    )
+    return result_labels
+
+
+def test_cull_instances(
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
+    centered_instance_video,
+    tmp_path,
+):
+    """Test cull instances."""
+    preds = centered_pair_predictions(
+        minimal_instance_centered_instance_ckpt,
+        minimal_instance_centroid_ckpt,
+        centered_instance_video,
+        tmp_path,
+    )
+    frames = preds.labeled_frames[52:60]
+    cull_instances(frames=frames, instance_count=2)
+
+    for frame in frames:
+        assert len(frame.instances) == 2
+
+    frames = preds.labeled_frames[:5]
+    cull_instances(frames=frames, instance_count=1)
+
+    for frame in frames:
+        assert len(frame.instances) == 1
+
+
+def test_nms():
+    """Test nms."""
+    boxes = np.array(
+        [[10, 10, 20, 20], [10, 10, 15, 15], [30, 30, 40, 40], [32, 32, 42, 42]]
+    )
+    scores = np.array([1, 0.3, 1, 0.5])
+
+    picks = nms_fast(boxes, scores, iou_threshold=0.5)
+    assert sorted(picks) == [0, 2]
+
+
+def test_nms_with_target():
+    """Test nms with target."""
+    boxes = np.array(
+        [[10, 10, 20, 20], [10, 10, 15, 15], [30, 30, 40, 40], [32, 32, 42, 42]]
+    )
+    # Box 1 is suppressed and has lowest score
+    scores = np.array([1, 0.3, 1, 0.5])
+    picks = nms_fast(boxes, scores, iou_threshold=0.5, target_count=3)
+    assert sorted(picks) == [0, 2, 3]
+
+    # Box 3 is suppressed and has lowest score
+    scores = np.array([1, 0.5, 1, 0.3])
+    picks = nms_fast(boxes, scores, iou_threshold=0.5, target_count=3)
+    assert sorted(picks) == [0, 1, 2]
+
+
+def test_nms_instances_to_remove():
+    """Test nms instances to remove."""
+    skeleton = sio.Skeleton()
+    skeleton.add_nodes(("a", "b"))
+
+    instances = []
+
+    inst = sio.PredictedInstance.from_numpy(
+        np.array([[10, 10], [20, 20]]), skeleton=skeleton
+    )
+    inst.score = 1
+    instances.append(inst)
+
+    inst = sio.PredictedInstance.from_numpy(
+        np.array([[10, 10], [15, 15]]), skeleton=skeleton
+    )
+    inst.score = 0.3
+    instances.append(inst)
+
+    inst = sio.PredictedInstance.from_numpy(
+        np.array([[30, 30], [40, 40]]), skeleton=skeleton
+    )
+    inst.score = 1
+    instances.append(inst)
+
+    inst = sio.PredictedInstance.from_numpy(
+        np.array([[32, 32], [42, 42]]), skeleton=skeleton
+    )
+    inst.score = 0.5
+    instances.append(inst)
+
+    to_keep, to_remove = nms_instances(instances, iou_threshold=0.5, target_count=3)
+
+    assert len(to_remove) == 1
+    assert to_remove[0].same_pose_as(instances[1])
 
 
 def test_tracker(
@@ -379,6 +498,7 @@ def test_run_tracker(
         max_tracks=2,
         candidates_method="local_queues",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     output = sio.Labels(
         labeled_frames=tracked_lfs,
@@ -387,8 +507,8 @@ def test_run_tracker(
     )
     assert len(output.tracks) == 2
 
-    # test run tracker with post connect single breaks
-    with pytest.raises(ValueError):
+    # test run tracker with post connect single breaks and without target instance count
+    with pytest.raises(Exception):
         labels = run_inference(
             model_paths=[
                 minimal_instance_centroid_ckpt,
@@ -419,6 +539,7 @@ def test_run_tracker(
         max_tracks=2,
         candidates_method="local_queues",
         post_connect_single_breaks=True,
+        tracking_target_instance_count=2,
     )
     output = sio.Labels(
         labeled_frames=tracked_lfs,
@@ -426,3 +547,35 @@ def test_run_tracker(
         skeletons=labels.skeletons,
     )
     assert len(output.tracks) == 2
+
+
+def test_post_clean_up(
+    minimal_instance_centroid_ckpt,
+    minimal_instance_centered_instance_ckpt,
+    centered_instance_video,
+    tmp_path,
+):
+    """Tests for post clean up."""
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=2,
+        peak_threshold=0.1,
+        frames=[x for x in range(0, 10)],
+        integral_refinement="integral",
+        scoring_reduction="robust_quantile",
+    )
+
+    # test post clean up
+    tracked_lfs = run_tracker(
+        untracked_frames=[x for x in labels],
+        max_tracks=2,
+        candidates_method="local_queues",
+        tracking_clean_instance_count=1,
+    )
+    assert len(tracked_lfs[0].instances) == 1

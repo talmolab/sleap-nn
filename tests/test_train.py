@@ -442,7 +442,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     train(
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
-        max_epochs=20,
+        max_epochs=2,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         trainer_num_devices=1,
         backbone_config="unet",

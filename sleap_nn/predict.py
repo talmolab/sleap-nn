@@ -9,7 +9,12 @@ from sleap_nn.inference.predictors import (
     BottomUpMultiClassPredictor,
     TopDownMultiClassPredictor,
 )
-from sleap_nn.tracking.tracker import Tracker, run_tracker, connect_single_breaks
+from sleap_nn.tracking.tracker import (
+    Tracker,
+    run_tracker,
+    connect_single_breaks,
+    cull_instances,
+)
 from omegaconf import OmegaConf
 import sleap_io as sio
 from pathlib import Path
@@ -53,6 +58,7 @@ def run_inference(
     anchor_part: Optional[str] = None,
     only_labeled_frames: bool = False,
     only_suggested_frames: bool = False,
+    no_empty_frames: bool = False,
     batch_size: int = 4,
     queue_maxsize: int = 8,
     video_index: Optional[int] = None,
@@ -92,6 +98,11 @@ def run_inference(
     of_window_size: int = 21,
     of_max_levels: int = 3,
     post_connect_single_breaks: bool = False,
+    tracking_target_instance_count: int = 0,
+    tracking_pre_cull_to_target: int = 0,
+    tracking_pre_cull_iou_threshold: float = 0,
+    tracking_clean_instance_count: int = 0,
+    tracking_clean_iou_threshold: float = 0,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
@@ -125,6 +136,7 @@ def run_inference(
                 provided, the anchor part in the `training_config.yaml` is used. Default: `None`.
         only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
         only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+        no_empty_frames: (bool) `True` if empty frames that did not have predictions should be cleared before saving to output. Default: `False`.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
         video_index: (int) Integer index of video in .slp file to predict on. To be used with
@@ -224,6 +236,11 @@ def run_inference(
             Default: 3. (only if `use_flow` is True).
         post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
             connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
+        tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+        tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
+        tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
+        tracking_clean_instance_count: Target number of instances to clean *after* tracking. (default: 0)
+        tracking_clean_iou_threshold: IOU to use when culling instances *after* tracking. (default: 0)
 
     Returns:
         Returns `sio.Labels` object if `make_labels` is True. Else this function returns
@@ -300,6 +317,11 @@ def run_inference(
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
                 post_connect_single_breaks=post_connect_single_breaks,
+                tracking_target_instance_count=tracking_target_instance_count,
+                tracking_pre_cull_to_target=tracking_pre_cull_to_target,
+                tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
+                tracking_clean_instance_count=tracking_clean_instance_count,
+                tracking_clean_iou_threshold=tracking_clean_iou_threshold,
             )
 
             finish_timestamp = str(datetime.now())
@@ -370,6 +392,9 @@ def run_inference(
                 of_img_scale=of_img_scale,
                 of_window_size=of_window_size,
                 of_max_levels=of_max_levels,
+                tracking_target_instance_count=tracking_target_instance_count,
+                tracking_pre_cull_to_target=tracking_pre_cull_to_target,
+                tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
             )
 
         if isinstance(predictor, BottomUpPredictor):
@@ -418,29 +443,38 @@ def run_inference(
             make_labels=make_labels,
         )
 
-        if tracking and post_connect_single_breaks:
-            if max_tracks is None:
-                max_tracks = max_instances
+        if tracking:
+            lfs = [x for x in output]
+            if tracking_clean_instance_count > 0:
+                lfs = cull_instances(
+                    lfs, tracking_clean_instance_count, tracking_clean_iou_threshold
+                )
+                if not post_connect_single_breaks:
+                    corrected_lfs = connect_single_breaks(
+                        lfs, tracking_clean_instance_count
+                    )
+            elif post_connect_single_breaks:
+                if not tracking_target_instance_count:
+                    message = "tracking_target_instance_count is 0. To connect single breaks, tracking_target_instance_count should be set to an integer."
+                    logger.error(message)
+                    raise ValueError(message)
 
-            if max_tracks is None:
-                message = "Max_tracks (and max instances) is None. To connect single breaks, max_tracks should be set to an integer."
-                logger.error(message)
-                raise ValueError(message)
-
-            start_final_pass_time = time()
-            start_fp_timestamp = str(datetime.now())
-            logger.info(
-                f"Started final-pass (connecting single breaks) at: {start_fp_timestamp}"
-            )
-            corrected_lfs = connect_single_breaks(
-                lfs=[x for x in output], max_instances=max_tracks
-            )
-            finish_fp_timestamp = str(datetime.now())
-            total_fp_elapsed = time() - start_final_pass_time
-            logger.info(
-                f"Finished final-pass (connecting single breaks) at: {finish_fp_timestamp}"
-            )
-            logger.info(f"Total runtime: {total_fp_elapsed} secs")
+                start_final_pass_time = time()
+                start_fp_timestamp = str(datetime.now())
+                logger.info(
+                    f"Started final-pass (connecting single breaks) at: {start_fp_timestamp}"
+                )
+                corrected_lfs = connect_single_breaks(
+                    lfs, max_instances=tracking_target_instance_count
+                )
+                finish_fp_timestamp = str(datetime.now())
+                total_fp_elapsed = time() - start_final_pass_time
+                logger.info(
+                    f"Finished final-pass (connecting single breaks) at: {finish_fp_timestamp}"
+                )
+                logger.info(f"Total runtime: {total_fp_elapsed} secs")
+            else:
+                corrected_lfs = lfs
 
             output = sio.Labels(
                 labeled_frames=corrected_lfs,
@@ -454,6 +488,9 @@ def run_inference(
         logger.info(
             f"Total runtime: {total_elapsed} secs"
         )  # TODO: add number of predicted frames
+
+    if no_empty_frames:
+        output.clean(frames=True, skeletons=False)
 
     if make_labels:
         if output_path is None:
