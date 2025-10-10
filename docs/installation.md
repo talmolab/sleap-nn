@@ -1,19 +1,32 @@
 # Installation
 
-**Prerequisites:** Python 3.11+ (required for all installation methods)
+**Prerequisites:** 
+
+Python 3.11 (or) 3.12 (or) 3.13 (required for all installation methods)
 
 !!! warning "Python 3.14 is not yet supported"
     `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** If you have Python 3.14 installed, you must specify the Python version in all `uv` install commands by adding `--python 3.13`.  
     For example:
     ```bash
+    # for uv tool install
     uv tool install --python 3.13 "sleap-nn[torch]"  ...
+
+    # for uvx
+    uvx --python 3.13 ...
+
+    # for uv add setup; specify version in uv init
+    uv init --python 3.13
+
+    # for uv sync
+    uv sync --python 3.13 ...
     ```
     Replace `...` with the rest of your install command as needed.
+
 
 !!! tip "Choose Your Installation Method"
     - **[Installation as a system-wide tool with uv](#installation-as-a-system-wide-tool-with-uv)**: **(Recommended)** Use `uv tool install` to install sleap-nn globally as a CLI tool
     - **[Installation with uvx](#installation-with-uvx)**: Use `uvx` for one-off commands (no installation needed)
-    - **[Installation with uv add](#installation-with-uv-add)**: Use `uv add` to install sleap-nn as a dependency in a uv virtual env.
+    - **[Installation with uv add](#installation-with-uv-add)**: Use `uv add` to install sleap-nn as a dependency in a uv virtual env. (useful for project-specific workspaces)
     - **[Installation with pip](#installation-with-pip)**: Use `pip` to install from pypi in a conda env. (Recommended to use with a conda env)
     - **[Installation from source](#installation-from-source)**: Use `uv sync` to install from source (for developmental purposes)
 
@@ -34,14 +47,6 @@
     ```
 
 ### Platform-Specific Installation
-
-!!! warning "Python 3.14 is not yet supported"
-    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** If you have Python 3.14 installed, you must specify the Python version in the install commands by adding `--python 3.13`.  
-    For example:
-    ```bash
-    uv tool install --python 3.13 "sleap-nn[torch]"  ...
-    ```
-    Replace `...` with the rest of your install command as needed.
 
 === "Windows/Linux (CUDA)"
     ```bash
@@ -64,7 +69,7 @@
 
 !!! info
     - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 ### Verify installation
@@ -92,14 +97,6 @@ sleap-nn --help
 
 ### Platform-Specific Commands
 
-!!! warning "Python 3.14 is not yet supported"
-    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** If you have Python 3.14 installed, you must specify the Python version in the install commands by adding `--python 3.13`.  
-    For example:
-    ```bash
-    uvx --python 3.13  ...
-    ```
-    Replace `...` with the rest of your install command as needed.
-
 === "Windows/Linux (CUDA)"
     ```bash
     uvx --from "sleap-nn[torch]" --index https://download.pytorch.org/whl/cu128 --index https://pypi.org/simple sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
@@ -120,14 +117,8 @@ sleap-nn --help
 
 !!! note
     - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
-
-!!! tip "How uvx Works"
-    - **Automatic Installation**: Downloads and installs sleap-nn with dependencies
-    - **Isolated Environment**: Each command runs in a clean, temporary environment
-    - **No Conflicts**: Won't interfere with your existing Python packages
-    - **Uses recent pkgs**: Uses the latest version from PyPI
 
 !!! note "uvx Installation"
     Because `uvx` installs packages fresh on every run, it's ideal for quick tests or use in remote environments. For regular use, you could install with [`uv tool install`](#installation-as-a-system-wide-tool-with-uv) or setting up a development environment with [`uv sync`](#installation-from-source) to avoid repeated downloads.
@@ -137,14 +128,6 @@ sleap-nn --help
 ## Installation with uv add
 
 This method creates a dedicated project environment using uv's modern Python project management. It initializes a new project with `uv init`, creates an isolated virtual environment with `uv venv`, and adds sleap-nn as a dependency using `uv add`. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-
-!!! warning "Python 3.14 is not yet supported"
-    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** `uv` will use the system-installed python by default. If you have python 3.14 installed on your system, then specify the Python version (<=3.13) in the venv command.  
-    For example:
-    ```bash
-    uv venv --python 3.13  ...
-    ```
-    Replace `...` with the rest of your install command as needed.
 
 !!! note "Install and set-up uv"
     Step-1: Install [`uv`](https://github.com/astral-sh/uv) - a fast Python package manager:
@@ -167,18 +150,34 @@ This method creates a dedicated project environment using uv's modern Python pro
 !!! tip "How `uv add` works"
     - When you run `uv init`, it creates a `pyproject.toml` file in your working directory to manage your project's dependencies.
     - When you use `uv add sleap-nn[torch]`, it adds `sleap-nn[torch]` as a dependency in your `pyproject.toml` and installs it in your virtual environment.
-    - To add other packages, simply run `uv add <package>`. After adding new packages, you should run `uv sync` to update your environment with all dependencies specified in `pyproject.toml`.
+    - To add other packages, simply run `uv add <package>`. After adding new packages, you should run `uv sync` to update your environment with all dependencies specified in `pyproject.toml`. (or `uv sync --upgrade` to update all dependencies)
     - To install a local package (such as a local clone of sleap-nn) in editable mode, use:
       ```bash
-      uv add --editable "./sleap-nn[torch]" ...
+      uv add --editable "path/to/sleap-nn[torch]" ...
       ```
       This is useful for development, as changes to the code are immediately reflected in your environment.
 
+!!! warning "Windows: MarkupSafe Installation Issue"
+    On **Windows**, you may encounter errors when running `uv add "sleap-nn[torch]" --index ...` due to an incompatibility with the MarkupSafe wheel (e.g., "failed to install MarkupSafe" or similar errors).  
+    Similar issues: [#11532](https://github.com/astral-sh/uv/issues/11532) and [#12620](https://github.com/astral-sh/uv/issues/12620).
+
+    **Workaround:**  
+    Before running `uv add "sleap-nn[torch]" ...` on Windows, manually install a compatible version of MarkupSafe:
+
+    ```bash
+    uv add git+https://github.com/pallets/markupsafe@3.0.2
+    ```
+
+    Then proceed with:
+
+    ```bash
+    uv add "sleap-nn[torch]" ...
+    ```
 
 === "Windows/Linux (CUDA)"
     ```bash
     # CUDA 12.8
-    uv add sleap-nn[torch] ---index https://download.pytorch.org/whl/cu128 --index https://pypi.org/simple
+    uv add sleap-nn[torch] --index https://download.pytorch.org/whl/cu128 --index https://pypi.org/simple
 
     # CUDA 11.8
     uv add sleap-nn[torch] --index https://download.pytorch.org/whl/cu118 --index https://pypi.org/simple
@@ -196,7 +195,7 @@ This method creates a dedicated project environment using uv's modern Python pro
 
 !!! info
     - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 ### Verify Installation
@@ -257,7 +256,7 @@ conda activate sleap-nn-env
 
 !!! info
     - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--extra-index-url` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cuda118` for CUDA 11.8, `https://download.pytorch.org/whl/cuda128` for CUDA 12.8, etc.).
+      The `--extra-index-url` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 
@@ -301,14 +300,6 @@ cd sleap-nn
 
 #### 3. Install Dependencies
 
-!!! warning "Python 3.14 is not yet supported"
-    `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**. **Python 3.14 is not yet tested or supported.** `uv` will use the system-installed python by default. If you have python 3.14 installed on your system, then specify the Python version (<=3.13) in the installation command.  
-    For example:
-    ```bash
-    uv sync --python 3.13 ...
-    ```
-    Replace `...` with the rest of your install command as needed.
-
 === "Windows/Linux (CUDA 11.8)"
     ```bash
     uv sync --extra dev --extra torch-cuda118
@@ -323,6 +314,14 @@ cd sleap-nn
     ```bash
     uv sync --extra dev --extra torch-cpu
     ```
+
+!!! tip "Upgrading All Dependencies"
+    To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
+    ```bash
+    uv sync --extra dev --upgrade
+    ```
+    This will upgrade all installed packages in your environment to the latest available versions compatible with your `pyproject.toml`.
+
 
 ### Verify Installation
 
