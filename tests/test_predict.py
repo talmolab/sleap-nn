@@ -1217,6 +1217,7 @@ def test_predict_main(
     labels = sio.load_slp(f"{tmp_path}/test.slp")
     assert len(labels) == 100
 
+    # pre tracking cleaning
     cmd = [
         "uv",
         "run",
@@ -1236,8 +1237,39 @@ def test_predict_main(
         "0-99",
         "--tracking",
         "--no_empty_frames",
+        "--tracking_target_instance_count",
+        "1",
         "--tracking_pre_cull_to_target",
         "1",
+    ]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    assert Path(f"{tmp_path}/test.slp").exists()
+
+    labels = sio.load_slp(f"{tmp_path}/test.slp")
+    assert len(labels) == 100
+
+    assert len(labels[0].instances) == 1
+
+    # with post tracking cleaning
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "track",
+        "--model_paths",
+        minimal_instance_centroid_ckpt,
+        "--model_paths",
+        minimal_instance_centered_instance_ckpt,
+        "--data_path",
+        centered_instance_video.as_posix(),
+        "--max_instances",
+        "6",
+        "--output_path",
+        f"{tmp_path}/test.slp",
+        "--frames",
+        "0-99",
+        "--tracking",
+        "--no_empty_frames",
         "--tracking_clean_instance_count",
         "1",
     ]
