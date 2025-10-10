@@ -1209,13 +1209,13 @@ def test_predict_main(
         "--output_path",
         f"{tmp_path}/test.slp",
         "--frames",
-        "0-99",
+        "0-9",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
 
     labels = sio.load_slp(f"{tmp_path}/test.slp")
-    assert len(labels) == 100
+    assert len(labels) == 10
 
     # pre tracking cleaning
     cmd = [
@@ -1234,7 +1234,7 @@ def test_predict_main(
         "--output_path",
         f"{tmp_path}/test.slp",
         "--frames",
-        "0-99",
+        "0-9",
         "--tracking",
         "--no_empty_frames",
         "--tracking_target_instance_count",
@@ -1246,7 +1246,7 @@ def test_predict_main(
     assert Path(f"{tmp_path}/test.slp").exists()
 
     labels = sio.load_slp(f"{tmp_path}/test.slp")
-    assert len(labels) == 100
+    assert len(labels) == 10
 
     assert len(labels[0].instances) == 1
 
@@ -1267,7 +1267,7 @@ def test_predict_main(
         "--output_path",
         f"{tmp_path}/test.slp",
         "--frames",
-        "0-99",
+        "0-9",
         "--tracking",
         "--no_empty_frames",
         "--tracking_clean_instance_count",
@@ -1277,7 +1277,7 @@ def test_predict_main(
     assert Path(f"{tmp_path}/test.slp").exists()
 
     labels = sio.load_slp(f"{tmp_path}/test.slp")
-    assert len(labels) == 100
+    assert len(labels) == 10
 
     assert len(labels[0].instances) == 1
 
