@@ -2793,6 +2793,11 @@
 <td>List of frames indices. If <code>None</code>, all frames in the video are used</td>
 <td>All frames</td>
 </tr>
+<tr>
+<td><code>--no_empty_frames</code></td>
+<td>If <code>True</code>, removes frames with no predicted instances from the output labels</td>
+<td><code>False</code></td>
+</tr>
 </tbody>
 </table>
 <h4 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h4>
@@ -2949,6 +2954,14 @@ Setting <code>return_confmaps=True</code> will also return the raw confidence ma
 </tr>
 </tbody>
 </table>
+<div class="admonition warning">
+<p class="admonition-title">Tracking cleaning and pre-cull parameters</p>
+<p>The parameters <code>--tracking_pre_cull_to_target</code>, <code>--tracking_target_instance_count</code>, <code>tracking_pre_cull_iou_threshold</code>, <code>tracking_clean_iou_threshold</code> and <code>--tracking_clean_instance_count</code> are provided for backwards compatibility with legacy SLEAP workflows and <strong>may be deprecated in future releases</strong>. </p>
+<ul>
+<li>To restrict the number of instances per frame, use the <code>--max_instances</code> parameter, which selects the top instances with the highest prediction scores.</li>
+</ul>
+<p>We recommend using <code>--max_instances</code> for controlling the number of predicted instances per frame in new projects.</p>
+</div>
 <h4 id="fixed-window-tracking">Fixed Window Tracking<a class="headerlink" href="#fixed-window-tracking" title="Permanent link">&para;</a></h4>
 <p>This method maintains a fixed-size queue with the last N frames and uses all instances from those frames as candidates for matching.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
