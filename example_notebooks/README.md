@@ -12,7 +12,7 @@ The example notebooks use marimo, which provides a **sandboxed environment** tha
 
 ### Prerequisites
 
-**Install [uv](https://github.com/astral-sh/uv)**: 
+**Step-1 : Install [uv](https://github.com/astral-sh/uv)**: 
 Install [`uv`](https://github.com/astral-sh/uv) first - a fast Python package manager:
    ```bash
    # macOS/Linux
@@ -22,27 +22,10 @@ Install [`uv`](https://github.com/astral-sh/uv) first - a fast Python package ma
    powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```
 
-### Setup
-
-**Step-1 : Add [marimo](https://github.com/marimo-team/marimo) to your project**
-
-Ensure the working directory where you run `uv init` doesn't have an existing `pyproject.toml` as `uv add` will try to add marimo to the existing `.toml`.
-
-```bash
-# move to a new dir
-mkdir sleap_nn_notebooks
-cd sleap_nn_notebooks
-
-# initialize uv
-uv init
-
-# Install marimo
-uv add marimo
-```
 
 **Step-2 : Run the marimo notebooks**
 
-Download the notebooks from [here](https://github.com/talmolab/sleap-nn/tree/main/example_notebooks) and ensure the python scripts are in your current working directory!
+Download the notebooks from [here](https://github.com/talmolab/sleap-nn/tree/main/example_notebooks)!
 
 (i) Training Demo Notebook
 
