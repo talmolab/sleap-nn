@@ -61,7 +61,11 @@ def run_training(config: DictConfig):
                 OmegaConf.select(config, "data_config.test_file_path", default=None)
                 is not None
             ):
-                data_paths["test"] = config.data_config.test_file_path
+                if isinstance(config.data_config.test_file_path, list):
+                    for index, path in enumerate(config.data_config.test_file_path):
+                        data_paths[f"test_{index}"] = path
+                else: 
+                    data_paths["test"] = config.data_config.test_file_path
 
             for d_name, path in data_paths.items():
                 labels = sio.load_slp(path)
@@ -115,7 +119,7 @@ def train(
     train_labels_path: Optional[List[str]] = None,
     val_labels_path: Optional[List[str]] = None,
     validation_fraction: float = 0.1,
-    test_file_path: Optional[str] = None,
+    test_file_path: Optional[Union[str, List[str]]] = None,
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
     data_pipeline_fw: str = "torch_dataset",
@@ -193,7 +197,7 @@ def train(
             training set to sample for generating the validation set. The remaining
             labeled frames will be left in the training set. If the `validation_labels`
             are already specified, this has no effect. Default: 0.1.
-        test_file_path: Path to test dataset (`.slp` file or `.mp4` file).
+        test_file_path: (list | str) List of paths or Path to test dataset (`.slp` file or `.mp4` file).
             Note: This is used to get evaluation on test set after training is completed.
         provider: Provider class to read the input sleap files. Only "LabelsReader"
             supported for the training pipeline. Default: "LabelsReader".

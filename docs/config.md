@@ -193,7 +193,7 @@ The data configuration section controls how training and validation data is load
 - `train_labels_path`: (list) List of paths to training data (`.slp` file(s)). We only support training with `.slp` or `.pkg.slp` files. **Default**: `[]`
 - `val_labels_path`: (list) List of paths to your validation data (`.slp` file(s)). If not specified, the validation set will be automatically created by sampling a fraction of the training data according to `validation_fraction`. **Default**: `None`. 
 - `validation_fraction`: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. **Default**: `0.1`
-- `test_file_path`: (str) Path to test dataset (`.slp` file or `.mp4` file). **Note**: This is used only with CLI to get evaluation on test set once training is completed. **Default**: `None`
+- `test_file_path`: (list | str) List of paths or path to test dataset (`.slp` file or `.mp4` file). **Note**: This is used only with CLI to get evaluation on test set once training is completed. **Default**: `None`
 - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. **Default**: `True`
 
 #### Example:

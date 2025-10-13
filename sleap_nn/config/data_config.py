@@ -6,7 +6,7 @@ the parameters required to initialize the data config.
 
 from attrs import define, field, validators
 from omegaconf import MISSING
-from typing import Optional, Tuple, Any, List
+from typing import Optional, Tuple, Any, List, Union
 from loguru import logger
 import sleap_io as sio
 import yaml
@@ -157,7 +157,7 @@ class DataConfig:
         train_labels_path: (List[str]) List of paths to training data (`.slp` file(s)). *Default*: `None`.
         val_labels_path: (List[str]) List of paths to validation data (`.slp` file(s)). *Default*: `None`.
         validation_fraction: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. *Default*: `0.1`.
-        test_file_path: (str) Path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only with CLI to get evaluation on test set after training is completed. *Default*: `None`.
+        test_file_path: (list | str) List of paths or path to test dataset (`.slp` file or `.mp4` file). *Note*: This is used only with CLI to get evaluation on test set after training is completed. *Default*: `None`.
         provider: (str) Provider class to read the input sleap files. Only "LabelsReader" is currently supported for the training pipeline. *Default*: `"LabelsReader"`.
         user_instances_only: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
         data_pipeline_fw: (str) Framework to create the data loaders. One of [`torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`]. *Default*: `"torch_dataset"`. (Note: When using `torch_dataset`, `num_workers` in `trainer_config` should be set to 0 as multiprocessing doesn't work with pickling video backends.)
@@ -173,7 +173,7 @@ class DataConfig:
     train_labels_path: Optional[List[str]] = None
     val_labels_path: Optional[List[str]] = None  # TODO : revisit MISSING!
     validation_fraction: float = 0.1
-    test_file_path: Optional[str] = None
+    test_file_path: Optional[Union[str, List[str]]] = None
     provider: str = "LabelsReader"
     user_instances_only: bool = True
     data_pipeline_fw: str = "torch_dataset"
