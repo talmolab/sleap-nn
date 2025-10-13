@@ -29,7 +29,6 @@ def get_pred_instances(
 def test_fixed_window_candidates(
     minimal_instance_centered_instance_ckpt, minimal_instance, tmp_path
 ):
-
     pred_instances = get_pred_instances(
         minimal_instance_centered_instance_ckpt,
         minimal_instance,

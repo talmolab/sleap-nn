@@ -64,7 +64,7 @@ def run_training(config: DictConfig):
                 if isinstance(config.data_config.test_file_path, list):
                     for index, path in enumerate(config.data_config.test_file_path):
                         data_paths[f"test_{index}"] = path
-                else: 
+                else:
                     data_paths["test"] = config.data_config.test_file_path
 
             for d_name, path in data_paths.items():

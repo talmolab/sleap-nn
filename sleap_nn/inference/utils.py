@@ -47,7 +47,7 @@ def interp1d(x: torch.Tensor, y: torch.Tensor, xnew: torch.Tensor) -> torch.Tens
     v = {}
     eps = torch.finfo(y.dtype).eps
     for name, vec in {"x": x, "y": y, "xnew": xnew}.items():
-        assert len(vec.shape) <= 2, "interp1d: all inputs must be " "at most 2-D."
+        assert len(vec.shape) <= 2, "interp1d: all inputs must be at most 2-D."
         if len(vec.shape) == 1:
             v[name] = vec[None, :]
         else:

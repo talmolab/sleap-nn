@@ -173,7 +173,7 @@ class DataConfig:
     train_labels_path: Optional[List[str]] = None
     val_labels_path: Optional[List[str]] = None  # TODO : revisit MISSING!
     validation_fraction: float = 0.1
-    test_file_path: Optional[Union[str, List[str]]] = None
+    test_file_path: Optional[List[str]] = None
     provider: str = "LabelsReader"
     user_instances_only: bool = True
     data_pipeline_fw: str = "torch_dataset"

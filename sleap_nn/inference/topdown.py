@@ -799,7 +799,6 @@ class TopDownInferenceModel(L.LightningModule):
         batch = self.centroid_crop(batch)
 
         if batch is not None:
-
             if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
                 peaks_output.append(self.instance_peaks(batch))
             else:

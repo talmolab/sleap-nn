@@ -148,10 +148,35 @@ def sample_cfg(minimal_instance, tmp_path):
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 def test_train_method(minimal_instance, tmp_path: str):
+    # test labels as str
     train(
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
-        test_file_path=minimal_instance,
+        test_file_path=[minimal_instance],
+        max_epochs=1,
+        trainer_num_devices=1,  # multi-gpu doesn't work well with pytest
+        trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
+        head_configs="centered_instance",
+        save_ckpt=True,
+        ckpt_dir=Path(tmp_path).as_posix(),
+        run_name="test_train_method",
+        online_mining=True,
+        min_train_steps_per_epoch=5,
+    )
+    folder_created = (Path(tmp_path) / "test_train_method").exists()
+    assert folder_created
+    assert (
+        (Path(tmp_path) / "test_train_method").joinpath("training_config.yaml").exists()
+    )
+    assert (Path(tmp_path) / "test_train_method").joinpath("best.ckpt").exists()
+    assert (Path(tmp_path) / "test_train_method").joinpath("pred_val_0.slp").exists()
+    assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
+
+    # test labels as str
+    train(
+        train_labels_path=[minimal_instance],
+        val_labels_path=[minimal_instance],
+        test_file_path=[minimal_instance],
         max_epochs=1,
         trainer_num_devices=1,  # multi-gpu doesn't work well with pytest
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",

@@ -124,7 +124,6 @@ class UNet(nn.Module):
             )
             enc_num = len(encoder.encoder_stack)
             if self.middle_block:
-
                 if convs_per_block > 1:
                     # Middle expansion block
                     from sleap_nn.architectures.encoder_decoder import SimpleConvBlock

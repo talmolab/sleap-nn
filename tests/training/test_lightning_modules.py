@@ -42,7 +42,6 @@ def caplog(caplog: LogCaptureFixture):
 def test_topdown_centered_instance_model(
     config, tmp_path: str, minimal_instance_centered_instance_ckpt
 ):
-
     # unet
     model = TopDownCenteredInstanceLightningModule(
         model_type="centered_instance",
