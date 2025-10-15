@@ -389,7 +389,7 @@ def train(config_name, config_dir, overrides):
 @click.option(
     "--tracking_target_instance_count",
     type=int,
-    default=0,
+    default=None,
     help="Target number of instances to track per frame. (default: 0)",
 )
 @click.option(

@@ -276,7 +276,6 @@ def test_topdown_predictor(
             output_path=tmp_path,
             max_instances=None,
             post_connect_single_breaks=True,
-            tracking_target_instance_count=0,
             max_tracks=None,
             device="cpu",
             peak_threshold=0.1,
@@ -284,7 +283,7 @@ def test_topdown_predictor(
             tracking=True,
             integral_refinement=None,
         )
-        assert "tracking_target_instance_count is 0" in caplog.text
+        assert "tracking_target_instance_count and max_instances" in caplog.text
 
 
 def test_multiclass_topdown_predictor(

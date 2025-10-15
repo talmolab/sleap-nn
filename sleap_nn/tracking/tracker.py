@@ -76,7 +76,7 @@ class Tracker:
     robust_best_instance: float = 1.0
     use_flow: bool = False
     is_local_queue: bool = False
-    tracking_target_instance_count: int = 0
+    tracking_target_instance_count: Optional[int] = None
     tracking_pre_cull_to_target: int = 0
     tracking_pre_cull_iou_threshold: float = 0
     _scoring_functions: Dict[str, Any] = {
@@ -119,7 +119,7 @@ class Tracker:
         of_img_scale: float = 1.0,
         of_window_size: int = 21,
         of_max_levels: int = 3,
-        tracking_target_instance_count: int = 0,
+        tracking_target_instance_count: Optional[int] = None,
         tracking_pre_cull_to_target: int = 0,
         tracking_pre_cull_iou_threshold: float = 0,
     ):
@@ -162,7 +162,7 @@ class Tracker:
             of_max_levels: Number of pyramid scale levels to consider. This is different
                 from the scale parameter, which determines the initial image scaling.
                 Default: 3. (only if `use_flow` is True)
-            tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+            tracking_target_instance_count: Target number of instances to track per frame. (default: None)
             tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
             tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
 
@@ -237,7 +237,11 @@ class Tracker:
         Returns:
             List of `sio.PredictedInstance` objects, each having an assigned track.
         """
-        if self.tracking_target_instance_count and self.tracking_pre_cull_to_target:
+        if (
+            self.tracking_target_instance_count is not None
+            and self.tracking_target_instance_count
+            and self.tracking_pre_cull_to_target
+        ):
             untracked_instances = cull_frame_instances(
                 untracked_instances,
                 self.tracking_target_instance_count,
@@ -492,7 +496,7 @@ class FlowShiftTracker(Tracker):
         of_max_levels: Number of pyramid scale levels to consider. This is different
             from the scale parameter, which determines the initial image scaling.
             Default: 3
-        tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+        tracking_target_instance_count: Target number of instances to track per frame. (default: None)
         tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
         tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
 
@@ -729,7 +733,7 @@ def run_tracker(
     of_window_size: int = 21,
     of_max_levels: int = 3,
     post_connect_single_breaks: bool = False,
-    tracking_target_instance_count: int = 0,
+    tracking_target_instance_count: Optional[int] = None,
     tracking_pre_cull_to_target: int = 0,
     tracking_pre_cull_iou_threshold: float = 0,
     tracking_clean_instance_count: int = 0,
@@ -777,7 +781,7 @@ def run_tracker(
                 Default: 3. (only if `use_flow` is True).
         post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
             connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
-        tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+        tracking_target_instance_count: Target number of instances to track per frame. (default: None)
         tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
         tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
         tracking_clean_instance_count: Target number of instances to clean *after* tracking. (default: 0)
@@ -840,8 +844,11 @@ def run_tracker(
             )
 
     if post_connect_single_breaks:
-        if not tracking_target_instance_count:
-            message = "tracking_target_instance_count is 0. To connect single breaks, tracking_target_instance_count should be set to an integer."
+        if (
+            tracking_target_instance_count is None
+            or tracking_target_instance_count == 0
+        ):
+            message = "tracking_target_instance_count is None or 0. To connect single breaks, tracking_target_instance_count should be set to an integer."
             logger.error(message)
             raise ValueError(message)
         start_final_pass_time = time()

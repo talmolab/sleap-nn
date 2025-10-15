@@ -98,7 +98,7 @@ def run_inference(
     of_window_size: int = 21,
     of_max_levels: int = 3,
     post_connect_single_breaks: bool = False,
-    tracking_target_instance_count: int = 0,
+    tracking_target_instance_count: Optional[int] = None,
     tracking_pre_cull_to_target: int = 0,
     tracking_pre_cull_iou_threshold: float = 0,
     tracking_clean_instance_count: int = 0,
@@ -236,7 +236,7 @@ def run_inference(
             Default: 3. (only if `use_flow` is True).
         post_connect_single_breaks: If True and `max_tracks` is not None with local queues candidate method,
             connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame.
-        tracking_target_instance_count: Target number of instances to track per frame. (default: 0)
+        tracking_target_instance_count: Target number of instances to track per frame. (default: None)
         tracking_pre_cull_to_target: If non-zero and target_instance_count is also non-zero, then cull instances over target count per frame *before* tracking. (default: 0)
         tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
         tracking_clean_instance_count: Target number of instances to clean *after* tracking. (default: 0)
@@ -299,6 +299,14 @@ def run_inference(
                     max_tracks = max_instances
 
             logger.info(f"Running tracking on {len(lf_frames)} frames...")
+
+            if post_connect_single_breaks or tracking_pre_cull_to_target:
+                if tracking_target_instance_count is None and max_instances is None:
+                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, atleast one of them should be set to an integer."
+                    logger.error(message)
+                    raise ValueError(message)
+                elif tracking_target_instance_count is None:
+                    tracking_target_instance_count = max_instances
 
             tracked_frames = run_tracker(
                 untracked_frames=lf_frames,
@@ -377,6 +385,13 @@ def run_inference(
             and not isinstance(predictor, BottomUpMultiClassPredictor)
             and not isinstance(predictor, TopDownMultiClassPredictor)
         ):
+            if post_connect_single_breaks or tracking_pre_cull_to_target:
+                if tracking_target_instance_count is None and max_instances is None:
+                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, atleast one of them should be set to an integer."
+                    logger.error(message)
+                    raise ValueError(message)
+                elif tracking_target_instance_count is None:
+                    tracking_target_instance_count = max_instances
             predictor.tracker = Tracker.from_config(
                 candidates_method=candidates_method,
                 min_match_points=min_match_points,
@@ -454,11 +469,6 @@ def run_inference(
                         lfs, tracking_clean_instance_count
                     )
             elif post_connect_single_breaks:
-                if not tracking_target_instance_count:
-                    message = "tracking_target_instance_count is 0. To connect single breaks, tracking_target_instance_count should be set to an integer."
-                    logger.error(message)
-                    raise ValueError(message)
-
                 start_final_pass_time = time()
                 start_fp_timestamp = str(datetime.now())
                 logger.info(
