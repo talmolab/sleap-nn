@@ -302,7 +302,7 @@ def run_inference(
 
             if post_connect_single_breaks or tracking_pre_cull_to_target:
                 if tracking_target_instance_count is None and max_instances is None:
-                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, atleast one of them should be set to an integer."
+                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, at least one of them should be set to an integer."
                     logger.error(message)
                     raise ValueError(message)
                 elif tracking_target_instance_count is None:
@@ -387,7 +387,7 @@ def run_inference(
         ):
             if post_connect_single_breaks or tracking_pre_cull_to_target:
                 if tracking_target_instance_count is None and max_instances is None:
-                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, atleast one of them should be set to an integer."
+                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, at least one of them should be set to an integer."
                     logger.error(message)
                     raise ValueError(message)
                 elif tracking_target_instance_count is None:
