@@ -54,19 +54,19 @@ readme = {file = ["README.md"], content-type="text/markdown"}
 [project.optional-dependencies]
 torch = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 torch-cpu = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 torch-cuda118 = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 torch-cuda128 = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 dev = [
     "pytest",
