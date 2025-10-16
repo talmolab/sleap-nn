@@ -23,7 +23,7 @@ jobs:
           enable-cache: false
 
       - name: Set up Python
-        run: uv python install 3.13
+        run: uv python install 3.12
 
       - name: Install dev dependencies and torch
         run: uv sync --extra dev --extra torch-cpu
@@ -49,7 +49,7 @@ jobs:
             runs-on: macos-14
           - os: self-hosted-gpu
             runs-on: [self-hosted, puma, gpu, 2xgpu]
-        python: [3.13]
+        python: [3.12]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.runs-on }}
