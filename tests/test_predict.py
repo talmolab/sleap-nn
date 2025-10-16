@@ -264,6 +264,31 @@ def test_topdown_predictor(
         for instance in lf.instances:
             assert instance.track is not None
 
+    # test with tracking and tracking_target_instance_count is not provided
+    pred_labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=centered_instance_video.as_posix(),
+        make_labels=True,
+        output_path=tmp_path,
+        max_instances=2,
+        post_connect_single_breaks=True,
+        max_tracks=None,
+        device="cpu",
+        peak_threshold=0.1,
+        frames=[x for x in range(5)],
+        tracking=True,
+        integral_refinement=None,
+    )
+
+    assert len(pred_labels.tracks) <= 2  # should be less than max tracks
+
+    for lf in pred_labels:
+        for instance in lf.instances:
+            assert instance.track is not None
+
     # test with tracking (no max inst provided and post connect breaks is true)
     with pytest.raises(ValueError):
         pred_labels = run_inference(
@@ -276,7 +301,6 @@ def test_topdown_predictor(
             output_path=tmp_path,
             max_instances=None,
             post_connect_single_breaks=True,
-            tracking_target_instance_count=0,
             max_tracks=None,
             device="cpu",
             peak_threshold=0.1,
@@ -284,7 +308,7 @@ def test_topdown_predictor(
             tracking=True,
             integral_refinement=None,
         )
-        assert "tracking_target_instance_count is 0" in caplog.text
+        assert "tracking_target_instance_count and max_instances" in caplog.text
 
 
 def test_multiclass_topdown_predictor(
@@ -1049,6 +1073,27 @@ def test_tracking_only_pipeline(
             tracking=False,
             integral_refinement=None,
         )
+
+    # neither max_instances nor tracking_target_instance_count is provided
+    with pytest.raises(ValueError):
+        labels = run_inference(
+            data_path=centered_instance_video.as_posix(),
+            tracking=True,
+            integral_refinement=None,
+            post_connect_single_breaks=True,
+        )
+
+    # racking_target_instance_count is provided
+    labels = run_inference(
+        data_path=minimal_instance.as_posix(),
+        tracking=True,
+        integral_refinement=None,
+        post_connect_single_breaks=True,
+        max_instances=2,
+        output_path=tmp_path,
+    )
+    for lf in labels:
+        assert len(lf.instances) <= 2
 
 
 def test_legacy_topdown_predictor(
