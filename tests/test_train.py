@@ -422,6 +422,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         ckpt_dir=Path(tmp_path).as_posix(),
         run_name="test_custom_backbone",
         min_train_steps_per_epoch=1,
+        data_pipeline_fw="torch_dataset_cache_img_disk",
+        num_workers=2,
     )
     config = OmegaConf.load(f"{tmp_path}/test_custom_backbone/training_config.yaml")
     assert config.model_config.backbone_config.unet.max_stride == 8
@@ -498,6 +500,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         run_name="test_bottomup",
         lr_scheduler="reduce_lr_on_plateau",
         min_train_steps_per_epoch=1,
+        data_pipeline_fw="torch_dataset_cache_img_disk",
+        num_workers=2,
     )
     config = OmegaConf.load(f"{tmp_path}/test_bottomup/training_config.yaml")
     assert config.model_config.head_configs.bottomup is not None
