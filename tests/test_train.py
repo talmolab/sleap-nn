@@ -174,8 +174,6 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_val_0.slp").exists()
     assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
 
-    assert False
-
     # with no val labels path
     train(
         train_labels_path=[minimal_instance],
