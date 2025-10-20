@@ -30,7 +30,13 @@ def test_apply_resizer(minimal_instance):
     """Test `apply_resizer` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
 
     image, instances = apply_resizer(ex["image"], ex["instances"], scale=2.0)
     assert image.shape == torch.Size([1, 1, 768, 768])
@@ -41,7 +47,13 @@ def test_apply_pad_to_stride(minimal_instance):
     """Test `apply_pad_to_stride` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
 
     image = apply_pad_to_stride(ex["image"], max_stride=2)
     assert image.shape == torch.Size([1, 1, 384, 384])
@@ -54,7 +66,13 @@ def test_apply_sizematcher(caplog, minimal_instance):
     """Test `apply_sizematcher` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
 
     image, _ = apply_sizematcher(ex["image"], 500, 500)
     assert image.shape == torch.Size([1, 1, 500, 500])

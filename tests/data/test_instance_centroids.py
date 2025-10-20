@@ -10,7 +10,13 @@ def test_generate_centroids(minimal_instance):
     """Test `generate_centroids` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
 
     centroids = generate_centroids(ex["instances"], 1).int()
     gt = torch.Tensor([[[152, 158], [278, 203]]]).int()

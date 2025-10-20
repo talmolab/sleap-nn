@@ -250,7 +250,13 @@ def test_labelsreader_provider(minimal_instance):
 def test_process_lf(minimal_instance):
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 4)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=4,
+    )
 
     assert ex["image"].shape == torch.Size([1, 1, 384, 384])
     assert ex["instances"].shape == torch.Size([1, 4, 2, 2])
