@@ -1,6 +1,6 @@
 """This module implements pipeline blocks for reading input data such as labels."""
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import sleap_io as sio
@@ -36,7 +36,9 @@ def get_max_height_width(labels: sio.Labels) -> Tuple[int, int]:
 
 
 def process_lf(
-    lf: sio.LabeledFrame,
+    instances_list: List[sio.Instance],
+    img: np.ndarray,
+    frame_idx: int,
     video_idx: int,
     max_instances: int,
     user_instances_only: bool = True,
@@ -44,7 +46,9 @@ def process_lf(
     """Get sample dict from `sio.LabeledFrame`.
 
     Args:
-        lf: Input `sio.LabeledFrame`.
+        instances_list: List of `sio.Instance` objects.
+        img: Input image.
+        frame_idx: Frame index of the given lf.
         video_idx: Video index of the given lf.
         max_instances: Maximum number of instances that could occur in a single LabeledFrame.
         user_instances_only: True if filter labels only to user instances else False.
@@ -57,13 +61,14 @@ def process_lf(
     """
     # Filter to user instances
     if user_instances_only:
-        if lf.user_instances is not None and len(lf.user_instances) > 0:
-            lf.instances = lf.user_instances
+        user_instances = [inst for inst in instances_list if type(inst) is sio.Instance]
+        if len(user_instances) > 0:
+            instances_list = user_instances
 
-    image = np.transpose(lf.image, (2, 0, 1))  # HWC -> CHW
+    image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
     instances = []
-    for inst in lf:
+    for inst in instances_list:
         if not inst.is_empty:
             instances.append(inst.numpy())
     instances = np.stack(instances, axis=0)
@@ -92,7 +97,7 @@ def process_lf(
         "image": torch.from_numpy(image.copy()),
         "instances": instances,
         "video_idx": torch.tensor(video_idx, dtype=torch.int32),
-        "frame_idx": torch.tensor(lf.frame_idx, dtype=torch.int32),
+        "frame_idx": torch.tensor(frame_idx, dtype=torch.int32),
         "orig_size": torch.Tensor([img_height, img_width]).unsqueeze(0),
         "num_instances": num_instances,
     }

@@ -196,7 +196,13 @@ def test_generate_pafs(minimal_instance):
     """Test `generate_pafs` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
 
     pafs = generate_pafs(
         ex["instances"],

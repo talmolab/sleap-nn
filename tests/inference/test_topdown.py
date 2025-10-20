@@ -71,7 +71,13 @@ def test_centroid_inference_model(
     )
 
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["instances"] = ex["instances"].unsqueeze(dim=0)
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
@@ -137,7 +143,13 @@ def test_find_instance_peaks_groundtruth(
 ):
     """Test FindInstancePeaksGroundTruth class for running inference on centroid model without centered instance model."""
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["instances"] = ex["instances"].unsqueeze(dim=0)
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
@@ -163,7 +175,13 @@ def test_find_instance_peaks_groundtruth(
 
     # with centroid crop class
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["instances"] = ex["instances"].unsqueeze(dim=0)
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
@@ -221,7 +239,13 @@ def test_find_instance_peaks(
         config, minimal_instance, minimal_instance_centered_instance_ckpt
     )
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["instances"] = ex["instances"].unsqueeze(dim=0)
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
@@ -308,7 +332,13 @@ def test_find_instance_peaks_multiclass(
     )
 
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["instances"] = ex["instances"].unsqueeze(dim=0)
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)
@@ -380,7 +410,13 @@ def test_topdown_inference_model(
     )
 
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["instances"] = ex["instances"].unsqueeze(dim=0)
     ex["frame_idx"] = ex["frame_idx"].unsqueeze(dim=0)

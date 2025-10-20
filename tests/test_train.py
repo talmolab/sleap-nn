@@ -148,6 +148,7 @@ def sample_cfg(minimal_instance, tmp_path):
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
 def test_train_method(minimal_instance, tmp_path: str):
+    # test with caching and num_workers > 0
     train(
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
@@ -161,6 +162,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         run_name="test_train_method",
         online_mining=True,
         min_train_steps_per_epoch=5,
+        data_pipeline_fw="torch_dataset_cache_img_disk",
+        num_workers=2,
     )
     folder_created = (Path(tmp_path) / "test_train_method").exists()
     assert folder_created
@@ -419,6 +422,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         ckpt_dir=Path(tmp_path).as_posix(),
         run_name="test_custom_backbone",
         min_train_steps_per_epoch=1,
+        data_pipeline_fw="torch_dataset_cache_img_disk",
+        num_workers=2,
     )
     config = OmegaConf.load(f"{tmp_path}/test_custom_backbone/training_config.yaml")
     assert config.model_config.backbone_config.unet.max_stride == 8
@@ -495,6 +500,8 @@ def test_train_method(minimal_instance, tmp_path: str):
         run_name="test_bottomup",
         lr_scheduler="reduce_lr_on_plateau",
         min_train_steps_per_epoch=1,
+        data_pipeline_fw="torch_dataset_cache_img_disk",
+        num_workers=2,
     )
     config = OmegaConf.load(f"{tmp_path}/test_bottomup/training_config.yaml")
     assert config.model_config.head_configs.bottomup is not None
