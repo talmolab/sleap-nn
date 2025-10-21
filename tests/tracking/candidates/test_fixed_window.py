@@ -13,7 +13,7 @@ def get_pred_instances(
         model_paths=[minimal_instance_centered_instance_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.0,
         integral_refinement="integral",
