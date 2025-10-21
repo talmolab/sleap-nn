@@ -504,6 +504,7 @@ def test_evaluator_main(
         make_labels=True,
         max_instances=6,
         output_path=f"{tmp_path}/test.slp",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
 
     import subprocess

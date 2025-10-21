@@ -4,6 +4,7 @@ import numpy as np
 from sleap_nn.predict import run_inference
 from sleap_nn.tracking.candidates.local_queues import LocalQueueCandidates
 from sleap_nn.tracking.tracker import Tracker
+import torch
 
 
 def get_pred_instances(
@@ -17,6 +18,7 @@ def get_pred_instances(
         max_instances=6,
         peak_threshold=0.0,
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     pred_instances = []
     for idx, lf in enumerate(result_labels):

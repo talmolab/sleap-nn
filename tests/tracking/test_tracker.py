@@ -17,6 +17,7 @@ from sleap_nn.tracking.utils import (
 import math
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
+import torch
 
 
 @pytest.fixture
@@ -44,6 +45,7 @@ def get_pred_instances(
         max_instances=6,
         peak_threshold=0.0,
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     pred_instances = []
     imgs = []
@@ -72,6 +74,7 @@ def centered_pair_predictions(
         peak_threshold=0.0,
         integral_refinement="integral",
         frames=[x for x in range(0, 65)],
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     return result_labels
 
@@ -491,6 +494,7 @@ def test_run_tracker(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         scoring_reduction="robust_quantile",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
 
     tracked_lfs = run_tracker(
@@ -522,6 +526,7 @@ def test_run_tracker(
             frames=[x for x in range(0, 10)],
             integral_refinement="integral",
             scoring_reduction="robust_quantile",
+            device="cpu" if torch.backends.mps.is_available() else "auto",
         )
 
         tracked_lfs = run_tracker(
@@ -569,6 +574,7 @@ def test_post_clean_up(
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         scoring_reduction="robust_quantile",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
 
     # test post clean up

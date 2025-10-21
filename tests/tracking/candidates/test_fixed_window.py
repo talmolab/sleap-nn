@@ -1,5 +1,6 @@
 from typing import DefaultDict, Deque, List
 import numpy as np
+import torch
 from sleap_nn.predict import run_inference
 from sleap_nn.tracking.track_instance import TrackedInstanceFeature
 from sleap_nn.tracking.candidates.fixed_window import FixedWindowCandidates
@@ -17,6 +18,7 @@ def get_pred_instances(
         max_instances=6,
         peak_threshold=0.0,
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     pred_instances = []
     for idx, lf in enumerate(result_labels):

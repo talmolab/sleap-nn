@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from sleap_nn.predict import run_inference
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
+import torch
 
 
 @pytest.fixture
@@ -976,6 +977,7 @@ def test_tracking_only_pipeline(
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
         post_connect_single_breaks=True,
         tracking_target_instance_count=2,
     )
@@ -988,6 +990,7 @@ def test_tracking_only_pipeline(
         max_instances=2,
         integral_refinement=None,
         tracking_target_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
 
     assert len(tracked_labels.tracks) == 2
@@ -999,6 +1002,7 @@ def test_tracking_only_pipeline(
             data_path=centered_instance_video.as_posix(),
             tracking=True,
             integral_refinement=None,
+            device="cpu" if torch.backends.mps.is_available() else "auto",
         )
 
     # track-only pipeline with select frames
@@ -1016,6 +1020,7 @@ def test_tracking_only_pipeline(
         integral_refinement="integral",
         post_connect_single_breaks=True,
         tracking_target_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     labels.save(f"{tmp_path}/preds.slp")
 
@@ -1047,6 +1052,7 @@ def test_tracking_only_pipeline(
         integral_refinement="integral",
         post_connect_single_breaks=True,
         tracking_target_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     labels.videos.append(sio.load_video(minimal_instance))
     assert len(labels.videos) == 2
@@ -1061,6 +1067,7 @@ def test_tracking_only_pipeline(
         integral_refinement=None,
         frames=[x for x in range(0, 5)],
         video_index=0,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
 
     assert len(tracked_labels.tracks) == 2
@@ -1072,6 +1079,7 @@ def test_tracking_only_pipeline(
             data_path=centered_instance_video.as_posix(),
             tracking=False,
             integral_refinement=None,
+            device="cpu" if torch.backends.mps.is_available() else "auto",
         )
 
     # neither max_instances nor tracking_target_instance_count is provided
@@ -1081,6 +1089,7 @@ def test_tracking_only_pipeline(
             tracking=True,
             integral_refinement=None,
             post_connect_single_breaks=True,
+            device="cpu" if torch.backends.mps.is_available() else "auto",
         )
 
     # racking_target_instance_count is provided
@@ -1091,6 +1100,7 @@ def test_tracking_only_pipeline(
         post_connect_single_breaks=True,
         max_instances=2,
         output_path=tmp_path / "test.slp",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     for lf in labels:
         assert len(lf.instances) <= 2
@@ -1110,6 +1120,7 @@ def test_legacy_topdown_predictor(
         output_path=tmp_path / "test.slp",
         integral_refinement="integral",
         max_instances=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1151,6 +1162,7 @@ def test_legacy_bottomup_predictor(
         make_labels=True,
         output_path=tmp_path / "test.slp",
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1192,6 +1204,7 @@ def test_legacy_single_instance_predictor(
         make_labels=True,
         output_path=tmp_path / "test.slp",
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(small_robot_minimal)
 
@@ -1208,6 +1221,7 @@ def test_legacy_multiclass_bottomup_predictor(
         make_labels=True,
         output_path=tmp_path / "test.slp",
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1226,6 +1240,7 @@ def test_legacy_multiclass_topdown_predictor(
         output_path=tmp_path / "test.slp",
         integral_refinement="integral",
         max_instances=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1255,6 +1270,8 @@ def test_predict_main(
         f"{tmp_path}/test.slp",
         "--frames",
         "0-9",
+        "--device",
+        "cpu" if torch.backends.mps.is_available() else "auto",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
@@ -1286,6 +1303,8 @@ def test_predict_main(
         "1",
         "--tracking_pre_cull_to_target",
         "1",
+        "--device",
+        "cpu" if torch.backends.mps.is_available() else "auto",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
@@ -1317,6 +1336,8 @@ def test_predict_main(
         "--no_empty_frames",
         "--tracking_clean_instance_count",
         "1",
+        "--device",
+        "cpu" if torch.backends.mps.is_available() else "auto",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
@@ -1349,6 +1370,7 @@ def test_topdown_predictor_with_tracking_cleaning(
         tracking=True,
         tracking_target_instance_count=1,
         tracking_pre_cull_to_target=1,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels[0].instances) == 1
 
@@ -1365,6 +1387,7 @@ def test_topdown_predictor_with_tracking_cleaning(
         integral_refinement="integral",
         tracking=True,
         tracking_clean_instance_count=1,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels[0].instances) == 1
 
@@ -1382,6 +1405,7 @@ def test_topdown_predictor_with_tracking_cleaning(
         integral_refinement="integral",
         tracking=True,
         tracking_clean_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels[0].instances) == 2
 
@@ -1396,5 +1420,6 @@ def test_topdown_predictor_with_tracking_cleaning(
         frames=[x for x in range(0, 10)],
         peak_threshold=1.0,
         output_path=tmp_path / "test.slp",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels) < 10

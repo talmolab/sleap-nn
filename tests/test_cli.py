@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 import subprocess
 from sleap_nn.predict import run_inference
 import sleap_io as sio
+import torch
 
 
 @pytest.fixture
@@ -164,6 +165,8 @@ def test_track_command(
         f"{tmp_path}/test.slp",
         "--frames",
         "0-99",
+        "--device",
+        "cpu",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
@@ -182,6 +185,7 @@ def test_eval_command(
         make_labels=True,
         max_instances=6,
         output_path=f"{tmp_path}/test.slp",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     cmd = [
         "uv",
