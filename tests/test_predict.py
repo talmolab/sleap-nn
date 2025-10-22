@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from sleap_nn.predict import run_inference
 from loguru import logger
 from _pytest.logging import LogCaptureFixture
+import torch
 
 
 @pytest.fixture
@@ -78,7 +79,7 @@ def test_topdown_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         device="cpu",
         max_instances=6,
         peak_threshold=0.0,
@@ -136,7 +137,7 @@ def test_topdown_predictor(
         ],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=[0.0, 0.0],
         device="cpu",
@@ -154,7 +155,7 @@ def test_topdown_predictor(
         ],
         input_labels=sio.load_slp(minimal_instance.as_posix()),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=[0.0, 0.0],
         device="cpu",
@@ -190,7 +191,7 @@ def test_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         device="cpu",
         peak_threshold=[0.0, 0.0],
@@ -211,7 +212,7 @@ def test_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         device="cpu",
         frames=[1100, 1101, 1102, 1103],
@@ -229,7 +230,7 @@ def test_topdown_predictor(
             model_paths=[minimal_instance_centered_instance_ckpt],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
-            output_path=tmp_path,
+            output_path=tmp_path / "test.slp",
             max_instances=6,
             device="cpu",
             frames=[x for x in range(100)],
@@ -246,7 +247,7 @@ def test_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=2,
         post_connect_single_breaks=True,
         tracking_target_instance_count=2,
@@ -272,7 +273,7 @@ def test_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=2,
         post_connect_single_breaks=True,
         max_tracks=None,
@@ -298,7 +299,7 @@ def test_topdown_predictor(
             ],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
-            output_path=tmp_path,
+            output_path=tmp_path / "test.slp",
             max_instances=None,
             post_connect_single_breaks=True,
             max_tracks=None,
@@ -369,7 +370,7 @@ def test_multiclass_topdown_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         device="cpu",
         peak_threshold=0.0,
         integral_refinement=None,
@@ -428,7 +429,7 @@ def test_multiclass_topdown_predictor(
         ],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=[0.0, 0.0],
         device="cpu",
@@ -450,7 +451,7 @@ def test_multiclass_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         device="cpu",
         peak_threshold=[0.0, 0.0],
@@ -473,7 +474,7 @@ def test_multiclass_topdown_predictor(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         integral_refinement=None,
         device="cpu",
@@ -491,7 +492,7 @@ def test_multiclass_topdown_predictor(
             model_paths=[minimal_instance_multi_class_topdown_ckpt],
             data_path=centered_instance_video.as_posix(),
             make_labels=True,
-            output_path=tmp_path,
+            output_path=tmp_path / "test.slp",
             max_instances=6,
             device="cpu",
             frames=[x for x in range(100)],
@@ -516,7 +517,7 @@ def test_single_instance_predictor(
         model_paths=[minimal_instance_single_instance_ckpt],
         data_path=small_robot_minimal.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         device="cpu",
         peak_threshold=0.1,
@@ -564,7 +565,7 @@ def test_single_instance_predictor(
         frames=[0],
         device="cpu",
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         peak_threshold=0.1,
         integral_refinement=None,
     )
@@ -593,7 +594,7 @@ def test_single_instance_predictor(
         model_paths=[minimal_instance_single_instance_ckpt],
         data_path=small_robot_minimal_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         device="cpu",
         peak_threshold=0.1,
         integral_refinement=None,
@@ -656,7 +657,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.05,
         device="cpu",
@@ -705,7 +706,7 @@ def test_bottomup_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         device="cpu",
         integral_refinement=None,
     )
@@ -717,7 +718,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=1.0,
         device="cpu",
@@ -732,7 +733,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.05,
         frames=[x for x in range(100)],
@@ -749,7 +750,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         input_video=sio.load_video(centered_instance_video.as_posix()),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.05,
         frames=[x for x in range(100)],
@@ -785,7 +786,7 @@ def test_bottomup_predictor(
         model_paths=[minimal_instance_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.05,
         tracking=True,
@@ -819,7 +820,7 @@ def test_multi_class_bottomup_predictor(
         model_paths=[minimal_instance_multi_class_bottomup_ckpt],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.03,
         device="cpu",
@@ -892,7 +893,7 @@ def test_multi_class_bottomup_predictor(
         video_index=0,
         frames=[0],
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         device="cpu",
         integral_refinement=None,
     )
@@ -905,7 +906,7 @@ def test_multi_class_bottomup_predictor(
         model_paths=[minimal_instance_multi_class_bottomup_ckpt],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.03,
         frames=[x for x in range(100)],
@@ -923,7 +924,7 @@ def test_multi_class_bottomup_predictor(
         model_paths=[minimal_instance_multi_class_bottomup_ckpt],
         input_video=sio.load_video(centered_instance_video.as_posix()),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.03,
         frames=[x for x in range(100)],
@@ -971,11 +972,12 @@ def test_tracking_only_pipeline(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=2,
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
         post_connect_single_breaks=True,
         tracking_target_instance_count=2,
     )
@@ -988,6 +990,7 @@ def test_tracking_only_pipeline(
         max_instances=2,
         integral_refinement=None,
         tracking_target_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
 
     assert len(tracked_labels.tracks) == 2
@@ -999,6 +1002,7 @@ def test_tracking_only_pipeline(
             data_path=centered_instance_video.as_posix(),
             tracking=True,
             integral_refinement=None,
+            device="cpu" if torch.backends.mps.is_available() else "auto",
         )
 
     # track-only pipeline with select frames
@@ -1009,13 +1013,14 @@ def test_tracking_only_pipeline(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=2,
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
         tracking_target_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     labels.save(f"{tmp_path}/preds.slp")
 
@@ -1040,13 +1045,14 @@ def test_tracking_only_pipeline(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=2,
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         post_connect_single_breaks=True,
         tracking_target_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     labels.videos.append(sio.load_video(minimal_instance))
     assert len(labels.videos) == 2
@@ -1061,6 +1067,7 @@ def test_tracking_only_pipeline(
         integral_refinement=None,
         frames=[x for x in range(0, 5)],
         video_index=0,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
 
     assert len(tracked_labels.tracks) == 2
@@ -1072,6 +1079,7 @@ def test_tracking_only_pipeline(
             data_path=centered_instance_video.as_posix(),
             tracking=False,
             integral_refinement=None,
+            device="cpu" if torch.backends.mps.is_available() else "auto",
         )
 
     # neither max_instances nor tracking_target_instance_count is provided
@@ -1081,6 +1089,7 @@ def test_tracking_only_pipeline(
             tracking=True,
             integral_refinement=None,
             post_connect_single_breaks=True,
+            device="cpu" if torch.backends.mps.is_available() else "auto",
         )
 
     # racking_target_instance_count is provided
@@ -1090,7 +1099,8 @@ def test_tracking_only_pipeline(
         integral_refinement=None,
         post_connect_single_breaks=True,
         max_instances=2,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     for lf in labels:
         assert len(lf.instances) <= 2
@@ -1107,9 +1117,10 @@ def test_legacy_topdown_predictor(
         model_paths=[sleap_centroid_model_path, sleap_centered_instance_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         integral_refinement="integral",
         max_instances=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1149,8 +1160,9 @@ def test_legacy_bottomup_predictor(
         model_paths=[sleap_bottomup_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1190,8 +1202,9 @@ def test_legacy_single_instance_predictor(
         model_paths=[sleap_single_instance_model_path],
         data_path=small_robot_minimal.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(small_robot_minimal)
 
@@ -1206,8 +1219,9 @@ def test_legacy_multiclass_bottomup_predictor(
         model_paths=[sleap_bottomup_multiclass_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         integral_refinement="integral",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1223,9 +1237,10 @@ def test_legacy_multiclass_topdown_predictor(
         model_paths=[sleap_centroid_model_path, sleap_topdown_multiclass_model_path],
         data_path=minimal_instance.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         integral_refinement="integral",
         max_instances=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     gt_labels = sio.load_slp(minimal_instance)
 
@@ -1255,6 +1270,8 @@ def test_predict_main(
         f"{tmp_path}/test.slp",
         "--frames",
         "0-9",
+        "--device",
+        "cpu" if torch.backends.mps.is_available() else "auto",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
@@ -1286,6 +1303,8 @@ def test_predict_main(
         "1",
         "--tracking_pre_cull_to_target",
         "1",
+        "--device",
+        "cpu" if torch.backends.mps.is_available() else "auto",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
@@ -1317,6 +1336,8 @@ def test_predict_main(
         "--no_empty_frames",
         "--tracking_clean_instance_count",
         "1",
+        "--device",
+        "cpu" if torch.backends.mps.is_available() else "auto",
     ]
     result = subprocess.run(cmd, check=True, capture_output=True, text=True)
     assert Path(f"{tmp_path}/test.slp").exists()
@@ -1342,13 +1363,14 @@ def test_topdown_predictor_with_tracking_cleaning(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         tracking=True,
         tracking_target_instance_count=1,
         tracking_pre_cull_to_target=1,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels[0].instances) == 1
 
@@ -1359,12 +1381,13 @@ def test_topdown_predictor_with_tracking_cleaning(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         tracking=True,
         tracking_clean_instance_count=1,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels[0].instances) == 1
 
@@ -1375,13 +1398,14 @@ def test_topdown_predictor_with_tracking_cleaning(
         ],
         data_path=centered_instance_video.as_posix(),
         make_labels=True,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
         max_instances=2,
         peak_threshold=0.1,
         frames=[x for x in range(0, 10)],
         integral_refinement="integral",
         tracking=True,
         tracking_clean_instance_count=2,
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels[0].instances) == 2
 
@@ -1395,6 +1419,7 @@ def test_topdown_predictor_with_tracking_cleaning(
         no_empty_frames=True,
         frames=[x for x in range(0, 10)],
         peak_threshold=1.0,
-        output_path=tmp_path,
+        output_path=tmp_path / "test.slp",
+        device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels) < 10

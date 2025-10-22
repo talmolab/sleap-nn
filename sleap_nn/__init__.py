@@ -1,6 +1,7 @@
 """Main module for sleap_nn package."""
 
 import os
+import sys
 from loguru import logger
 
 # Get RANK for distributed training
@@ -24,9 +25,24 @@ def _should_log(record):
 # Remove default handler and add custom one
 logger.remove()
 
+
+def _safe_print(msg):
+    """Print with fallback for encoding errors."""
+    try:
+        print(msg, end="")
+    except UnicodeEncodeError:
+        # Fallback: replace unencodable characters with '?'
+        print(
+            msg.encode(sys.stdout.encoding, errors="replace").decode(
+                sys.stdout.encoding
+            ),
+            end="",
+        )
+
+
 # Add logger with the custom filter
 logger.add(
-    lambda msg: print(msg, end=""),
+    _safe_print,
     level="DEBUG",
     filter=_should_log,
     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
