@@ -39,6 +39,7 @@ def frame_list(frame_str: str) -> Optional[List[int]]:
 
 def run_inference(
     data_path: Optional[str] = None,
+    output_head_skeleton_num: int = 0,
     input_labels: Optional[sio.Labels] = None,
     input_video: Optional[sio.Video] = None,
     model_paths: Optional[List[str]] = None,
@@ -348,6 +349,7 @@ def run_inference(
             device=device,
             preprocess_config=OmegaConf.create(preprocess_config),
             anchor_part=anchor_part,
+            output_head_skeleton_num=output_head_skeleton_num,
         )
 
         if (
