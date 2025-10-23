@@ -2311,7 +2311,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         self.instance_peaks_inf_layer.output_stride = (
             self.head_configs.centered_instance.confmaps[d_idx]["output_stride"]
         )
-        output = self.instance_peaks_inf_layer(ex)
+        output = self.instance_peaks_inf_layer(ex, output_head_skeleton_num=d_idx)
         peaks = output["pred_instance_peaks"].cpu().numpy()
         img = (
             output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)

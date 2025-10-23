@@ -61,6 +61,7 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 from time import time
+from sleap_io.io.skeleton import SkeletonYAMLDecoder
 
 
 class RateColumn(rich.progress.ProgressColumn):
@@ -623,7 +624,9 @@ class TopDownPredictor(Predictor):
             anch_pt = None
             if self.centroid_config is not None:
                 anch_pt = (
-                    self.centroid_config.model_config.head_configs.centroid.confmaps.anchor_part
+                    self.centroid_config.model_config.head_configs.centroid.confmaps[
+                        self.output_head_skeleton_num
+                    ]["anchor_part"]
                 )
                 anch_pt = self.centroid_config.model_config.head_configs.centered_instance.confmaps[
                     self.output_head_skeleton_num
@@ -631,9 +634,11 @@ class TopDownPredictor(Predictor):
                     "anchor_part"
                 ]
             if self.confmap_config is not None:
-                anch_pt = (
-                    self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
-                )
+                anch_pt = self.confmap_config.model_config.head_configs.centered_instance.confmaps[
+                    self.output_head_skeleton_num
+                ][
+                    "anchor_part"
+                ]
                 anch_pt = self.confmap_config.model_config.head_configs.centered_instance.confmaps[
                     self.output_head_skeleton_num
                 ][
@@ -664,8 +669,10 @@ class TopDownPredictor(Predictor):
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=centroid_peak_threshold,
-                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride[
+                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps[
                     self.output_head_skeleton_num
+                ][
+                    "output_stride"
                 ],
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
@@ -695,8 +702,10 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=centered_instance_peak_threshold,
-                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride[
+                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps[
                     self.output_head_skeleton_num
+                ][
+                    "output_stride"
                 ],
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
@@ -779,9 +788,6 @@ class TopDownPredictor(Predictor):
             truth data. This will only work with `LabelsReader` as the provider.
 
         """
-        is_multi_head_model = False
-        if "dataset_mapper" in centroid_config:
-            is_multi_head_model = True
         centered_instance_backbone_type = None
         centroid_backbone_type = None
         if centroid_ckpt_path is not None:
@@ -819,7 +825,7 @@ class TopDownPredictor(Predictor):
                     )
                 skeletons = skeletons_dict[output_head_skeleton_num]
                 ckpt_path = (Path(centroid_ckpt_path) / "best.ckpt").as_posix()
-                centroid_model = CentroidLightningModule.load_from_checkpoint(
+                centroid_model = CentroidMultiHeadLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     model_type="centroid",
                     backbone_type=centroid_backbone_type,
@@ -844,7 +850,7 @@ class TopDownPredictor(Predictor):
                 centroid_converted_model = load_legacy_model(
                     model_dir=f"{centroid_ckpt_path}"
                 )
-                centroid_model = CentroidLightningModule(
+                centroid_model = CentroidMultiHeadLightningModule(
                     backbone_type=centroid_backbone_type,
                     model_type="centroid",
                     backbone_config=centroid_config.model_config.backbone_config,
@@ -907,9 +913,6 @@ class TopDownPredictor(Predictor):
             centroid_model = None
 
         if confmap_ckpt_path is not None:
-            is_multi_head_model = False
-            if "dataset_mapper" in confmap_config:
-                is_multi_head_model = True
             is_sleap_ckpt = False
             # Load confmap model.
             if (
@@ -939,12 +942,12 @@ class TopDownPredictor(Predictor):
             if not is_sleap_ckpt:
                 ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
                 skeletons_dict = {}
-                for k in confmap_config.data_config.skeletons:
-                    skeletons_dict[k] = get_skeleton_from_config(
-                        confmap_config.data_config.skeletons[k]
-                    )
+                for skl_idx, skl in enumerate(confmap_config.data_config.skeletons):
+                    skel = SkeletonYAMLDecoder().decode(dict(skl))
+                    skel.name = skl.name
+                    skeletons_dict[skl_idx] = [skel]
                 skeletons = skeletons_dict[output_head_skeleton_num]
-                confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
+                confmap_model = TopDownCenteredInstanceMultiHeadLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     model_type="centered_instance",
                     backbone_config=confmap_config.model_config.backbone_config,
@@ -971,7 +974,7 @@ class TopDownPredictor(Predictor):
                 )
 
                 # Create a new LightningModule with the converted model
-                confmap_model = TopDownCenteredInstanceLightningModule(
+                confmap_model = TopDownCenteredInstanceMultiHeadLightningModule(
                     backbone_type=centered_instance_backbone_type,
                     model_type="centered_instance",
                     backbone_config=confmap_config.model_config.backbone_config,
@@ -1098,7 +1101,7 @@ class TopDownPredictor(Predictor):
             )
 
         preprocess_config["crop_size"] = (
-            confmap_config.data_config.preprocessing.crop_hw[output_head_skeleton_num]
+            confmap_config.data_config.preprocessing.crop_size[output_head_skeleton_num]
             if preprocess_config["crop_size"] is None and confmap_config is not None
             else preprocess_config["crop_size"]
         )

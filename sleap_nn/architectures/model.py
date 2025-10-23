@@ -307,9 +307,6 @@ class MultiHeadModel(nn.Module):
                     outputs[head.name].append(head_layer(backbone_out))
                 else:
                     idx = backbone_outputs["strides"].index(head.output_stride)
-                    outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
-
-                    idx = backbone_outputs["strides"].index(head.output_stride)
                     outputs[head.name].append(
                         head_layer(backbone_outputs["outputs"][idx])
                     )  # eg: outputs = {"CenteredInstanceConfmapsHead" : [output_head_0, output_head_1, output_head_2, ...]}

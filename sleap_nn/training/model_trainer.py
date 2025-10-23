@@ -1318,12 +1318,10 @@ class MultiHeadModelTrainer:
 
         # save skeleton to config
         skeleton_yaml = yaml.safe_load(SkeletonYAMLEncoder().encode(self.skeletons))
-        skeleton_names = skeleton_yaml.keys()
         self.config["data_config"]["skeletons"] = []
-        for skeleton_name in skeleton_names:
-            skl = skeleton_yaml[skeleton_name]
-            skl["name"] = skeleton_name
-            self.config["data_config"]["skeletons"].append(skl)
+        for idx, skeleton in enumerate(skeleton_yaml):
+            skeleton["name"] = self.skeletons[idx].name
+            self.config["data_config"]["skeletons"].append(skeleton)
 
         # setup head config - partnames, edges and class names
         self._setup_head_config()
