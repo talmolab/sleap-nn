@@ -2887,6 +2887,7 @@
 <li><strong><code>train_labels_path</code></strong>: Path(s) to your training label files.</li>
 <li><strong><code>val_labels_path</code></strong>: Path(s) to your validation label files.</li>
 <li><strong><code>augmentation_config</code></strong>: Controls data augmentation settings for training.</li>
+<li><strong><code>data_pipeline_fw</code></strong>: Method to load data during training. Options: [<code>torch_dataset</code>, <code>torch_dataset_cache_img_memory</code>, <code>torch_dataset_cache_img_disk</code>].</li>
 </ul>
 </li>
 <li>
@@ -2900,6 +2901,7 @@
 <ul>
 <li><strong><code>ckpt_dir</code></strong>: Directory where checkpoints and logs will be saved.</li>
 <li><strong><code>run_name</code></strong>: Name for this training run (used for organizing outputs and logging). The checkpoints for a specific run would be saved in <code>&lt;ckpt_dir&gt;/&lt;run_name&gt;</code> folder.</li>
+<li><strong><code>train_data_loader.num_workers</code></strong> and <strong><code>val_data_loader.num_workers</code></strong>: Number of workers for dataloading. (For mac and windows, set this to &gt; 0, ONLY if caching is used for <code>data_config.data_pipeline_fw</code>.)</li>
 </ul>
 </li>
 </ul>
