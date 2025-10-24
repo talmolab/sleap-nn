@@ -545,6 +545,11 @@ def match_candidates_sample(
 
     See also: match_candidates_batch
     """
+    # Move tensors to CPU once to avoid repeated device<->host synchronizations
+    edge_inds_sample = edge_inds_sample.detach().cpu()
+    edge_peak_inds_sample = edge_peak_inds_sample.detach().cpu()
+    line_scores_sample = line_scores_sample.detach().cpu()
+
     match_edge_inds = []
     match_src_peak_inds = []
     match_dst_peak_inds = []
@@ -572,6 +577,8 @@ def match_candidates_sample(
                     edge_peak_inds_k[:, 1] == dst_ind
                 )
                 if mask.any():
+                    # `line_scores_k` is already on CPU; `.item()` does not trigger
+                    # a device synchronization and matches the original behaviour.
                     cost_matrix[i, j] = -line_scores_k[
                         mask
                     ].item()  # Flip sign for maximization.
