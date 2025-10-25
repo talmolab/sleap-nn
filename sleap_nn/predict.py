@@ -109,6 +109,9 @@ def run_inference(
 
     Args:
         data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+        output_head_skeleton_num: (int) Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference. Default: 0.
         input_labels: (sio.Labels) Labels object to run inference on. This is an alternative to specifying the data_path.
         input_video: (sio.Video) Video to run inference on. This is an alternative to specifying the data_path. If both input_labels and input_video are provided, input_labels are used.
         model_paths: (List[str]) List of paths to the directory where the best.ckpt

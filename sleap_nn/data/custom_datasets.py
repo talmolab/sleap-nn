@@ -2190,6 +2190,7 @@ def get_train_val_datasets_multi_head(
         config: Sleap-nn config.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        d_idx: Dataset number (as given in the config)
 
     Returns:
         A tuple (train_dataset, val_dataset).
@@ -2624,6 +2625,7 @@ def get_train_val_dataloaders_multi_head(
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
         trainer_devices: Number of devices to use for training.
+        d_idx: Dataset index.
 
     Returns:
         A tuple (train_dataloader, val_dataloader).

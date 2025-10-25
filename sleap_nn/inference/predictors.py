@@ -618,37 +618,7 @@ class TopDownPredictor(Predictor):
             centroid_peak_threshold = self.peak_threshold
             centered_instance_peak_threshold = self.peak_threshold
 
-        if self.anchor_part is not None:
-            anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
-        else:
-            anch_pt = None
-            if self.centroid_config is not None:
-                anch_pt = (
-                    self.centroid_config.model_config.head_configs.centroid.confmaps[
-                        self.output_head_skeleton_num
-                    ]["anchor_part"]
-                )
-                anch_pt = self.centroid_config.model_config.head_configs.centered_instance.confmaps[
-                    self.output_head_skeleton_num
-                ][
-                    "anchor_part"
-                ]
-            if self.confmap_config is not None:
-                anch_pt = self.confmap_config.model_config.head_configs.centered_instance.confmaps[
-                    self.output_head_skeleton_num
-                ][
-                    "anchor_part"
-                ]
-                anch_pt = self.confmap_config.model_config.head_configs.centered_instance.confmaps[
-                    self.output_head_skeleton_num
-                ][
-                    "anchor_part"
-                ]
-            anchor_ind = (
-                self.skeletons[0].node_names.index(anch_pt)
-                if anch_pt is not None
-                else None
-            )
+        anchor_ind = self.anchor_part
 
         if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
@@ -780,6 +750,10 @@ class TopDownPredictor(Predictor):
                 in the `data_config.preprocessing` section.
             anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+            is_multi_head_model: True if inference should be performed on a multi-head model.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference. Default: 0.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.

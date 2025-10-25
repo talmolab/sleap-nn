@@ -1989,6 +1989,7 @@ class MultiHeadLightningModel(L.LightningModule):
             on_epoch=True,
             logger=True,
             sync_dist=True,
+            batch_size=4,
         )
 
     def on_validation_epoch_start(self):
@@ -2006,6 +2007,7 @@ class MultiHeadLightningModel(L.LightningModule):
             on_epoch=True,
             logger=True,
             sync_dist=True,
+            batch_size=4,
         )
 
     def training_step(self, batch, batch_idx):
@@ -2170,6 +2172,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         loss = 0
         opt = self.optimizers()
         opt.zero_grad()
+        batch_size = batch[0]["frame_idx"].shape[0]
         for d_num in batch.keys():
             batch_data = batch[d_num]
             X, y = torch.squeeze(batch_data["image"], dim=1), torch.squeeze(
@@ -2191,6 +2194,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
         )
 
         opt.step()
@@ -2200,6 +2205,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
         total_loss = 0
+        batch_size = batch[0]["frame_idx"].shape[0]
         for d_num in batch.keys():
             X, y = torch.squeeze(batch[d_num]["image"], dim=1), torch.squeeze(
                 batch[d_num]["centroids_confidence_maps"], dim=1
@@ -2216,6 +2222,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
                 on_step=False,
                 on_epoch=True,
                 logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
             )
 
         self.log(
@@ -2225,6 +2233,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
         )
 
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
@@ -2235,6 +2245,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
         )
 
 
@@ -2335,6 +2347,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         loss = 0
         opt = self.optimizers()
         opt.zero_grad()
+        batch_size = batch[0]["frame_idx"].shape[0]
         for d_num in batch.keys():
             batch_data = batch[d_num]
             X, y = torch.squeeze(batch_data["instance_image"], dim=1), torch.squeeze(
@@ -2378,6 +2391,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                         on_epoch=True,
                         logger=True,
                         sync_dist=True,
+                        batch_size=batch_size,
                     )
 
             self.log(
@@ -2387,6 +2401,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                 on_step=False,
                 on_epoch=True,
                 logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
             )
 
         self.log(
@@ -2396,6 +2412,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
         )
 
         opt.step()
@@ -2405,6 +2423,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
         total_loss = 0
+        batch_size = batch[0]["frame_idx"].shape[0]
         for d_num in batch.keys():
             X, y = torch.squeeze(batch[d_num]["instance_image"], dim=1), torch.squeeze(
                 batch[d_num]["confidence_maps"], dim=1
@@ -2431,6 +2450,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
                 on_step=False,
                 on_epoch=True,
                 logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
             )
 
         self.log(
@@ -2440,6 +2461,8 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
         )
 
         lr = self.optimizers().optimizer.param_groups[0]["lr"]
@@ -2450,4 +2473,6 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             on_step=False,
             on_epoch=True,
             logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
         )

@@ -1193,7 +1193,8 @@ class MultiHeadModelTrainer:
 
         self.train_labels = labels
         self.val_labels = val_labels
-        for val_l in self.val_labels:
+        for train_l, val_l in zip(self.train_labels, self.val_labels):
+            total_train_lfs += len(train_l)
             total_val_lfs += len(val_l)
 
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
@@ -1317,11 +1318,17 @@ class MultiHeadModelTrainer:
         self._setup_preprocessing_config()
 
         # save skeleton to config
-        skeleton_yaml = yaml.safe_load(SkeletonYAMLEncoder().encode(self.skeletons))
+        skeleton_yamls_list = [
+            yaml.safe_load(SkeletonYAMLEncoder().encode([skl]))
+            for skl in self.skeletons
+        ]
         self.config["data_config"]["skeletons"] = []
-        for idx, skeleton in enumerate(skeleton_yaml):
-            skeleton["name"] = self.skeletons[idx].name
-            self.config["data_config"]["skeletons"].append(skeleton)
+        for skeleton_yaml in skeleton_yamls_list:
+            skeleton_names = skeleton_yaml.keys()
+            for skeleton_name in skeleton_names:
+                skl = skeleton_yaml[skeleton_name]
+                skl["name"] = skeleton_name
+                self.config["data_config"]["skeletons"].append(skl)
 
         # setup head config - partnames, edges and class names
         self._setup_head_config()
