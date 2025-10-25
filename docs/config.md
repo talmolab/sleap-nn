@@ -18,6 +18,7 @@ The config file has three main sections:
     - **`train_labels_path`**: Path(s) to your training label files.
     - **`val_labels_path`**: Path(s) to your validation label files.
     - **`augmentation_config`**: Controls data augmentation settings for training.
+    - **`data_pipeline_fw`**: Method to load data during training. Options: [`torch_dataset`, `torch_dataset_cache_img_memory`, `torch_dataset_cache_img_disk`].
 
 - **`model_config`**
     - **`head_configs`**: Defines the output heads (e.g., for confidence maps, part affinity fields, etc.).
@@ -25,6 +26,7 @@ The config file has three main sections:
 - **`trainer_config`**
     - **`ckpt_dir`**: Directory where checkpoints and logs will be saved.
     - **`run_name`**: Name for this training run (used for organizing outputs and logging). The checkpoints for a specific run would be saved in `<ckpt_dir>/<run_name>` folder.
+    - **`train_data_loader.num_workers`** and **`val_data_loader.num_workers`**: Number of workers for dataloading. (For mac and windows, set this to > 0, ONLY if caching is used for `data_config.data_pipeline_fw`.)
 
 ### Sample configuration format
 

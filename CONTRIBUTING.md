@@ -4,6 +4,20 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
 
 ## Development Setup
 
+> **Python 3.14 is not yet supported**
+>
+> `sleap-nn` currently supports **Python 3.11, 3.12, and 3.13**.  
+> **Python 3.14 is not yet tested or supported.**  
+> By default, `uv` will use your system-installed Python.  
+> If you have Python 3.14 installed, you must specify the Python version (≤3.13) in the install command.  
+>
+> For example:
+>
+> ```bash
+> uv sync --python 3.13 ...
+> ```
+> Replace `...` with the rest of your install command as needed.
+
 1. **Install [`uv`](https://github.com/astral-sh/uv) and development dependencies**  
    `uv` is a fast and modern package manager for `pyproject.toml`-based projects. Refer [installation docs](https://docs.astral.sh/uv/getting-started/installation/) to install uv.
 
@@ -27,7 +41,12 @@ Thank you for your interest in contributing to sleap-nn! This guide will help yo
      ```bash
       uv sync --extra dev --extra torch-cpu
       ```
-
+> **Upgrading All Dependencies**
+> To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
+> ```bash
+> uv sync --extra dev --upgrade
+> ```
+> This will upgrade all installed packages in your environment to the latest available versions compatible with your `pyproject.toml`.
 
 ## Code Style
 

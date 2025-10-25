@@ -461,6 +461,21 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
         "trainer_config.online_hard_keypoint_mining.online_mining",
         True,
     )
+    OmegaConf.update(
+        single_instance_config,
+        "data_config.data_pipeline_fw",
+        "torch_dataset_cache_img_disk",
+    )
+    OmegaConf.update(
+        single_instance_config,
+        "trainer_config.train_data_loader.num_workers",
+        2,
+    )
+    OmegaConf.update(
+        single_instance_config,
+        "trainer_config.val_data_loader.num_workers",
+        2,
+    )
 
     labels = sio.load_slp(minimal_instance)
     for lf in labels:

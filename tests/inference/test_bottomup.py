@@ -38,7 +38,13 @@ def test_bottomup_inference_model(
     )
 
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["eff_scale"] = torch.Tensor([1.0])
 
@@ -130,7 +136,13 @@ def test_multiclass_bottomup_inference_model(
     )
 
     labels = sio.load_slp(minimal_instance)
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["eff_scale"] = torch.Tensor([1.0])
 

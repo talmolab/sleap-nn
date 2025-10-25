@@ -10,7 +10,7 @@ SLEAP-NN provides powerful inference capabilities for pose estimation with suppo
     
     - If you're using the `uvx` workflow, you do **not** need to install anything. (See [installation using uvx](installation.md#installation-using-uvx) for more details.)
     
-    - If you are using `uv sync` or `uv pip` installation methods, add `uv run` as a prefix to all CLI commands shown below, for example:
+    - If you are using `uv sync` or `uv add` installation methods, add `uv run` as a prefix to all CLI commands shown below, for example:
 
           `uv run sleap-nn track ...`
 
@@ -107,6 +107,8 @@ sleap-nn track \
 | `--video_dataset` | The dataset for HDF5 videos | `None` |
 | `--video_input_format` | The input_format for HDF5 videos | `channels_last` |
 | `--frames` | List of frames indices. If `None`, all frames in the video are used | All frames |
+| `--no_empty_frames` | If `True`, removes frames with no predicted instances from the output labels | `False` |
+
 
 #### Performance
 
@@ -176,6 +178,14 @@ When using the `sleap-nn track` CLI command with both `--model_paths` and `--tra
 | `--of_window_size` | Optical flow window size to consider at each pyramid scale level (only if `use_flow` is True) | `21` |
 | `--of_max_levels` | Number of pyramid scale levels to consider. This is different from the scale parameter, which determines the initial image scaling (only if `use_flow` is True) | `3` |
 | `--post_connect_single_breaks` | If True and `max_tracks` is not None with local queues candidate method, connects track breaks when exactly one track is lost and exactly one new track is spawned in the frame | `False` |
+
+!!! warning "Tracking cleaning and pre-cull parameters"
+
+    The parameters `--tracking_pre_cull_to_target`, `--tracking_target_instance_count`, `tracking_pre_cull_iou_threshold`, `tracking_clean_iou_threshold` and `--tracking_clean_instance_count` are provided for backwards compatibility with legacy SLEAP workflows and **may be deprecated in future releases**. 
+
+    - To restrict the number of instances per frame, use the `--max_instances` parameter, which selects the top instances with the highest prediction scores.
+
+    We recommend using `--max_instances` for controlling the number of predicted instances per frame in new projects.
 
 #### Fixed Window Tracking
 

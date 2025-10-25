@@ -88,7 +88,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         cache_img="memory",
         apply_aug=base_bottom_config.use_augmentations_train,
     )
-    dataset._fill_cache()
+    dataset._fill_cache([sio.load_slp(minimal_instance)])
 
     gt_sample_keys = [
         "image",
@@ -201,7 +201,7 @@ def test_bottomup_dataset(minimal_instance, tmp_path):
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
-    dataset._fill_cache()
+    dataset._fill_cache([sio.load_slp(minimal_instance)])
 
     gt_sample_keys = [
         "image",
@@ -314,7 +314,7 @@ def test_bottomup_multiclass_dataset(minimal_instance, tmp_path):
         cache_img="memory",
         apply_aug=base_bottom_config.use_augmentations_train,
     )
-    dataset._fill_cache()
+    dataset._fill_cache([tracked_labels])
 
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -400,7 +400,7 @@ def test_bottomup_multiclass_dataset(minimal_instance, tmp_path):
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
-    dataset._fill_cache()
+    dataset._fill_cache([tracked_labels])
 
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -446,7 +446,13 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
-    dataset._fill_cache()
+    dataset._fill_cache(
+        [
+            sio.load_slp(minimal_instance),
+            sio.load_slp(minimal_instance),
+            sio.load_slp(minimal_instance),
+        ]
+    )
 
     gt_sample_keys = [
         "centroid",
@@ -481,7 +487,7 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
         cache_img="memory",
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
-    dataset._fill_cache()
+    dataset._fill_cache([sio.load_slp(minimal_instance)])
 
     gt_sample_keys = [
         "centroid",
@@ -711,7 +717,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
-    dataset._fill_cache()
+    dataset._fill_cache([tracked_labels, tracked_labels, tracked_labels])
 
     gt_sample_keys = [
         "centroid",
@@ -749,7 +755,7 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
         cache_img="memory",
         apply_aug=base_topdown_data_config.use_augmentations_train,
     )
-    dataset._fill_cache()
+    dataset._fill_cache([tracked_labels])
 
     sample = next(iter(dataset))
     assert len(sample.keys()) == len(gt_sample_keys)
@@ -923,7 +929,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
-    dataset._fill_cache()
+    dataset._fill_cache([sio.load_slp(minimal_instance)])
 
     gt_sample_keys = [
         "image",
@@ -957,7 +963,7 @@ def test_centroid_dataset(minimal_instance, tmp_path):
         apply_aug=base_centroid_data_config.use_augmentations_train,
         labels=[sio.load_slp(minimal_instance)],
     )
-    dataset._fill_cache()
+    dataset._fill_cache([sio.load_slp(minimal_instance)])
 
     gt_sample_keys = [
         "image",
@@ -1094,7 +1100,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         cache_img="disk",
         cache_img_path=f"{tmp_path}/cache_imgs",
     )
-    dataset._fill_cache()
+    dataset._fill_cache([labels, labels, labels])
     sample = next(iter(dataset))
     assert len(dataset) == 3
 
@@ -1127,7 +1133,7 @@ def test_single_instance_dataset(minimal_instance, tmp_path):
         cache_img="memory",
         apply_aug=base_singleinstance_data_config.use_augmentations_train,
     )
-    dataset._fill_cache()
+    dataset._fill_cache([labels])
 
     sample = next(iter(dataset))
     assert len(dataset) == 1

@@ -43,7 +43,6 @@ class BaseDataset(Dataset):
     """Base class for custom torch Datasets.
 
     Attributes:
-        labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
@@ -77,6 +76,7 @@ class BaseDataset(Dataset):
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
     def __init__(
@@ -98,7 +98,6 @@ class BaseDataset(Dataset):
     ) -> None:
         """Initialize class attributes."""
         super().__init__()
-        self.labels = labels
         self.user_instances_only = user_instances_only
         self.ensure_rgb = ensure_rgb
         self.ensure_grayscale = ensure_grayscale
@@ -127,13 +126,12 @@ class BaseDataset(Dataset):
         self.max_hw = max_hw
         self.rank = rank
         self.max_instances = 0
-        for x in self.labels:
+        for x in labels:
             max_instances = get_max_instances(x) if x else None
 
             if max_instances > self.max_instances:
                 self.max_instances = max_instances
 
-        self.lf_idx_list = self._get_lf_idx_list()
         self.cache_img = cache_img
         self.cache_img_path = cache_img_path
         self.use_existing_imgs = use_existing_imgs
@@ -148,24 +146,32 @@ class BaseDataset(Dataset):
             if not path.is_dir():
                 path.mkdir(parents=True, exist_ok=True)
 
+        self.lf_idx_list = self._get_lf_idx_list(labels)
+
+        self.labels_list = None
+        # this is to ensure that the labels are not passed to the multiprocessing pool when caching is enabled
+        # (h5py objects can't be pickled error with num_workers > 0) in mac and windows
+        if self.cache_img is None:
+            self.labels_list = labels
+
         self.transform_to_pil = T.ToPILImage()
         self.transform_pil_to_tensor = T.ToTensor()
         self.cache = {}
 
         if self.cache_img is not None:
             if self.cache_img == "memory":
-                self._fill_cache()
+                self._fill_cache(labels)
             elif self.cache_img == "disk" and not self.use_existing_imgs:
                 if self.rank is None or self.rank == -1 or self.rank == 0:
-                    self._fill_cache()
+                    self._fill_cache(labels)
                 # Synchronize all ranks after cache creation
                 if is_distributed_initialized():
                     dist.barrier()
 
-    def _get_lf_idx_list(self) -> List[Tuple[int]]:
+    def _get_lf_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
         """Return list of indices of labelled frames."""
         lf_idx_list = []
-        for labels_idx, label in enumerate(self.labels):
+        for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 # Filter to user instances
                 if self.user_instances_only:
@@ -176,7 +182,18 @@ class BaseDataset(Dataset):
                     if not inst.is_empty:  # filter all NaN instances.
                         is_empty = False
                 if not is_empty:
-                    lf_idx_list.append((labels_idx, lf_idx))
+                    video_idx = labels[labels_idx].videos.index(lf.video)
+                    sample = {
+                        "labels_idx": labels_idx,
+                        "lf_idx": lf_idx,
+                        "video_idx": video_idx,
+                        "frame_idx": lf.frame_idx,
+                        "instances": (
+                            lf.instances if self.cache_img is not None else None
+                        ),
+                    }
+                    lf_idx_list.append(sample)
+                    # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
         return lf_idx_list
 
     def __next__(self):
@@ -192,11 +209,13 @@ class BaseDataset(Dataset):
         """Returns an iterator."""
         return self
 
-    def _fill_cache(self):
+    def _fill_cache(self, labels: List[sio.Labels]):
         """Load all samples to cache."""
         # TODO: Implement parallel processing (using threads might cause error with MediaVideo backend)
-        for labels_idx, lf_idx in self.lf_idx_list:
-            img = self.labels[labels_idx][lf_idx].image
+        for sample in self.lf_idx_list:
+            labels_idx = sample["labels_idx"]
+            lf_idx = sample["lf_idx"]
+            img = labels[labels_idx][lf_idx].image
             if img.shape[-1] == 1:
                 img = np.squeeze(img)
             if self.cache_img == "disk":
@@ -204,10 +223,6 @@ class BaseDataset(Dataset):
                 Image.fromarray(img).save(f_name, format="JPEG")
             if self.cache_img == "memory":
                 self.cache[(labels_idx, lf_idx)] = img
-
-    def _get_video_idx(self, lf, labels_idx):
-        """Return indsample of `lf.video` in `labels.videos`."""
-        return self.labels[labels_idx].videos.index(lf.video)
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
@@ -224,7 +239,6 @@ class BottomUpDataset(BaseDataset):
     """Dataset class for bottom-up models.
 
     Attributes:
-        labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
@@ -263,6 +277,7 @@ class BottomUpDataset(BaseDataset):
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
     def __init__(
@@ -304,16 +319,18 @@ class BottomUpDataset(BaseDataset):
         self.confmap_head_config = confmap_head_config
         self.pafs_head_config = pafs_head_config
 
-        self.edge_inds = self.labels[0].skeletons[0].edge_inds
+        self.edge_inds = labels[0].skeletons[0].edge_inds
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
-        (labels_idx, lf_idx) = self.lf_idx_list[index]
+        sample = self.lf_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        video_idx = sample["video_idx"]
+        frame_idx = sample["frame_idx"]
 
-        lf = self.labels[labels_idx][lf_idx]
-
-        # load the img
         if self.cache_img is not None:
+            instances = sample["instances"]
             if self.cache_img == "disk":
                 img = np.array(
                     Image.open(
@@ -322,18 +339,19 @@ class BottomUpDataset(BaseDataset):
                 )
             elif self.cache_img == "memory":
                 img = self.cache[(labels_idx, lf_idx)].copy()
-
-        else:  # load from slp file if not cached
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances = lf.instances
             img = lf.image
 
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(lf, labels_idx)
-
         # get dict
         sample = process_lf(
-            lf,
+            instances_list=instances,
+            img=img,
+            frame_idx=frame_idx,
             video_idx=video_idx,
             max_instances=self.max_instances,
             user_instances_only=self.user_instances_only,
@@ -417,7 +435,6 @@ class BottomUpMultiClassDataset(BaseDataset):
     """Dataset class for bottom-up ID models.
 
     Attributes:
-        labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
         class_map_threshold: Minimum confidence map value below which map values will be
@@ -458,6 +475,7 @@ class BottomUpMultiClassDataset(BaseDataset):
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
     def __init__(
@@ -505,12 +523,14 @@ class BottomUpMultiClassDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image, confmaps and pafs for given index."""
-        (labels_idx, lf_idx) = self.lf_idx_list[index]
+        sample = self.lf_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        video_idx = sample["video_idx"]
+        frame_idx = sample["frame_idx"]
 
-        lf = self.labels[labels_idx][lf_idx]
-
-        # load the img
         if self.cache_img is not None:
+            instances = sample["instances"]
             if self.cache_img == "disk":
                 img = np.array(
                     Image.open(
@@ -519,27 +539,29 @@ class BottomUpMultiClassDataset(BaseDataset):
                 )
             elif self.cache_img == "memory":
                 img = self.cache[(labels_idx, lf_idx)].copy()
-
-        else:  # load from slp file if not cached
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances = lf.instances
             img = lf.image
 
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(lf, labels_idx)
-
         # get dict
         sample = process_lf(
-            lf,
+            instances_list=instances,
+            img=img,
+            frame_idx=frame_idx,
             video_idx=video_idx,
             max_instances=self.max_instances,
             user_instances_only=self.user_instances_only,
         )
+
         track_ids = torch.Tensor(
             [
                 (
-                    self.class_names.index(lf.instances[idx].track.name)
-                    if lf.instances[idx].track is not None
+                    self.class_names.index(instances[idx].track.name)
+                    if instances[idx].track is not None
                     else -1
                 )
                 for idx in range(sample["num_instances"])
@@ -629,7 +651,6 @@ class CenteredInstanceDataset(BaseDataset):
     """Dataset class for instance-centered confidence map models.
 
     Attributes:
-        labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
         anchor_ind: Index of the node to use as the anchor point, based on its index in the
@@ -668,6 +689,7 @@ class CenteredInstanceDataset(BaseDataset):
             disk occurs only once across all workers.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
             (required keys: `sigma`, `output_stride`, `part_names` and `anchor_part` depending on the model type ).
+        labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -710,16 +732,17 @@ class CenteredInstanceDataset(BaseDataset):
             use_existing_imgs=use_existing_imgs,
             rank=rank,
         )
+        self.labels = None
         self.crop_size = crop_size
         self.anchor_ind = anchor_ind
         self.confmap_head_config = confmap_head_config
-        self.instance_idx_list = self._get_instance_idx_list()
+        self.instance_idx_list = self._get_instance_idx_list(labels)
         self.cache_lf = [None, None]
 
-    def _get_instance_idx_list(self) -> List[Tuple[int]]:
+    def _get_instance_idx_list(self, labels: List[sio.Labels]) -> List[Tuple[int]]:
         """Return list of tuples with indices of labelled frames and instances."""
         instance_idx_list = []
-        for labels_idx, label in enumerate(self.labels):
+        for labels_idx, label in enumerate(labels):
             for lf_idx, lf in enumerate(label):
                 # Filter to user instances
                 if self.user_instances_only:
@@ -727,7 +750,19 @@ class CenteredInstanceDataset(BaseDataset):
                         lf.instances = lf.user_instances
                 for inst_idx, inst in enumerate(lf.instances):
                     if not inst.is_empty:  # filter all NaN instances.
-                        instance_idx_list.append((labels_idx, lf_idx, inst_idx))
+                        video_idx = labels[labels_idx].videos.index(lf.video)
+                        sample = {
+                            "labels_idx": labels_idx,
+                            "lf_idx": lf_idx,
+                            "inst_idx": inst_idx,
+                            "video_idx": video_idx,
+                            "instances": (
+                                lf.instances if self.cache_img is not None else None
+                            ),
+                            "frame_idx": lf.frame_idx,
+                        }
+                        instance_idx_list.append(sample)
+                        # This is to ensure that the labels are not passed to the multiprocessing pool (h5py objects can't be pickled)
         return instance_idx_list
 
     def __len__(self) -> int:
@@ -736,38 +771,36 @@ class CenteredInstanceDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
-        labels_idx, lf_idx, inst_idx = self.instance_idx_list[index]
-        lf = self.labels[labels_idx][lf_idx]
+        sample = self.instance_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        inst_idx = sample["inst_idx"]
+        video_idx = sample["video_idx"]
+        lf_frame_idx = sample["frame_idx"]
 
-        if lf_idx == self.cache_lf[0]:
-            img = self.cache_lf[1]
-        else:
-            # load the img
-            if self.cache_img is not None:
-                if self.cache_img == "disk":
-                    img = np.array(
-                        Image.open(
-                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                        )
+        if self.cache_img is not None:
+            instances_list = sample["instances"]
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
                     )
-                elif self.cache_img == "memory":
-                    img = self.cache[(labels_idx, lf_idx)].copy()
-
-            else:  # load from slp file if not cached
-                img = lf.image  # TODO: doesn't work when num_workers > 0
-
-            if img.ndim == 2:
-                img = np.expand_dims(img, axis=2)
-
-            self.cache_lf = [lf_idx, img]
-
-        video_idx = self._get_video_idx(lf, labels_idx)
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances_list = lf.instances
+            img = lf.image
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
         instances = []
-        for inst in lf:
-            instances.append(inst.numpy())
+        for inst in instances_list:
+            if not inst.is_empty:
+                instances.append(inst.numpy())
         instances = np.stack(instances, axis=0)
 
         # Add singleton time dimension for single frames.
@@ -819,7 +852,7 @@ class CenteredInstanceDataset(BaseDataset):
 
         sample = generate_crops(image, instance, centroid, crop_size)
 
-        sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
+        sample["frame_idx"] = torch.tensor(lf_frame_idx, dtype=torch.int32)
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width]).unsqueeze(
@@ -892,7 +925,6 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
     """Dataset class for instance-centered confidence map ID models.
 
     Attributes:
-        labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
         anchor_ind: Index of the node to use as the anchor point, based on its index in the
@@ -933,6 +965,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             (required keys: `sigma`, `output_stride`, `part_names` and `anchor_part` depending on the model type ).
         class_vectors_head_config: DictConfig object with all the keys in the `head_config` section.
             (required keys: `classes`, `num_fc_layers`, `num_fc_units`, `output_stride`, `loss_weight`).
+        labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
 
     Note: If scale is provided for centered-instance model, the images are cropped out
     from the scaled image with the given crop size.
@@ -984,38 +1017,37 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with cropped image and confmaps of instance for given index."""
-        labels_idx, lf_idx, inst_idx = self.instance_idx_list[index]
-        lf = self.labels[labels_idx][lf_idx]
+        sample = self.instance_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        inst_idx = sample["inst_idx"]
+        video_idx = sample["video_idx"]
+        lf_frame_idx = sample["frame_idx"]
 
-        if lf_idx == self.cache_lf[0]:
-            img = self.cache_lf[1]
-        else:
-            # load the img
-            if self.cache_img is not None:
-                if self.cache_img == "disk":
-                    img = np.array(
-                        Image.open(
-                            f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                        )
+        if self.cache_img is not None:
+            instances_list = sample["instances"]
+            if self.cache_img == "disk":
+                img = np.array(
+                    Image.open(
+                        f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
                     )
-                elif self.cache_img == "memory":
-                    img = self.cache[(labels_idx, lf_idx)].copy()
+                )
+            elif self.cache_img == "memory":
+                img = self.cache[(labels_idx, lf_idx)].copy()
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances_list = lf.instances
+            img = lf.image
 
-            else:  # load from slp file if not cached
-                img = lf.image  # TODO: doesn't work when num_workers > 0
-
-            if img.ndim == 2:
-                img = np.expand_dims(img, axis=2)
-
-            self.cache_lf = [lf_idx, img]
-
-        video_idx = self._get_video_idx(lf, labels_idx)
+        if img.ndim == 2:
+            img = np.expand_dims(img, axis=2)
 
         image = np.transpose(img, (2, 0, 1))  # HWC -> CHW
 
         instances = []
-        for inst in lf:
-            instances.append(inst.numpy())
+        for inst in instances_list:
+            if not inst.is_empty:
+                instances.append(inst.numpy())
         instances = np.stack(instances, axis=0)
 
         # Add singleton time dimension for single frames.
@@ -1059,8 +1091,8 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         track_ids = torch.Tensor(
             [
                 (
-                    self.class_names.index(lf.instances[idx].track.name)
-                    if lf.instances[idx].track is not None
+                    self.class_names.index(instances_list[idx].track.name)
+                    if instances_list[idx].track is not None
                     else -1
                 )
                 for idx in range(num_instances)
@@ -1083,7 +1115,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         sample = generate_crops(image, instance, centroid, crop_size)
 
-        sample["frame_idx"] = torch.tensor(lf.frame_idx, dtype=torch.int32)
+        sample["frame_idx"] = torch.tensor(lf_frame_idx, dtype=torch.int32)
         sample["video_idx"] = torch.tensor(video_idx, dtype=torch.int32)
         sample["num_instances"] = num_instances
         sample["orig_size"] = torch.Tensor([orig_img_height, orig_img_width]).unsqueeze(
@@ -1158,7 +1190,6 @@ class CentroidDataset(BaseDataset):
     """Dataset class for centroid models.
 
     Attributes:
-        labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
         anchor_ind: Index of the node to use as the anchor point, based on its index in the
@@ -1196,6 +1227,7 @@ class CentroidDataset(BaseDataset):
         (required keys: `sigma`, `output_stride` and `anchor_part` depending on the model type ).
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
     def __init__(
@@ -1239,12 +1271,14 @@ class CentroidDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for centroids for given index."""
-        (labels_idx, lf_idx) = self.lf_idx_list[index]
+        sample = self.lf_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        video_idx = sample["video_idx"]
+        lf_frame_idx = sample["frame_idx"]
 
-        lf = self.labels[labels_idx][lf_idx]
-
-        # load the img
         if self.cache_img is not None:
+            instances = sample["instances"]
             if self.cache_img == "disk":
                 img = np.array(
                     Image.open(
@@ -1253,18 +1287,18 @@ class CentroidDataset(BaseDataset):
                 )
             elif self.cache_img == "memory":
                 img = self.cache[(labels_idx, lf_idx)].copy()
-
-        else:  # load from slp file if not cached
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances = lf.instances
             img = lf.image
-
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(lf, labels_idx)
-
         # get dict
         sample = process_lf(
-            lf,
+            instances_list=instances,
+            img=img,
+            frame_idx=lf_frame_idx,
             video_idx=video_idx,
             max_instances=self.max_instances,
             user_instances_only=self.user_instances_only,
@@ -1342,7 +1376,6 @@ class SingleInstanceDataset(BaseDataset):
     """Dataset class for single-instance models.
 
     Attributes:
-        labels: Source `sio.Labels` object.
         max_stride: Scalar integer specifying the maximum stride that the image must be
             divisible by.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
@@ -1378,6 +1411,7 @@ class SingleInstanceDataset(BaseDataset):
         (required keys: `sigma`, `output_stride` and `part_names` depending on the model type ).
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
     """
 
     def __init__(
@@ -1419,12 +1453,14 @@ class SingleInstanceDataset(BaseDataset):
 
     def __getitem__(self, index) -> Dict:
         """Return dict with image and confmaps for instance for given index."""
-        (labels_idx, lf_idx) = self.lf_idx_list[index]
+        sample = self.lf_idx_list[index]
+        labels_idx = sample["labels_idx"]
+        lf_idx = sample["lf_idx"]
+        video_idx = sample["video_idx"]
+        lf_frame_idx = sample["frame_idx"]
 
-        lf = self.labels[labels_idx][lf_idx]
-
-        # load the img
         if self.cache_img is not None:
+            instances = sample["instances"]
             if self.cache_img == "disk":
                 img = np.array(
                     Image.open(
@@ -1433,18 +1469,18 @@ class SingleInstanceDataset(BaseDataset):
                 )
             elif self.cache_img == "memory":
                 img = self.cache[(labels_idx, lf_idx)].copy()
-
-        else:  # load from slp file if not cached
+        else:
+            lf = self.labels_list[labels_idx][lf_idx]
+            instances = lf.instances
             img = lf.image
-
         if img.ndim == 2:
             img = np.expand_dims(img, axis=2)
 
-        video_idx = self._get_video_idx(lf, labels_idx)
-
         # get dict
         sample = process_lf(
-            lf,
+            instances_list=instances,
+            img=img,
+            frame_idx=lf_frame_idx,
             video_idx=video_idx,
             max_instances=self.max_instances,
             user_instances_only=self.user_instances_only,

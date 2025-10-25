@@ -13,7 +13,13 @@ def test_apply_intensity_augmentation(minimal_instance):
     """Test `apply_intensity_augmentation` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"])
 
     img, pts = apply_intensity_augmentation(
@@ -36,7 +42,13 @@ def test_apply_geometric_augmentation(minimal_instance):
     """Test `apply_geometric_augmentation` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"])
 
     img, pts = apply_geometric_augmentation(

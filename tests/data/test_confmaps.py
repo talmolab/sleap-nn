@@ -15,7 +15,13 @@ def test_generate_confmaps(minimal_instance):
     """Test `generate_confmaps` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
 
     confmaps = generate_confmaps(
         ex["instances"][:, 0].unsqueeze(dim=1), img_hw=(384, 384)
@@ -27,7 +33,13 @@ def test_generate_multiconfmaps(minimal_instance):
     """Test `generate_multiconfmaps` function."""
     labels = sio.load_slp(minimal_instance)
     lf = labels[0]
-    ex = process_lf(lf, 0, 2)
+    ex = process_lf(
+        instances_list=lf.instances,
+        img=lf.image,
+        frame_idx=lf.frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
 
     confmaps = generate_multiconfmaps(
         ex["instances"], img_hw=(384, 384), num_instances=ex["num_instances"]

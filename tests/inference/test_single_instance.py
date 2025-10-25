@@ -35,7 +35,13 @@ def test_single_instance_inference_model(
     for lf in labels:
         lf.instances = lf.instances[:1]
 
-    ex = process_lf(labels[0], 0, 2)
+    ex = process_lf(
+        instances_list=labels[0].instances,
+        img=labels[0].image,
+        frame_idx=labels[0].frame_idx,
+        video_idx=0,
+        max_instances=2,
+    )
     ex["image"] = apply_normalization(ex["image"]).unsqueeze(dim=0)
     ex["eff_scale"] = torch.Tensor([1.0])
 

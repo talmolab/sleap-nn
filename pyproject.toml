@@ -13,12 +13,13 @@ authors = [
     {name = "Talmo Pereira", email = "talmo@salk.edu"}
 ]
 description = "Neural network backend for training and inference for animal pose estimation."
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 keywords = ["sleap", "pose estimation", "deep learning", "neural networks", "computer vision", "animal behavior"]
 license = {text = "BSD-3-Clause"}
 classifiers = [
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12"
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "sleap-io>=0.2.0",
@@ -53,19 +54,19 @@ readme = {file = ["README.md"], content-type="text/markdown"}
 [project.optional-dependencies]
 torch = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 torch-cpu = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 torch-cuda118 = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 torch-cuda128 = [
     "torch",
-    "torchvision",
+    "torchvision<0.24.0",
 ]
 dev = [
     "pytest",
