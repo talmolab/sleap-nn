@@ -153,7 +153,9 @@ class CentroidCrop(L.LightningModule):
 
         return crops_dict
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(
+        self, inputs: Dict[str, torch.Tensor], output_head_skeleton_num: int = 0
+    ) -> Dict[str, torch.Tensor]:
         """Predict centroid confidence maps and crop around peaks.
 
         This layer can be chained with a `FindInstancePeaks` layer to create a top-down
@@ -161,6 +163,9 @@ class CentroidCrop(L.LightningModule):
 
         Args:
             inputs: Dictionary with key `"image"`. Other keys will be passed down the pipeline.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             A list of dictionaries (size = batch size) where each dictionary has cropped
@@ -221,8 +226,8 @@ class CentroidCrop(L.LightningModule):
             scaled_image = apply_pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
-        if isinstance(cms, list):  # only one head for centroid model
-            cms = cms[0]
+        if isinstance(cms, list):
+            cms = cms[output_head_skeleton_num]
 
         refined_peaks, peak_vals, peak_sample_inds, _ = find_local_peaks(
             cms.detach(),
@@ -807,7 +812,9 @@ class TopDownInferenceModel(L.LightningModule):
                 raise ValueError(message)
         self.centroid_crop.eval()
         peaks_output = []
-        batch = self.centroid_crop(batch)
+        batch = self.centroid_crop(
+            batch, output_head_skeleton_num=self.output_head_skeleton_num
+        )
 
         if batch is not None:
 

@@ -2144,7 +2144,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         self.centroid_inf_layer.output_stride = self.head_configs.centroid.confmaps[
             d_idx
         ]["output_stride"]
-        output = self.centroid_inf_layer(ex)
+        output = self.centroid_inf_layer(ex, output_head_skeleton_num=d_idx)
         peaks = output["centroids"][0].cpu().numpy()
         img = (
             output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
@@ -2181,11 +2181,25 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
 
             output = self.model(X)["CentroidConfmapsHead"]
 
-            y_preds = output[0]
+            for h_num in batch.keys():
+                if d_num != h_num:
+                    with torch.no_grad():
+                        output[h_num] = output[h_num].detach()
+
+            y_preds = output[d_num]
             curr_loss = 1.0 * self.loss_func(y_preds, y)
             loss += curr_loss
 
             self.manual_backward(curr_loss, retain_graph=True)
+
+            self.log(
+                f"train_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+            )
 
         self.log(
             f"train_loss",
@@ -2211,7 +2225,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
                 batch[d_num]["centroids_confidence_maps"], dim=1
             )
 
-            y_preds = self.model(X)["CentroidConfmapsHead"][0]
+            y_preds = self.model(X)["CentroidConfmapsHead"][d_num]
             curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
             total_loss += curr_loss
 
