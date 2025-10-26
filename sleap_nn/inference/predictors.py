@@ -783,7 +783,12 @@ class TopDownPredictor(Predictor):
                     (Path(centroid_ckpt_path) / "training_config.json").as_posix()
                 )
 
-            # skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
+            skeletons_dict = {}
+            for skl_idx, skl in enumerate(centroid_config.data_config.skeletons):
+                skel = SkeletonYAMLDecoder().decode(dict(skl))
+                skel.name = skl.name
+                skeletons_dict[skl_idx] = [skel]
+            skeletons = skeletons_dict[output_head_skeleton_num]
 
             # check which backbone architecture
             for k, v in centroid_config.model_config.backbone_config.items():
@@ -792,12 +797,6 @@ class TopDownPredictor(Predictor):
                     break
 
             if not is_sleap_ckpt:
-                skeletons_dict = {}
-                for k in centroid_config.data_config.skeletons:
-                    skeletons_dict[k] = get_skeleton_from_config(
-                        centroid_config.data_config.skeletons[k]
-                    )
-                skeletons = skeletons_dict[output_head_skeleton_num]
                 ckpt_path = (Path(centroid_ckpt_path) / "best.ckpt").as_posix()
                 centroid_model = CentroidMultiHeadLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
@@ -906,6 +905,12 @@ class TopDownPredictor(Predictor):
                 )
 
             # skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+            skeletons_dict = {}
+            for skl_idx, skl in enumerate(confmap_config.data_config.skeletons):
+                skel = SkeletonYAMLDecoder().decode(dict(skl))
+                skel.name = skl.name
+                skeletons_dict[skl_idx] = [skel]
+            skeletons = skeletons_dict[output_head_skeleton_num]
 
             # check which backbone architecture
             for k, v in confmap_config.model_config.backbone_config.items():
@@ -915,12 +920,6 @@ class TopDownPredictor(Predictor):
 
             if not is_sleap_ckpt:
                 ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
-                skeletons_dict = {}
-                for skl_idx, skl in enumerate(confmap_config.data_config.skeletons):
-                    skel = SkeletonYAMLDecoder().decode(dict(skl))
-                    skel.name = skl.name
-                    skeletons_dict[skl_idx] = [skel]
-                skeletons = skeletons_dict[output_head_skeleton_num]
                 confmap_model = TopDownCenteredInstanceMultiHeadLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     model_type="centered_instance",
