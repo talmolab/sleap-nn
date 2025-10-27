@@ -10,11 +10,13 @@ from sleap_nn.data.resizing import (
 )
 from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_centroids import generate_centroids
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.instance_cropping import make_centered_bboxes, get_cropped_img
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
+from sleap_nn.data.resizing import apply_sizematcher
 from sleap_nn.inference.identity import get_class_inds_from_vectors
 from loguru import logger
 from collections import defaultdict
+import kornia
 
 
 class CentroidCrop(L.LightningModule):
@@ -100,8 +102,8 @@ class CentroidCrop(L.LightningModule):
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-        for centroid, centroid_val, image, fidx, vidx, sz, eff_sc in zip(
-            self.refined_peaks_batched,
+        for instances, centroid_val, image, fidx, vidx, sz, eff_sc in zip(
+            inputs["instances"],
             self.peak_vals_batched,
             inputs["image"],
             inputs["frame_idx"],
@@ -109,46 +111,99 @@ class CentroidCrop(L.LightningModule):
             inputs["orig_size"],
             inputs["eff_scale"],
         ):
-            if torch.any(torch.isnan(centroid)):
-                if torch.all(torch.isnan(centroid)):
-                    continue
-                else:
-                    non_nans = ~torch.any(centroid.isnan(), dim=-1)
-                    centroid = centroid[non_nans]
-                    if len(centroid.shape) == 1:
-                        centroid = centroid.unsqueeze(dim=0)
-                    centroid_val = centroid_val[non_nans]
-            n = centroid.shape[0]
-            box_size = (
-                self.crop_hw[0],
-                self.crop_hw[1],
-            )
-            instance_bbox = torch.unsqueeze(
-                make_centered_bboxes(centroid, box_size[0], box_size[1]), 0
-            )  # (1, n, 4, 2)
+            # Setting head_idx
+            head_idx = self.anchor_ind
 
-            # Generate cropped image of shape (n, C, crop_H, crop_W)
-            instance_image = crop_bboxes(
-                image,
-                bboxes=instance_bbox.squeeze(dim=0),
-                sample_inds=[0] * n,
-            )
+            # Declaring batch lists for dictionary usage
+            batch_images = []
+            batch_imgs_before_size_match = []
+            batch_keypoints = []
+            batch_src_pts = []
+            batch_dst_pts = []
+            batch_rotated = []
+            batch_eff_scale = []
+            batch_height = []
+            batch_width = []
 
-            # Access top left point (x,y) of bounding box and subtract this offset from
-            # position of nodes.
-            point = instance_bbox[0, :, 0]
-            centered_centroid = centroid - point
+            # for use within for loop
+            images_to_resize = []
+            keypoints_to_store = []
+            src_pts_list = []
+            dst_pts_list = []
+            rotated_flags = []
+
+            # Get the valid instances to iterate through
+            valid_instances = [
+                inst
+                for inst in instances[0]
+                if torch.sum(~torch.isnan(inst).any(dim=1)) >= 3
+            ]
+
+            if len(valid_instances) == 0:
+                continue
+
+            for instance in valid_instances:
+
+                # Get the cropped instance
+                image = (
+                    image if image.dim() == 4 else image.unsqueeze(0)
+                )  # Make sure it's (1, C, H, W)
+                sample_image, sample_instance, src_pts, dst_pts, rotated = (
+                    get_cropped_img(image[0], instance, head_idx)
+                )
+
+                # for use in the second for loop
+                images_to_resize.append(sample_image)
+                keypoints_to_store.append(sample_instance)
+                src_pts_list.append(src_pts)
+                dst_pts_list.append(dst_pts)
+                rotated_flags.append(rotated)
+
+            if len(images_to_resize) == 0:
+                continue
+
+            for i in range(len(images_to_resize)):
+                # storing height and width for later usage
+                height, width = images_to_resize[i].shape[-2:]
+                batch_height.append(height)
+                batch_width.append(width)
+                # size matcher
+                sample_image, eff_scale = apply_sizematcher(
+                    images_to_resize[i],
+                    max_height=self.crop_hw[0],
+                    max_width=self.crop_hw[1],
+                )
+                keypoints_to_store[i] = keypoints_to_store[i] * eff_scale
+                batch_imgs_before_size_match.append(images_to_resize[i])
+                batch_images.append(sample_image.unsqueeze(0))
+                batch_keypoints.append(keypoints_to_store[i].unsqueeze(0))
+                batch_src_pts.append(src_pts_list[i].unsqueeze(0))
+                batch_dst_pts.append(dst_pts_list[i].unsqueeze(0))
+                batch_rotated.append(rotated_flags[i])
+                eff_scale = torch.tensor(
+                    eff_scale, dtype=torch.float32, device=sample_image.device
+                )
+                batch_eff_scale.append(eff_scale)
 
             ex = {}
+            n = len(batch_images)
             ex["image"] = torch.cat([image] * n)
-            ex["centroid"] = centered_centroid
+            ex["instance"] = torch.cat(batch_keypoints, dim=0).unsqueeze(1)
             ex["centroid_val"] = centroid_val
+            ex["head"] = torch.stack([inst[head_idx] for inst in instances])
             ex["frame_idx"] = torch.Tensor([fidx] * n)
             ex["video_idx"] = torch.Tensor([vidx] * n)
-            ex["instance_bbox"] = instance_bbox.squeeze(dim=0).unsqueeze(dim=1)
-            ex["instance_image"] = instance_image.unsqueeze(dim=1)
+            ex["instance_bbox"] = torch.stack(batch_src_pts).squeeze(1).unsqueeze(1)
+            ex["instance_image"] = torch.cat(batch_images, dim=0).unsqueeze(1)
             ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
             ex["eff_scale"] = torch.Tensor([eff_sc] * n)
+            ex["imgs_b4_resize"] = batch_imgs_before_size_match
+            ex["dst_pts"] = torch.stack(batch_dst_pts, dim=0).squeeze(1)
+            ex["src_pts"] = torch.stack(batch_src_pts, dim=0).squeeze(1)
+            ex["rotated"] = torch.tensor(batch_rotated, dtype=torch.bool)
+            ex["scale"] = torch.stack(batch_eff_scale, dim=0)
+            ex["height"] = torch.tensor(batch_height, dtype=torch.float32)
+            ex["width"] = torch.tensor(batch_width, dtype=torch.float32)
             crops_dict.append(ex)
 
         return crops_dict
@@ -174,9 +229,10 @@ class CentroidCrop(L.LightningModule):
         """
         if self.use_gt_centroids:
             batch = inputs["video_idx"].shape[0]
-            centroids = generate_centroids(
-                inputs["instances"], anchor_ind=self.anchor_ind
-            )
+            # centroids = generate_centroids(
+            #     inputs["instances"], anchor_ind=self.anchor_ind
+            # )
+            centroids = torch.ones(batch, 1, inputs["instances"].shape[-3], 2)
             centroid_vals = torch.ones(centroids.shape)[..., 0]
             self.refined_peaks_batched = [x[0] for x in centroids]
             self.peak_vals_batched = [x[0] for x in centroid_vals]
@@ -562,25 +618,77 @@ class FindInstancePeaks(L.LightningModule):
 
         # Adjust for stride and scale.
         peak_points = peak_points * self.output_stride
-        if self.input_scale != 1.0:
-            peak_points = peak_points / self.input_scale
+        # if self.input_scale != 1.0:
+        #     peak_points = peak_points / self.input_scale
+
+        # retrieving the inputs from the dictionary
+        rotated = inputs["rotated"]
+        src_pts = inputs["src_pts"]
+        dst_pts = inputs["dst_pts"]
+        width = inputs["width"]
+        height = inputs["height"]
+        instance_images = inputs["instance_image"]
+        inputs["pred_keypoints_raw"] = peak_points
+
+        # Initializing list to store restored keypoints
+        restored = []
+
+        # scale dim should just matchup with batch size
 
         peak_points = peak_points / (
-            inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
+            inputs["scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
         )
 
-        inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
+        # Loop through each instance to restore keypoints
+        for i in range(peak_points.shape[0]):
+            kpts = peak_points[i].clone()
 
-        inputs["instance_bbox"] = inputs["instance_bbox"] / (
+            # If the instance is rotated, we need to restore the keypoints
+            if rotated[i]:
+                kpts[:, 0] = width[i] - kpts[:, 0]
+                kpts[:, 1] = height[i] - kpts[:, 1]
+
+            # Convert to homogeneous coords
+            kpts_homo = torch.cat(
+                [kpts, torch.ones((kpts.shape[0], 1), device=kpts.device)], dim=1
+            )
+
+            # dst_pts represents where the OBB corners went to in crop space
+            # src_pts represents the original OBB corners
+            src = src_pts[i].to(kpts.device)
+            dst = dst_pts[i].to(kpts.device)
+
+            # Construct homogenous source and destination matrices
+            ones = torch.ones((3, 1), device=kpts.device)  # Shape = (3, 1)
+            src_h = torch.cat([src, ones], dim=1)  # Result: (3, 3)
+            dst_h = torch.cat([dst, ones], dim=1)
+
+            # Solve for affine
+            forward_affine = torch.linalg.lstsq(src_h, dst_h).solution.T
+
+            # Invert: crop -> original
+            inverse_affine = torch.inverse(forward_affine)[:2]
+
+            # Apply inverse affine to keypoints
+            restored_kpts = (inverse_affine @ kpts_homo.T).T[:, :2]
+
+            # Append to list
+            restored.append(restored_kpts.unsqueeze(0))
+
+        restored_kpts = torch.cat(restored, dim=0)
+
+        if self.input_scale != 1.0:
+            restored_kpts = restored_kpts / self.input_scale
+
+        restored_kpts = restored_kpts / (
             inputs["eff_scale"]
             .unsqueeze(dim=1)
             .unsqueeze(dim=2)
-            .unsqueeze(dim=3)
-            .to(inputs["instance_bbox"].device)
+            .to(restored_kpts.device)
         )
 
         # Build outputs.
-        outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}
+        outputs = {"pred_instance_peaks": restored_kpts, "pred_peak_values": peak_vals}
         if self.return_confmaps:
             outputs["pred_confmaps"] = cms.detach()
         inputs.update(outputs)

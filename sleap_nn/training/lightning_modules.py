@@ -712,7 +712,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
         output = self.instance_peaks_inf_layer(ex)
-        peaks = output["pred_instance_peaks"].cpu().numpy()
+        peaks = output["pred_keypoints_raw"].cpu().numpy()
         img = (
             output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
         )  # convert from (C, H, W) to (H, W, C)
