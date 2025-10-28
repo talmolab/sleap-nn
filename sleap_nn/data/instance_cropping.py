@@ -44,7 +44,7 @@ def find_instance_crop_size(
     max_length = 0.0
     for lf in labels:
         for inst in lf.instances:
-            if not inst.is_empty:  # only if atleast one point is not nan
+            if not inst.is_empty:  # only if at least one point is not nan
                 pts = inst.numpy()
                 pts *= input_scaling
                 diff_x = np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
