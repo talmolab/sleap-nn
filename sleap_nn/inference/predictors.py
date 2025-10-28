@@ -1189,7 +1189,7 @@ class TopDownPredictor(Predictor):
             for (
                 video_idx,
                 frame_idx,
-                bbox,
+                # bbox,
                 pred_instances,
                 pred_values,
                 instance_score,
@@ -1197,7 +1197,7 @@ class TopDownPredictor(Predictor):
             ) in zip(
                 ex["video_idx"],
                 ex["frame_idx"],
-                ex["instance_bbox"],
+                # ex["instance_bbox"],
                 ex["pred_instance_peaks"],
                 ex["pred_peak_values"],
                 ex["centroid_val"],
@@ -1205,7 +1205,7 @@ class TopDownPredictor(Predictor):
             ):
                 if np.isnan(pred_instances).all():
                     continue
-                pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
+                # pred_instances = pred_instances + bbox.squeeze(axis=0)[0, :]
                 preds[(int(video_idx), int(frame_idx))].append(
                     sio.PredictedInstance.from_numpy(
                         points_data=pred_instances,
