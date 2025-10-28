@@ -707,7 +707,10 @@ class ModelTrainer:
                 if RANK in [0, -1]:
                     wandb.login(key=self.config.trainer_config.wandb.api_key)
             wandb.init(
-                dir=self.config.trainer_config.save_ckpt_path,
+                dir=(
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                ).as_posix(),
                 project=self.config.trainer_config.wandb.project,
                 entity=self.config.trainer_config.wandb.entity,
                 name=self.config.trainer_config.wandb.name,
