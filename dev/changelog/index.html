@@ -2257,6 +2257,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v003" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.3
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v002" class="md-nav__link">
     <span class="md-ellipsis">
       v0.0.2
@@ -2331,6 +2340,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v003" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.3
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v002" class="md-nav__link">
     <span class="md-ellipsis">
       v0.0.2
@@ -2365,6 +2383,44 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v003"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.3">v0.0.3</a><a class="headerlink" href="#v003" title="Permanent link">&para;</a></h2>
+<h2>Summary</h2>
+<p>This release delivers critical bug fixes for multiprocessing support, enhanced tracking capabilities, and significant improvements to the inference workflow. The v0.0.3 release resolves HDF5 pickling issues that prevented proper multiprocessing on macOS/Windows, fixes ID models, and introduces new track cleaning parameters for better tracking performance.</p>
+<h2>Major changes</h2>
+<h3>Fixed Multiprocessing Bug with num_workers &gt; 0 (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3533794773" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/359" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/359/hovercard" href="https://github.com/talmolab/sleap-nn/pull/359">#359</a>)</h3>
+<p>Resolved HDF5 pickling issues that prevented proper multiprocessing on macOS/Windows systems. This fix enables users to utilize multiple workers for faster data loading during training and inference <strong>when caching is enabled</strong>.</p>
+<h3>Fixed ID Models (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3489456733" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/345" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/345/hovercard" href="https://github.com/talmolab/sleap-nn/pull/345">#345</a>)</h3>
+<p>Fixed  minor issues with TopDown and BottomUp ID models.</p>
+<ul>
+<li>The ID models dataset classes were re-computing the tracks from the labels file. However, they should just grab it from the head config classes parameter.</li>
+<li>Fix shape mismatch issue with BottomUp ID models</li>
+</ul>
+<h3>Added Track Cleaning Arguments (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3500250458" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/349" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/349/hovercard" href="https://github.com/talmolab/sleap-nn/pull/349">#349</a>)</h3>
+<p>Added new parameters for better track management and cleanup:</p>
+<ul>
+<li><strong>tracking_clean_instance_count</strong>: Target number of instances to clean after tracking</li>
+<li><strong>tracking_clean_iou_threshold</strong>: IOU threshold for cleaning overlapping instances</li>
+<li><strong>tracking_pre_cull_to_target</strong>: Pre-culling instances before tracking</li>
+<li><strong>tracking_pre_cull_iou_threshold</strong>: IOU threshold for pre-culling</li>
+</ul>
+<h3>Updated Installation Documentation (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3496665906" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/348" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/348/hovercard" href="https://github.com/talmolab/sleap-nn/pull/348">#348</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3501596777" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/351" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/351/hovercard" href="https://github.com/talmolab/sleap-nn/pull/351">#351</a>)</h3>
+<p>Added comprehensive <code>uv add</code> installation instructions for modern Python package management instead of <code>uv pip install</code> method. Added warning for 3.14 python version to prevent installation issues.</p>
+<h3>Inference workflow enhancements (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3537569667" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/360" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/360/hovercard" href="https://github.com/talmolab/sleap-nn/pull/360">#360</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3550636594" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/361" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/361/hovercard" href="https://github.com/talmolab/sleap-nn/pull/361">#361</a>)</h3>
+<p>Enhanced bottom-up model inference capabilities with improved performance and stability. Fix logger encoding issues on windows and better handle integral refinement error on mps accelerator.</p>
+<h2>Changelog</h2>
+<ul>
+<li>Fix ID models by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3489456733" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/345" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/345/hovercard" href="https://github.com/talmolab/sleap-nn/pull/345">#345</a></li>
+<li>Fix changelog.md by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3493362292" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/346" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/346/hovercard" href="https://github.com/talmolab/sleap-nn/pull/346">#346</a></li>
+<li>Add warning for Python v3.14 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3496665906" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/348" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/348/hovercard" href="https://github.com/talmolab/sleap-nn/pull/348">#348</a></li>
+<li>Add track cleaning args by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3500250458" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/349" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/349/hovercard" href="https://github.com/talmolab/sleap-nn/pull/349">#349</a></li>
+<li>Update uv add installation docs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3501596777" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/351" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/351/hovercard" href="https://github.com/talmolab/sleap-nn/pull/351">#351</a></li>
+<li>Fix marimo usage docs by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3503786902" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/352" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/352/hovercard" href="https://github.com/talmolab/sleap-nn/pull/352">#352</a></li>
+<li>Fix target instance count parameter by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3519511774" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/358" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/358/hovercard" href="https://github.com/talmolab/sleap-nn/pull/358">#358</a></li>
+<li>Fix multiprocessing bug with num_workers&gt;0 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3533794773" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/359" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/359/hovercard" href="https://github.com/talmolab/sleap-nn/pull/359">#359</a></li>
+<li>Minor fixes to inference workflow by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3537569667" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/360" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/360/hovercard" href="https://github.com/talmolab/sleap-nn/pull/360">#360</a></li>
+<li>Update bottomup inference and add note on num_workers by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3550636594" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/361" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/361/hovercard" href="https://github.com/talmolab/sleap-nn/pull/361">#361</a></li>
+<li>Bump version to v0.0.3 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3550965898" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/362" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/362/hovercard" href="https://github.com/talmolab/sleap-nn/pull/362">#362</a></li>
+</ul>
 <h2 id="v002"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.2">v0.0.2</a><a class="headerlink" href="#v002" title="Permanent link">&para;</a></h2>
 <h2>Summary</h2>
 <p>This release focuses on several bug fixes and improvements across the training, inference, and CLI components of sleap-nn. It includes bug fixes for model backbones and loaders, enhancements to the configuration and CLI experience, improved robustness in multi-GPU training, and new options for device selection and tracking. Documentation and installation guides have also been updated, along with internal refactors to streamline the code consistency.</p>
