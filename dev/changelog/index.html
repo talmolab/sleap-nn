@@ -2257,6 +2257,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v004" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.4
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v003" class="md-nav__link">
     <span class="md-ellipsis">
       v0.0.3
@@ -2340,6 +2349,15 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v004" class="md-nav__link">
+    <span class="md-ellipsis">
+      v0.0.4
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v003" class="md-nav__link">
     <span class="md-ellipsis">
       v0.0.3
@@ -2383,6 +2401,25 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v004"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.4">v0.0.4</a><a class="headerlink" href="#v004" title="Permanent link">&para;</a></h2>
+<h2>Summary</h2>
+<p>This release includes a dependency version bump and a critical bug fix for empty instance handling. The minimum torchvision version has been updated to 0.20.0, and sleap-io minimum version has been set to 0.5.7 to ensure compatibility with the latest features and improvements.</p>
+<h2>Major changes</h2>
+<h3>Dependency Version Updates (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3568746463" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/365" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/365/hovercard" href="https://github.com/talmolab/sleap-nn/pull/365">#365</a>)</h3>
+<ul>
+<li><strong>Minimum torchvision version</strong>: Set to 0.20.0 across all torch extras (torch, torch-cpu, torch-cuda118, torch-cuda128)</li>
+<li><strong>Minimum sleap-io version</strong>: Updated to 0.5.7 for improved compatibility</li>
+</ul>
+<h3>Bug Fixes</h3>
+<ul>
+<li><strong>Fixed empty instance handling</strong> (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3562543541" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/364" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/364/hovercard" href="https://github.com/talmolab/sleap-nn/pull/364">#364</a>): Improved handling of instances with only NaN keypoints in the instance cropping method and <code>CenteredInstanceDataset</code> class. Previously, these instances would trigger "NaN values encountered" warnings when computing bounding boxes. The fix ensures only non-empty instances are processed for crop size computation and removes redundant filtering logic.</li>
+</ul>
+<h2>Changelog</h2>
+<ul>
+<li>Fix empty instance handling (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3562543541" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/364" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/364/hovercard" href="https://github.com/talmolab/sleap-nn/pull/364">#364</a>)</li>
+<li>Bump minimum torchvision version to 0.20.0 (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3568746463" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/365" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/365/hovercard" href="https://github.com/talmolab/sleap-nn/pull/365">#365</a>)</li>
+</ul>
+<p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.0.3...v0.0.4"><tt>v0.0.3...v0.0.4</tt></a></p>
 <h2 id="v003"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.3">v0.0.3</a><a class="headerlink" href="#v003" title="Permanent link">&para;</a></h2>
 <h2>Summary</h2>
 <p>This release delivers critical bug fixes for multiprocessing support, enhanced tracking capabilities, and significant improvements to the inference workflow. The v0.0.3 release resolves HDF5 pickling issues that prevented proper multiprocessing on macOS/Windows, fixes ID models, and introduces new track cleaning parameters for better tracking performance.</p>
