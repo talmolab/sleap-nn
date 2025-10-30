@@ -9,6 +9,14 @@ from time import time
 from datetime import datetime
 from loguru import logger
 import functools
+import rich
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+    MofNCompleteColumn,
+)
 
 import sleap_io as sio
 from sleap_nn.evaluation import compute_oks
@@ -712,6 +720,17 @@ def connect_single_breaks(
     return lfs
 
 
+class RateColumn(rich.progress.ProgressColumn):
+    """Renders the progress rate."""
+
+    def render(self, task: "Task") -> rich.progress.Text:
+        """Show progress rate."""
+        speed = task.speed
+        if speed is None:
+            return rich.progress.Text("?", style="progress.data.speed")
+        return rich.progress.Text(f"{speed:.1f} frames/s", style="progress.data.speed")
+
+
 def run_tracker(
     untracked_frames: List[sio.LabeledFrame],
     window_size: int = 5,
@@ -806,35 +825,66 @@ def run_tracker(
         tracking_pre_cull_to_target=tracking_pre_cull_to_target,
         tracking_pre_cull_iou_threshold=tracking_pre_cull_iou_threshold,
     )
-    tracked_lfs = []
-    for lf in untracked_frames:
-        # prefer user instances over predicted instance
-        instances = []
-        if lf.has_user_instances:
-            instances_to_track = lf.user_instances
-            if lf.has_predicted_instances:
-                instances = lf.predicted_instances
-        else:
-            instances_to_track = lf.predicted_instances
 
-        instances.extend(
-            tracker.track(
-                untracked_instances=instances_to_track,
-                frame_idx=lf.frame_idx,
-                image=lf.image,
-            )
-        )
-        tracked_lfs.append(
-            sio.LabeledFrame(
-                video=lf.video, frame_idx=lf.frame_idx, instances=instances
-            )
-        )
+    try:
+        with Progress(
+            "{task.description}",
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            MofNCompleteColumn(),
+            "ETA:",
+            TimeRemainingColumn(),
+            "Elapsed:",
+            TimeElapsedColumn(),
+            RateColumn(),
+            auto_refresh=False,
+            refresh_per_second=4,
+            speed_estimate_period=5,
+        ) as progress:
+            task = progress.add_task("Tracking...", total=len(untracked_frames))
+            last_report = time()
+
+            tracked_lfs = []
+            for lf in untracked_frames:
+                # prefer user instances over predicted instance
+                instances = []
+                if lf.has_user_instances:
+                    instances_to_track = lf.user_instances
+                    if lf.has_predicted_instances:
+                        instances = lf.predicted_instances
+                else:
+                    instances_to_track = lf.predicted_instances
+
+                instances.extend(
+                    tracker.track(
+                        untracked_instances=instances_to_track,
+                        frame_idx=lf.frame_idx,
+                        image=lf.image,
+                    )
+                )
+                tracked_lfs.append(
+                    sio.LabeledFrame(
+                        video=lf.video, frame_idx=lf.frame_idx, instances=instances
+                    )
+                )
+
+                progress.update(task, advance=1)
+
+                if time() - last_report > 0.25:
+                    progress.refresh()
+                    last_report = time()
+
+    except KeyboardInterrupt:
+        logger.info("Tracking interrupted by user")
+        raise KeyboardInterrupt
 
     if tracking_clean_instance_count > 0:
+        logger.info("Post-processing: Culling instances...")
         tracked_lfs = cull_instances(
             tracked_lfs, tracking_clean_instance_count, tracking_clean_iou_threshold
         )
         if not post_connect_single_breaks:
+            logger.info("Post-processing: Connecting single breaks...")
             tracked_lfs = connect_single_breaks(
                 tracked_lfs, tracking_clean_instance_count
             )
