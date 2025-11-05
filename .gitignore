@@ -174,3 +174,6 @@ wandb/
 
 # macOS
 .DS_Store
+
+# Development scratch folder
+scratch/

@@ -799,7 +799,9 @@ class CenteredInstanceDataset(BaseDataset):
 
         instances = []
         for inst in instances_list:
-            instances.append(inst.numpy())
+            instances.append(
+                inst.numpy()
+            )  # no need to filter empty instances; handled while creating instance_idx_list
         instances = np.stack(instances, axis=0)
 
         # Add singleton time dimension for single frames.
@@ -1045,8 +1047,9 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         instances = []
         for inst in instances_list:
-            if not inst.is_empty:
-                instances.append(inst.numpy())
+            instances.append(
+                inst.numpy()
+            )  # no need to filter empty instance (handled while creating instance_idx)
         instances = np.stack(instances, axis=0)
 
         # Add singleton time dimension for single frames.
