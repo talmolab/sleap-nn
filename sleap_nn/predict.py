@@ -104,6 +104,7 @@ def run_inference(
     tracking_pre_cull_iou_threshold: float = 0,
     tracking_clean_instance_count: int = 0,
     tracking_clean_iou_threshold: float = 0,
+    backbone_feats: Optional[str] = None,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
@@ -383,6 +384,7 @@ def run_inference(
             preprocess_config=OmegaConf.create(preprocess_config),
             anchor_part=anchor_part,
             output_head_skeleton_num=output_head_skeleton_num,
+            backbone_feats=backbone_feats,
         )
 
         if (

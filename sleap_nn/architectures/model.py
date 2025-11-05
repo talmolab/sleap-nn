@@ -5,7 +5,7 @@ parameters required to construct the actual model. This allows for easy querying
 model configuration without actually instantiating the model itself.
 """
 
-from typing import List
+from typing import List, Optional
 import numpy as np
 import torch
 from collections import OrderedDict, defaultdict
@@ -277,7 +277,12 @@ class MultiHeadModel(nn.Module):
             model_type=model_type,
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        include_backbone_features: bool = False,
+        backbone_outputs: Optional[str] = None,
+    ) -> torch.Tensor:
         """Forward pass through the model.
 
         Args:
@@ -296,20 +301,30 @@ class MultiHeadModel(nn.Module):
                 # convert rgb to grayscale
                 x = F.rgb_to_grayscale(x, num_output_channels=1)
 
-        backbone_outputs = self.backbone(x)
+        backbone_outs = self.backbone(x)
 
         outputs = defaultdict(list)
+        if include_backbone_features:
+            if backbone_outputs is None:
+                backbone_outputs = "last"
+            if backbone_outputs == "last":
+                outputs["backbone_features"] = backbone_outs["outputs"][-1]
+                outputs["backbone_features_strides"] = backbone_outs["strides"][-1]
+            elif backbone_outputs == "all":
+                outputs["backbone_features"] = backbone_outs["outputs"]
+                outputs["backbone_features_strides"] = backbone_outs["strides"]
+
         for head, head_layer in zip(self.heads, self.head_layers):
-            if not len(backbone_outputs["outputs"]):
-                outputs[head.name].append(head_layer(backbone_outputs["middle_output"]))
+            if not len(backbone_outs["outputs"]):
+                outputs[head.name].append(head_layer(backbone_outs["middle_output"]))
             else:
                 if isinstance(head, ClassVectorsHead):
-                    backbone_out = backbone_outputs["intermediate_feat"]
+                    backbone_out = backbone_outs["intermediate_feat"]
                     outputs[head.name].append(head_layer(backbone_out))
                 else:
-                    idx = backbone_outputs["strides"].index(head.output_stride)
+                    idx = backbone_outs["strides"].index(head.output_stride)
                     outputs[head.name].append(
-                        head_layer(backbone_outputs["outputs"][idx])
+                        head_layer(backbone_outs["outputs"][idx])
                     )  # eg: outputs = {"CenteredInstanceConfmapsHead" : [output_head_0, output_head_1, output_head_2, ...]}
 
         return outputs

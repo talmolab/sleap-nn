@@ -134,6 +134,7 @@ class Predictor(ABC):
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
         output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -238,6 +239,7 @@ class Predictor(ABC):
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
                     output_head_skeleton_num=output_head_skeleton_num,
+                    backbone_feats=backbone_feats,
                 )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
@@ -257,6 +259,7 @@ class Predictor(ABC):
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
                     output_head_skeleton_num=output_head_skeleton_num,
+                    backbone_feats=backbone_feats,
                 )
             elif "multi_class_topdown" in model_names:
                 confmap_ckpt_path = model_paths[
@@ -344,10 +347,10 @@ class Predictor(ABC):
         """Convert tensors in output dictionary to numpy arrays."""
         for k, v in output.items():
             if isinstance(v, torch.Tensor):
-                output[k] = output[k].cpu().numpy()
-            if isinstance(v, list) and isinstance(v[0], torch.Tensor):
+                output[k] = output[k].detach().cpu().numpy()
+            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], torch.Tensor):
                 for n in range(len(v)):
-                    v[n] = v[n].cpu().numpy()
+                    v[n] = v[n].detach().cpu().numpy()
         return output
 
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
@@ -603,6 +606,7 @@ class TopDownPredictor(Predictor):
     max_stride: int = 16
     is_multi_head_model: bool = False
     output_head_skeleton_num: int = 0
+    backbone_feats: Optional[str] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -701,6 +705,7 @@ class TopDownPredictor(Predictor):
             centroid_crop=centroid_crop_layer,
             instance_peaks=instance_peaks_layer,
             output_head_skeleton_num=self.output_head_skeleton_num,
+            backbone_feats=self.backbone_feats,
         )
 
     @classmethod
@@ -721,6 +726,7 @@ class TopDownPredictor(Predictor):
         anchor_part: Optional[str] = None,
         is_multi_head_model: bool = False,
         output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -817,6 +823,7 @@ class TopDownPredictor(Predictor):
                     learning_rate=centroid_config.trainer_config.optimizer.lr,
                     amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
+                    backbone_feats=backbone_feats,
                 )
             else:
                 # Load the converted model
@@ -840,6 +847,7 @@ class TopDownPredictor(Predictor):
                     optimizer=centroid_config.trainer_config.optimizer_name,
                     learning_rate=centroid_config.trainer_config.optimizer.lr,
                     amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
+                    backbone_feats=backbone_feats,
                 )
 
                 centroid_model.eval()
@@ -939,6 +947,7 @@ class TopDownPredictor(Predictor):
                     amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                     backbone_type=centered_instance_backbone_type,
                     map_location=device,
+                    backbone_feats=backbone_feats,
                 )
             else:
                 # Load the converted model
@@ -964,6 +973,7 @@ class TopDownPredictor(Predictor):
                     optimizer=confmap_config.trainer_config.optimizer_name,
                     learning_rate=confmap_config.trainer_config.optimizer.lr,
                     amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
+                    backbone_feats=backbone_feats,
                 )
 
                 confmap_model.eval()
@@ -1085,6 +1095,7 @@ class TopDownPredictor(Predictor):
             centroid_model=centroid_model,
             confmap_config=confmap_config,
             confmap_model=confmap_model,
+            output_head_skeleton_num=output_head_skeleton_num,
             centroid_backbone_type=centroid_backbone_type,
             centered_instance_backbone_type=centered_instance_backbone_type,
             skeletons=skeletons,
@@ -1106,6 +1117,7 @@ class TopDownPredictor(Predictor):
                     f"{centered_instance_backbone_type}"
                 ]["max_stride"]
             ),
+            backbone_feats=backbone_feats,
         )
 
         obj._initialize_inference_model()

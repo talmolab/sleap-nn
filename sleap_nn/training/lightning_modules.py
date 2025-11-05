@@ -1803,6 +1803,7 @@ class MultiHeadLightningModel(L.LightningModule):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__()
@@ -1831,7 +1832,7 @@ class MultiHeadLightningModel(L.LightningModule):
         self.optimizer = optimizer
         self.lr = learning_rate
         self.amsgrad = amsgrad
-
+        self.backbone_feats = backbone_feats
         self.model = MultiHeadModel(
             backbone_type=self.backbone_type,
             backbone_config=self.backbone_config[f"{self.backbone_type}"],
@@ -2009,6 +2010,18 @@ class MultiHeadLightningModel(L.LightningModule):
             sync_dist=True,
             batch_size=4,
         )
+        # grab the scheduler Lightning already knows about
+        sch = self.lr_schedulers()
+
+        # if you only have one scheduler, sch is that scheduler
+        if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau) or isinstance(
+            sch, torch.optim.lr_scheduler.StepLR
+        ):
+            # callback_metrics is where Lightning stores logged metrics
+            val_loss = self.trainer.callback_metrics["val_loss"]
+
+            # this is what Lightning would have done for you in automatic mode
+            sch.step(val_loss)
 
     def training_step(self, batch, batch_idx):
         """Training step."""
@@ -2103,6 +2116,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -2122,6 +2136,7 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            backbone_feats=backbone_feats,
         )
 
         self.centroid_inf_layer = CentroidCrop(
@@ -2165,7 +2180,16 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
-        return self.model(img)["CentroidConfmapsHead"]
+        output = self.model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CentroidConfmapsHead"],
+            "backbone_features": output["backbone_features"],
+            "strides": output["backbone_features_strides"],
+        }
 
     def training_step(self, batch, batch_idx):
         """Training step."""
@@ -2199,6 +2223,8 @@ class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
                 on_step=False,
                 on_epoch=True,
                 logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
             )
 
         self.log(
@@ -2285,6 +2311,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
         optimizer: Optional[str] = "Adam",
         learning_rate: Optional[float] = 1e-3,
         amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
     ):
         """Initialise the configs and the model."""
         super().__init__(
@@ -2304,6 +2331,7 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
             optimizer=optimizer,
             learning_rate=learning_rate,
             amsgrad=amsgrad,
+            backbone_feats=backbone_feats,
         )
 
         self.instance_peaks_inf_layer = FindInstancePeaks(
@@ -2324,7 +2352,16 @@ class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
-        return self.model(img)["CenteredInstanceConfmapsHead"]
+        output = self.model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CenteredInstanceConfmapsHead"],
+            "backbone_features": output["backbone_features"],
+            "strides": output["backbone_features_strides"],
+        }
 
     def visualize_example(self, sample, d_idx):
         """Visualize predictions during training (used with callbacks)."""

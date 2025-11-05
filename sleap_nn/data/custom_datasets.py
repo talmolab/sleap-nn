@@ -799,8 +799,7 @@ class CenteredInstanceDataset(BaseDataset):
 
         instances = []
         for inst in instances_list:
-            if not inst.is_empty:
-                instances.append(inst.numpy())
+            instances.append(inst.numpy())
         instances = np.stack(instances, axis=0)
 
         # Add singleton time dimension for single frames.
@@ -2204,8 +2203,12 @@ def get_train_val_datasets_multi_head(
     train_cache_img_path, val_cache_img_path = None, None
 
     if cache_imgs == "disk":
-        train_cache_img_path = Path(base_cache_img_path) / f"{d_idx}" / "train_imgs"
-        val_cache_img_path = Path(base_cache_img_path) / f"{d_idx}" / "val_imgs"
+        if (Path(base_cache_img_path) / "train_imgs").exists():
+            train_cache_img_path = Path(base_cache_img_path) / "train_imgs"
+            val_cache_img_path = Path(base_cache_img_path) / "val_imgs"
+        else:
+            train_cache_img_path = Path(base_cache_img_path) / f"{d_idx}" / "train_imgs"
+            val_cache_img_path = Path(base_cache_img_path) / f"{d_idx}" / "val_imgs"
     use_existing_imgs = config.data_config.use_existing_imgs[d_idx]
 
     model_type = get_model_type_from_cfg(config=config)
