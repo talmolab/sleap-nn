@@ -6,6 +6,141 @@ import numpy as np
 import sleap_io as sio
 import torch
 from kornia.geometry.transform import crop_and_resize
+from sleap_nn.data.utils import rotating_calipers
+import kornia
+
+
+def get_cropped_img(image: torch.Tensor, instance: torch.Tensor, head_idx: int):
+    """Crop and rotate an image using the oriented bounding box (OBB) of a given instance.
+
+    This function performs a padding-aware crop around the instance keypoints using the minimum-area
+    rotating calipers OBB. It then aligns the longest edge with the x-axis, warps the image and keypoints
+    accordingly, and applies a conditional 180° rotation if the head is facing left. The output is a
+    torch-native equivalent of OpenCV's getAffineTransform + warpAffine behavior.
+
+    Args:
+        image (torch.Tensor): A float tensor of shape (C, H, W), representing an RGB image.
+        instance (torch.Tensor): A float tensor of shape (N, 2), representing keypoint coordinates of one instance.
+        head_idx (int): Index of the head keypoint, used to determine leftward orientation.
+
+    Returns:
+        cropped_image (torch.Tensor): Cropped and rotated image of shape (C, H, W), aligned to face +x.
+        adjusted_kpts (torch.Tensor): Keypoints of shape (N, 2), transformed to match the cropped image coordinates.
+        src_pts (torch.Tensor): Three source points from the padded OBB used for affine transformation (3, 2).
+        dst_pts (torch.Tensor): Three target points in the crop destination space used for affine warping (3, 2).
+        rotated (bool): True if the instance was rotated 180° to face the positive x-axis, otherwise False.
+    """
+    # Define padding
+    pad = 32
+
+    # ensure dtype
+    image = image.float()
+    device = image.device
+    instance = instance.to(device)
+
+    # Get OBB from keypoints
+    obb_coords = rotating_calipers(instance)
+
+    # Find longest edge and roll OBB
+    dists = torch.norm(obb_coords - torch.roll(obb_coords, shifts=-1, dims=0), dim=1)
+    max_index = torch.argmax(dists)
+    obb_coords = torch.roll(obb_coords, shifts=max_index.item(), dims=0)
+
+    # Compute padded OBB by expanding each corner outward from center
+    center = obb_coords.mean(dim=0, keepdims=True)
+    vecs = obb_coords - center
+    norms = torch.norm(vecs, dim=1).unsqueeze(1)  # shape: (4, 1)
+    norms = torch.where(
+        norms == 0, torch.ones_like(norms), norms
+    )  # avoid division by zero
+
+    # Find the OBB edge closest to the x-axis (smallest absolute angle)
+    best_idx = 0
+    min_abs_angle = float("inf")
+    for i in range(4):
+        edge = obb_coords[(i + 1) % 4] - obb_coords[i]
+        angle = torch.atan2(edge[1], edge[0])
+        if abs(angle) < min_abs_angle:
+            min_abs_angle = abs(angle)
+            best_idx = i
+
+    # Roll so this edge is [0] -> [1]
+    obb_coords = torch.roll(obb_coords, shifts=-best_idx, dims=0)
+    edge = obb_coords[1] - obb_coords[0]
+    angle = torch.atan2(edge[1], edge[0])
+
+    # If the edge points left, reverse the OBB
+    if edge[0] < 0:
+        obb_coords = obb_coords[::-1]
+        edge = obb_coords[1] - obb_coords[0]
+        angle = torch.atan2(edge[1], edge[0])
+
+    # Defining the width/height based on the obb coordinates
+    width = torch.norm(obb_coords[1] - obb_coords[0])
+    height = torch.norm(obb_coords[3] - obb_coords[0])
+
+    # If the crop is taller than wide, rotate OBB by 90 deg to make it horizontal
+    if height > width:
+        obb_coords = torch.roll(obb_coords, shifts=-1, dims=0)  # rotate OBB 90 degrees
+        edge = obb_coords[1] - obb_coords[0]
+        angle = torch.atan2(edge[1], edge[0])
+        if edge[0] < 0:
+            obb_coords = torch.flip(obb_coords, dims=[0])
+            edge = obb_coords[1] - obb_coords[0]
+            angle = torch.atan2(edge[1], edge[0])
+        width = torch.norm(obb_coords[1] - obb_coords[0])
+        height = torch.norm(obb_coords[3] - obb_coords[0])
+
+    # Add padding to the final crop dimensions
+    width += pad * 2
+    height += pad * 2
+
+    # Build affine from OBB -> crop box
+    src_pts = (
+        obb_coords[:3].clone().to(dtype=torch.float32, device=device)
+    )  # using corners of OBB
+
+    # rectangular region we want to map the OBB onto
+    dst_pts = torch.tensor(
+        [[pad, pad], [width - pad, pad], [width - pad, height - pad]],
+        dtype=torch.float32,
+        device=device,
+    )
+
+    ones = torch.ones((3, 1), device=device)
+    src = torch.cat(
+        [src_pts, ones], dim=1
+    )  # appending 1s to the source points to compute affine transformation
+
+    # solves least squares system giving the affine that best maps src_pts -> dst_pts
+    affine_matrix = torch.linalg.lstsq(src, dst_pts).solution.T
+
+    # Warp the image with the affine transform
+    cropped_image = kornia.geometry.transform.warp_affine(
+        image.unsqueeze(0), affine_matrix.unsqueeze(0), dsize=(int(height), int(width))
+    )[0]
+
+    # Warp the keypoints with the same affine
+    kp_homo = torch.cat(
+        [instance.to(device), torch.ones((instance.shape[0], 1), device=device)], dim=1
+    )
+    adjusted_kpts = (affine_matrix @ kp_homo.T).T
+
+    # Define head/body keypoints
+    head_x = adjusted_kpts[head_idx, 0]
+    body_center_x = adjusted_kpts[:, 0][~torch.isnan(adjusted_kpts[:, 0])].mean()
+
+    # Rotate 180° if facing left (by comparing the head keypoint to the body center keypoints)
+    rotated = False
+    if head_x < body_center_x:
+        rotated = True
+        # Rotate image 180°
+        cropped_image = torch.rot90(cropped_image, k=2, dims=[1, 2])
+
+        adjusted_kpts[:, 0] = cropped_image.shape[2] - adjusted_kpts[:, 0]
+        adjusted_kpts[:, 1] = cropped_image.shape[1] - adjusted_kpts[:, 1]
+
+    return cropped_image, adjusted_kpts, src_pts, dst_pts, rotated
 
 
 def find_instance_crop_size(
