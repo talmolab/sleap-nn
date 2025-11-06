@@ -96,6 +96,7 @@ class ModelTrainer:
     }
 
     trainer: Optional[L.Trainer] = None
+    orientation_anchor_parts: Optional[List[str]] = None
 
     @classmethod
     def get_model_trainer_from_config(
@@ -103,12 +104,14 @@ class ModelTrainer:
         config: DictConfig,
         train_labels: Optional[List[sio.Labels]] = None,
         val_labels: Optional[List[sio.Labels]] = None,
+        orientation_anchor_parts: Optional[List[str]] = None,
     ):
         """Create a model trainer instance from config."""
         # Verify config structure.
         config = verify_training_cfg(config)
 
         model_trainer = cls(config=config)
+        model_trainer.orientation_anchor_parts = orientation_anchor_parts
 
         model_trainer.model_type = get_model_type_from_cfg(model_trainer.config)
         model_trainer.backbone_type = get_backbone_type_from_cfg(model_trainer.config)
@@ -603,6 +606,7 @@ class ModelTrainer:
             val_labels=self.val_labels,
             config=data_viz_config,
             rank=-1,
+            orientation_anchor_inds=self.orientation_anchor_parts,
         )
 
     def _setup_datasets(self):
@@ -640,6 +644,7 @@ class ModelTrainer:
             val_labels=self.val_labels,
             config=self.config,
             rank=self.trainer.global_rank,
+            orientation_anchor_inds=self.orientation_anchor_parts,
         )
 
     def _setup_loggers_callbacks(self, viz_train_dataset, viz_val_dataset):
