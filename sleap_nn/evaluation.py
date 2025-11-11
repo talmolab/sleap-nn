@@ -61,7 +61,7 @@ def find_frame_pairs(
         # Find matching video instance in predictions.
         video_pr = None
         for video in labels_pr.videos:
-            if video_gt.matches_content(video) or video_gt.matches_path(video):
+            if video_gt.matches_content(video) and video_gt.matches_path(video):
                 video_pr = video
                 break
 
