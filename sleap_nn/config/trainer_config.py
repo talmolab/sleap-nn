@@ -326,12 +326,6 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
     """
     legacy_config_optimization = legacy_config.get("optimization", {})
     legacy_config_outputs = legacy_config.get("outputs", {})
-    resume_ckpt_path = legacy_config.get("model", {}).get("base_checkpoint", None)
-    resume_ckpt_path = (
-        (Path(resume_ckpt_path) / "best.ckpt").as_posix()
-        if resume_ckpt_path is not None
-        else None
-    )
     run_name = legacy_config_outputs.get("run_name", None)
     run_name = run_name if run_name is not None else ""
     run_name_prefix = legacy_config_outputs.get("run_name_prefix", "")
@@ -423,7 +417,6 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         Path(legacy_config_outputs.get("runs_folder", "."))
     ).as_posix()
     trainer_cfg_args["run_name"] = run_name
-    trainer_cfg_args["resume_ckpt_path"] = resume_ckpt_path
 
     trainer_cfg_args["optimizer_name"] = re.sub(
         r"^[a-z]",
