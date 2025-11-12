@@ -130,7 +130,7 @@ with mkdocs_gen_files.open("announcements.md", "w") as page:
         "## Latest Versions\n\n",
     ]
 
-    # Latest versions section
+    # Latest versions section 
     for repo_key, repo_info in REPOS.items():
         releases = package_releases[repo_key]
         latest = releases["latest"]
@@ -140,21 +140,20 @@ with mkdocs_gen_files.open("announcements.md", "w") as page:
             date = format_date(latest["published_at"])
             url = latest["html_url"]
             contents.append(
-                f"### {repo_info['name']}\n\n"
+                f"**{repo_info['name']}**\n\n"
                 f"**Latest Version:** [{version}]({url})"
             )
             if date:
                 contents.append(f" (released {date})")
             contents.append(f"\n\n")
-            contents.append(f"*{repo_info['description']}*\n\n")
         else:
-            contents.append(f"### {repo_info['name']}\n\n")
+            contents.append(f"**{repo_info['name']}**\n\n")
             contents.append(f"*No releases found*\n\n")
 
     contents.append("---\n\n")
     contents.append("## Recent Updates\n\n")
 
-    # Recent updates section - show only the latest release for each package
+    # Recent updates section 
     for repo_key, repo_info in REPOS.items():
         releases = package_releases[repo_key]
         recent = releases["recent"]
@@ -174,12 +173,14 @@ with mkdocs_gen_files.open("announcements.md", "w") as page:
             contents.append("\n\n")
 
             if body:
-                # Clean up the body - remove markdown headers that might be too large
+                # Clean up the body - remove markdown headers that might interfere with TOC
                 body_lines = body.split("\n")
                 cleaned_body = []
                 for line in body_lines[:20]:  # Limit to first 20 lines
-                    # Skip very large headers
-                    if line.startswith("#") and len(line.strip()) < 5:
+                    # Skip markdown headers (##, ###, etc.) that would create TOC entries
+                    stripped = line.strip()
+                    if stripped.startswith("#"):
+                        # Skip headers like "## What's Changed", "### Summary", etc.
                         continue
                     cleaned_body.append(line)
 
@@ -302,4 +303,3 @@ with mkdocs_gen_files.open("announcements.md", "w") as page:
     )
 
     page.writelines(contents)
-
