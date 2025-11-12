@@ -44,6 +44,7 @@ def frame_list(frame_str: str) -> Optional[List[int]]:
 
 def run_inference(
     data_path: Optional[str] = None,
+    output_head_skeleton_num: int = 0,
     input_labels: Optional[sio.Labels] = None,
     input_video: Optional[sio.Video] = None,
     model_paths: Optional[List[str]] = None,
@@ -103,11 +104,15 @@ def run_inference(
     tracking_pre_cull_iou_threshold: float = 0,
     tracking_clean_instance_count: int = 0,
     tracking_clean_iou_threshold: float = 0,
+    backbone_feats: Optional[str] = None,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
     Args:
         data_path: (str) Path to `.slp` file or `.mp4` to run inference on.
+        output_head_skeleton_num: (int) Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference. Default: 0.
         input_labels: (sio.Labels) Labels object to run inference on. This is an alternative to specifying the data_path.
         input_video: (sio.Video) Video to run inference on. This is an alternative to specifying the data_path. If both input_labels and input_video are provided, input_labels are used.
         model_paths: (List[str]) List of paths to the directory where the best.ckpt
@@ -378,6 +383,8 @@ def run_inference(
             device=device,
             preprocess_config=OmegaConf.create(preprocess_config),
             anchor_part=anchor_part,
+            output_head_skeleton_num=output_head_skeleton_num,
+            backbone_feats=backbone_feats,
         )
 
         if (

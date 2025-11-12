@@ -5,9 +5,10 @@ parameters required to construct the actual model. This allows for easy querying
 model configuration without actually instantiating the model itself.
 """
 
-from typing import List
+from typing import List, Optional
 import numpy as np
 import torch
+from collections import OrderedDict, defaultdict
 from omegaconf.dictconfig import DictConfig
 from torch import nn
 import math
@@ -193,5 +194,137 @@ class Model(nn.Module):
                 else:
                     idx = backbone_outputs["strides"].index(head.output_stride)
                     outputs[head.name] = head_layer(backbone_outputs["outputs"][idx])
+
+        return outputs
+
+
+class MultiHeadModel(nn.Module):
+    """MultiHeadModel creates a model consisting of a backbone and multiple heads.
+
+    Attributes:
+        backbone_type: Backbone type. One of `unet`, `convnext` and `swint`.
+        backbone_config: An `DictConfig` configuration dictionary for the model backbone.
+        head_configs: An `DictConfig` configuration dictionary for the model heads (this hsould have multiple heads).
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
+    """
+
+    def __init__(
+        self,
+        backbone_type: str,
+        backbone_config: DictConfig,
+        head_configs: DictConfig,
+        model_type: str,
+    ) -> None:
+        """Initialize the backbone and head based on the backbone_config."""
+        super().__init__()
+        self.backbone_type = backbone_type
+        self.backbone_config = backbone_config
+        self.head_configs = head_configs
+
+        self.model_type = model_type
+        self.heads = []
+
+        if self.model_type == "centered_instance":
+            for d_num, _ in self.head_configs.confmaps.items():
+                self.heads.append(
+                    CenteredInstanceConfmapsHead(**self.head_configs.confmaps[d_num])
+                )
+
+        elif self.model_type == "centroid":
+            for d_num, _ in self.head_configs.confmaps.items():
+                self.heads.append(
+                    CentroidConfmapsHead(**self.head_configs.confmaps[d_num])
+                )
+
+        output_strides = []
+        for head_type in head_configs:
+            head_config = head_configs[head_type]
+            output_strides.extend(
+                [head_config[cfg].output_stride for cfg in head_config]
+            )
+
+        min_output_stride = min(output_strides)
+        min_output_stride = min(min_output_stride, self.backbone_config.output_stride)
+
+        self.backbone = get_backbone(
+            self.backbone_type,
+            backbone_config,
+        )
+
+        self.head_layers = nn.ModuleList([])
+        for head in self.heads:
+            if isinstance(head, ClassVectorsHead):
+                in_channels = int(self.backbone.middle_blocks[-1].filters)
+            else:
+                in_channels = self.backbone.decoder_stride_to_filters[
+                    head.output_stride
+                ]
+            self.head_layers.append(head.make_head(x_in=in_channels))
+
+    @classmethod
+    def from_config(
+        cls,
+        backbone_type: str,
+        backbone_config: DictConfig,
+        head_configs: DictConfig,
+        model_type: str,
+    ) -> "Model":
+        """Create the model from a config dictionary."""
+        return cls(
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            model_type=model_type,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        include_backbone_features: bool = False,
+        backbone_outputs: Optional[str] = None,
+    ) -> torch.Tensor:
+        """Forward pass through the model.
+
+        Args:
+            x: Input image.
+
+        Returns:
+            A dictionary with key as the head name and values as list of confmaps
+            for each of the skeleton formats (in the order of datasets in the
+            config).
+        """
+        if x.shape[-3] != self.backbone_config.in_channels:
+            if x.shape[-3] == 1:
+                # convert grayscale to rgb
+                x = x.repeat(1, 3, 1, 1)
+            elif x.shape[-3] == 3:
+                # convert rgb to grayscale
+                x = F.rgb_to_grayscale(x, num_output_channels=1)
+
+        backbone_outs = self.backbone(x)
+
+        outputs = defaultdict(list)
+        if include_backbone_features:
+            if backbone_outputs is None:
+                backbone_outputs = "last"
+            if backbone_outputs == "last":
+                outputs["backbone_features"] = backbone_outs["outputs"][-1]
+                outputs["backbone_features_strides"] = backbone_outs["strides"][-1]
+            elif backbone_outputs == "all":
+                outputs["backbone_features"] = backbone_outs["outputs"]
+                outputs["backbone_features_strides"] = backbone_outs["strides"]
+
+        for head, head_layer in zip(self.heads, self.head_layers):
+            if not len(backbone_outs["outputs"]):
+                outputs[head.name].append(head_layer(backbone_outs["middle_output"]))
+            else:
+                if isinstance(head, ClassVectorsHead):
+                    backbone_out = backbone_outs["intermediate_feat"]
+                    outputs[head.name].append(head_layer(backbone_out))
+                else:
+                    idx = backbone_outs["strides"].index(head.output_stride)
+                    outputs[head.name].append(
+                        head_layer(backbone_outs["outputs"][idx])
+                    )  # eg: outputs = {"CenteredInstanceConfmapsHead" : [output_head_0, output_head_1, output_head_2, ...]}
 
         return outputs
