@@ -43,6 +43,7 @@ plugins:
       scripts:
         - scripts/gen_ref_pages.py
         - scripts/gen_changelog.py
+        - scripts/gen_announcements.py
   - literate-nav:
       nav_file: SUMMARY.md
   - section-index
@@ -105,6 +106,7 @@ extra:
 nav:
   - Overview: index.md
   - Installation: installation.md
+  - Announcements: announcements.md
   - How-to guides:
     - Configuration Setup: config.md
     - Training: training.md
