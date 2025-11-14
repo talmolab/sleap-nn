@@ -745,22 +745,8 @@ def run_evaluation(
         save_path = Path(save_metrics)
         save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Convert metrics to numpy arrays for saving
-        np.savez(
-            save_path,
-            mOKS=metrics["mOKS"]["mOKS"],
-            mAP=metrics["voc_metrics"]["oks_voc.mAP"],
-            mAR=metrics["voc_metrics"]["oks_voc.mAR"],
-            avg_distance=metrics["distance_metrics"]["avg"],
-            mPCK=metrics["pck_metrics"]["mPCK"],
-            visibility_precision=metrics["visibility_metrics"]["precision"],
-            visibility_recall=metrics["visibility_metrics"]["recall"],
-            # Save full metrics dict as well
-            voc_metrics=metrics["voc_metrics"],
-            distance_metrics=metrics["distance_metrics"],
-            pck_metrics=metrics["pck_metrics"],
-            visibility_metrics=metrics["visibility_metrics"],
-        )
+        # Save metrics in SLEAP 1.4 format (single "metrics" key)
+        np.savez_compressed(save_path, **{"metrics": metrics})
         logger.info(f"Metrics saved successfully to {save_path}")
 
     return metrics
