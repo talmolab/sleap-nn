@@ -720,7 +720,10 @@ class ModelTrainer:
             loggers.append(wandb_logger)
 
             # save the configs as yaml in the checkpoint dir
+            # Mask API key in both configs to prevent saving to disk
             self.config.trainer_config.wandb.api_key = ""
+            if self._initial_config is not None:
+                self._initial_config.trainer_config.wandb.api_key = ""
 
         # zmq callbacks
         if self.config.trainer_config.zmq.controller_port is not None:

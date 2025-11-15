@@ -381,6 +381,12 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     assert training_config.data_config.skeletons
     assert training_config.data_config.preprocessing.crop_size == 104
 
+    # Verify API key is also masked in initial_config.yaml
+    initial_config = OmegaConf.load(
+        f"{model_trainer.config.trainer_config.ckpt_dir}/{model_trainer.config.trainer_config.run_name}/initial_config.yaml"
+    )
+    assert initial_config.trainer_config.wandb.api_key == ""
+
     checkpoint = torch.load(
         (
             Path(model_trainer.config.trainer_config.ckpt_dir)
