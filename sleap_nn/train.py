@@ -2,22 +2,19 @@
 
 from loguru import logger
 from pathlib import Path
-import numpy as np
 from datetime import datetime
 from time import time
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional, List, Tuple, Union
-import sleap_io as sio
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.predict import run_inference as predict
-from sleap_nn.evaluation import Evaluator
+from sleap_nn.evaluation import run_evaluation
 from sleap_nn.config.get_config import (
     get_trainer_config,
     get_model_config,
     get_data_config,
 )
-from typing import Any, Dict, Optional, List, Tuple, Union
 
 
 def run_training(config: DictConfig):
@@ -64,7 +61,16 @@ def run_training(config: DictConfig):
                 data_paths["test"] = config.data_config.test_file_path
 
             for d_name, path in data_paths.items():
-                labels = sio.load_slp(path)
+                pred_path = (
+                    Path(trainer.config.trainer_config.ckpt_dir)
+                    / trainer.config.trainer_config.run_name
+                    / f"pred_{d_name}.slp"
+                )
+                metrics_path = (
+                    Path(trainer.config.trainer_config.ckpt_dir)
+                    / trainer.config.trainer_config.run_name
+                    / f"{d_name}_pred_metrics.npz"
+                )
 
                 pred_labels = predict(
                     data_path=path,
@@ -75,9 +81,7 @@ def run_training(config: DictConfig):
                     peak_threshold=0.2,
                     make_labels=True,
                     device=trainer.trainer.strategy.root_device,
-                    output_path=Path(trainer.config.trainer_config.ckpt_dir)
-                    / trainer.config.trainer_config.run_name
-                    / f"pred_{d_name}.slp",
+                    output_path=pred_path,
                     ensure_rgb=config.data_config.preprocessing.ensure_rgb,
                     ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
                 )
@@ -88,17 +92,11 @@ def run_training(config: DictConfig):
                     )
                     continue  # skip if there are no labeled frames
 
-                evaluator = Evaluator(
-                    ground_truth_instances=labels, predicted_instances=pred_labels
-                )
-                metrics = evaluator.evaluate()
-                np.savez_compressed(
-                    (
-                        Path(trainer.config.trainer_config.ckpt_dir)
-                        / trainer.config.trainer_config.run_name
-                        / f"{d_name}_pred_metrics.npz"
-                    ).as_posix(),
-                    **{"metrics": metrics},
+                # Run evaluation and save metrics
+                metrics = run_evaluation(
+                    ground_truth_path=path,
+                    predicted_path=pred_path.as_posix(),
+                    save_metrics=metrics_path.as_posix(),
                 )
 
                 logger.info(f"---------Evaluation on `{d_name}` dataset---------")
@@ -106,9 +104,6 @@ def run_training(config: DictConfig):
                 logger.info(f"Average distance: {metrics['distance_metrics']['avg']}")
                 logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
                 logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
-                logger.info(
-                    f"metrics saved to {Path(trainer.config.trainer_config.ckpt_dir) / trainer.config.trainer_config.run_name / (d_name + '_pred_metrics.npz')}"
-                )
 
 
 def train(
