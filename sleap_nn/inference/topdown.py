@@ -11,6 +11,7 @@ from sleap_nn.data.resizing import (
 from sleap_nn.inference.peak_finding import crop_bboxes
 from sleap_nn.data.instance_centroids import generate_centroids
 from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.custom_datasets import apply_egocentric_rotation
 from sleap_nn.inference.peak_finding import find_global_peaks, find_local_peaks
 from sleap_nn.inference.identity import get_class_inds_from_vectors
 from loguru import logger
@@ -59,6 +60,10 @@ class CentroidCrop(L.LightningModule):
         anchor_ind: The index of the node to use as the anchor for the centroid. If not
             provided or if not present in the instance, the midpoint of the bounding box
             is used instead.
+        orientation_anchor_inds: Index or list of indices (in priority order) of nodes to use
+            for egocentric alignment (e.g., head/snout). If provided, the image and keypoints
+            will be rotated so that the vector from centroid to this point aligns with the
+            positive x-axis. If `None`, no egocentric rotation is applied. Default: `None`.
 
     """
 
@@ -78,6 +83,7 @@ class CentroidCrop(L.LightningModule):
         max_stride: int = 1,
         use_gt_centroids: bool = False,
         anchor_ind: Optional[int] = None,
+        orientation_anchor_inds: Optional[Union[int, List[int]]] = None,
         **kwargs,
     ):
         """Initialise the model attributes."""
@@ -96,11 +102,16 @@ class CentroidCrop(L.LightningModule):
         self.max_stride = max_stride
         self.use_gt_centroids = use_gt_centroids
         self.anchor_ind = anchor_ind
+        self.orientation_anchor_inds = orientation_anchor_inds
 
     def _generate_crops(self, inputs):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-        for centroid, centroid_val, image, fidx, vidx, sz, eff_sc in zip(
+
+        # Get instances if available (for egocentric rotation)
+        instances_available = "instances" in inputs and inputs["instances"] is not None
+
+        for batch_idx, (centroids_batch, centroid_vals_batch, image, fidx, vidx, sz, eff_sc) in enumerate(zip(
             self.refined_peaks_batched,
             self.peak_vals_batched,
             inputs["image"],
@@ -108,47 +119,90 @@ class CentroidCrop(L.LightningModule):
             inputs["video_idx"],
             inputs["orig_size"],
             inputs["eff_scale"],
-        ):
-            if torch.any(torch.isnan(centroid)):
-                if torch.all(torch.isnan(centroid)):
+        )):
+            # Handle NaN centroids
+            if torch.any(torch.isnan(centroids_batch)):
+                if torch.all(torch.isnan(centroids_batch)):
                     continue
                 else:
-                    non_nans = ~torch.any(centroid.isnan(), dim=-1)
-                    centroid = centroid[non_nans]
-                    if len(centroid.shape) == 1:
-                        centroid = centroid.unsqueeze(dim=0)
-                    centroid_val = centroid_val[non_nans]
-            n = centroid.shape[0]
-            box_size = (
-                self.crop_hw[0],
-                self.crop_hw[1],
-            )
-            instance_bbox = torch.unsqueeze(
-                make_centered_bboxes(centroid, box_size[0], box_size[1]), 0
-            )  # (1, n, 4, 2)
+                    non_nans = ~torch.any(centroids_batch.isnan(), dim=-1)
+                    centroids_batch = centroids_batch[non_nans]
+                    if len(centroids_batch.shape) == 1:
+                        centroids_batch = centroids_batch.unsqueeze(dim=0)
+                    centroid_vals_batch = centroid_vals_batch[non_nans]
 
-            # Generate cropped image of shape (n, C, crop_H, crop_W)
-            instance_image = crop_bboxes(
-                image,
-                bboxes=instance_bbox.squeeze(dim=0),
-                sample_inds=[0] * n,
-            )
+            n = centroids_batch.shape[0]  # number of instances for this batch element
 
-            # Access top left point (x,y) of bounding box and subtract this offset from
-            # position of nodes.
-            point = instance_bbox[0, :, 0]
-            centered_centroid = centroid - point
+            # Get instances for this batch if available
+            if instances_available:
+                instances_batch = inputs["instances"][batch_idx, 0]  # (n_instances, n_nodes, 2)
 
+            # Process each instance individually
+            instance_images_list = []
+            centered_centroids_list = []
+            rotation_angles_list = []
+            instance_bboxes_list = []
+
+            for i in range(n):
+                centroid = centroids_batch[i]  # (2,)
+
+                # Apply egocentric rotation if orientation_anchor_inds is provided
+                if self.orientation_anchor_inds is not None and instances_available:
+                    instance = instances_batch[i]  # (n_nodes, 2)
+
+                    # Prepare image with batch dimension for apply_egocentric_rotation
+                    image_for_rotation = image.unsqueeze(0) if image.dim() == 3 else image
+
+                    rotated_image, _, rotated_centroid, rotation_angle = apply_egocentric_rotation(
+                        image_for_rotation, instance, centroid, self.orientation_anchor_inds
+                    )
+
+                    # # Remove batch dimension if it was added
+                    # if rotated_image.dim() == 4 and rotated_image.shape[0] == 1:
+                    #     rotated_image = rotated_image.squeeze(0)
+
+                    crop_image = rotated_image
+                    crop_centroid = rotated_centroid
+                else:
+                    crop_image = image
+                    crop_centroid = centroid
+                    rotation_angle = torch.tensor(0.0, dtype=image.dtype, device=image.device)
+
+                # Create bounding box for this instance
+                box_size = (self.crop_hw[0], self.crop_hw[1])
+                instance_bbox = make_centered_bboxes(
+                    crop_centroid.unsqueeze(0), box_size[0], box_size[1]
+                )  # (1, 4, 2)
+
+                # Crop the (potentially rotated) image
+                instance_image = crop_bboxes(
+                    crop_image,
+                    bboxes=instance_bbox,
+                    sample_inds=[0],
+                )  # (1, C, crop_H, crop_W)
+
+                # Calculate centered centroid (relative to crop)
+                point = instance_bbox[0, 0]  # top-left corner
+                centered_centroid = crop_centroid - point
+
+                # Store for this instance
+                instance_images_list.append(instance_image.squeeze(0))  # (C, crop_H, crop_W)
+                centered_centroids_list.append(centered_centroid)
+                rotation_angles_list.append(rotation_angle)
+                instance_bboxes_list.append(instance_bbox)
+
+            # Batch the results for this batch element
             ex = {}
-            ex["image"] = torch.cat([image] * n)
-            ex["centroid"] = centered_centroid
-            ex["centroid_val"] = centroid_val
-            ex["frame_idx"] = torch.Tensor([fidx] * n)
-            ex["video_idx"] = torch.Tensor([vidx] * n)
-            ex["instance_bbox"] = instance_bbox.squeeze(dim=0).unsqueeze(dim=1)
-            ex["instance_image"] = instance_image.unsqueeze(dim=1)
-            ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
-            ex["eff_scale"] = torch.Tensor([eff_sc] * n)
+            ex["image"] = torch.stack([image] * n)
+            ex["centroid"] = torch.stack(centered_centroids_list).to(image.device)
+            ex["centroid_val"] = centroid_vals_batch.to(image.device)
+            ex["frame_idx"] = torch.Tensor([fidx] * n).to(image.device)
+            ex["video_idx"] = torch.Tensor([vidx] * n).to(image.device)
+            ex["instance_bbox"] = torch.stack(instance_bboxes_list).to(image.device)  # (n, 1, 4, 2)
+            ex["instance_image"] = torch.stack(instance_images_list).unsqueeze(dim=1).to(image.device)  # (n, 1, C, crop_H, crop_W)
+            ex["orig_size"] = torch.stack([torch.Tensor(sz).to(image.device) for _ in range(n)])
+            ex["eff_scale"] = torch.Tensor([eff_sc] * n).to(image.device)
+            ex["rotation_angle"] = torch.stack(rotation_angles_list).to(image.device)  # (n,) - store rotation angles
             crops_dict.append(ex)
 
         return crops_dict
@@ -560,15 +614,42 @@ class FindInstancePeaks(L.LightningModule):
             integral_patch_size=self.integral_patch_size,
         )
 
-        # Adjust for stride and scale.
+        # Adjust for stride and scale to get crop pixel coordinates
         peak_points = peak_points * self.output_stride
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
 
+        # Apply inverse rotation in crop pixel coordinates (same space as centered_centroid)
+        if "rotation_angle" in inputs:
+            rotation_angles = inputs["rotation_angle"]  # (samples,)
+            centroids = inputs["centroid"]  # (samples, 2) - centered_centroid in crop pixel coordinates
+
+            # For each sample, apply inverse rotation
+            for i in range(peak_points.shape[0]):
+                rotation_angle = rotation_angles[i]
+
+                # Skip if no rotation was applied
+                if torch.abs(rotation_angle) > 1e-6:
+                    centroid = centroids[i].to(peak_points.device)  # (2,) in crop pixel coords
+
+                    # Create inverse rotation matrix (rotate by -angle)
+                    cos_a = torch.cos(-rotation_angle)
+                    sin_a = torch.sin(-rotation_angle)
+                    inv_rotation_matrix = torch.stack([
+                        torch.stack([cos_a, -sin_a]),
+                        torch.stack([sin_a, cos_a])
+                    ]).to(dtype=peak_points.dtype, device=peak_points.device)
+
+                    # Rotate peaks around centroid (both in crop pixel coordinates)
+                    peaks_relative = peak_points[i] - centroid  # (nodes, 2)
+                    # Apply inverse rotation
+                    rotated_peaks_relative = torch.matmul(peaks_relative, inv_rotation_matrix.T)  # (nodes, 2)
+                    # Transform back to absolute coordinates
+                    peak_points[i] = rotated_peaks_relative + centroid  # (nodes, 2)
+
         peak_points = peak_points / (
             inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
         )
-
         inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
 
         inputs["instance_bbox"] = inputs["instance_bbox"] / (
@@ -693,10 +774,38 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
             integral_patch_size=self.integral_patch_size,
         )
 
-        # Adjust for stride and scale.
+        # Adjust for stride and scale to get crop pixel coordinates
         peak_points = peak_points * self.output_stride
         if self.input_scale != 1.0:
             peak_points = peak_points / self.input_scale
+
+        # Apply inverse rotation in crop pixel coordinates (same space as centered_centroid)
+        if "rotation_angle" in inputs:
+            rotation_angles = inputs["rotation_angle"]  # (samples,)
+            centroids = inputs["centroid"]  # (samples, 2) - centered_centroid in crop pixel coordinates
+
+            # For each sample, apply inverse rotation
+            for i in range(peak_points.shape[0]):
+                rotation_angle = rotation_angles[i]
+
+                # Skip if no rotation was applied
+                if torch.abs(rotation_angle) > 1e-6:
+                    centroid = centroids[i].to(peak_points.device)  # (2,) in crop pixel coords
+
+                    # Create inverse rotation matrix (rotate by -angle)
+                    cos_a = torch.cos(-rotation_angle)
+                    sin_a = torch.sin(-rotation_angle)
+                    inv_rotation_matrix = torch.stack([
+                        torch.stack([cos_a, -sin_a]),
+                        torch.stack([sin_a, cos_a])
+                    ]).to(dtype=peak_points.dtype, device=peak_points.device)
+
+                    # Rotate peaks around centroid (both in crop pixel coordinates)
+                    peaks_relative = peak_points[i] - centroid  # (nodes, 2)
+                    # Apply inverse rotation
+                    rotated_peaks_relative = torch.matmul(peaks_relative, inv_rotation_matrix.T)  # (nodes, 2)
+                    # Transform back to absolute coordinates
+                    peak_points[i] = rotated_peaks_relative + centroid  # (nodes, 2)
 
         peak_points = peak_points / (
             inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
