@@ -79,6 +79,18 @@ Python 3.11 (or) 3.12 (or) 3.13 (required for all installation methods)
 sleap-nn --help
 ```
 
+### Updating Dependencies
+
+To update sleap-nn and its dependencies (e.g., sleap-io) to their latest versions:
+
+```bash
+# Upgrade sleap-nn to the latest version
+uv tool upgrade sleap-nn
+```
+
+!!! note
+    When upgrading, uv respects any version constraints specified during installation. The upgrade will only update within those constraints. To change version constraints, reinstall with new specifications using `uv tool install`.
+
 ---
 
 ## Installation with uvx
@@ -122,6 +134,15 @@ sleap-nn --help
 
 !!! note "uvx Installation"
     Because `uvx` installs packages fresh on every run, it's ideal for quick tests or use in remote environments. For regular use, you could install with [`uv tool install`](#installation-as-a-system-wide-tool-with-uv) or setting up a development environment with [`uv sync`](#installation-from-source) to avoid repeated downloads.
+
+### Updating Dependencies
+
+With `uvx`, no separate update command is needed:
+
+!!! tip "Automatic Updates"
+    `uvx` automatically fetches and installs the latest version of sleap-nn and its dependencies (e.g., sleap-io) each time you run a command. This means you're always using the most recent version unless you specify version constraints like `uvx "sleap-nn[torch]==0.0.3" ...`.
+
+    To ensure you're using the latest version, simply run your `uvx` command as usual - it will automatically download and use the newest available version.
 
 ---
 
@@ -215,8 +236,32 @@ uv run sleap-nn --help
       ```
       This ensures the command runs in the correct environment.
 
-    - **Another workaround (not recommended):**  
+    - **Another workaround (not recommended):**
       Check if you have any *empty* `pyproject.toml` or `uv.lock` files in `Users/<your-user-name>`. If you find empty files with these names, delete them and try again. (Empty files here can sometimes interfere with uv's environment resolution.)
+
+### Updating Dependencies
+
+To update sleap-nn and its dependencies to their latest versions:
+
+=== "Upgrade a Specific Package"
+    ```bash
+    # Upgrade sleap-nn and update the lock file
+    uv add "sleap-nn[torch]" --upgrade-package sleap-nn
+
+    # Upgrade a specific dependency like sleap-io
+    uv add sleap-io --upgrade-package sleap-io
+    ```
+
+=== "Upgrade All Dependencies"
+    ```bash
+    # Upgrade all packages to their latest compatible versions
+    uv sync --upgrade
+    ```
+
+!!! note
+    - `uv add --upgrade-package <package>` forces the specified package to update to its latest compatible version, even if a valid version is already installed.
+    - `uv sync --upgrade` refreshes the entire lockfile and updates all dependencies to their newest compatible versions while maintaining compatibility with your `pyproject.toml` constraints.
+    - By default, `uv add` only updates the locked version if necessary to satisfy new constraints. Use `--upgrade-package` to force an update.
 
 ---
 
@@ -270,6 +315,35 @@ sleap-nn --help
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
 ```
 
+### Updating Dependencies
+
+To update sleap-nn and its dependencies to their latest versions:
+
+=== "Windows/Linux (CUDA)"
+    ```bash
+    # CUDA 12.8
+    pip install --upgrade sleap-nn[torch] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
+
+    # CUDA 11.8
+    pip install --upgrade sleap-nn[torch] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu118
+    ```
+
+=== "Windows/Linux (CPU)"
+    ```bash
+    pip install --upgrade sleap-nn[torch] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cpu
+    ```
+
+=== "macOS"
+    ```bash
+    pip install --upgrade "sleap-nn[torch]"
+    ```
+
+!!! tip "Upgrading Specific Dependencies"
+    To upgrade a specific dependency like sleap-io independently:
+    ```bash
+    pip install --upgrade sleap-io
+    ```
+
 ---
 
 ## Installation from source
@@ -315,12 +389,27 @@ cd sleap-nn
     uv sync --extra dev --extra torch-cpu
     ```
 
-!!! tip "Upgrading All Dependencies"
-    To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
+#### 4. Updating Dependencies
+
+To update sleap-nn and its dependencies to their latest versions:
+
+=== "Windows/Linux (CUDA 11.8)"
     ```bash
-    uv sync --extra dev --upgrade
+    uv sync --extra dev --extra torch-cuda118 --upgrade
     ```
-    This will upgrade all installed packages in your environment to the latest available versions compatible with your `pyproject.toml`.
+
+=== "Windows/Linux (CUDA 12.8)"
+    ```bash
+    uv sync --extra dev --extra torch-cuda128 --upgrade
+    ```
+
+=== "macOS/CPU Only"
+    ```bash
+    uv sync --extra dev --extra torch-cpu --upgrade
+    ```
+
+!!! tip "How --upgrade Works"
+    The `--upgrade` flag refreshes the lockfile and updates all dependencies to their newest compatible versions while maintaining compatibility with your `pyproject.toml` constraints. This ensures you have the latest versions of all dependency packages.
 
 
 ### Verify Installation
