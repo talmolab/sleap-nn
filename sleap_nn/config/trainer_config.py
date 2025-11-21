@@ -17,12 +17,12 @@ class DataLoaderConfig:
     """Train DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
 
-    batch_size: int = 1
+    batch_size: int = 4
     shuffle: bool = False
     num_workers: int = 0
 
@@ -32,7 +32,7 @@ class TrainDataLoaderConfig(DataLoaderConfig):
     """Train DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `True`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
@@ -45,7 +45,7 @@ class ValDataLoaderConfig(DataLoaderConfig):
     """Validation DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
@@ -243,8 +243,8 @@ class TrainerConfig:
         train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.
         keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.
-        max_epochs: (int) Maximum number of epochs to run. *Default*: `10`.
-        seed: (int) Seed value for the current experiment. If None, no seeding is applied. *Default*: `0`.
+        max_epochs: (int) Maximum number of epochs to run. *Default*: `100`.
+        seed: (int) Seed value for the current experiment. If None, no seeding is applied. *Default*: `None`.
         use_wandb: (bool) True to enable wandb logging. *Default*: `False`.
         save_ckpt: (bool) True to enable checkpointing. *Default*: `False`.
         ckpt_dir: (str) Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`
@@ -274,7 +274,7 @@ class TrainerConfig:
     train_steps_per_epoch: Optional[int] = None
     visualize_preds_during_training: bool = False
     keep_viz: bool = False
-    max_epochs: int = 10
+    max_epochs: int = 100
     seed: Optional[int] = None
     use_wandb: bool = False
     save_ckpt: bool = False
