@@ -5936,8 +5936,7 @@ and outputs the detected peaks for the instances within each crop.</p>
 <span class="normal"><a href="#__codelineno-0-810">810</a></span>
 <span class="normal"><a href="#__codelineno-0-811">811</a></span>
 <span class="normal"><a href="#__codelineno-0-812">812</a></span>
-<span class="normal"><a href="#__codelineno-0-813">813</a></span>
-<span class="normal"><a href="#__codelineno-0-814">814</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-736"><a id="__codelineno-0-736" name="__codelineno-0-736"></a><span class="k">class</span><span class="w"> </span><span class="nc">TopDownInferenceModel</span><span class="p">(</span><span class="n">L</span><span class="o">.</span><span class="n">LightningModule</span><span class="p">):</span>
+<span class="normal"><a href="#__codelineno-0-813">813</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-736"><a id="__codelineno-0-736" name="__codelineno-0-736"></a><span class="k">class</span><span class="w"> </span><span class="nc">TopDownInferenceModel</span><span class="p">(</span><span class="n">L</span><span class="o">.</span><span class="n">LightningModule</span><span class="p">):</span>
 </span><span id="__span-0-737"><a id="__codelineno-0-737" name="__codelineno-0-737"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Top-down instance prediction model.</span>
 </span><span id="__span-0-738"><a id="__codelineno-0-738" name="__codelineno-0-738"></a>
 </span><span id="__span-0-739"><a id="__codelineno-0-739" name="__codelineno-0-739"></a><span class="sd">    This model encapsulates the top-down approach where instances are first detected by</span>
@@ -6003,19 +6002,18 @@ and outputs the detected peaks for the instances within each crop.</p>
 </span><span id="__span-0-799"><a id="__codelineno-0-799" name="__codelineno-0-799"></a>        <span class="n">batch</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">centroid_crop</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
 </span><span id="__span-0-800"><a id="__codelineno-0-800" name="__codelineno-0-800"></a>
 </span><span id="__span-0-801"><a id="__codelineno-0-801" name="__codelineno-0-801"></a>        <span class="k">if</span> <span class="n">batch</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-802"><a id="__codelineno-0-802" name="__codelineno-0-802"></a>
-</span><span id="__span-0-803"><a id="__codelineno-0-803" name="__codelineno-0-803"></a>            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">,</span> <span class="n">FindInstancePeaksGroundTruth</span><span class="p">):</span>
-</span><span id="__span-0-804"><a id="__codelineno-0-804" name="__codelineno-0-804"></a>                <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span><span class="n">batch</span><span class="p">))</span>
-</span><span id="__span-0-805"><a id="__codelineno-0-805" name="__codelineno-0-805"></a>            <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-806"><a id="__codelineno-0-806" name="__codelineno-0-806"></a>                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
-</span><span id="__span-0-807"><a id="__codelineno-0-807" name="__codelineno-0-807"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
-</span><span id="__span-0-808"><a id="__codelineno-0-808" name="__codelineno-0-808"></a>                    <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-</span><span id="__span-0-809"><a id="__codelineno-0-809" name="__codelineno-0-809"></a>                        <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span>
-</span><span id="__span-0-810"><a id="__codelineno-0-810" name="__codelineno-0-810"></a>                            <span class="n">i</span><span class="p">,</span>
-</span><span id="__span-0-811"><a id="__codelineno-0-811" name="__codelineno-0-811"></a>                        <span class="p">)</span>
-</span><span id="__span-0-812"><a id="__codelineno-0-812" name="__codelineno-0-812"></a>                    <span class="p">)</span>
-</span><span id="__span-0-813"><a id="__codelineno-0-813" name="__codelineno-0-813"></a>            <span class="k">return</span> <span class="n">peaks_output</span>
-</span><span id="__span-0-814"><a id="__codelineno-0-814" name="__codelineno-0-814"></a>        <span class="k">return</span> <span class="n">batch</span>
+</span><span id="__span-0-802"><a id="__codelineno-0-802" name="__codelineno-0-802"></a>            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">,</span> <span class="n">FindInstancePeaksGroundTruth</span><span class="p">):</span>
+</span><span id="__span-0-803"><a id="__codelineno-0-803" name="__codelineno-0-803"></a>                <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span><span class="n">batch</span><span class="p">))</span>
+</span><span id="__span-0-804"><a id="__codelineno-0-804" name="__codelineno-0-804"></a>            <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-805"><a id="__codelineno-0-805" name="__codelineno-0-805"></a>                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
+</span><span id="__span-0-806"><a id="__codelineno-0-806" name="__codelineno-0-806"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+</span><span id="__span-0-807"><a id="__codelineno-0-807" name="__codelineno-0-807"></a>                    <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="__span-0-808"><a id="__codelineno-0-808" name="__codelineno-0-808"></a>                        <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span>
+</span><span id="__span-0-809"><a id="__codelineno-0-809" name="__codelineno-0-809"></a>                            <span class="n">i</span><span class="p">,</span>
+</span><span id="__span-0-810"><a id="__codelineno-0-810" name="__codelineno-0-810"></a>                        <span class="p">)</span>
+</span><span id="__span-0-811"><a id="__codelineno-0-811" name="__codelineno-0-811"></a>                    <span class="p">)</span>
+</span><span id="__span-0-812"><a id="__codelineno-0-812" name="__codelineno-0-812"></a>            <span class="k">return</span> <span class="n">peaks_output</span>
+</span><span id="__span-0-813"><a id="__codelineno-0-813" name="__codelineno-0-813"></a>        <span class="k">return</span> <span class="n">batch</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -6203,8 +6201,7 @@ entries in example along with the below keys:</p>
 <span class="normal"><a href="#__codelineno-0-810">810</a></span>
 <span class="normal"><a href="#__codelineno-0-811">811</a></span>
 <span class="normal"><a href="#__codelineno-0-812">812</a></span>
-<span class="normal"><a href="#__codelineno-0-813">813</a></span>
-<span class="normal"><a href="#__codelineno-0-814">814</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-769"><a id="__codelineno-0-769" name="__codelineno-0-769"></a><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
+<span class="normal"><a href="#__codelineno-0-813">813</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-769"><a id="__codelineno-0-769" name="__codelineno-0-769"></a><span class="k">def</span><span class="w"> </span><span class="nf">forward</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">batch</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">torch</span><span class="o">.</span><span class="n">Tensor</span><span class="p">]:</span>
 </span><span id="__span-0-770"><a id="__codelineno-0-770" name="__codelineno-0-770"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Predict instances for one batch of images.</span>
 </span><span id="__span-0-771"><a id="__codelineno-0-771" name="__codelineno-0-771"></a>
 </span><span id="__span-0-772"><a id="__codelineno-0-772" name="__codelineno-0-772"></a><span class="sd">    Args:</span>
@@ -6237,19 +6234,18 @@ entries in example along with the below keys:</p>
 </span><span id="__span-0-799"><a id="__codelineno-0-799" name="__codelineno-0-799"></a>    <span class="n">batch</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">centroid_crop</span><span class="p">(</span><span class="n">batch</span><span class="p">)</span>
 </span><span id="__span-0-800"><a id="__codelineno-0-800" name="__codelineno-0-800"></a>
 </span><span id="__span-0-801"><a id="__codelineno-0-801" name="__codelineno-0-801"></a>    <span class="k">if</span> <span class="n">batch</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
-</span><span id="__span-0-802"><a id="__codelineno-0-802" name="__codelineno-0-802"></a>
-</span><span id="__span-0-803"><a id="__codelineno-0-803" name="__codelineno-0-803"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">,</span> <span class="n">FindInstancePeaksGroundTruth</span><span class="p">):</span>
-</span><span id="__span-0-804"><a id="__codelineno-0-804" name="__codelineno-0-804"></a>            <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span><span class="n">batch</span><span class="p">))</span>
-</span><span id="__span-0-805"><a id="__codelineno-0-805" name="__codelineno-0-805"></a>        <span class="k">else</span><span class="p">:</span>
-</span><span id="__span-0-806"><a id="__codelineno-0-806" name="__codelineno-0-806"></a>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
-</span><span id="__span-0-807"><a id="__codelineno-0-807" name="__codelineno-0-807"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
-</span><span id="__span-0-808"><a id="__codelineno-0-808" name="__codelineno-0-808"></a>                <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-</span><span id="__span-0-809"><a id="__codelineno-0-809" name="__codelineno-0-809"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span>
-</span><span id="__span-0-810"><a id="__codelineno-0-810" name="__codelineno-0-810"></a>                        <span class="n">i</span><span class="p">,</span>
-</span><span id="__span-0-811"><a id="__codelineno-0-811" name="__codelineno-0-811"></a>                    <span class="p">)</span>
-</span><span id="__span-0-812"><a id="__codelineno-0-812" name="__codelineno-0-812"></a>                <span class="p">)</span>
-</span><span id="__span-0-813"><a id="__codelineno-0-813" name="__codelineno-0-813"></a>        <span class="k">return</span> <span class="n">peaks_output</span>
-</span><span id="__span-0-814"><a id="__codelineno-0-814" name="__codelineno-0-814"></a>    <span class="k">return</span> <span class="n">batch</span>
+</span><span id="__span-0-802"><a id="__codelineno-0-802" name="__codelineno-0-802"></a>        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">,</span> <span class="n">FindInstancePeaksGroundTruth</span><span class="p">):</span>
+</span><span id="__span-0-803"><a id="__codelineno-0-803" name="__codelineno-0-803"></a>            <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span><span class="n">batch</span><span class="p">))</span>
+</span><span id="__span-0-804"><a id="__codelineno-0-804" name="__codelineno-0-804"></a>        <span class="k">else</span><span class="p">:</span>
+</span><span id="__span-0-805"><a id="__codelineno-0-805" name="__codelineno-0-805"></a>            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">batch</span><span class="p">:</span>
+</span><span id="__span-0-806"><a id="__codelineno-0-806" name="__codelineno-0-806"></a>                <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="o">.</span><span class="n">eval</span><span class="p">()</span>
+</span><span id="__span-0-807"><a id="__codelineno-0-807" name="__codelineno-0-807"></a>                <span class="n">peaks_output</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+</span><span id="__span-0-808"><a id="__codelineno-0-808" name="__codelineno-0-808"></a>                    <span class="bp">self</span><span class="o">.</span><span class="n">instance_peaks</span><span class="p">(</span>
+</span><span id="__span-0-809"><a id="__codelineno-0-809" name="__codelineno-0-809"></a>                        <span class="n">i</span><span class="p">,</span>
+</span><span id="__span-0-810"><a id="__codelineno-0-810" name="__codelineno-0-810"></a>                    <span class="p">)</span>
+</span><span id="__span-0-811"><a id="__codelineno-0-811" name="__codelineno-0-811"></a>                <span class="p">)</span>
+</span><span id="__span-0-812"><a id="__codelineno-0-812" name="__codelineno-0-812"></a>        <span class="k">return</span> <span class="n">peaks_output</span>
+</span><span id="__span-0-813"><a id="__codelineno-0-813" name="__codelineno-0-813"></a>    <span class="k">return</span> <span class="n">batch</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
