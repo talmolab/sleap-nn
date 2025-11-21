@@ -133,7 +133,6 @@ def nms_fast(boxes, scores, iou_threshold, target_count=None) -> List[int]:
 
     # keep looping while some indexes still remain in the indexes list
     while len(idxs) > 0:
-
         # we want to add the best box which is the last box in sorted list
         picked_box_idx = idxs[-1]
 

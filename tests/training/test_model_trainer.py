@@ -1267,6 +1267,27 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
     else:
         config.trainer_config.trainer_accelerator = "auto"
 
+    # if run name is empty string
+    cfg_copy = config.copy()
+    OmegaConf.update(
+        cfg_copy,
+        "trainer_config.ckpt_dir",
+        f"{tmp_path}",
+    )
+    OmegaConf.update(
+        cfg_copy,
+        "trainer_config.save_ckpt",
+        True,
+    )
+    OmegaConf.update(cfg_copy, "trainer_config.run_name", "")
+    labels = sio.load_slp(minimal_instance)
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg_copy, train_labels=[labels], val_labels=[labels]
+    )
+
+    trainer.train()
+
+    # use an existing run name
     config_duplicate_ckpt_path = config.copy()
     OmegaConf.update(
         config_duplicate_ckpt_path,
