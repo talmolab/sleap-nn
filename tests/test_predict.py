@@ -1454,7 +1454,9 @@ def test_video_index_output_path(
     # The output file should contain the video name
     output_file = output_files[0]
     video_name = Path(labels.videos[0].filename).stem
-    assert video_name in output_file.stem, f"Video name '{video_name}' not found in output path '{output_file}'"
+    assert (
+        video_name in output_file.stem
+    ), f"Video name '{video_name}' not found in output path '{output_file}'"
 
     # Clean up
     for f in output_files:

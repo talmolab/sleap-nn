@@ -510,9 +510,15 @@ def run_inference(
             if video_index is not None and len(output.videos) > video_index:
                 video = output.videos[video_index]
                 # Get video filename and sanitize it for use in path
-                video_name = Path(video.filename).stem if isinstance(video.filename, str) else f"video_{video_index}"
+                video_name = (
+                    Path(video.filename).stem
+                    if isinstance(video.filename, str)
+                    else f"video_{video_index}"
+                )
                 # Insert video name before .predictions.slp extension
-                output_path = base_path.parent / f"{base_path.stem}.{video_name}.predictions.slp"
+                output_path = (
+                    base_path.parent / f"{base_path.stem}.{video_name}.predictions.slp"
+                )
             else:
                 output_path = base_path.with_suffix(".predictions.slp")
         output.save(Path(output_path).as_posix(), restore_original_videos=False)
