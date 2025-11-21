@@ -837,7 +837,7 @@ class ClassMapConfig:
     """
 
     classes: Optional[List[str]] = None
-    sigma: float = 15.0
+    sigma: float = 5.0
     output_stride: int = 1
     loss_weight: Optional[float] = None
 

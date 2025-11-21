@@ -67,7 +67,7 @@ def test_dataloader_config():
     conf = OmegaConf.structured(TrainDataLoaderConfig)
     conf_instance = OmegaConf.structured(TrainDataLoaderConfig())
     assert conf == conf_instance
-    assert conf.batch_size == 1
+    assert conf.batch_size == 4
     assert conf.shuffle is True
     assert conf.num_workers == 0
 
@@ -75,7 +75,7 @@ def test_dataloader_config():
     conf = OmegaConf.structured(ValDataLoaderConfig)
     conf_instance = OmegaConf.structured(ValDataLoaderConfig())
     assert conf == conf_instance
-    assert conf.batch_size == 1
+    assert conf.batch_size == 4
     assert conf.shuffle is False
     assert conf.num_workers == 0
 
@@ -211,9 +211,12 @@ def test_trainer_config(caplog):
     conf_dict = asdict(conf)  # Convert to dict for OmegaConf
     conf_structured = OmegaConf.create(conf_dict)
 
-    assert conf_structured.train_data_loader.batch_size == 1
+    assert conf_structured.train_data_loader.batch_size == 4
+    assert conf_structured.val_data_loader.batch_size == 4
     assert conf_structured.val_data_loader.shuffle is False
     assert conf_structured.model_ckpt.save_top_k == 1
+    assert conf_structured.max_epochs == 100
+    assert conf_structured.seed is None
     assert conf_structured.optimizer.lr == 1e-4
     assert conf_structured.lr_scheduler is not None
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau is not None
