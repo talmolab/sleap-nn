@@ -3326,7 +3326,7 @@ the parameters required to initialize the data config.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>(bool) True if the data augmentation should be applied to the training data, else False. <em>Default</em>: <code>False</code>.</p>
+                <p>(bool) True if the data augmentation should be applied to the training data, else False. <em>Default</em>: <code>True</code>.</p>
               </div>
             </td>
           </tr>
@@ -3419,7 +3419,7 @@ the parameters required to initialize the data config.</p>
 </span><span id="__span-0-165"><a id="__codelineno-0-165" name="__codelineno-0-165"></a><span class="sd">        use_existing_imgs: (bool) Use existing train and val images/ chunks in the `cache_img_path` for `torch_dataset_cache_img_disk` frameworks. If `True`, the `cache_img_path` should have `train_imgs` and `val_imgs` dirs. *Default*: `False`.</span>
 </span><span id="__span-0-166"><a id="__codelineno-0-166" name="__codelineno-0-166"></a><span class="sd">        delete_cache_imgs_after_training: (bool) If `False`, the images (torch_dataset_cache_img_disk) are retained after training. Else, the files are deleted. *Default*: `True`.</span>
 </span><span id="__span-0-167"><a id="__codelineno-0-167" name="__codelineno-0-167"></a><span class="sd">        preprocessing: Configuration options related to data preprocessing.</span>
-</span><span id="__span-0-168"><a id="__codelineno-0-168" name="__codelineno-0-168"></a><span class="sd">        use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False. *Default*: `False`.</span>
+</span><span id="__span-0-168"><a id="__codelineno-0-168" name="__codelineno-0-168"></a><span class="sd">        use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False. *Default*: `True`.</span>
 </span><span id="__span-0-169"><a id="__codelineno-0-169" name="__codelineno-0-169"></a><span class="sd">        augmentation_config: Configurations related to augmentation. (only if `use_augmentations_train` is `True`)</span>
 </span><span id="__span-0-170"><a id="__codelineno-0-170" name="__codelineno-0-170"></a><span class="sd">        skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`</span>
 </span><span id="__span-0-171"><a id="__codelineno-0-171" name="__codelineno-0-171"></a><span class="sd">    &quot;&quot;&quot;</span>
@@ -3435,7 +3435,7 @@ the parameters required to initialize the data config.</p>
 </span><span id="__span-0-181"><a id="__codelineno-0-181" name="__codelineno-0-181"></a>    <span class="n">use_existing_imgs</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
 </span><span id="__span-0-182"><a id="__codelineno-0-182" name="__codelineno-0-182"></a>    <span class="n">delete_cache_imgs_after_training</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 </span><span id="__span-0-183"><a id="__codelineno-0-183" name="__codelineno-0-183"></a>    <span class="n">preprocessing</span><span class="p">:</span> <span class="n">PreprocessingConfig</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">factory</span><span class="o">=</span><span class="n">PreprocessingConfig</span><span class="p">)</span>
-</span><span id="__span-0-184"><a id="__codelineno-0-184" name="__codelineno-0-184"></a>    <span class="n">use_augmentations_train</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-0-184"><a id="__codelineno-0-184" name="__codelineno-0-184"></a>    <span class="n">use_augmentations_train</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
 </span><span id="__span-0-185"><a id="__codelineno-0-185" name="__codelineno-0-185"></a>    <span class="n">augmentation_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">AugmentationConfig</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 </span><span id="__span-0-186"><a id="__codelineno-0-186" name="__codelineno-0-186"></a>    <span class="n">skeletons</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
 </span></code></pre></div></td></tr></table></div>
@@ -4677,10 +4677,7 @@ the parameters required to initialize the data config.</p>
 <span class="normal"><a href="#__codelineno-0-469">469</a></span>
 <span class="normal"><a href="#__codelineno-0-470">470</a></span>
 <span class="normal"><a href="#__codelineno-0-471">471</a></span>
-<span class="normal"><a href="#__codelineno-0-472">472</a></span>
-<span class="normal"><a href="#__codelineno-0-473">473</a></span>
-<span class="normal"><a href="#__codelineno-0-474">474</a></span>
-<span class="normal"><a href="#__codelineno-0-475">475</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-189"><a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="k">def</span><span class="w"> </span><span class="nf">data_mapper</span><span class="p">(</span><span class="n">legacy_config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataConfig</span><span class="p">:</span>
+<span class="normal"><a href="#__codelineno-0-472">472</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-189"><a id="__codelineno-0-189" name="__codelineno-0-189"></a><span class="k">def</span><span class="w"> </span><span class="nf">data_mapper</span><span class="p">(</span><span class="n">legacy_config</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">DataConfig</span><span class="p">:</span>
 </span><span id="__span-0-190"><a id="__codelineno-0-190" name="__codelineno-0-190"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Maps the legacy data configuration to the new data configuration.</span>
 </span><span id="__span-0-191"><a id="__codelineno-0-191" name="__codelineno-0-191"></a>
 </span><span id="__span-0-192"><a id="__codelineno-0-192" name="__codelineno-0-192"></a><span class="sd">    Args:</span>
@@ -4957,16 +4954,13 @@ the parameters required to initialize the data config.</p>
 </span><span id="__span-0-463"><a id="__codelineno-0-463" name="__codelineno-0-463"></a>        <span class="n">geometric</span><span class="o">=</span><span class="n">GeometricConfig</span><span class="p">(</span><span class="o">**</span><span class="n">geometric_args</span><span class="p">),</span>
 </span><span id="__span-0-464"><a id="__codelineno-0-464" name="__codelineno-0-464"></a>    <span class="p">)</span>
 </span><span id="__span-0-465"><a id="__codelineno-0-465" name="__codelineno-0-465"></a>
-</span><span id="__span-0-466"><a id="__codelineno-0-466" name="__codelineno-0-466"></a>    <span class="n">data_cfg_args</span><span class="p">[</span><span class="s2">&quot;use_augmentations_train&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="__span-0-467"><a id="__codelineno-0-467" name="__codelineno-0-467"></a>        <span class="kc">True</span> <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">intensity_args</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="ow">or</span> <span class="nb">any</span><span class="p">(</span><span class="n">geometric_args</span><span class="o">.</span><span class="n">values</span><span class="p">())</span> <span class="k">else</span> <span class="kc">False</span>
-</span><span id="__span-0-468"><a id="__codelineno-0-468" name="__codelineno-0-468"></a>    <span class="p">)</span>
-</span><span id="__span-0-469"><a id="__codelineno-0-469" name="__codelineno-0-469"></a>    <span class="n">data_cfg_args</span><span class="p">[</span><span class="s2">&quot;skeletons&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-</span><span id="__span-0-470"><a id="__codelineno-0-470" name="__codelineno-0-470"></a>        <span class="n">skeletons_list</span>
-</span><span id="__span-0-471"><a id="__codelineno-0-471" name="__codelineno-0-471"></a>        <span class="k">if</span> <span class="n">skeletons_list</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">skeletons_list</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
-</span><span id="__span-0-472"><a id="__codelineno-0-472" name="__codelineno-0-472"></a>        <span class="k">else</span> <span class="kc">None</span>
-</span><span id="__span-0-473"><a id="__codelineno-0-473" name="__codelineno-0-473"></a>    <span class="p">)</span>
-</span><span id="__span-0-474"><a id="__codelineno-0-474" name="__codelineno-0-474"></a>
-</span><span id="__span-0-475"><a id="__codelineno-0-475" name="__codelineno-0-475"></a>    <span class="k">return</span> <span class="n">DataConfig</span><span class="p">(</span><span class="o">**</span><span class="n">data_cfg_args</span><span class="p">)</span>
+</span><span id="__span-0-466"><a id="__codelineno-0-466" name="__codelineno-0-466"></a>    <span class="n">data_cfg_args</span><span class="p">[</span><span class="s2">&quot;skeletons&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+</span><span id="__span-0-467"><a id="__codelineno-0-467" name="__codelineno-0-467"></a>        <span class="n">skeletons_list</span>
+</span><span id="__span-0-468"><a id="__codelineno-0-468" name="__codelineno-0-468"></a>        <span class="k">if</span> <span class="n">skeletons_list</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">skeletons_list</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span>
+</span><span id="__span-0-469"><a id="__codelineno-0-469" name="__codelineno-0-469"></a>        <span class="k">else</span> <span class="kc">None</span>
+</span><span id="__span-0-470"><a id="__codelineno-0-470" name="__codelineno-0-470"></a>    <span class="p">)</span>
+</span><span id="__span-0-471"><a id="__codelineno-0-471" name="__codelineno-0-471"></a>
+</span><span id="__span-0-472"><a id="__codelineno-0-472" name="__codelineno-0-472"></a>    <span class="k">return</span> <span class="n">DataConfig</span><span class="p">(</span><span class="o">**</span><span class="n">data_cfg_args</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
