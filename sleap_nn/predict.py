@@ -504,9 +504,23 @@ def run_inference(
 
     if make_labels:
         if output_path is None:
-            output_path = Path(
-                data_path if data_path is not None else "results"
-            ).with_suffix(".predictions.slp")
+            base_path = Path(data_path if data_path is not None else "results")
+
+            # If video_index is specified, append video name to output path
+            if video_index is not None and len(output.videos) > video_index:
+                video = output.videos[video_index]
+                # Get video filename and sanitize it for use in path
+                video_name = (
+                    Path(video.filename).stem
+                    if isinstance(video.filename, str)
+                    else f"video_{video_index}"
+                )
+                # Insert video name before .predictions.slp extension
+                output_path = (
+                    base_path.parent / f"{base_path.stem}.{video_name}.predictions.slp"
+                )
+            else:
+                output_path = base_path.with_suffix(".predictions.slp")
         output.save(Path(output_path).as_posix(), restore_original_videos=False)
     finish_timestamp = str(datetime.now())
     logger.info(f"Predictions output path: {output_path}")
