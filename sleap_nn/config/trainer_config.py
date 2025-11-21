@@ -102,11 +102,11 @@ class OptimizerConfig:
     """Configuration for optimizer.
 
     Attributes:
-        lr: (float) Learning rate of type float. *Default*: `1e-3`.
+        lr: (float) Learning rate of type float. *Default*: `1e-4`.
         amsgrad: (bool) Enable AMSGrad with the optimizer. *Default*: `False`.
     """
 
-    lr: float = field(default=1e-3, validator=validators.gt(0))
+    lr: float = field(default=1e-4, validator=validators.gt(0))
     amsgrad: bool = False
 
 
@@ -128,21 +128,21 @@ class ReduceLROnPlateauConfig:
     """Configuration for ReduceLROnPlateau scheduler.
 
     Attributes:
-        threshold: (float) Threshold for measuring the new optimum, to only focus on significant changes. *Default*: `1e-4`.
-        threshold_mode: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: `"rel"`.
-        cooldown: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: `0`.
-        patience: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. *Default*: `10`.
-        factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: `0.1`.
-        min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: `0.0`.
+        threshold: (float) Threshold for measuring the new optimum, to only focus on significant changes. *Default*: `1e-6`.
+        threshold_mode: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: `"abs"`.
+        cooldown: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: `3`.
+        patience: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. *Default*: `5`.
+        factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: `0.5`.
+        min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: `1e-8`.
     """
 
-    threshold: float = 1e-4
-    threshold_mode: str = "rel"
-    cooldown: int = 0
-    patience: int = 10
-    factor: float = 0.1
+    threshold: float = 1e-6
+    threshold_mode: str = "abs"
+    cooldown: int = 3
+    patience: int = 5
+    factor: float = 0.5
     min_lr: Any = field(
-        default=0.0, validator=lambda instance, attr, value: instance.validate_min_lr()
+        default=1e-8, validator=lambda instance, attr, value: instance.validate_min_lr()
     )
 
     def validate_min_lr(self):
@@ -171,7 +171,7 @@ class LRSchedulerConfig:
     """
 
     step_lr: Optional[StepLRConfig] = None
-    reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = None
+    reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = field(factory=ReduceLROnPlateauConfig)
 
 
 @define
@@ -180,12 +180,12 @@ class EarlyStoppingConfig:
 
     Attributes:
         stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `False`.
-        min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `0.0`.
-        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `1`.
+        min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.
+        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `10`.
     """
 
-    min_delta: float = field(default=0.0, validator=validators.ge(0))
-    patience: int = field(default=1, validator=validators.ge(0))
+    min_delta: float = field(default=1e-8, validator=validators.ge(0))
+    patience: int = field(default=10, validator=validators.ge(0))
     stop_training_on_plateau: bool = False
 
 
@@ -285,7 +285,7 @@ class TrainerConfig:
         validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val),
     )
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
-    lr_scheduler: Optional[LRSchedulerConfig] = None
+    lr_scheduler: Optional[LRSchedulerConfig] = field(factory=LRSchedulerConfig)
     early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
