@@ -527,8 +527,9 @@ class SingleInstanceLightningModule(LightningModel):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
-            batch["confidence_maps"], dim=1
+        X, y = (
+            torch.squeeze(batch["image"], dim=1),
+            torch.squeeze(batch["confidence_maps"], dim=1),
         )
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
@@ -574,8 +575,9 @@ class SingleInstanceLightningModule(LightningModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
-            batch["confidence_maps"], dim=1
+        X, y = (
+            torch.squeeze(batch["image"], dim=1),
+            torch.squeeze(batch["confidence_maps"], dim=1),
         )
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
@@ -737,8 +739,9 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
-            batch["confidence_maps"], dim=1
+        X, y = (
+            torch.squeeze(batch["instance_image"], dim=1),
+            torch.squeeze(batch["confidence_maps"], dim=1),
         )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
@@ -785,8 +788,9 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
     def validation_step(self, batch, batch_idx):
         """Perform validation step."""
-        X, y = torch.squeeze(batch["instance_image"], dim=1), torch.squeeze(
-            batch["confidence_maps"], dim=1
+        X, y = (
+            torch.squeeze(batch["instance_image"], dim=1),
+            torch.squeeze(batch["confidence_maps"], dim=1),
         )
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
@@ -947,8 +951,9 @@ class CentroidLightningModule(LightningModel):
 
     def training_step(self, batch, batch_idx):
         """Training step."""
-        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
-            batch["centroids_confidence_maps"], dim=1
+        X, y = (
+            torch.squeeze(batch["image"], dim=1),
+            torch.squeeze(batch["centroids_confidence_maps"], dim=1),
         )
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
@@ -966,8 +971,9 @@ class CentroidLightningModule(LightningModel):
 
     def validation_step(self, batch, batch_idx):
         """Validation step."""
-        X, y = torch.squeeze(batch["image"], dim=1), torch.squeeze(
-            batch["centroids_confidence_maps"], dim=1
+        X, y = (
+            torch.squeeze(batch["image"], dim=1),
+            torch.squeeze(batch["centroids_confidence_maps"], dim=1),
         )
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
