@@ -3517,7 +3517,7 @@
 </span><span id="__span-0-90"><a id="__codelineno-0-90" name="__codelineno-0-90" href="#__codelineno-0-90"></a><span class="w">    </span><span class="nt">step_lr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 </span><span id="__span-0-91"><a id="__codelineno-0-91" name="__codelineno-0-91" href="#__codelineno-0-91"></a><span class="w">    </span><span class="nt">reduce_lr_on_plateau</span><span class="p">:</span>
 </span><span id="__span-0-92"><a id="__codelineno-0-92" name="__codelineno-0-92" href="#__codelineno-0-92"></a><span class="w">      </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0e-06</span>
-</span><span id="__span-0-93"><a id="__codelineno-0-93" name="__codelineno-0-93" href="#__codelineno-0-93"></a><span class="w">      </span><span class="nt">threshold_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">rel</span>
+</span><span id="__span-0-93"><a id="__codelineno-0-93" name="__codelineno-0-93" href="#__codelineno-0-93"></a><span class="w">      </span><span class="nt">threshold_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">abs</span>
 </span><span id="__span-0-94"><a id="__codelineno-0-94" name="__codelineno-0-94" href="#__codelineno-0-94"></a><span class="w">      </span><span class="nt">cooldown</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
 </span><span id="__span-0-95"><a id="__codelineno-0-95" name="__codelineno-0-95" href="#__codelineno-0-95"></a><span class="w">      </span><span class="nt">patience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
 </span><span id="__span-0-96"><a id="__codelineno-0-96" name="__codelineno-0-96" href="#__codelineno-0-96"></a><span class="w">      </span><span class="nt">factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
@@ -4133,7 +4133,7 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 <ul>
 <li><code>optimizer_name</code>: (str) Optimizer to be used. One of ["Adam", "AdamW"]. <strong>Default</strong>: <code>"Adam"</code></li>
 <li><code>optimizer</code>:<ul>
-<li><code>lr</code>: (float) Learning rate of type float. <strong>Default</strong>: <code>1e-3</code></li>
+<li><code>lr</code>: (float) Learning rate of type float. <strong>Default</strong>: <code>1e-4</code></li>
 <li><code>amsgrad</code>: (bool) Enable AMSGrad with the optimizer. <strong>Default</strong>: <code>False</code></li>
 </ul>
 </li>
@@ -4151,12 +4151,12 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 <h4 id="reduce-lr-on-plateau">Reduce LR on Plateau<a class="headerlink" href="#reduce-lr-on-plateau" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>lr_scheduler.reduce_lr_on_plateau</code>:<ul>
-<li><code>threshold</code>: (float) Threshold for measuring the new optimum, to only focus on significant changes. <strong>Default</strong>: <code>1e-4</code></li>
-<li><code>threshold_mode</code>: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. <strong>Default</strong>: <code>"rel"</code></li>
-<li><code>cooldown</code>: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. <strong>Default</strong>: <code>0</code></li>
-<li><code>patience</code>: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. <strong>Default</strong>: <code>10</code></li>
-<li><code>factor</code>: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. <strong>Default</strong>: <code>0.1</code></li>
-<li><code>min_lr</code>: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. <strong>Default</strong>: <code>0.0</code></li>
+<li><code>threshold</code>: (float) Threshold for measuring the new optimum, to only focus on significant changes. <strong>Default</strong>: <code>1e-6</code></li>
+<li><code>threshold_mode</code>: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. <strong>Default</strong>: <code>"abs"</code></li>
+<li><code>cooldown</code>: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. <strong>Default</strong>: <code>3</code></li>
+<li><code>patience</code>: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. <strong>Default</strong>: <code>5</code></li>
+<li><code>factor</code>: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. <strong>Default</strong>: <code>0.5</code></li>
+<li><code>min_lr</code>: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. <strong>Default</strong>: <code>1e-8</code></li>
 </ul>
 </li>
 </ul>
@@ -4181,7 +4181,7 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 </span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="w">    </span><span class="nt">step_lr</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span>
 </span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="w">    </span><span class="nt">reduce_lr_on_plateau</span><span class="p">:</span>
 </span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a><span class="w">      </span><span class="nt">threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1e-6</span>
-</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">      </span><span class="nt">threshold_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;rel&quot;</span>
+</span><span id="__span-24-6"><a id="__codelineno-24-6" name="__codelineno-24-6" href="#__codelineno-24-6"></a><span class="w">      </span><span class="nt">threshold_mode</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;abs&quot;</span>
 </span><span id="__span-24-7"><a id="__codelineno-24-7" name="__codelineno-24-7" href="#__codelineno-24-7"></a><span class="w">      </span><span class="nt">cooldown</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
 </span><span id="__span-24-8"><a id="__codelineno-24-8" name="__codelineno-24-8" href="#__codelineno-24-8"></a><span class="w">      </span><span class="nt">patience</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span>
 </span><span id="__span-24-9"><a id="__codelineno-24-9" name="__codelineno-24-9" href="#__codelineno-24-9"></a><span class="w">      </span><span class="nt">factor</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
@@ -4190,9 +4190,9 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 <h3 id="early-stopping">Early Stopping<a class="headerlink" href="#early-stopping" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>early_stopping</code>:<ul>
-<li><code>stop_training_on_plateau</code>: (bool) True if early stopping should be enabled. <strong>Default</strong>: <code>False</code></li>
-<li><code>min_delta</code>: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. <strong>Default</strong>: <code>0.0</code></li>
-<li><code>patience</code>: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. <strong>Default</strong>: <code>1</code></li>
+<li><code>stop_training_on_plateau</code>: (bool) True if early stopping should be enabled. <strong>Default</strong>: <code>True</code></li>
+<li><code>min_delta</code>: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. <strong>Default</strong>: <code>1e-8</code></li>
+<li><code>patience</code>: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. <strong>Default</strong>: <code>10</code></li>
 </ul>
 </li>
 </ul>
