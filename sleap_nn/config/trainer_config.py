@@ -181,14 +181,14 @@ class EarlyStoppingConfig:
     """Configuration for early_stopping.
 
     Attributes:
-        stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `False`.
+        stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `True`.
         min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.
         patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `10`.
     """
 
     min_delta: float = field(default=1e-8, validator=validators.ge(0))
     patience: int = field(default=10, validator=validators.ge(0))
-    stop_training_on_plateau: bool = False
+    stop_training_on_plateau: bool = True
 
 
 @define

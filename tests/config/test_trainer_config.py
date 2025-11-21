@@ -183,15 +183,15 @@ def test_early_stopping_config():
     """
     # Check default values
     conf = OmegaConf.structured(EarlyStoppingConfig)
-    assert conf.stop_training_on_plateau is False
+    assert conf.stop_training_on_plateau is True
     assert conf.min_delta == 1e-8
     assert conf.patience == 10
 
     # Test customization
     custom_conf = OmegaConf.structured(
-        EarlyStoppingConfig(stop_training_on_plateau=True, patience=5)
+        EarlyStoppingConfig(stop_training_on_plateau=False, patience=5)
     )
-    assert custom_conf.stop_training_on_plateau is True
+    assert custom_conf.stop_training_on_plateau is False
     assert custom_conf.patience == 5
 
     # Test validation
@@ -217,7 +217,7 @@ def test_trainer_config(caplog):
     assert conf_structured.optimizer.lr == 1e-4
     assert conf_structured.lr_scheduler is not None
     assert conf_structured.lr_scheduler.reduce_lr_on_plateau is not None
-    assert conf_structured.early_stopping.stop_training_on_plateau is False
+    assert conf_structured.early_stopping.stop_training_on_plateau is True
     assert conf_structured.use_wandb is False
     assert conf_structured.ckpt_dir == "."
     assert conf_structured.run_name is None

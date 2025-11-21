@@ -795,7 +795,7 @@ trainer_config:
 
 ### Early Stopping
 - `early_stopping`:
-    - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. **Default**: `False`
+    - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. **Default**: `True`
     - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. **Default**: `1e-8`
     - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. **Default**: `10`
 
