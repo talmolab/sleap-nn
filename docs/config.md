@@ -123,7 +123,7 @@ trainer_config:
     step_lr: null
     reduce_lr_on_plateau:
       threshold: 1.0e-06
-      threshold_mode: rel
+      threshold_mode: abs
       cooldown: 3
       patience: 5
       factor: 0.5
@@ -739,7 +739,7 @@ trainer_config:
 ### Optimizer Configuration
 - `optimizer_name`: (str) Optimizer to be used. One of ["Adam", "AdamW"]. **Default**: `"Adam"`
 - `optimizer`:
-    - `lr`: (float) Learning rate of type float. **Default**: `1e-3`
+    - `lr`: (float) Learning rate of type float. **Default**: `1e-4`
     - `amsgrad`: (bool) Enable AMSGrad with the optimizer. **Default**: `False`
 
 ### Learning Rate Schedulers
@@ -752,12 +752,12 @@ trainer_config:
 
 #### Reduce LR on Plateau
 - `lr_scheduler.reduce_lr_on_plateau`:
-    - `threshold`: (float) Threshold for measuring the new optimum, to only focus on significant changes. **Default**: `1e-4`
-    - `threshold_mode`: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. **Default**: `"rel"`
-    - `cooldown`: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. **Default**: `0`
-    - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. **Default**: `10`
-    - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. **Default**: `0.1`
-    - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. **Default**: `0.0`
+    - `threshold`: (float) Threshold for measuring the new optimum, to only focus on significant changes. **Default**: `1e-6`
+    - `threshold_mode`: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. **Default**: `"abs"`
+    - `cooldown`: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. **Default**: `3`
+    - `patience`: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. **Default**: `5`
+    - `factor`: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. **Default**: `0.5`
+    - `min_lr`: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. **Default**: `1e-8`
 
 **Example Learning Rate Scheduler configurations:**
 
@@ -786,7 +786,7 @@ trainer_config:
     step_lr: null
     reduce_lr_on_plateau:
       threshold: 1e-6
-      threshold_mode: "rel"
+      threshold_mode: "abs"
       cooldown: 3
       patience: 5
       factor: 0.5
@@ -795,9 +795,9 @@ trainer_config:
 
 ### Early Stopping
 - `early_stopping`:
-    - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. **Default**: `False`
-    - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. **Default**: `0.0`
-    - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. **Default**: `1`
+    - `stop_training_on_plateau`: (bool) True if early stopping should be enabled. **Default**: `True`
+    - `min_delta`: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. **Default**: `1e-8`
+    - `patience`: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. **Default**: `10`
 
 ### Online Hard Keypoint Mining (OHKM)
 - `online_hard_keypoint_mining`:

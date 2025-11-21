@@ -45,12 +45,12 @@ def test_reduce_lr_on_plateau_config(caplog):
     """
     # Check default values
     conf = OmegaConf.structured(ReduceLROnPlateauConfig)
-    assert conf.factor == 0.1
-    assert conf.patience == 10
-    assert conf.threshold == 0.0001
-    assert conf.threshold_mode == "rel"
-    assert conf.cooldown == 0
-    assert conf.min_lr == 0
+    assert conf.factor == 0.5
+    assert conf.patience == 5
+    assert conf.threshold == 1e-6
+    assert conf.threshold_mode == "abs"
+    assert conf.cooldown == 3
+    assert conf.min_lr == 1e-8
 
     # Test validators
     with pytest.raises(ValueError):
@@ -130,7 +130,7 @@ def test_optimizer_config(caplog):
     """
     # Check default values
     conf = OmegaConf.structured(OptimizerConfig)
-    assert conf.lr == 1e-3
+    assert conf.lr == 1e-4
     assert conf.amsgrad is False
 
     # Test customization
@@ -158,9 +158,9 @@ def test_lr_scheduler_config(caplog):
     conf_structured = OmegaConf.create(conf_dict)
 
     # Test ReduceLROnPlateau
-    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.threshold == 1e-4
-    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.patience == 10
-    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.factor == 0.1
+    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.threshold == 1e-6
+    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.patience == 5
+    assert conf_structured.lr_scheduler.reduce_lr_on_plateau.factor == 0.5
 
     # Test StepLR configuration
     custom_conf = TrainerConfig(
@@ -183,15 +183,15 @@ def test_early_stopping_config():
     """
     # Check default values
     conf = OmegaConf.structured(EarlyStoppingConfig)
-    assert conf.stop_training_on_plateau is False
-    assert conf.min_delta == 0.0
-    assert conf.patience == 1
+    assert conf.stop_training_on_plateau is True
+    assert conf.min_delta == 1e-8
+    assert conf.patience == 10
 
     # Test customization
     custom_conf = OmegaConf.structured(
-        EarlyStoppingConfig(stop_training_on_plateau=True, patience=5)
+        EarlyStoppingConfig(stop_training_on_plateau=False, patience=5)
     )
-    assert custom_conf.stop_training_on_plateau is True
+    assert custom_conf.stop_training_on_plateau is False
     assert custom_conf.patience == 5
 
     # Test validation
@@ -214,9 +214,10 @@ def test_trainer_config(caplog):
     assert conf_structured.train_data_loader.batch_size == 1
     assert conf_structured.val_data_loader.shuffle is False
     assert conf_structured.model_ckpt.save_top_k == 1
-    assert conf_structured.optimizer.lr == 1e-3
-    assert conf_structured.lr_scheduler is None
-    assert conf_structured.early_stopping.stop_training_on_plateau is False
+    assert conf_structured.optimizer.lr == 1e-4
+    assert conf_structured.lr_scheduler is not None
+    assert conf_structured.lr_scheduler.reduce_lr_on_plateau is not None
+    assert conf_structured.early_stopping.stop_training_on_plateau is True
     assert conf_structured.use_wandb is False
     assert conf_structured.ckpt_dir == "."
     assert conf_structured.run_name is None
