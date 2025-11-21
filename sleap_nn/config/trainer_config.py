@@ -171,7 +171,9 @@ class LRSchedulerConfig:
     """
 
     step_lr: Optional[StepLRConfig] = None
-    reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = field(factory=ReduceLROnPlateauConfig)
+    reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = field(
+        factory=ReduceLROnPlateauConfig
+    )
 
 
 @define
