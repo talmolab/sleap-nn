@@ -56,6 +56,7 @@ def run_inference(
     input_scale: Optional[float] = None,
     ensure_grayscale: Optional[bool] = None,
     anchor_part: Optional[str] = None,
+    orientation_anchor_parts: Optional[Union[str, List[str]]] = None,
     only_labeled_frames: bool = False,
     only_suggested_frames: bool = False,
     no_empty_frames: bool = False,
@@ -134,6 +135,11 @@ def run_inference(
                 values from the training config are used. Default: `None`.
         anchor_part: (str) The node name to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used. Default: `None`.
+        orientation_anchor_parts: (str or List[str]) Node name(s) to use for egocentric alignment.
+                Can be a single node name or a list of node names in priority order. The function will
+                try nodes in order and use the first valid (non-NaN) node. If provided, images and
+                keypoints will be rotated so the vector from centroid to this node aligns with the
+                positive x-axis. If `None`, no egocentric rotation is applied. Default: `None`.
         only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
         only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
         no_empty_frames: (bool) `True` if empty frames that did not have predictions should be cleared before saving to output. Default: `False`.
@@ -378,6 +384,7 @@ def run_inference(
             device=device,
             preprocess_config=OmegaConf.create(preprocess_config),
             anchor_part=anchor_part,
+            orientation_anchor_parts=orientation_anchor_parts,
         )
 
         if (

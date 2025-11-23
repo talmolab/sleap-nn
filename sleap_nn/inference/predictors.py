@@ -130,6 +130,7 @@ class Predictor(ABC):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
+        orientation_anchor_parts: Optional[Union[str, List[str]]] = None,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -162,6 +163,11 @@ class Predictor(ABC):
                 in the `data_config.preprocessing` section.
             anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+            orientation_anchor_parts: (str or List[str]) Node name(s) to use for egocentric alignment.
+                Can be a single node name or a list of node names in priority order. The function will
+                try nodes in order and use the first valid (non-NaN) node. If provided, images and
+                keypoints will be rotated so the vector from centroid to this node aligns with the
+                positive x-axis. If `None`, no egocentric rotation is applied. Default: None.
 
         Returns:
             A subclass of `Predictor`.
@@ -230,6 +236,7 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    orientation_anchor_parts=orientation_anchor_parts,
                 )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
@@ -248,6 +255,7 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    orientation_anchor_parts=orientation_anchor_parts,
                 )
             elif "multi_class_topdown" in model_names:
                 confmap_ckpt_path = model_paths[
@@ -268,6 +276,7 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    orientation_anchor_parts=orientation_anchor_parts,
                 )
 
         elif "bottomup" in model_names:
@@ -560,6 +569,11 @@ class TopDownPredictor(Predictor):
             if this is `None`.
         anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
             provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+        orientation_anchor_parts: (str or List[str]) Node name(s) to use for egocentric alignment.
+            Can be a single node name or a list of node names in priority order. The function will
+            try nodes in order and use the first valid (non-NaN) node. If provided, images and
+            keypoints will be rotated so the vector from centroid to this node aligns with the
+            positive x-axis. If `None`, no egocentric rotation is applied. Default: None.
         max_stride: The maximum stride of the backbone network, as specified in the model's
             `backbone_config`. This determines the downsampling factor applied by the backbone,
             and is used to ensure that input images are padded or resized to be compatible
@@ -585,6 +599,7 @@ class TopDownPredictor(Predictor):
     preprocess_config: Optional[OmegaConf] = None
     tracker: Optional[Tracker] = None
     anchor_part: Optional[str] = None
+    orientation_anchor_parts: Optional[Union[str, List[str]]] = None
     max_stride: int = 16
 
     def _initialize_inference_model(self):
@@ -619,6 +634,19 @@ class TopDownPredictor(Predictor):
                 else None
             )
 
+        # Process orientation_anchor_parts to indices
+        orientation_anchor_inds = None
+        if self.orientation_anchor_parts is not None:
+            if isinstance(self.orientation_anchor_parts, str):
+                # Single node name
+                orientation_anchor_inds = [self.skeletons[0].node_names.index(self.orientation_anchor_parts)]
+            elif isinstance(self.orientation_anchor_parts, list):
+                # List of node names
+                orientation_anchor_inds = [
+                    self.skeletons[0].node_names.index(part)
+                    for part in self.orientation_anchor_parts
+                ]
+
         if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
@@ -627,6 +655,7 @@ class TopDownPredictor(Predictor):
                     self.preprocess_config.crop_size,
                 ),
                 anchor_ind=anchor_ind,
+                orientation_anchor_inds=orientation_anchor_inds,
                 return_crops=return_crops,
             )
 
@@ -651,6 +680,8 @@ class TopDownPredictor(Predictor):
                     self.preprocess_config.crop_size,
                 ),
                 use_gt_centroids=False,
+                anchor_ind=anchor_ind,
+                orientation_anchor_inds=orientation_anchor_inds,
             )
 
         # Create an instance of FindInstancePeaks layer if confmap_config is not None
@@ -701,6 +732,7 @@ class TopDownPredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
+        orientation_anchor_parts: Optional[Union[str, List[str]]] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -730,6 +762,11 @@ class TopDownPredictor(Predictor):
                 in the `data_config.preprocessing` section.
             anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+            orientation_anchor_parts: (str or List[str]) Node name(s) to use for egocentric alignment.
+                Can be a single node name or a list of node names in priority order. The function will
+                try nodes in order and use the first valid (non-NaN) node. If provided, images and
+                keypoints will be rotated so the vector from centroid to this node aligns with the
+                positive x-axis. If `None`, no egocentric rotation is applied. Default: None.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -1052,6 +1089,7 @@ class TopDownPredictor(Predictor):
             device=device,
             preprocess_config=preprocess_config,
             anchor_part=anchor_part,
+            orientation_anchor_parts=orientation_anchor_parts,
             max_stride=(
                 centroid_config.model_config.backbone_config[
                     f"{centroid_backbone_type}"
@@ -2601,6 +2639,7 @@ class TopDownMultiClassPredictor(Predictor):
     device: str = "cpu"
     preprocess_config: Optional[OmegaConf] = None
     anchor_part: Optional[str] = None
+    orientation_anchor_parts: Optional[Union[str, List[str]]] = None
     max_stride: int = 16
 
     def _initialize_inference_model(self):
@@ -2635,6 +2674,19 @@ class TopDownMultiClassPredictor(Predictor):
                 else None
             )
 
+        # Process orientation_anchor_parts to indices
+        orientation_anchor_inds = None
+        if self.orientation_anchor_parts is not None:
+            if isinstance(self.orientation_anchor_parts, str):
+                # Single node name
+                orientation_anchor_inds = [self.skeletons[0].node_names.index(self.orientation_anchor_parts)]
+            elif isinstance(self.orientation_anchor_parts, list):
+                # List of node names
+                orientation_anchor_inds = [
+                    self.skeletons[0].node_names.index(part)
+                    for part in self.orientation_anchor_parts
+                ]
+
         if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
                 use_gt_centroids=True,
@@ -2643,6 +2695,7 @@ class TopDownMultiClassPredictor(Predictor):
                     self.preprocess_config.crop_size,
                 ),
                 anchor_ind=anchor_ind,
+                orientation_anchor_inds=orientation_anchor_inds,
                 return_crops=return_crops,
             )
 
@@ -2667,6 +2720,8 @@ class TopDownMultiClassPredictor(Predictor):
                     self.preprocess_config.crop_size,
                 ),
                 use_gt_centroids=False,
+                anchor_ind=anchor_ind,
+                orientation_anchor_inds=orientation_anchor_inds,
             )
 
         max_stride = self.confmap_config.model_config.backbone_config[
@@ -2712,6 +2767,7 @@ class TopDownMultiClassPredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
+        orientation_anchor_parts: Optional[Union[str, List[str]]] = None,
         max_stride: int = 16,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
@@ -3088,6 +3144,7 @@ class TopDownMultiClassPredictor(Predictor):
             device=device,
             preprocess_config=preprocess_config,
             anchor_part=anchor_part,
+            orientation_anchor_parts=orientation_anchor_parts,
             max_stride=(
                 centroid_config.model_config.backbone_config[
                     f"{centroid_backbone_type}"

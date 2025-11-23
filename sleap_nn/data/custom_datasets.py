@@ -1,6 +1,6 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
-from kornia.geometry.transform import crop_and_resize
+from kornia.geometry.transform import crop_and_resize, warp_affine
 
 # from concurrent.futures import ThreadPoolExecutor # TODO: implement parallel processing
 # import concurrent.futures
@@ -34,9 +34,10 @@ from sleap_nn.data.augmentation import (
 )
 from sleap_nn.data.confidence_maps import generate_confmaps, generate_multiconfmaps
 from sleap_nn.data.edge_maps import generate_pafs
-from sleap_nn.data.instance_cropping import make_centered_bboxes
+from sleap_nn.data.instance_cropping import make_centered_bboxes, apply_egocentric_rotation
 from sleap_nn.training.utils import is_distributed_initialized
 from sleap_nn.config.get_config import get_aug_config
+
 
 
 class BaseDataset(Dataset):
@@ -655,6 +656,11 @@ class CenteredInstanceDataset(BaseDataset):
             divisible by.
         anchor_ind: Index of the node to use as the anchor point, based on its index in the
             ordered list of skeleton nodes.
+        orientation_anchor_inds: Index or list of indices (in priority order) of nodes to use
+            for egocentric alignment (e.g., head/snout). The function will try nodes in order
+            and use the first one that is not NaN. If provided, the image and keypoints will be
+            rotated so that the vector from centroid to this point aligns with the positive x-axis.
+            If `None`, no egocentric rotation is applied. Default: `None`.
         user_instances_only: `True` if only user labeled instances should be used for training. If `False`,
             both user labeled and predicted instances would be used.
         ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one
@@ -702,6 +708,7 @@ class CenteredInstanceDataset(BaseDataset):
         confmap_head_config: DictConfig,
         max_stride: int,
         anchor_ind: Optional[int] = None,
+        orientation_anchor_inds: Optional[Union[int, List[int]]] = None,
         user_instances_only: bool = True,
         ensure_rgb: bool = False,
         ensure_grayscale: bool = False,
@@ -735,6 +742,7 @@ class CenteredInstanceDataset(BaseDataset):
         self.labels = None
         self.crop_size = crop_size
         self.anchor_ind = anchor_ind
+        self.orientation_anchor_inds = orientation_anchor_inds
         self.confmap_head_config = confmap_head_config
         self.instance_idx_list = self._get_instance_idx_list(labels)
         self.cache_lf = [None, None]
@@ -846,10 +854,14 @@ class CenteredInstanceDataset(BaseDataset):
 
         instance, centroid = instances[0], centroids[0]  # (n_samples=1)
 
-        crop_size = np.array([self.crop_size, self.crop_size]) * np.sqrt(
-            2
-        )  # crop extra for rotation augmentation
-        crop_size = crop_size.astype(np.int32).tolist()
+        # Apply egocentric rotation if orientation_anchor_inds is provided
+        if self.orientation_anchor_inds is not None:
+            image, instance, centroid, _ = apply_egocentric_rotation(
+                image, instance, centroid, self.orientation_anchor_inds
+            )
+
+        # Crop directly to crop_size (no sqrt(2) scaling needed since rotation augmentation is disabled)
+        crop_size = [self.crop_size, self.crop_size]
 
         sample = generate_crops(image, instance, centroid, crop_size)
 
@@ -860,6 +872,8 @@ class CenteredInstanceDataset(BaseDataset):
             0
         )
         sample["eff_scale"] = torch.tensor(eff_scale, dtype=torch.float32)
+
+        # Note: generate_crops() already centers keypoints relative to crop, so no need to adjust again
 
         # apply augmentation
         if self.apply_aug:
@@ -882,24 +896,6 @@ class CenteredInstanceDataset(BaseDataset):
                     sample["instance"],
                     **self.geometric_aug,
                 )
-
-        # re-crop to original crop size
-        sample["instance_bbox"] = torch.unsqueeze(
-            make_centered_bboxes(sample["centroid"][0], self.crop_size, self.crop_size),
-            0,
-        )  # (n_samples=1, 4, 2)
-
-        sample["instance_image"] = crop_and_resize(
-            sample["instance_image"],
-            boxes=sample["instance_bbox"],
-            size=(self.crop_size, self.crop_size),
-        )
-        point = sample["instance_bbox"][0][0]
-        center_instance = sample["instance"] - point
-        centered_centroid = sample["centroid"] - point
-
-        sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
-        sample["centroid"] = centered_centroid  # (n_samples=1, 2)
 
         # Pad the image (if needed) according max stride
         sample["instance_image"] = apply_pad_to_stride(
@@ -1645,6 +1641,7 @@ def get_train_val_datasets(
     val_labels: List[sio.Labels],
     config: DictConfig,
     rank: Optional[int] = None,
+    orientation_anchor_inds: Optional[Union[int, List[int], List[str]]] = None,
 ):
     """Return the train and val datasets.
 
@@ -1654,6 +1651,10 @@ def get_train_val_datasets(
         config: Sleap-nn config.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
+        orientation_anchor_inds: Index, list of indices, or list of node names (in priority order) to use
+            for egocentric alignment. If node names are provided, they will be converted to indices using
+            the part_names from the config. The function will try nodes in order and use the first one
+            that is not NaN. If `None`, no egocentric rotation is applied. Default: `None`.
 
     Returns:
         A tuple (train_dataset, val_dataset).
@@ -1811,6 +1812,25 @@ def get_train_val_datasets(
             config.model_config.head_configs.centered_instance.confmaps.anchor_part
         )
         anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
+        # Convert orientation_anchor_inds from node names to indices if needed
+        orientation_anchor_indices = None
+        if orientation_anchor_inds is not None:
+            # Convert single value to list for uniform handling
+            if isinstance(orientation_anchor_inds, (int, str)):
+                orientation_anchor_inds = [orientation_anchor_inds]
+            # Convert node names to indices if needed
+            orientation_anchor_indices = []
+            for item in orientation_anchor_inds:
+                if isinstance(item, str):
+                    # Node name - convert to index
+                    if item in nodes:
+                        orientation_anchor_indices.append(nodes.index(item))
+                elif isinstance(item, int):
+                    # Already an index
+                    orientation_anchor_indices.append(item)
+            # If no valid parts found, set to None
+            if len(orientation_anchor_indices) == 0:
+                orientation_anchor_indices = None
         train_dataset = CenteredInstanceDataset(
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.centered_instance.confmaps,
@@ -1818,6 +1838,7 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            orientation_anchor_inds=orientation_anchor_indices,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -1850,6 +1871,7 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            orientation_anchor_inds=orientation_anchor_indices,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -1874,6 +1896,25 @@ def get_train_val_datasets(
             config.model_config.head_configs.multi_class_topdown.confmaps.anchor_part
         )
         anchor_ind = nodes.index(anchor_part) if anchor_part is not None else None
+        # Convert orientation_anchor_inds from node names to indices if needed
+        orientation_anchor_indices = None
+        if orientation_anchor_inds is not None:
+            # Convert single value to list for uniform handling
+            if isinstance(orientation_anchor_inds, (int, str)):
+                orientation_anchor_inds = [orientation_anchor_inds]
+            # Convert node names to indices if needed
+            orientation_anchor_indices = []
+            for item in orientation_anchor_inds:
+                if isinstance(item, str):
+                    # Node name - convert to index
+                    if item in nodes:
+                        orientation_anchor_indices.append(nodes.index(item))
+                elif isinstance(item, int):
+                    # Already an index
+                    orientation_anchor_indices.append(item)
+            # If no valid parts found, set to None
+            if len(orientation_anchor_indices) == 0:
+                orientation_anchor_indices = None
         train_dataset = TopDownCenteredInstanceMultiClassDataset(
             labels=train_labels,
             confmap_head_config=config.model_config.head_configs.multi_class_topdown.confmaps,
@@ -1882,6 +1923,7 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            orientation_anchor_inds=orientation_anchor_indices,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
@@ -1915,6 +1957,7 @@ def get_train_val_datasets(
                 "max_stride"
             ],
             anchor_ind=anchor_ind,
+            orientation_anchor_inds=orientation_anchor_indices,
             user_instances_only=config.data_config.user_instances_only,
             ensure_rgb=config.data_config.preprocessing.ensure_rgb,
             ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
