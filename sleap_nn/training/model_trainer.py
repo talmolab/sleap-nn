@@ -229,7 +229,7 @@ class ModelTrainer:
             if skeletons_equal:
                 total_train_lfs += len(train_label)
             else:
-                message = f"The skeletons in the training labels: {index+1} do not match the skeleton in the first training label file."
+                message = f"The skeletons in the training labels: {index + 1} do not match the skeleton in the first training label file."
                 logger.error(message)
                 raise ValueError(message)
 
@@ -294,7 +294,6 @@ class ModelTrainer:
             ):
                 # compute crop size if not provided in config
                 if crop_size is None:
-
                     crop_sz = find_instance_crop_size(
                         labels=train_label,
                         maximum_stride=self.config.model_config.backbone_config[
@@ -361,19 +360,19 @@ class ModelTrainer:
         """Setup checkpoint path."""
         # if run_name is None, assign a new dir name
         ckpt_dir = self.config.trainer_config.ckpt_dir
-        if ckpt_dir is None:
+        if ckpt_dir is None or ckpt_dir == "" or ckpt_dir == "None":
             ckpt_dir = "."
             self.config.trainer_config.ckpt_dir = ckpt_dir
         run_name = self.config.trainer_config.run_name
-        if run_name is None:
+        if run_name is None or run_name == "" or run_name == "None":
             sum_train_lfs = sum([len(train_label) for train_label in self.train_labels])
             sum_val_lfs = sum([len(val_label) for val_label in self.val_labels])
             if self._get_trainer_devices() > 1:
-                run_name = f"{self.model_type}.n={sum_train_lfs+sum_val_lfs}"
+                run_name = f"{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
             else:
                 run_name = (
                     datetime.now().strftime("%y%m%d_%H%M%S")
-                    + f".{self.model_type}.n={sum_train_lfs+sum_val_lfs}"
+                    + f".{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
                 )
 
         # If checkpoint path already exists, add suffix to prevent overwriting
@@ -446,7 +445,6 @@ class ModelTrainer:
             self.backbone_type == "unet"
             and self.config.model_config.pretrained_backbone_weights is not None
         ):
-
             if self.config.model_config.pretrained_backbone_weights.endswith(".ckpt"):
                 pretrained_backbone_ckpt = torch.load(
                     self.config.model_config.pretrained_backbone_weights,
@@ -651,7 +649,6 @@ class ModelTrainer:
         loggers = []
         callbacks = []
         if self.config.trainer_config.save_ckpt:
-
             # checkpoint callback
             checkpoint_callback = ModelCheckpoint(
                 save_top_k=self.config.trainer_config.model_ckpt.save_top_k,
@@ -723,7 +720,10 @@ class ModelTrainer:
             loggers.append(wandb_logger)
 
             # save the configs as yaml in the checkpoint dir
+            # Mask API key in both configs to prevent saving to disk
             self.config.trainer_config.wandb.api_key = ""
+            if self._initial_config is not None:
+                self._initial_config.trainer_config.wandb.api_key = ""
 
         # zmq callbacks
         if self.config.trainer_config.zmq.controller_port is not None:

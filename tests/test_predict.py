@@ -1423,3 +1423,41 @@ def test_topdown_predictor_with_tracking_cleaning(
         device="cpu" if torch.backends.mps.is_available() else "auto",
     )
     assert len(labels) < 10
+
+
+def test_video_index_output_path(
+    minimal_instance,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
+    tmp_path,
+):
+    """Test that video_index appends video name to output path."""
+    # Run inference with video_index and no explicit output_path
+    labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        data_path=minimal_instance.as_posix(),
+        video_index=0,
+        make_labels=True,
+        device="cpu",
+        peak_threshold=0.0,
+        integral_refinement=None,
+    )
+
+    # Check that output file was created with video name in path
+    expected_pattern = f"*minimal_instance*.predictions.slp"
+    output_files = list(Path(minimal_instance).parent.glob(expected_pattern))
+    assert len(output_files) > 0, "No output file found with video name in path"
+
+    # The output file should contain the video name
+    output_file = output_files[0]
+    video_name = Path(labels.videos[0].filename).stem
+    assert (
+        video_name in output_file.stem
+    ), f"Video name '{video_name}' not found in output path '{output_file}'"
+
+    # Clean up
+    for f in output_files:
+        f.unlink()

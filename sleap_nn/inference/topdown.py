@@ -838,7 +838,6 @@ class TopDownInferenceModel(L.LightningModule):
         )
 
         if batch is not None:
-
             if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
                 peaks_output.append(self.instance_peaks(batch))
             else:

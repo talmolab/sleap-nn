@@ -205,8 +205,8 @@ class StemBlock(nn.Module):
 
         # Always finish with a pooling block to account for pooling before convs.
         final_pool_dict = OrderedDict()
-        final_pool_dict[f"{self.prefix}{block+1}_last_pool"] = MaxPool2dWithSamePadding(
-            kernel_size=2, stride=2, padding="same"
+        final_pool_dict[f"{self.prefix}{block + 1}_last_pool"] = (
+            MaxPool2dWithSamePadding(kernel_size=2, stride=2, padding="same")
         )
         self.stem_stack.append(nn.Sequential(final_pool_dict))
 

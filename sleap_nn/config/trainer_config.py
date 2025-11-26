@@ -17,12 +17,12 @@ class DataLoaderConfig:
     """Train DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
 
-    batch_size: int = 1
+    batch_size: int = 4
     shuffle: bool = False
     num_workers: int = 0
 
@@ -32,7 +32,7 @@ class TrainDataLoaderConfig(DataLoaderConfig):
     """Train DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `True`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
@@ -45,7 +45,7 @@ class ValDataLoaderConfig(DataLoaderConfig):
     """Validation DataLoaderConfig.
 
     Attributes:
-        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `1`.
+        batch_size: (int) Number of samples per batch or batch size for training/validation data. *Default*: `4`.
         shuffle: (bool) True to have the data reshuffled at every epoch. *Default*: `False`.
         num_workers: (int) Number of subprocesses to use for data loading. 0 means that the data will be loaded in the main process. *Default*: `0`.
     """
@@ -102,11 +102,11 @@ class OptimizerConfig:
     """Configuration for optimizer.
 
     Attributes:
-        lr: (float) Learning rate of type float. *Default*: `1e-3`.
+        lr: (float) Learning rate of type float. *Default*: `1e-4`.
         amsgrad: (bool) Enable AMSGrad with the optimizer. *Default*: `False`.
     """
 
-    lr: float = field(default=1e-3, validator=validators.gt(0))
+    lr: float = field(default=1e-4, validator=validators.gt(0))
     amsgrad: bool = False
 
 
@@ -128,21 +128,21 @@ class ReduceLROnPlateauConfig:
     """Configuration for ReduceLROnPlateau scheduler.
 
     Attributes:
-        threshold: (float) Threshold for measuring the new optimum, to only focus on significant changes. *Default*: `1e-4`.
-        threshold_mode: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: `"rel"`.
-        cooldown: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: `0`.
-        patience: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. *Default*: `10`.
-        factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: `0.1`.
-        min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: `0.0`.
+        threshold: (float) Threshold for measuring the new optimum, to only focus on significant changes. *Default*: `1e-6`.
+        threshold_mode: (str) One of "rel", "abs". In rel mode, dynamic_threshold = best * ( 1 + threshold ) in max mode or best * ( 1 - threshold ) in min mode. In abs mode, dynamic_threshold = best + threshold in max mode or best - threshold in min mode. *Default*: `"abs"`.
+        cooldown: (int) Number of epochs to wait before resuming normal operation after lr has been reduced. *Default*: `3`.
+        patience: (int) Number of epochs with no improvement after which learning rate will be reduced. For example, if patience = 2, then we will ignore the first 2 epochs with no improvement, and will only decrease the LR after the third epoch if the loss still hasn't improved then. *Default*: `5`.
+        factor: (float) Factor by which the learning rate will be reduced. new_lr = lr * factor. *Default*: `0.5`.
+        min_lr: (float or List[float]) A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively. *Default*: `1e-8`.
     """
 
-    threshold: float = 1e-4
-    threshold_mode: str = "rel"
-    cooldown: int = 0
-    patience: int = 10
-    factor: float = 0.1
+    threshold: float = 1e-6
+    threshold_mode: str = "abs"
+    cooldown: int = 3
+    patience: int = 5
+    factor: float = 0.5
     min_lr: Any = field(
-        default=0.0, validator=lambda instance, attr, value: instance.validate_min_lr()
+        default=1e-8, validator=lambda instance, attr, value: instance.validate_min_lr()
     )
 
     def validate_min_lr(self):
@@ -171,7 +171,9 @@ class LRSchedulerConfig:
     """
 
     step_lr: Optional[StepLRConfig] = None
-    reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = None
+    reduce_lr_on_plateau: Optional[ReduceLROnPlateauConfig] = field(
+        factory=ReduceLROnPlateauConfig
+    )
 
 
 @define
@@ -179,14 +181,14 @@ class EarlyStoppingConfig:
     """Configuration for early_stopping.
 
     Attributes:
-        stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `False`.
-        min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `0.0`.
-        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `1`.
+        stop_training_on_plateau: (bool) True if early stopping should be enabled. *Default*: `True`.
+        min_delta: (float) Minimum change in the monitored quantity to qualify as an improvement, i.e. an absolute change of less than or equal to min_delta, will count as no improvement. *Default*: `1e-8`.
+        patience: (int) Number of checks with no improvement after which training will be stopped. Under the default configuration, one check happens after every training epoch. *Default*: `10`.
     """
 
-    min_delta: float = field(default=0.0, validator=validators.ge(0))
-    patience: int = field(default=1, validator=validators.ge(0))
-    stop_training_on_plateau: bool = False
+    min_delta: float = field(default=1e-8, validator=validators.ge(0))
+    patience: int = field(default=10, validator=validators.ge(0))
+    stop_training_on_plateau: bool = True
 
 
 @define
@@ -241,8 +243,8 @@ class TrainerConfig:
         train_steps_per_epoch: (int) Number of minibatches (steps) to train for in an epoch. If set to `None`, this is set to the number of batches in the training data or `min_train_steps_per_epoch`, whichever is largest. *Default*: `None`. **Note**: In a multi-gpu training setup, the effective steps during training would be the `trainer_steps_per_epoch` / `trainer_devices`.
         visualize_preds_during_training: (bool) If set to `True`, sample predictions (keypoints + confidence maps) are saved to `viz` folder in the ckpt dir and in wandb table. *Default*: `False`.
         keep_viz: (bool) If set to `True`, the `viz` folder will be kept after training. If `False`, the `viz` folder will be deleted after training. Only applies when `visualize_preds_during_training` is `True`. *Default*: `False`.
-        max_epochs: (int) Maximum number of epochs to run. *Default*: `10`.
-        seed: (int) Seed value for the current experiment. If None, no seeding is applied. *Default*: `0`.
+        max_epochs: (int) Maximum number of epochs to run. *Default*: `100`.
+        seed: (int) Seed value for the current experiment. If None, no seeding is applied. *Default*: `None`.
         use_wandb: (bool) True to enable wandb logging. *Default*: `False`.
         save_ckpt: (bool) True to enable checkpointing. *Default*: `False`.
         ckpt_dir: (str) Directory path where the `<run_name>` folder is created. If `None`, a new folder for the current run is created in the working dir. **Default**: `None`
@@ -272,7 +274,7 @@ class TrainerConfig:
     train_steps_per_epoch: Optional[int] = None
     visualize_preds_during_training: bool = False
     keep_viz: bool = False
-    max_epochs: int = 10
+    max_epochs: int = 100
     seed: Optional[int] = None
     use_wandb: bool = False
     save_ckpt: bool = False
@@ -285,7 +287,7 @@ class TrainerConfig:
         validator=lambda inst, attr, val: TrainerConfig.validate_optimizer_name(val),
     )
     optimizer: OptimizerConfig = field(factory=OptimizerConfig)
-    lr_scheduler: Optional[LRSchedulerConfig] = None
+    lr_scheduler: Optional[LRSchedulerConfig] = field(factory=LRSchedulerConfig)
     early_stopping: EarlyStoppingConfig = field(factory=EarlyStoppingConfig)
     online_hard_keypoint_mining: Optional[HardKeypointMiningConfig] = field(
         factory=HardKeypointMiningConfig
@@ -326,12 +328,6 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
     """
     legacy_config_optimization = legacy_config.get("optimization", {})
     legacy_config_outputs = legacy_config.get("outputs", {})
-    resume_ckpt_path = legacy_config.get("model", {}).get("base_checkpoint", None)
-    resume_ckpt_path = (
-        (Path(resume_ckpt_path) / "best.ckpt").as_posix()
-        if resume_ckpt_path is not None
-        else None
-    )
     run_name = legacy_config_outputs.get("run_name", None)
     run_name = run_name if run_name is not None else ""
     run_name_prefix = legacy_config_outputs.get("run_name_prefix", "")
@@ -423,7 +419,6 @@ def trainer_mapper(legacy_config: dict) -> TrainerConfig:
         Path(legacy_config_outputs.get("runs_folder", "."))
     ).as_posix()
     trainer_cfg_args["run_name"] = run_name
-    trainer_cfg_args["resume_ckpt_path"] = resume_ckpt_path
 
     trainer_cfg_args["optimizer_name"] = re.sub(
         r"^[a-z]",

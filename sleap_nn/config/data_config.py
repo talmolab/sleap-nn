@@ -165,7 +165,7 @@ class DataConfig:
         use_existing_imgs: (bool) Use existing train and val images/ chunks in the `cache_img_path` for `torch_dataset_cache_img_disk` frameworks. If `True`, the `cache_img_path` should have `train_imgs` and `val_imgs` dirs. *Default*: `False`.
         delete_cache_imgs_after_training: (bool) If `False`, the images (torch_dataset_cache_img_disk) are retained after training. Else, the files are deleted. *Default*: `True`.
         preprocessing: Configuration options related to data preprocessing.
-        use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False. *Default*: `False`.
+        use_augmentations_train: (bool) True if the data augmentation should be applied to the training data, else False. *Default*: `True`.
         augmentation_config: Configurations related to augmentation. (only if `use_augmentations_train` is `True`)
         skeletons: skeleton configuration for the `.slp` file. This will be pulled from the train dataset and saved to the `training_config.yaml`
     """
@@ -181,7 +181,7 @@ class DataConfig:
     use_existing_imgs: bool = False
     delete_cache_imgs_after_training: bool = True
     preprocessing: PreprocessingConfig = field(factory=PreprocessingConfig)
-    use_augmentations_train: bool = False
+    use_augmentations_train: bool = True
     augmentation_config: Optional[AugmentationConfig] = None
     skeletons: Optional[list] = None
 
@@ -463,9 +463,6 @@ def data_mapper(legacy_config: dict) -> DataConfig:
         geometric=GeometricConfig(**geometric_args),
     )
 
-    data_cfg_args["use_augmentations_train"] = (
-        True if any(intensity_args.values()) or any(geometric_args.values()) else False
-    )
     data_cfg_args["skeletons"] = (
         skeletons_list
         if skeletons_list is not None and len(skeletons_list) > 0

@@ -375,7 +375,6 @@ class Predictor(ABC):
         done = False
 
         try:
-
             with Progress(
                 "{task.description}",
                 BarColumn(),
@@ -390,7 +389,6 @@ class Predictor(ABC):
                 refresh_per_second=4,  # Change to self.report_rate if needed
                 speed_estimate_period=5,
             ) as progress:
-
                 task = progress.add_task("Predicting...", total=total_frames)
                 last_report = time()
 
@@ -669,7 +667,6 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaksGroundTruth()
             self.instances_key = True
         else:
-
             max_stride = self.confmap_config.model_config.backbone_config[
                 f"{self.centered_instance_backbone_type}"
             ]["max_stride"]
@@ -1658,7 +1655,6 @@ class SingleInstancePredictor(Predictor):
                 ex["pred_peak_values"],
                 ex["orig_size"],
             ):
-
                 if np.isnan(pred_instances).all():
                     continue
                 inst = sio.PredictedInstance.from_numpy(
@@ -2100,7 +2096,6 @@ class BottomUpPredictor(Predictor):
                 ex["pred_peak_values"],
                 ex["instance_scores"],
             ):
-
                 # Loop over instances.
                 predicted_instances = []
                 for pts, confs, score in zip(
@@ -2542,7 +2537,6 @@ class BottomUpMultiClassPredictor(Predictor):
                 ex["pred_peak_values"],
                 ex["instance_scores"],
             ):
-
                 # Loop over instances.
                 predicted_instances = []
                 for i, (pts, confs, score) in enumerate(
