@@ -154,7 +154,7 @@ def apply_geometric_augmentation(
     if affine_p > 0:
         aug_stack.append(
             K.augmentation.RandomAffine(
-                degrees=(rotation_min, rotation_max),
+                degrees=(rotation_min, rotation_min),
                 translate=(translate_width, translate_height),
                 scale=(scale_min, scale_max),
                 p=affine_p,
