@@ -153,7 +153,12 @@ class CentroidCrop(L.LightningModule):
 
         return crops_dict
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def forward(
+        self,
+        inputs: Dict[str, torch.Tensor],
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
+    ) -> Dict[str, torch.Tensor]:
         """Predict centroid confidence maps and crop around peaks.
 
         This layer can be chained with a `FindInstancePeaks` layer to create a top-down
@@ -161,6 +166,9 @@ class CentroidCrop(L.LightningModule):
 
         Args:
             inputs: Dictionary with key `"image"`. Other keys will be passed down the pipeline.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             A list of dictionaries (size = batch size) where each dictionary has cropped
@@ -221,6 +229,11 @@ class CentroidCrop(L.LightningModule):
             scaled_image = apply_pad_to_stride(scaled_image, self.max_stride)
 
         cms = self.torch_model(scaled_image)
+        if backbone_feats is not None:
+            backbone_features = cms["backbone_features"]
+        cms = cms["head"]
+        if isinstance(cms, list):
+            cms = cms[output_head_skeleton_num]
 
         refined_peaks, peak_vals, peak_sample_inds, _ = find_local_peaks(
             cms.detach(),
@@ -315,7 +328,8 @@ class CentroidCrop(L.LightningModule):
                             "pred_centroid_confmaps": cms.detach(),
                         }
                     )
-
+                if backbone_feats is not None:
+                    inputs["backbone_features"] = backbone_features
                 return inputs
 
         else:
@@ -341,6 +355,8 @@ class CentroidCrop(L.LightningModule):
                         "pred_centroid_confmaps": cms.detach(),
                     }
                 )
+            if backbone_feats is not None:
+                inputs["backbone_features"] = backbone_features
             return inputs
 
 
@@ -520,6 +536,8 @@ class FindInstancePeaks(L.LightningModule):
     def forward(
         self,
         inputs: Dict[str, torch.Tensor],
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> Dict[str, torch.Tensor]:
         """Predict confidence maps and infer peak coordinates.
 
@@ -530,6 +548,9 @@ class FindInstancePeaks(L.LightningModule):
             inputs: Dictionary with keys:
                 `"instance_image"`: Cropped images.
                 Other keys will be passed down the pipeline.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             A dictionary of outputs with keys:
@@ -552,6 +573,11 @@ class FindInstancePeaks(L.LightningModule):
             input_image = apply_pad_to_stride(input_image, self.max_stride)
 
         cms = self.torch_model(input_image)
+        if backbone_feats is not None:
+            backbone_features = cms["backbone_features"]
+        cms = cms["head"]
+        if isinstance(cms, list):
+            cms = cms[output_head_skeleton_num]
 
         peak_points, peak_vals = find_global_peaks(
             cms.detach(),
@@ -581,6 +607,8 @@ class FindInstancePeaks(L.LightningModule):
 
         # Build outputs.
         outputs = {"pred_instance_peaks": peak_points, "pred_peak_values": peak_vals}
+        if backbone_feats is not None:
+            outputs["backbone_features"] = backbone_features
         if self.return_confmaps:
             outputs["pred_confmaps"] = cms.detach()
         inputs.update(outputs)
@@ -750,6 +778,9 @@ class TopDownInferenceModel(L.LightningModule):
             or `FindInstancePeaksGroundTruth` or `TopDownMultiClassFindInstancePeaks`. This layer takes as input the output of the centroid cropper
             (if CentroidCrop not None else the image is cropped with the InstanceCropper module)
             and outputs the detected peaks for the instances within each crop.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
     """
 
     def __init__(
@@ -760,11 +791,15 @@ class TopDownInferenceModel(L.LightningModule):
             FindInstancePeaksGroundTruth,
             TopDownMultiClassFindInstancePeaks,
         ],
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ):
         """Initialize the class with Inference models."""
         super().__init__()
         self.centroid_crop = centroid_crop
         self.instance_peaks = instance_peaks
+        self.output_head_skeleton_num = output_head_skeleton_num
+        self.backbone_feats = backbone_feats
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Predict instances for one batch of images.
@@ -796,7 +831,11 @@ class TopDownInferenceModel(L.LightningModule):
                 raise ValueError(message)
         self.centroid_crop.eval()
         peaks_output = []
-        batch = self.centroid_crop(batch)
+        batch = self.centroid_crop(
+            batch,
+            output_head_skeleton_num=self.output_head_skeleton_num,
+            backbone_feats=self.backbone_feats,
+        )
 
         if batch is not None:
             if isinstance(self.instance_peaks, FindInstancePeaksGroundTruth):
@@ -807,6 +846,8 @@ class TopDownInferenceModel(L.LightningModule):
                     peaks_output.append(
                         self.instance_peaks(
                             i,
+                            output_head_skeleton_num=self.output_head_skeleton_num,
+                            backbone_feats=self.backbone_feats,
                         )
                     )
             return peaks_output

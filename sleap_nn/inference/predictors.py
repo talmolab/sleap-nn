@@ -28,8 +28,10 @@ from sleap_nn.config.utils import get_model_type_from_cfg
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.training.lightning_modules import (
     TopDownCenteredInstanceLightningModule,
+    TopDownCenteredInstanceMultiHeadLightningModule,
     SingleInstanceLightningModule,
     CentroidLightningModule,
+    CentroidMultiHeadLightningModule,
     BottomUpLightningModule,
     BottomUpMultiClassLightningModule,
     TopDownCenteredInstanceMultiClassLightningModule,
@@ -59,6 +61,7 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 from time import time
+from sleap_io.io.skeleton import SkeletonYAMLDecoder
 
 
 class RateColumn(rich.progress.ProgressColumn):
@@ -130,6 +133,8 @@ class Predictor(ABC):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> "Predictor":
         """Create the appropriate `Predictor` subclass from from the ckpt path.
 
@@ -162,6 +167,9 @@ class Predictor(ABC):
                 in the `data_config.preprocessing` section.
             anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference.
 
         Returns:
             A subclass of `Predictor`.
@@ -230,6 +238,8 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    output_head_skeleton_num=output_head_skeleton_num,
+                    backbone_feats=backbone_feats,
                 )
             if "centered_instance" in model_names:
                 confmap_ckpt_path = model_paths[model_names.index("centered_instance")]
@@ -248,6 +258,8 @@ class Predictor(ABC):
                     device=device,
                     preprocess_config=preprocess_config,
                     anchor_part=anchor_part,
+                    output_head_skeleton_num=output_head_skeleton_num,
+                    backbone_feats=backbone_feats,
                 )
             elif "multi_class_topdown" in model_names:
                 confmap_ckpt_path = model_paths[
@@ -335,10 +347,10 @@ class Predictor(ABC):
         """Convert tensors in output dictionary to numpy arrays."""
         for k, v in output.items():
             if isinstance(v, torch.Tensor):
-                output[k] = output[k].cpu().numpy()
-            if isinstance(v, list) and isinstance(v[0], torch.Tensor):
+                output[k] = output[k].detach().cpu().numpy()
+            if isinstance(v, list) and len(v) > 0 and isinstance(v[0], torch.Tensor):
                 for n in range(len(v)):
-                    v[n] = v[n].cpu().numpy()
+                    v[n] = v[n].detach().cpu().numpy()
         return output
 
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
@@ -564,6 +576,10 @@ class TopDownPredictor(Predictor):
             `backbone_config`. This determines the downsampling factor applied by the backbone,
             and is used to ensure that input images are padded or resized to be compatible
             with the model's architecture. Default: 16.
+        is_multi_head_model: True if inference should be performed on a multi-head model.
+        output_head_skeleton_num: Dataset number (as given in the config) indicating
+            which skeleton format to output. This parameter is only required for
+            multi-head model inference.
 
     """
 
@@ -586,6 +602,9 @@ class TopDownPredictor(Predictor):
     tracker: Optional[Tracker] = None
     anchor_part: Optional[str] = None
     max_stride: int = 16
+    is_multi_head_model: bool = False
+    output_head_skeleton_num: int = 0
+    backbone_feats: Optional[str] = None
 
     def _initialize_inference_model(self):
         """Initialize the inference model from the trained models and configuration."""
@@ -601,23 +620,7 @@ class TopDownPredictor(Predictor):
             centroid_peak_threshold = self.peak_threshold
             centered_instance_peak_threshold = self.peak_threshold
 
-        if self.anchor_part is not None:
-            anchor_ind = self.skeletons[0].node_names.index(self.anchor_part)
-        else:
-            anch_pt = None
-            if self.centroid_config is not None:
-                anch_pt = (
-                    self.centroid_config.model_config.head_configs.centroid.confmaps.anchor_part
-                )
-            if self.confmap_config is not None:
-                anch_pt = (
-                    self.confmap_config.model_config.head_configs.centered_instance.confmaps.anchor_part
-                )
-            anchor_ind = (
-                self.skeletons[0].node_names.index(anch_pt)
-                if anch_pt is not None
-                else None
-            )
+        anchor_ind = self.anchor_part
 
         if self.centroid_config is None:
             centroid_crop_layer = CentroidCrop(
@@ -638,14 +641,20 @@ class TopDownPredictor(Predictor):
             centroid_crop_layer = CentroidCrop(
                 torch_model=self.centroid_model,
                 peak_threshold=centroid_peak_threshold,
-                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps.output_stride,
+                output_stride=self.centroid_config.model_config.head_configs.centroid.confmaps[
+                    self.output_head_skeleton_num
+                ][
+                    "output_stride"
+                ],
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 return_crops=return_crops,
                 max_instances=self.max_instances,
                 max_stride=max_stride,
-                input_scale=self.centroid_config.data_config.preprocessing.scale,
+                input_scale=self.centroid_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ],
                 crop_hw=(
                     self.preprocess_config.crop_size,
                     self.preprocess_config.crop_size,
@@ -664,15 +673,23 @@ class TopDownPredictor(Predictor):
             instance_peaks_layer = FindInstancePeaks(
                 torch_model=self.confmap_model,
                 peak_threshold=centered_instance_peak_threshold,
-                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps.output_stride,
+                output_stride=self.confmap_config.model_config.head_configs.centered_instance.confmaps[
+                    self.output_head_skeleton_num
+                ][
+                    "output_stride"
+                ],
                 refinement=self.integral_refinement,
                 integral_patch_size=self.integral_patch_size,
                 return_confmaps=self.return_confmaps,
                 max_stride=max_stride,
-                input_scale=self.confmap_config.data_config.preprocessing.scale,
+                input_scale=self.confmap_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ],
             )
             centroid_crop_layer.precrop_resize = (
-                self.confmap_config.data_config.preprocessing.scale
+                self.confmap_config.data_config.preprocessing.scale[
+                    self.output_head_skeleton_num
+                ]
             )
 
         if self.centroid_config is None and self.confmap_config is not None:
@@ -682,7 +699,10 @@ class TopDownPredictor(Predictor):
 
         # Initialize the inference model with centroid and instance peak layers
         self.inference_model = TopDownInferenceModel(
-            centroid_crop=centroid_crop_layer, instance_peaks=instance_peaks_layer
+            centroid_crop=centroid_crop_layer,
+            instance_peaks=instance_peaks_layer,
+            output_head_skeleton_num=self.output_head_skeleton_num,
+            backbone_feats=self.backbone_feats,
         )
 
     @classmethod
@@ -701,6 +721,9 @@ class TopDownPredictor(Predictor):
         device: str = "cpu",
         preprocess_config: Optional[OmegaConf] = None,
         anchor_part: Optional[str] = None,
+        is_multi_head_model: bool = False,
+        output_head_skeleton_num: int = 0,
+        backbone_feats: Optional[str] = None,
     ) -> "TopDownPredictor":
         """Create predictor from saved models.
 
@@ -730,6 +753,10 @@ class TopDownPredictor(Predictor):
                 in the `data_config.preprocessing` section.
             anchor_part: (str) The name of the node to use as the anchor for the centroid. If not
                 provided, the anchor part in the `training_config.yaml` is used instead. Default: None.
+            is_multi_head_model: True if inference should be performed on a multi-head model.
+            output_head_skeleton_num: Dataset number (as given in the config) indicating
+                which skeleton format to output. This parameter is only required for
+                multi-head model inference. Default: 0.
 
         Returns:
             An instance of `TopDownPredictor` with the loaded models.
@@ -759,7 +786,12 @@ class TopDownPredictor(Predictor):
                     (Path(centroid_ckpt_path) / "training_config.json").as_posix()
                 )
 
-            skeletons = get_skeleton_from_config(centroid_config.data_config.skeletons)
+            skeletons_dict = {}
+            for skl_idx, skl in enumerate(centroid_config.data_config.skeletons):
+                skel = SkeletonYAMLDecoder().decode(dict(skl))
+                skel.name = skl.name
+                skeletons_dict[skl_idx] = [skel]
+            skeletons = skeletons_dict[output_head_skeleton_num]
 
             # check which backbone architecture
             for k, v in centroid_config.model_config.backbone_config.items():
@@ -769,7 +801,7 @@ class TopDownPredictor(Predictor):
 
             if not is_sleap_ckpt:
                 ckpt_path = (Path(centroid_ckpt_path) / "best.ckpt").as_posix()
-                centroid_model = CentroidLightningModule.load_from_checkpoint(
+                centroid_model = CentroidMultiHeadLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     model_type="centroid",
                     backbone_type=centroid_backbone_type,
@@ -788,13 +820,14 @@ class TopDownPredictor(Predictor):
                     learning_rate=centroid_config.trainer_config.optimizer.lr,
                     amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
+                    backbone_feats=backbone_feats,
                 )
             else:
                 # Load the converted model
                 centroid_converted_model = load_legacy_model(
                     model_dir=f"{centroid_ckpt_path}"
                 )
-                centroid_model = CentroidLightningModule(
+                centroid_model = CentroidMultiHeadLightningModule(
                     backbone_type=centroid_backbone_type,
                     model_type="centroid",
                     backbone_config=centroid_config.model_config.backbone_config,
@@ -811,6 +844,7 @@ class TopDownPredictor(Predictor):
                     optimizer=centroid_config.trainer_config.optimizer_name,
                     learning_rate=centroid_config.trainer_config.optimizer.lr,
                     amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
+                    backbone_feats=backbone_feats,
                 )
 
                 centroid_model.eval()
@@ -875,7 +909,13 @@ class TopDownPredictor(Predictor):
                     (Path(confmap_ckpt_path) / "training_config.json").as_posix()
                 )
 
-            skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+            # skeletons = get_skeleton_from_config(confmap_config.data_config.skeletons)
+            skeletons_dict = {}
+            for skl_idx, skl in enumerate(confmap_config.data_config.skeletons):
+                skel = SkeletonYAMLDecoder().decode(dict(skl))
+                skel.name = skl.name
+                skeletons_dict[skl_idx] = [skel]
+            skeletons = skeletons_dict[output_head_skeleton_num]
 
             # check which backbone architecture
             for k, v in confmap_config.model_config.backbone_config.items():
@@ -885,7 +925,7 @@ class TopDownPredictor(Predictor):
 
             if not is_sleap_ckpt:
                 ckpt_path = (Path(confmap_ckpt_path) / "best.ckpt").as_posix()
-                confmap_model = TopDownCenteredInstanceLightningModule.load_from_checkpoint(
+                confmap_model = TopDownCenteredInstanceMultiHeadLightningModule.load_from_checkpoint(
                     checkpoint_path=ckpt_path,
                     model_type="centered_instance",
                     backbone_config=confmap_config.model_config.backbone_config,
@@ -904,6 +944,7 @@ class TopDownPredictor(Predictor):
                     amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                     backbone_type=centered_instance_backbone_type,
                     map_location=device,
+                    backbone_feats=backbone_feats,
                 )
             else:
                 # Load the converted model
@@ -912,7 +953,7 @@ class TopDownPredictor(Predictor):
                 )
 
                 # Create a new LightningModule with the converted model
-                confmap_model = TopDownCenteredInstanceLightningModule(
+                confmap_model = TopDownCenteredInstanceMultiHeadLightningModule(
                     backbone_type=centered_instance_backbone_type,
                     model_type="centered_instance",
                     backbone_config=confmap_config.model_config.backbone_config,
@@ -929,6 +970,7 @@ class TopDownPredictor(Predictor):
                     optimizer=confmap_config.trainer_config.optimizer_name,
                     learning_rate=confmap_config.trainer_config.optimizer.lr,
                     amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
+                    backbone_feats=backbone_feats,
                 )
 
                 confmap_model.eval()
@@ -976,7 +1018,9 @@ class TopDownPredictor(Predictor):
 
         if centroid_config is not None:
             preprocess_config["scale"] = (
-                centroid_config.data_config.preprocessing.scale
+                centroid_config.data_config.preprocessing.scale[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["scale"] is None
                 else preprocess_config["scale"]
             )
@@ -991,19 +1035,23 @@ class TopDownPredictor(Predictor):
                 else preprocess_config["ensure_grayscale"]
             )
             preprocess_config["max_height"] = (
-                centroid_config.data_config.preprocessing.max_height
+                centroid_config.data_config.preprocessing.max_height[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_height"] is None
                 else preprocess_config["max_height"]
             )
             preprocess_config["max_width"] = (
-                centroid_config.data_config.preprocessing.max_width
+                centroid_config.data_config.preprocessing.max_width[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_width"] is None
                 else preprocess_config["max_width"]
             )
 
         else:
             preprocess_config["scale"] = (
-                confmap_config.data_config.preprocessing.scale
+                confmap_config.data_config.preprocessing.scale[output_head_skeleton_num]
                 if preprocess_config["scale"] is None
                 else preprocess_config["scale"]
             )
@@ -1018,18 +1066,22 @@ class TopDownPredictor(Predictor):
                 else preprocess_config["ensure_grayscale"]
             )
             preprocess_config["max_height"] = (
-                confmap_config.data_config.preprocessing.max_height
+                confmap_config.data_config.preprocessing.max_height[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_height"] is None
                 else preprocess_config["max_height"]
             )
             preprocess_config["max_width"] = (
-                confmap_config.data_config.preprocessing.max_width
+                confmap_config.data_config.preprocessing.max_width[
+                    output_head_skeleton_num
+                ]
                 if preprocess_config["max_width"] is None
                 else preprocess_config["max_width"]
             )
 
         preprocess_config["crop_size"] = (
-            confmap_config.data_config.preprocessing.crop_size
+            confmap_config.data_config.preprocessing.crop_size[output_head_skeleton_num]
             if preprocess_config["crop_size"] is None and confmap_config is not None
             else preprocess_config["crop_size"]
         )
@@ -1040,6 +1092,7 @@ class TopDownPredictor(Predictor):
             centroid_model=centroid_model,
             confmap_config=confmap_config,
             confmap_model=confmap_model,
+            output_head_skeleton_num=output_head_skeleton_num,
             centroid_backbone_type=centroid_backbone_type,
             centered_instance_backbone_type=centered_instance_backbone_type,
             skeletons=skeletons,
@@ -1061,6 +1114,7 @@ class TopDownPredictor(Predictor):
                     f"{centered_instance_backbone_type}"
                 ]["max_stride"]
             ),
+            backbone_feats=backbone_feats,
         )
 
         obj._initialize_inference_model()

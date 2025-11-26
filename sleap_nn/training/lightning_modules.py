@@ -32,7 +32,7 @@ from sleap_nn.inference.bottomup import (
     BottomUpMultiClassInferenceModel,
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
-from sleap_nn.architectures.model import Model
+from sleap_nn.architectures.model import Model, MultiHeadModel
 from sleap_nn.training.losses import compute_ohkm_loss
 from loguru import logger
 from sleap_nn.training.utils import (
@@ -1746,4 +1746,790 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             on_epoch=True,
             logger=True,
             sync_dist=True,
+        )
+
+
+class MultiHeadLightningModel(L.LightningModule):
+    """Base PyTorch Lightning Module for all sleap-nn models.
+
+    This class is a sub-class of Torch Lightning Module to configure the training and validation steps.
+
+    Args:
+        model_type: Type of the model. One of `single_instance`, `centered_instance`, `centroid`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`.
+        backbone_type: Backbone model. One of `unet`, `convnext` and `swint`.
+        backbone_config: Backbone configuration. Can be:
+            - String: One of the preset backbone types:
+                - UNet variants: ["unet", "unet_medium_rf", "unet_large_rf"]
+                - ConvNeXt variants: ["convnext", "convnext_tiny", "convnext_small", "convnext_base", "convnext_large"]
+                - SwinT variants: ["swint", "swint_tiny", "swint_small", "swint_base"]
+            - Dictionary: Custom configuration with structure:
+                {
+                    "unet": {UNetConfig parameters},
+                    "convnext": {ConvNextConfig parameters},
+                    "swint": {SwinTConfig parameters}
+                }
+                Only one backbone type should be specified in the dictionary.
+            - DictConfig: OmegaConf DictConfig object containing backbone configuration.
+        head_configs: Head configuration dictionary containing model-specific parameters.
+            For Single Instance: confmaps with part_names, sigma, output_stride.
+            For Centroid: confmaps with anchor_part, sigma, output_stride.
+            For Centered Instance: confmaps with part_names, anchor_part, sigma, output_stride.
+            For Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; pafs with edges, sigma, output_stride, loss_weight.
+            For Multi-Class Bottom-Up: confmaps with part_names, sigma, output_stride, loss_weight; class_maps with classes, sigma, output_stride, loss_weight.
+            For Multi-Class Top-Down: confmaps with part_names, anchor_part, sigma, output_stride, loss_weight; class_vectors with classes, num_fc_layers, num_fc_units, global_pool, output_stride, loss_weight.
+        pretrained_backbone_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for backbone initialization. If None, random initialization is used.
+        pretrained_head_weights: Path to checkpoint `.ckpt` (or `.h5` file from SLEAP - only UNet backbone is supported) file for head layers initialization. If None, random initialization is used.
+        init_weights: Model weights initialization method. "default" uses kaiming uniform initialization, "xavier" uses Xavier initialization.
+        lr_scheduler: Learning rate scheduler configuration. Can be string ("step_lr", "reduce_lr_on_plateau") or dictionary with scheduler-specific parameters.
+        online_mining: If True, online hard keypoint mining (OHKM) is enabled. Loss is computed per keypoint and sorted from lowest (easy) to highest (hard).
+        hard_to_easy_ratio: Minimum ratio of individual keypoint loss to lowest keypoint loss to be considered "hard". Default: 2.0.
+        min_hard_keypoints: Minimum number of keypoints considered as "hard", even if below hard_to_easy_ratio. Default: 2.
+        max_hard_keypoints: Maximum number of hard keypoints to apply scaling to. If None, no limit is applied.
+        loss_scale: Factor to scale hard keypoint losses by. Default: 5.0.
+        optimizer: Optimizer name. One of ["Adam", "AdamW"].
+        learning_rate: Learning rate for the optimizer. Default: 1e-3.
+        amsgrad: Enable AMSGrad with the optimizer. Default: False.
+    """
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__()
+        self.model_type = model_type
+        self.backbone_type = backbone_type
+        if not isinstance(backbone_config, DictConfig):
+            backbone_cfg = get_backbone_config(backbone_config)
+            config = OmegaConf.structured(backbone_cfg)
+            OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
+            config = DictConfig(config)
+        else:
+            config = backbone_config
+        self.backbone_config = config
+        self.head_configs = head_configs
+        self.pretrained_backbone_weights = pretrained_backbone_weights
+        self.pretrained_head_weights = pretrained_head_weights
+        self.in_channels = self.backbone_config[f"{self.backbone_type}"]["in_channels"]
+        self.input_expand_channels = self.in_channels
+        self.init_weights = init_weights
+        self.lr_scheduler = lr_scheduler
+        self.online_mining = online_mining
+        self.hard_to_easy_ratio = hard_to_easy_ratio
+        self.min_hard_keypoints = min_hard_keypoints
+        self.max_hard_keypoints = max_hard_keypoints
+        self.loss_scale = loss_scale
+        self.optimizer = optimizer
+        self.lr = learning_rate
+        self.amsgrad = amsgrad
+        self.backbone_feats = backbone_feats
+        self.model = MultiHeadModel(
+            backbone_type=self.backbone_type,
+            backbone_config=self.backbone_config[f"{self.backbone_type}"],
+            head_configs=self.head_configs[self.model_type],
+            model_type=self.model_type,
+        )
+
+        if len(self.head_configs[self.model_type]) > 1:
+            self.loss_weights = [
+                (
+                    self.head_configs[self.model_type][x].loss_weight
+                    if self.head_configs[self.model_type][x].loss_weight is not None
+                    else 1.0
+                )
+                for x in self.head_configs[self.model_type]
+            ]
+
+        self.training_loss = {}
+        self.val_loss = {}
+        self.learning_rate = {}
+
+        self.loss_func = nn.MSELoss()
+        self.automatic_optimization = False
+
+        # Initialization for encoder and decoder stacks.
+        if self.init_weights == "xavier":
+            self.model.apply(xavier_init_weights)
+
+        # Pre-trained weights for the encoder stack - only for swint and convnext
+        if self.backbone_type == "convnext" or self.backbone_type == "swint":
+            if (
+                self.backbone_config[f"{self.backbone_type}"]["pre_trained_weights"]
+                is not None
+            ):
+                ckpt = MODEL_WEIGHTS[
+                    self.backbone_config[f"{self.backbone_type}"]["pre_trained_weights"]
+                ].DEFAULT.get_state_dict(progress=True, check_hash=True)
+                self.model.backbone.enc.load_state_dict(ckpt, strict=False)
+
+        # Initializing backbone (encoder + decoder) with trained ckpts
+        if self.pretrained_backbone_weights is not None:
+            logger.info(
+                f"Loading backbone weights from `{self.pretrained_backbone_weights}` ..."
+            )
+            if self.pretrained_backbone_weights.endswith(".ckpt"):
+                ckpt = torch.load(
+                    self.pretrained_backbone_weights,
+                    map_location="cpu",
+                    weights_only=False,
+                )
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".backbone" in k
+                }
+                self.load_state_dict(ckpt["state_dict"], strict=False)
+
+            elif self.pretrained_backbone_weights.endswith(".h5"):
+                # load from sleap model weights
+                load_legacy_model_weights(
+                    self.model.backbone, self.pretrained_backbone_weights
+                )
+
+            else:
+                message = f"Unsupported file extension for pretrained backbone weights. Please provide a .ckpt or .h5 file."
+                logger.error(message)
+                raise ValueError(message)
+
+        # Initializing head layers with trained ckpts.
+        if self.pretrained_head_weights is not None:
+            logger.info(
+                f"Loading head weights from `{self.pretrained_head_weights}` ..."
+            )
+            if self.pretrained_head_weights.endswith(".ckpt"):
+                ckpt = torch.load(
+                    self.pretrained_head_weights,
+                    map_location="cpu",
+                    weights_only=False,
+                )
+                ckpt["state_dict"] = {
+                    k: ckpt["state_dict"][k]
+                    for k in ckpt["state_dict"].keys()
+                    if ".head_layers" in k
+                }
+                self.load_state_dict(ckpt["state_dict"], strict=False)
+
+            elif self.pretrained_head_weights.endswith(".h5"):
+                # load from sleap model weights
+                load_legacy_model_weights(
+                    self.model.head_layers, self.pretrained_head_weights
+                )
+
+            else:
+                message = f"Unsupported file extension for pretrained head weights. Please provide a .ckpt or .h5 file."
+                logger.error(message)
+                raise ValueError(message)
+
+    @classmethod
+    def get_lightning_model_from_config(cls, config: DictConfig):
+        """Get lightning model from config."""
+        model_type = get_model_type_from_cfg(config)
+        backbone_type = get_backbone_type_from_cfg(config)
+
+        lightning_models = {
+            "single_instance": SingleInstanceLightningModule,
+            "centroid": CentroidMultiHeadLightningModule,
+            "centered_instance": TopDownCenteredInstanceMultiHeadLightningModule,
+            "bottomup": BottomUpLightningModule,
+            "multi_class_bottomup": BottomUpMultiClassLightningModule,
+            "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
+        }
+
+        if model_type not in lightning_models:
+            message = f"Incorrect model type. Please check if one of the following keys in the head configs is not None: [`single_instance`, `centroid`, `centered_instance`, `bottomup`, `multi_class_bottomup`, `multi_class_topdown`]"
+            logger.error(message)
+            raise ValueError(message)
+
+        lightning_model = lightning_models[model_type](
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=config.model_config.backbone_config,
+            head_configs=config.model_config.head_configs,
+            pretrained_backbone_weights=config.model_config.pretrained_backbone_weights,
+            pretrained_head_weights=config.model_config.pretrained_head_weights,
+            init_weights=config.model_config.init_weights,
+            lr_scheduler=config.trainer_config.lr_scheduler,
+            online_mining=config.trainer_config.online_hard_keypoint_mining.online_mining,
+            hard_to_easy_ratio=config.trainer_config.online_hard_keypoint_mining.hard_to_easy_ratio,
+            min_hard_keypoints=config.trainer_config.online_hard_keypoint_mining.min_hard_keypoints,
+            max_hard_keypoints=config.trainer_config.online_hard_keypoint_mining.max_hard_keypoints,
+            loss_scale=config.trainer_config.online_hard_keypoint_mining.loss_scale,
+            optimizer=config.trainer_config.optimizer_name,
+            learning_rate=config.trainer_config.optimizer.lr,
+            amsgrad=config.trainer_config.optimizer.amsgrad,
+        )
+
+        return lightning_model
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        pass
+
+    def on_train_epoch_start(self):
+        """Configure the train timer at the beginning of each epoch."""
+        self.train_start_time = time.time()
+
+    def on_train_epoch_end(self):
+        """Configure the train timer at the end of every epoch."""
+        train_time = time.time() - self.train_start_time
+        self.log(
+            "train_time",
+            train_time,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=4,
+        )
+
+    def on_validation_epoch_start(self):
+        """Configure the val timer at the beginning of each epoch."""
+        self.val_start_time = time.time()
+
+    def on_validation_epoch_end(self):
+        """Configure the val timer at the end of every epoch."""
+        val_time = time.time() - self.val_start_time
+        self.log(
+            "val_time",
+            val_time,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=4,
+        )
+        # grab the scheduler Lightning already knows about
+        sch = self.lr_schedulers()
+
+        # if you only have one scheduler, sch is that scheduler
+        if isinstance(sch, torch.optim.lr_scheduler.ReduceLROnPlateau) or isinstance(
+            sch, torch.optim.lr_scheduler.StepLR
+        ):
+            # callback_metrics is where Lightning stores logged metrics
+            val_loss = self.trainer.callback_metrics["val_loss"]
+
+            # this is what Lightning would have done for you in automatic mode
+            sch.step(val_loss)
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        pass
+
+    def validation_step(self, batch, batch_idx):
+        """Validation step."""
+        pass
+
+    def configure_optimizers(self):
+        """Configure optimiser and learning rate scheduler."""
+        if self.optimizer == "Adam":
+            optim = torch.optim.Adam
+        elif self.optimizer == "AdamW":
+            optim = torch.optim.AdamW
+
+        optimizer = optim(
+            self.parameters(),
+            lr=self.lr,
+            amsgrad=self.amsgrad,
+        )
+
+        lr_scheduler_cfg = LRSchedulerConfig()
+        if self.lr_scheduler is None:
+            return {
+                "optimizer": optimizer,
+            }
+
+        scheduler = None
+        if isinstance(self.lr_scheduler, str):
+            if self.lr_scheduler == "step_lr":
+                lr_scheduler_cfg.step_lr = StepLRConfig()
+            elif self.lr_scheduler == "reduce_lr_on_plateau":
+                lr_scheduler_cfg.reduce_lr_on_plateau = ReduceLROnPlateauConfig()
+
+        elif isinstance(self.lr_scheduler, dict):
+            lr_scheduler_cfg = self.lr_scheduler
+
+        for k, v in self.lr_scheduler.items():
+            if v is not None:
+                if k == "step_lr":
+                    scheduler = torch.optim.lr_scheduler.StepLR(
+                        optimizer=optimizer,
+                        step_size=self.lr_scheduler.step_lr.step_size,
+                        gamma=self.lr_scheduler.step_lr.gamma,
+                    )
+                    break
+                elif k == "reduce_lr_on_plateau":
+                    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                        optimizer,
+                        mode="min",
+                        threshold=self.lr_scheduler.reduce_lr_on_plateau.threshold,
+                        threshold_mode=self.lr_scheduler.reduce_lr_on_plateau.threshold_mode,
+                        cooldown=self.lr_scheduler.reduce_lr_on_plateau.cooldown,
+                        patience=self.lr_scheduler.reduce_lr_on_plateau.patience,
+                        factor=self.lr_scheduler.reduce_lr_on_plateau.factor,
+                        min_lr=self.lr_scheduler.reduce_lr_on_plateau.min_lr,
+                    )
+                    break
+        if scheduler is None:
+            return {
+                "optimizer": optimizer,
+            }
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+            },
+        }
+
+
+class CentroidMultiHeadLightningModule(MultiHeadLightningModel):
+    """Lightning Module for CentroidMultiHeadLightningModule Model."""
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            backbone_feats=backbone_feats,
+        )
+
+        self.centroid_inf_layer = CentroidCrop(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            output_stride=self.head_configs.centroid.confmaps[0]["output_stride"],
+            input_scale=1.0,
+        )
+
+    def visualize_example(self, sample, d_idx):
+        """Visualize predictions during training (used with callbacks)."""
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        gt_centroids = ex["centroids"].cpu().numpy()
+        self.centroid_inf_layer.output_stride = self.head_configs.centroid.confmaps[
+            d_idx
+        ]["output_stride"]
+        output = self.centroid_inf_layer(ex, output_head_skeleton_num=d_idx)
+        peaks = output["centroids"][0].cpu().numpy()
+        img = (
+            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        confmaps = (
+            output["pred_centroid_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_centroids, peaks, paired=False)
+        return fig
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        output = self.model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CentroidConfmapsHead"],
+            "backbone_features": output["backbone_features"],
+            "strides": output["backbone_features_strides"],
+        }
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        loss = 0
+        opt = self.optimizers()
+        opt.zero_grad()
+        batch_size = batch[0]["frame_idx"].shape[0]
+        for d_num in batch.keys():
+            batch_data = batch[d_num]
+            X, y = torch.squeeze(batch_data["image"], dim=1), torch.squeeze(
+                batch_data["centroids_confidence_maps"], dim=1
+            )
+
+            output = self.model(X)["CentroidConfmapsHead"]
+
+            for h_num in batch.keys():
+                if d_num != h_num:
+                    with torch.no_grad():
+                        output[h_num] = output[h_num].detach()
+
+            y_preds = output[d_num]
+            curr_loss = 1.0 * self.loss_func(y_preds, y)
+            loss += curr_loss
+
+            self.manual_backward(curr_loss, retain_graph=True)
+
+            self.log(
+                f"train_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        self.log(
+            f"train_loss",
+            loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+        opt.step()
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Perform validation step."""
+        total_loss = 0
+        batch_size = batch[0]["frame_idx"].shape[0]
+        for d_num in batch.keys():
+            X, y = torch.squeeze(batch[d_num]["image"], dim=1), torch.squeeze(
+                batch[d_num]["centroids_confidence_maps"], dim=1
+            )
+
+            y_preds = self.model(X)["CentroidConfmapsHead"][d_num]
+            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            total_loss += curr_loss
+
+            self.log(
+                f"val_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        self.log(
+            f"val_loss",
+            total_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+
+class TopDownCenteredInstanceMultiHeadLightningModule(MultiHeadLightningModel):
+    """Lightning Module for TopDownCenteredInstanceMultiHeadLightningModule Model."""
+
+    def __init__(
+        self,
+        model_type: str,
+        backbone_type: str,
+        backbone_config: Union[str, Dict[str, Any], DictConfig],
+        head_configs: DictConfig,
+        pretrained_backbone_weights: Optional[str] = None,
+        pretrained_head_weights: Optional[str] = None,
+        init_weights: Optional[str] = "xavier",
+        lr_scheduler: Optional[Union[str, DictConfig]] = None,
+        online_mining: Optional[bool] = False,
+        hard_to_easy_ratio: Optional[float] = 2.0,
+        min_hard_keypoints: Optional[int] = 2,
+        max_hard_keypoints: Optional[int] = None,
+        loss_scale: Optional[float] = 5.0,
+        optimizer: Optional[str] = "Adam",
+        learning_rate: Optional[float] = 1e-3,
+        amsgrad: Optional[bool] = False,
+        backbone_feats: Optional[str] = None,
+    ):
+        """Initialise the configs and the model."""
+        super().__init__(
+            model_type=model_type,
+            backbone_type=backbone_type,
+            backbone_config=backbone_config,
+            head_configs=head_configs,
+            pretrained_backbone_weights=pretrained_backbone_weights,
+            pretrained_head_weights=pretrained_head_weights,
+            init_weights=init_weights,
+            lr_scheduler=lr_scheduler,
+            online_mining=online_mining,
+            hard_to_easy_ratio=hard_to_easy_ratio,
+            min_hard_keypoints=min_hard_keypoints,
+            max_hard_keypoints=max_hard_keypoints,
+            loss_scale=loss_scale,
+            optimizer=optimizer,
+            learning_rate=learning_rate,
+            amsgrad=amsgrad,
+            backbone_feats=backbone_feats,
+        )
+
+        self.instance_peaks_inf_layer = FindInstancePeaks(
+            torch_model=self.forward,
+            peak_threshold=0.2,
+            return_confmaps=True,
+            output_stride=self.head_configs.centered_instance.confmaps[0][
+                "output_stride"
+            ],
+        )
+
+        self.node_names = {}
+        for d_num in range(len(self.head_configs.centered_instance.confmaps)):
+            self.node_names[d_num] = self.head_configs.centered_instance.confmaps[
+                d_num
+            ]["part_names"]
+
+    def forward(self, img):
+        """Forward pass of the model."""
+        img = torch.squeeze(img, dim=1).to(self.device)
+        output = self.model(
+            img,
+            include_backbone_features=self.backbone_feats is not None,
+            backbone_outputs=self.backbone_feats,
+        )
+        return {
+            "head": output["CenteredInstanceConfmapsHead"],
+            "backbone_features": output["backbone_features"],
+            "strides": output["backbone_features_strides"],
+        }
+
+    def visualize_example(self, sample, d_idx):
+        """Visualize predictions during training (used with callbacks)."""
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
+        self.instance_peaks_inf_layer.output_stride = (
+            self.head_configs.centered_instance.confmaps[d_idx]["output_stride"]
+        )
+        output = self.instance_peaks_inf_layer(ex, output_head_skeleton_num=d_idx)
+        peaks = output["pred_instance_peaks"].cpu().numpy()
+        img = (
+            output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        gt_instances = ex["instance"].cpu().numpy()
+        confmaps = (
+            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+        )  # convert from (C, H, W) to (H, W, C)
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        plot_peaks(gt_instances, peaks, paired=True)
+        return fig
+
+    def training_step(self, batch, batch_idx):
+        """Training step."""
+        loss = 0
+        opt = self.optimizers()
+        opt.zero_grad()
+        batch_size = batch[0]["frame_idx"].shape[0]
+        for d_num in batch.keys():
+            batch_data = batch[d_num]
+            X, y = torch.squeeze(batch_data["instance_image"], dim=1), torch.squeeze(
+                batch_data["confidence_maps"], dim=1
+            )
+
+            output = self.model(X)["CenteredInstanceConfmapsHead"]
+
+            for h_num in batch.keys():
+                if d_num != h_num:
+                    with torch.no_grad():
+                        output[h_num] = output[h_num].detach()
+
+            y_preds = output[d_num]
+            curr_loss = 1.0 * self.loss_func(y_preds, y)
+            if self.online_mining is not None and self.online_mining:
+                ohkm_loss = compute_ohkm_loss(
+                    y_gt=y,
+                    y_pr=y_preds,
+                    hard_to_easy_ratio=self.hard_to_easy_ratio,
+                    min_hard_keypoints=self.min_hard_keypoints,
+                    max_hard_keypoints=self.max_hard_keypoints,
+                    loss_scale=self.loss_scale,
+                )
+                curr_loss = curr_loss + ohkm_loss
+            loss += curr_loss
+
+            self.manual_backward(curr_loss, retain_graph=True)
+
+            # for part-wise loss
+            if len(self.node_names) > 0:
+                batch_size, _, h, w = y.shape
+                mse = (y - y_preds) ** 2
+                channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
+                for node_idx, name in enumerate(self.node_names[d_num]):
+                    self.log(
+                        f"train_loss_on_head_{d_num}_node_{name}",
+                        channel_wise_loss[node_idx],
+                        prog_bar=True,
+                        on_step=True,
+                        on_epoch=True,
+                        logger=True,
+                        sync_dist=True,
+                        batch_size=batch_size,
+                    )
+
+            self.log(
+                f"train_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        self.log(
+            f"train_loss",
+            loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+        opt.step()
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        """Perform validation step."""
+        total_loss = 0
+        batch_size = batch[0]["frame_idx"].shape[0]
+        for d_num in batch.keys():
+            X, y = torch.squeeze(batch[d_num]["instance_image"], dim=1), torch.squeeze(
+                batch[d_num]["confidence_maps"], dim=1
+            )
+
+            y_preds = self.model(X)["CenteredInstanceConfmapsHead"][d_num]
+            curr_loss = 1.0 * nn.MSELoss()(y_preds, y)
+            if self.online_mining is not None and self.online_mining:
+                ohkm_loss = compute_ohkm_loss(
+                    y_gt=y,
+                    y_pr=y_preds,
+                    hard_to_easy_ratio=self.hard_to_easy_ratio,
+                    min_hard_keypoints=self.min_hard_keypoints,
+                    max_hard_keypoints=self.max_hard_keypoints,
+                    loss_scale=self.loss_scale,
+                )
+                curr_loss = curr_loss + ohkm_loss
+            total_loss += curr_loss
+
+            self.log(
+                f"val_loss_on_head_{d_num}",
+                curr_loss,
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+                batch_size=batch_size,
+            )
+
+        self.log(
+            f"val_loss",
+            total_loss,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
+        )
+
+        lr = self.optimizers().optimizer.param_groups[0]["lr"]
+        self.log(
+            "learning_rate",
+            lr,
+            prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+            batch_size=batch_size,
         )
