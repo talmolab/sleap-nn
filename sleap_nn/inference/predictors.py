@@ -785,6 +785,7 @@ class TopDownPredictor(Predictor):
                     learning_rate=centroid_config.trainer_config.optimizer.lr,
                     amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
+                    weights_only=False,
                 )
             else:
                 # Load the converted model
@@ -901,6 +902,7 @@ class TopDownPredictor(Predictor):
                     amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                     backbone_type=centered_instance_backbone_type,
                     map_location=device,
+                    weights_only=False,
                 )
             else:
                 # Load the converted model
@@ -1391,6 +1393,7 @@ class SingleInstancePredictor(Predictor):
                 learning_rate=confmap_config.trainer_config.optimizer.lr,
                 amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                 map_location=device,
+                weights_only=False,
             )
         else:
             confmap_converted_model = load_legacy_model(
@@ -1830,6 +1833,7 @@ class BottomUpPredictor(Predictor):
                 backbone_type=backbone_type,
                 model_type="bottomup",
                 map_location=device,
+                weights_only=False,
             )
         else:
             bottomup_converted_model = load_legacy_model(
@@ -2257,6 +2261,7 @@ class BottomUpMultiClassPredictor(Predictor):
                 optimizer=bottomup_config.trainer_config.optimizer_name,
                 learning_rate=bottomup_config.trainer_config.optimizer.lr,
                 amsgrad=bottomup_config.trainer_config.optimizer.amsgrad,
+                weights_only=False,
             )
         else:
             bottomup_converted_model = load_legacy_model(
@@ -2799,6 +2804,7 @@ class TopDownMultiClassPredictor(Predictor):
                     learning_rate=centroid_config.trainer_config.optimizer.lr,
                     amsgrad=centroid_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
+                    weights_only=False,
                 )
 
             else:
@@ -2923,6 +2929,7 @@ class TopDownMultiClassPredictor(Predictor):
                     learning_rate=confmap_config.trainer_config.optimizer.lr,
                     amsgrad=confmap_config.trainer_config.optimizer.amsgrad,
                     map_location=device,
+                    weights_only=False,
                 )
             else:
                 confmap_converted_model = load_legacy_model(

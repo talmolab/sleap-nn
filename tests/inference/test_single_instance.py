@@ -28,6 +28,7 @@ def test_single_instance_inference_model(
         model_type="single_instance",
         backbone_type="unet",
         map_location="cpu",
+        weights_only=False,
     )
 
     labels = sio.load_slp(small_robot_minimal)

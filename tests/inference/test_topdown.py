@@ -51,6 +51,7 @@ def initialize_model(config, minimal_instance, minimal_instance_centered_instanc
         backbone_config=config.model_config.backbone_config,
         head_configs=config.model_config.head_configs,
         map_location="cpu",
+        weights_only=False,
     )
 
     find_peaks_layer = FindInstancePeaks(
@@ -93,6 +94,7 @@ def test_centroid_inference_model(
         model_type="centroid",
         backbone_type="unet",
         map_location="cpu",
+        weights_only=False,
     )
 
     # return crops = False
@@ -206,6 +208,7 @@ def test_find_instance_peaks_groundtruth(
         model_type="centroid",
         backbone_type="unet",
         map_location="cpu",
+        weights_only=False,
     )
 
     centroid_layer = CentroidCrop(
@@ -322,6 +325,7 @@ def test_find_instance_peaks_multiclass(
         model_type="multi_class_topdown",
         backbone_type="unet",
         map_location="cpu",
+        weights_only=False,
     )
 
     find_peaks_layer = TopDownMultiClassFindInstancePeaks(
@@ -462,6 +466,7 @@ def test_topdown_inference_model(
         model_type="centroid",
         backbone_type="unet",
         map_location="cpu",
+        weights_only=False,
     )
 
     centroid_layer = CentroidCrop(
