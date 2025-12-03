@@ -297,6 +297,7 @@ class ModelTrainer:
                             f"{self.backbone_type}"
                         ]["max_stride"],
                         min_crop_size=self.config.data_config.preprocessing.min_crop_size,
+                        input_scaling=self.config.data_config.preprocessing.scale,
                     )
 
                     if crop_sz > max_crop_size:

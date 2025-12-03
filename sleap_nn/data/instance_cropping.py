@@ -12,6 +12,7 @@ def find_instance_crop_size(
     labels: sio.Labels,
     padding: int = 0,
     maximum_stride: int = 2,
+    input_scaling: float = 1.0,
     min_crop_size: Optional[int] = None,
 ) -> int:
     """Compute the size of the largest instance bounding box from labels.
@@ -22,6 +23,8 @@ def find_instance_crop_size(
         maximum_stride: Ensure that the returned crop size is divisible by this value.
             Useful for ensuring that the crop size will not be truncated in a given
             architecture.
+        input_scaling: Float factor indicating the scale if any
+            scaling will be done after cropping.
         min_crop_size: The crop size set by the user.
 
     Returns:
@@ -52,6 +55,7 @@ def find_instance_crop_size(
                 max_length = np.maximum(max_length, min_crop_size_no_pad)
 
     max_length += float(padding)
+    max_length *= input_scaling  # scaling is applied after cropping
     crop_size = math.ceil(max_length / float(maximum_stride)) * maximum_stride
 
     return int(crop_size)
