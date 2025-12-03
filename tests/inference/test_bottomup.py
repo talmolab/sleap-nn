@@ -55,6 +55,7 @@ def test_bottomup_inference_model(
         model_type="bottomup",
         backbone_type="unet",
         map_location="cpu",
+        weights_only=False,
     )
 
     inference_layer = BottomUpInferenceModel(
@@ -153,6 +154,7 @@ def test_multiclass_bottomup_inference_model(
         backbone_config=train_config.model_config.backbone_config,
         head_configs=train_config.model_config.head_configs,
         map_location="cpu",
+        weights_only=False,
     )
 
     inference_layer = BottomUpMultiClassInferenceModel(

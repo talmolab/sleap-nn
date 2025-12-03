@@ -47,9 +47,6 @@ class CentroidCrop(L.LightningModule):
         crop_hw: Tuple (height, width) representing the crop size.
         input_scale: Float indicating if the images should be resized before being
             passed to the model.
-        precrop_resize: Float indicating the factor by which the original images
-            (not images resized for centroid model) should be resized before cropping.
-            Note: This resize happens only after getting the predictions for centroid model.
         max_stride: Maximum stride in a model that the images must be divisible by.
             If > 1, this will pad the bottom and right of the images to ensure they meet
             this divisibility criteria. Padding is applied after the scaling specified
@@ -74,7 +71,6 @@ class CentroidCrop(L.LightningModule):
         return_crops: bool = False,
         crop_hw: Optional[List[int]] = None,
         input_scale: float = 1.0,
-        precrop_resize: float = 1.0,
         max_stride: int = 1,
         use_gt_centroids: bool = False,
         anchor_ind: Optional[int] = None,
@@ -92,7 +88,6 @@ class CentroidCrop(L.LightningModule):
         self.return_crops = return_crops
         self.crop_hw = crop_hw
         self.input_scale = input_scale
-        self.precrop_resize = precrop_resize
         self.max_stride = max_stride
         self.use_gt_centroids = use_gt_centroids
         self.anchor_ind = anchor_ind
@@ -204,12 +199,6 @@ class CentroidCrop(L.LightningModule):
 
             if self.return_crops:
                 crops_dict = self._generate_crops(inputs)
-                inputs["image"] = resize_image(inputs["image"], self.precrop_resize)
-                inputs["centroids"] *= self.precrop_resize
-                scaled_refined_peaks = []
-                for ref_peak in self.refined_peaks_batched:
-                    scaled_refined_peaks.append(ref_peak * self.precrop_resize)
-                self.refined_peaks_batched = scaled_refined_peaks
                 return crops_dict
             else:
                 return inputs
@@ -274,12 +263,6 @@ class CentroidCrop(L.LightningModule):
 
             # Generate crops if return_crops=True to pass the crops to CenteredInstance model.
             if self.return_crops:
-                inputs["image"] = resize_image(inputs["image"], self.precrop_resize)
-                scaled_refined_peaks = []
-                for ref_peak in self.refined_peaks_batched:
-                    scaled_refined_peaks.append(ref_peak * self.precrop_resize)
-                self.refined_peaks_batched = scaled_refined_peaks
-
                 inputs.update(
                     {
                         "centroids": self.refined_peaks_batched,
@@ -548,6 +531,8 @@ class FindInstancePeaks(L.LightningModule):
         # Network forward pass.
         # resize and pad the input image
         input_image = inputs["instance_image"]
+        # resize the crop image
+        input_image = resize_image(input_image, self.input_scale)
         if self.max_stride != 1:
             input_image = apply_pad_to_stride(input_image, self.max_stride)
 
@@ -568,8 +553,6 @@ class FindInstancePeaks(L.LightningModule):
         peak_points = peak_points / (
             inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
         )
-
-        inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
 
         inputs["instance_bbox"] = inputs["instance_bbox"] / (
             inputs["eff_scale"]
@@ -679,6 +662,8 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
         # Network forward pass.
         # resize and pad the input image
         input_image = inputs["instance_image"]
+        # resize the crop image
+        input_image = resize_image(input_image, self.input_scale)
         if self.max_stride != 1:
             input_image = apply_pad_to_stride(input_image, self.max_stride)
 
@@ -701,8 +686,6 @@ class TopDownMultiClassFindInstancePeaks(L.LightningModule):
         peak_points = peak_points / (
             inputs["eff_scale"].unsqueeze(dim=1).unsqueeze(dim=2).to(peak_points.device)
         )
-
-        inputs["instance_bbox"] = inputs["instance_bbox"] / self.input_scale
 
         inputs["instance_bbox"] = inputs["instance_bbox"] / (
             inputs["eff_scale"]

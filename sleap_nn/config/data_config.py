@@ -20,10 +20,11 @@ class PreprocessingConfig:
     Attributes:
         ensure_rgb: (bool) True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. *Default*: `False`.
         ensure_grayscale: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. *Default*: `False`.
-        max_height: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. *Default*: `None`.
-        max_width: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. *Default*: `None`.
+        max_height: (int) Maximum height the original image should be resized and padded to. If not provided, the original image size will be retained. *Default*: `None`.
+        max_width: (int) Maximum width the original image should be resized and padded to. If not provided, the original image size will be retained. *Default*: `None`.
         scale: (float) Factor to resize the image dimensions by, specified as a float. *Default*: `1.0`.
-        crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. *Default*: `None`.
+        crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
+            If `scale` is provided, then the cropped image will be resized according to `scale`.*Default*: `None`.
         min_crop_size: (int) Minimum crop size to be used if `crop_size` is `None`. *Default*: `100`.
     """
 

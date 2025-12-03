@@ -12,7 +12,6 @@ def find_instance_crop_size(
     labels: sio.Labels,
     padding: int = 0,
     maximum_stride: int = 2,
-    input_scaling: float = 1.0,
     min_crop_size: Optional[int] = None,
 ) -> int:
     """Compute the size of the largest instance bounding box from labels.
@@ -23,8 +22,6 @@ def find_instance_crop_size(
         maximum_stride: Ensure that the returned crop size is divisible by this value.
             Useful for ensuring that the crop size will not be truncated in a given
             architecture.
-        input_scaling: Float factor indicating the scale of the input images if any
-            scaling will be done before cropping.
         min_crop_size: The crop size set by the user.
 
     Returns:
@@ -32,7 +29,7 @@ def find_instance_crop_size(
         will contain the instances when cropped. The returned crop size will be larger
         or equal to the input `min_crop_size`.
 
-        This accounts for stride, padding and scaling when ensuring divisibility.
+        This accounts for stride and padding when ensuring divisibility.
     """
     # Check if user-specified crop size is divisible by max stride
     min_crop_size = 0 if min_crop_size is None else min_crop_size
@@ -46,7 +43,6 @@ def find_instance_crop_size(
         for inst in lf.instances:
             if not inst.is_empty:  # only if at least one point is not nan
                 pts = inst.numpy()
-                pts *= input_scaling
                 diff_x = np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
                 diff_x = 0 if np.isnan(diff_x) else diff_x
                 max_length = np.maximum(max_length, diff_x)

@@ -684,15 +684,12 @@ class CenteredInstanceDataset(BaseDataset):
             the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
-        crop_size: Crop size of each instance for centered-instance model.
+        crop_size: Crop size of each instance for centered-instance model. If `scale` is provided, then the cropped image will be resized according to `scale`.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
             (required keys: `sigma`, `output_stride`, `part_names` and `anchor_part` depending on the model type ).
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
-
-    Note: If scale is provided for centered-instance model, the images are cropped out
-    from the scaled image with the given crop size.
     """
 
     def __init__(
@@ -834,13 +831,6 @@ class CenteredInstanceDataset(BaseDataset):
         )
         instances = instances * eff_scale
 
-        # resize image
-        image, instances = apply_resizer(
-            image,
-            instances,
-            scale=self.scale,
-        )
-
         # get the centroids based on the anchor idx
         centroids = generate_centroids(instances, anchor_ind=self.anchor_ind)
 
@@ -901,6 +891,13 @@ class CenteredInstanceDataset(BaseDataset):
         sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
         sample["centroid"] = centered_centroid  # (n_samples=1, 2)
 
+        # resize the cropped image
+        sample["instance_image"], sample["instance"] = apply_resizer(
+            sample["instance_image"],
+            sample["instance"],
+            scale=self.scale,
+        )
+
         # Pad the image (if needed) according max stride
         sample["instance_image"] = apply_pad_to_stride(
             sample["instance_image"], max_stride=self.max_stride
@@ -959,7 +956,7 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
             the images aren't cached and loaded from the `.slp` file on each access.
         cache_img_path: Path to save the `.jpg` files. If `None`, current working dir is used.
         use_existing_imgs: Use existing imgs/ chunks in the `cache_img_path`.
-        crop_size: Crop size of each instance for centered-instance model.
+        crop_size: Crop size of each instance for centered-instance model. If `scale` is provided, then the cropped image will be resized according to `scale`.
         rank: Indicates the rank of the process. Used during distributed training to ensure that image storage to
             disk occurs only once across all workers.
         confmap_head_config: DictConfig object with all the keys in the `head_config` section.
@@ -967,9 +964,6 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         class_vectors_head_config: DictConfig object with all the keys in the `head_config` section.
             (required keys: `classes`, `num_fc_layers`, `num_fc_units`, `output_stride`, `loss_weight`).
         labels_list: List of `sio.Labels` objects. Used to store the labels in the cache. (only used if `cache_img` is `None`)
-
-    Note: If scale is provided for centered-instance model, the images are cropped out
-    from the scaled image with the given crop size.
     """
 
     def __init__(
@@ -1082,13 +1076,6 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
         )
         instances = instances * eff_scale
 
-        # resize image
-        image, instances = apply_resizer(
-            image,
-            instances,
-            scale=self.scale,
-        )
-
         # get class vectors
         track_ids = torch.Tensor(
             [
@@ -1164,6 +1151,13 @@ class TopDownCenteredInstanceMultiClassDataset(CenteredInstanceDataset):
 
         sample["instance"] = center_instance  # (n_samples=1, n_nodes, 2)
         sample["centroid"] = centered_centroid  # (n_samples=1, 2)
+
+        # resize image
+        sample["instance_image"], sample["instance"] = apply_resizer(
+            sample["instance_image"],
+            sample["instance"],
+            scale=self.scale,
+        )
 
         # Pad the image (if needed) according max stride
         sample["instance_image"] = apply_pad_to_stride(

@@ -282,7 +282,7 @@ def train(config_name, config_dir, overrides):
     "--crop_size",
     type=int,
     default=None,
-    help="Crop size. If not provided, the crop size from training_config.yaml is used.",
+    help="Crop size. If not provided, the crop size from training_config.yaml is used. If `input_scale` is provided, then the cropped image will be resized according to `input_scale`.",
 )
 @click.option(
     "--peak_threshold",

@@ -94,7 +94,7 @@ sleap-nn track \
 | `--input_scale` | Scale factor to apply to the input image. If not provided, the values from the training config are used. Default: None. | `None` |
 | `--ensure_rgb` | True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. If not provided, the values from the training config are used. Default: `None`. | `False` |
 | `--ensure_grayscale` | True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. If not provided, the values from the training config are used. Default: `None`. | `False` |
-| `--crop_size` | Crop size. If not provided, the crop size from training_config.yaml is used | `None` |
+| `--crop_size` | Crop size. If not provided, the crop size from training_config.yaml is used. If `input_scale` is provided, then the cropped image will be resized according to `input_scale`. | `None` |
 | `--anchor_part` | The node name to use as the anchor for the centroid. If not provided, the anchor part in the `training_config.yaml` is used. Default: `None`. | `None` |
 
 #### Data Selection
