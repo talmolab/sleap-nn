@@ -667,8 +667,8 @@ def test_centered_instance_dataset(minimal_instance, tmp_path):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 1, 112, 112)
-    assert sample["confidence_maps"].shape == (1, 2, 56, 56)
+    assert sample["instance_image"].shape == (1, 1, 208, 208)
+    assert sample["confidence_maps"].shape == (1, 2, 104, 104)
 
 
 def test_centered_multiclass_dataset(minimal_instance, tmp_path):
@@ -895,8 +895,8 @@ def test_centered_multiclass_dataset(minimal_instance, tmp_path):
 
     for gt_key, key in zip(sorted(gt_sample_keys), sorted(sample.keys())):
         assert gt_key == key
-    assert sample["instance_image"].shape == (1, 1, 112, 112)
-    assert sample["confidence_maps"].shape == (1, 2, 56, 56)
+    assert sample["instance_image"].shape == (1, 1, 208, 208)
+    assert sample["confidence_maps"].shape == (1, 2, 104, 104)
     assert sample["class_vectors"].shape == (2,)
 
 

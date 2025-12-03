@@ -145,7 +145,7 @@ def run_inference(
         video_input_format: (str) The input_format for HDF5 videos.
         frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
         crop_size: (int) Crop size. If not provided, the crop size from training_config.yaml is used.
-                Default: None.
+                If `input_scale` is provided, then the cropped image will be resized according to `input_scale`. Default: None.
         peak_threshold: (float) Minimum confidence threshold. Peaks with values below
                 this will be ignored. Default: 0.2. This can also be `List[float]` for topdown
                 centroid and centered-instance model, where the first element corresponds

@@ -671,9 +671,6 @@ class TopDownPredictor(Predictor):
                 max_stride=max_stride,
                 input_scale=self.confmap_config.data_config.preprocessing.scale,
             )
-            centroid_crop_layer.precrop_resize = (
-                self.confmap_config.data_config.preprocessing.scale
-            )
 
         if self.centroid_config is None and self.confmap_config is not None:
             self.instances_key = (
@@ -2681,9 +2678,6 @@ class TopDownMultiClassPredictor(Predictor):
             return_confmaps=self.return_confmaps,
             max_stride=max_stride,
             input_scale=self.confmap_config.data_config.preprocessing.scale,
-        )
-        centroid_crop_layer.precrop_resize = (
-            self.confmap_config.data_config.preprocessing.scale
         )
 
         if self.centroid_config is None:

@@ -210,13 +210,13 @@ def train(
             is set to True, then we convert the image to grayscale (single-channel)
             image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.
         scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.
-        max_height: Maximum height the image should be padded to. If not provided, the
+        max_height: Maximum height the original image should be resized and padded to. If not provided, the
             original image size will be retained. Default: None.
-        max_width: Maximum width the image should be padded to. If not provided, the
+        max_width: Maximum width the original image should be resized and padded to. If not provided, the
             original image size will be retained. Default: None.
         crop_size: Crop size of each instance for centered-instance model.
             If `None`, this would be automatically computed based on the largest instance
-            in the `sio.Labels` file. Default: None.
+            in the `sio.Labels` file. If `scale` is provided, then the cropped image will be resized according to `scale`. Default: None.
         min_crop_size: Minimum crop size to be used if `crop_size` is `None`. Default: 100.
         use_augmentations_train: True if the data augmentation should be applied to the
             training data, else False. Default: False.
