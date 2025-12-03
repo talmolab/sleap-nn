@@ -2662,6 +2662,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v005" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.5
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v004" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2767,6 +2778,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v005" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.0.5
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v004" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2828,6 +2850,46 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v005"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.5">v0.0.5</a><a class="headerlink" href="#v005" title="Permanent link">&para;</a></h2>
+<h2>Summary</h2>
+<p>This release includes important bug fixes, usability improvements, and configuration enhancements. Key highlights include automatic video-specific output naming for multi-video predictions, improved progress tracking, better handling of edge cases in configuration files, and enhanced security for API key storage.</p>
+<h2>Major changes</h2>
+<h3>New Features</h3>
+<h4>Progress Bar for Tracking (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3571540834" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/366" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/366/hovercard" href="https://github.com/talmolab/sleap-nn/pull/366">#366</a>)</h4>
+<p>Added visual progress tracking during tracking operations, providing real-time feedback on tracking progress for better user experience.</p>
+<h4>Video-Specific Output Paths (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3652906265" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/378" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/378/hovercard" href="https://github.com/talmolab/sleap-nn/pull/378">#378</a>)</h4>
+<p>When running inference with the <code>video_index</code> parameter on multi-video .slp files, output files now automatically include the video name to prevent overwrites. Previously, all predictions would save to the same path (e.g., <code>labels.predictions.slp</code>), requiring users to<br>
+manually specify unique output paths. Now, predictions are saved with the format <code>&lt;labels_file&gt;.&lt;video_name&gt;.predictions.slp</code>, enabling seamless batch processing of multiple videos from the same project file.</p>
+<h3>Bug Fixes</h3>
+<h4>Resume Checkpoint Mapping (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3613675435" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/370" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/370/hovercard" href="https://github.com/talmolab/sleap-nn/pull/370">#370</a>)</h4>
+<p>Fixed checkpoint mapping when resuming training from PyTorch model checkpoints, ensuring proper state restoration for torch models.</p>
+<h4>Metrics Format Compatibility (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3627565814" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/371" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/371/hovercard" href="https://github.com/talmolab/sleap-nn/pull/371">#371</a>)</h4>
+<p>Updated metrics saving format to match SLEAP 1.4 specifications and eliminated code duplication in metrics handling, ensuring cross-compatibility between SLEAP-NN and SLEAP 1.4.</p>
+<h4>Configuration Parameter Handling (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3652709230" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/377" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/377/hovercard" href="https://github.com/talmolab/sleap-nn/pull/377">#377</a>)</h4>
+<p>Improved handling of <code>run_name</code> and <code>ckpt_dir</code> configuration parameters when set to empty strings or the string literal "None" in YAML files. This prevents unexpected behavior and ensures consistent defaults are applied.</p>
+<h3>Security Improvements</h3>
+<h4>API Key Protection (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3627662672" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/372" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/372/hovercard" href="https://github.com/talmolab/sleap-nn/pull/372">#372</a>)</h4>
+<p>WandB API keys are now automatically masked when saving <code>initial_config.yaml</code> files, preventing accidental exposure of sensitive credentials in saved configurations.</p>
+<h3>Configuration &amp; Training Improvements</h3>
+<h4>Optimized Default Parameters (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3649828099" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/374" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/374/hovercard" href="https://github.com/talmolab/sleap-nn/pull/374">#374</a>, <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3649912121" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/375" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/375/hovercard" href="https://github.com/talmolab/sleap-nn/pull/375">#375</a>)</h4>
+<p>Updated default trainer configuration parameters based on extensive training experiments, improving training stability and convergence behavior out of the box.</p>
+<h3>Documentation</h3>
+<h4>Dependency Update Instructions (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3650240457" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/376" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/376/hovercard" href="https://github.com/talmolab/sleap-nn/pull/376">#376</a>)</h4>
+<p>Added comprehensive instructions for updating dependencies across all installation methods (GPU, CPU, and Apple Silicon), making it easier for users to maintain up-to-date environments.</p>
+<h2>Changelog</h2>
+<ul>
+<li>Add progress bar to tracker by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3571540834" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/366" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/366/hovercard" href="https://github.com/talmolab/sleap-nn/pull/366">#366</a></li>
+<li>Fix resume checkpoint mapping for torch models only by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3613675435" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/370" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/370/hovercard" href="https://github.com/talmolab/sleap-nn/pull/370">#370</a></li>
+<li>Fix metrics saving format to match SLEAP 1.4 and eliminate code duplication by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3627565814" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/371" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/371/hovercard" href="https://github.com/talmolab/sleap-nn/pull/371">#371</a></li>
+<li>Mask wandb API key in initial_config.yaml by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3627662672" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/372" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/372/hovercard" href="https://github.com/talmolab/sleap-nn/pull/372">#372</a></li>
+<li>Update default trainer configuration parameters for improved training stability by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3649828099" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/374" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/374/hovercard" href="https://github.com/talmolab/sleap-nn/pull/374">#374</a></li>
+<li>Update default configuration values for improved training by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3649912121" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/375" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/375/hovercard" href="https://github.com/talmolab/sleap-nn/pull/375">#375</a></li>
+<li>Add dependency update instructions for all installation methods by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3650240457" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/376" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/376/hovercard" href="https://github.com/talmolab/sleap-nn/pull/376">#376</a></li>
+<li>Handle empty and "None" string values for run_name and ckpt_dir config parameters by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3652709230" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/377" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/377/hovercard" href="https://github.com/talmolab/sleap-nn/pull/377">#377</a></li>
+<li>Append video name to output path when video_index is specified by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3652906265" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/378" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/378/hovercard" href="https://github.com/talmolab/sleap-nn/pull/378">#378</a></li>
+<li>Bump version to 0.0.5 by <a class="user-mention notranslate" data-hovercard-type="user" data-hovercard-url="/users/gitttt-1234/hovercard" data-octo-click="hovercard-link-click" data-octo-dimensions="link_type:self" href="https://github.com/gitttt-1234">@gitttt-1234</a> in <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3653414723" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/379" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/379/hovercard" href="https://github.com/talmolab/sleap-nn/pull/379">#379</a></li>
+</ul>
+<p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.0.4...v0.0.5"><tt>v0.0.4...v0.0.5</tt></a></p>
 <h2 id="v004"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.0.4">v0.0.4</a><a class="headerlink" href="#v004" title="Permanent link">&para;</a></h2>
 <h2>Summary</h2>
 <p>This release includes a dependency version bump and a critical bug fix for empty instance handling. The minimum torchvision version has been updated to 0.20.0, and sleap-io minimum version has been set to 0.5.7 to ensure compatibility with the latest features and improvements.</p>
