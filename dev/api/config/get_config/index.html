@@ -4002,7 +4002,7 @@ retained after training. Else, the files are deleted. Default: True.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Maximum height the image should be padded to. If not provided, the
+                <p>Maximum height the original image should be resized and padded to. If not provided, the
 original image size will be retained. Default: None.</p>
               </div>
             </td>
@@ -4019,7 +4019,7 @@ original image size will be retained. Default: None.</p>
             </td>
             <td>
               <div class="doc-md-description">
-                <p>Maximum width the image should be padded to. If not provided, the
+                <p>Maximum width the original image should be resized and padded to. If not provided, the
 original image size will be retained. Default: None.</p>
               </div>
             </td>
@@ -4038,7 +4038,7 @@ original image size will be retained. Default: None.</p>
               <div class="doc-md-description">
                 <p>Crop size of each instance for centered-instance model.
 If <code>None</code>, this would be automatically computed based on the largest instance
-in the <code>sio.Labels</code> file. Default: None.</p>
+in the <code>sio.Labels</code> file. If <code>scale</code> is provided, then the cropped image will be resized according to <code>scale</code>. Default: None.</p>
               </div>
             </td>
             <td>
@@ -4297,13 +4297,13 @@ For eg: {
 </span><span id="__span-0-508"><a id="__codelineno-0-508" name="__codelineno-0-508"></a><span class="sd">        is set to True, then we convert the image to grayscale (single-channel)</span>
 </span><span id="__span-0-509"><a id="__codelineno-0-509" name="__codelineno-0-509"></a><span class="sd">        image. If the source image has only one channel and this is set to False, then we retain the single channel input. Default: `False`.</span>
 </span><span id="__span-0-510"><a id="__codelineno-0-510" name="__codelineno-0-510"></a><span class="sd">        scale: Factor to resize the image dimensions by, specified as a float. Default: 1.0.</span>
-</span><span id="__span-0-511"><a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">        max_height: Maximum height the image should be padded to. If not provided, the</span>
+</span><span id="__span-0-511"><a id="__codelineno-0-511" name="__codelineno-0-511"></a><span class="sd">        max_height: Maximum height the original image should be resized and padded to. If not provided, the</span>
 </span><span id="__span-0-512"><a id="__codelineno-0-512" name="__codelineno-0-512"></a><span class="sd">            original image size will be retained. Default: None.</span>
-</span><span id="__span-0-513"><a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">        max_width: Maximum width the image should be padded to. If not provided, the</span>
+</span><span id="__span-0-513"><a id="__codelineno-0-513" name="__codelineno-0-513"></a><span class="sd">        max_width: Maximum width the original image should be resized and padded to. If not provided, the</span>
 </span><span id="__span-0-514"><a id="__codelineno-0-514" name="__codelineno-0-514"></a><span class="sd">            original image size will be retained. Default: None.</span>
 </span><span id="__span-0-515"><a id="__codelineno-0-515" name="__codelineno-0-515"></a><span class="sd">        crop_size: Crop size of each instance for centered-instance model.</span>
 </span><span id="__span-0-516"><a id="__codelineno-0-516" name="__codelineno-0-516"></a><span class="sd">            If `None`, this would be automatically computed based on the largest instance</span>
-</span><span id="__span-0-517"><a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">            in the `sio.Labels` file. Default: None.</span>
+</span><span id="__span-0-517"><a id="__codelineno-0-517" name="__codelineno-0-517"></a><span class="sd">            in the `sio.Labels` file. If `scale` is provided, then the cropped image will be resized according to `scale`. Default: None.</span>
 </span><span id="__span-0-518"><a id="__codelineno-0-518" name="__codelineno-0-518"></a><span class="sd">        min_crop_size: Minimum crop size to be used if `crop_size` is `None`. Default: 100.</span>
 </span><span id="__span-0-519"><a id="__codelineno-0-519" name="__codelineno-0-519"></a><span class="sd">        use_augmentations_train: True if the data augmentation should be applied to the</span>
 </span><span id="__span-0-520"><a id="__codelineno-0-520" name="__codelineno-0-520"></a><span class="sd">            training data, else False. Default: False.</span>

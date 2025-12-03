@@ -3613,10 +3613,10 @@ See the <a href="../models/">Model Architectures documentation</a> for a list of
 <li><code>preprocessing</code>:<ul>
 <li><code>ensure_rgb</code>: (bool) True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to <code>True</code>, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. <strong>Default</strong>: <code>False</code></li>
 <li><code>ensure_grayscale</code>: (bool) True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. <strong>Default</strong>: <code>False</code></li>
-<li><code>max_height</code>: (int) Maximum height the image should be padded to. If not provided, the original image size will be retained. <strong>Default</strong>: <code>None</code></li>
-<li><code>max_width</code>: (int) Maximum width the image should be padded to. If not provided, the original image size will be retained. <strong>Default</strong>: <code>None</code></li>
+<li><code>max_height</code>: (int) Maximum height the original image should be resized and padded to. If not provided, the original image size will be retained. <strong>Default</strong>: <code>None</code></li>
+<li><code>max_width</code>: (int) Maximum width the original image should be resized and padded to. If not provided, the original image size will be retained. <strong>Default</strong>: <code>None</code></li>
 <li><code>scale</code>: (float) Factor to resize the image dimensions by, specified as a float. <strong>Default</strong>: <code>1.0</code></li>
-<li><code>crop_size</code>: (int) Crop size of each instance for centered-instance model. If <code>None</code>, this would be automatically computed based on the largest instance in the <code>sio.Labels</code> file. <strong>Default</strong>: <code>None</code></li>
+<li><code>crop_size</code>: (int) Crop size of each instance for centered-instance model. If <code>None</code>, this would be automatically computed based on the largest instance in the <code>sio.Labels</code> file. If <code>scale</code> is provided, then the cropped image will be resized according to <code>scale</code>. <strong>Default</strong>: <code>None</code></li>
 <li><code>min_crop_size</code>: (int) Minimum crop size to be used if <code>crop_size</code> is <code>None</code>. <strong>Default</strong>: <code>100</code></li>
 </ul>
 </li>
