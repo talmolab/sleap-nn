@@ -342,7 +342,11 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> Dict[str, np.array]:
         """Return the ground truth instance peaks given a set of crops."""
-        b, _, max_inst, nodes, _ = batch["instances"].shape
+        b, _, _, nodes, _ = batch["instances"].shape
+        # Use number of centroids as max_inst to ensure consistent output shape
+        # This handles the case where max_instances limits centroids but instances
+        # tensor has a different (global) max_instances from the labels file
+        num_centroids = batch["centroids"].shape[2]
         inst = (
             batch["instances"].unsqueeze(dim=-4).float()
         )  # (batch, 1, 1, n_inst, nodes, 2)
@@ -372,26 +376,26 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         parsed = 0
         for i in range(b):
             if i not in matched_batch_inds:
-                batch_peaks = torch.full((max_inst, nodes, 2), torch.nan)
-                vals = torch.full((max_inst, nodes), torch.nan)
+                batch_peaks = torch.full((num_centroids, nodes, 2), torch.nan)
+                vals = torch.full((num_centroids, nodes), torch.nan)
             else:
                 c = counts[i]
                 batch_peaks = peaks_list[parsed : parsed + c]
                 num_inst = len(batch_peaks)
                 vals = torch.ones((num_inst, nodes))
-                if c < max_inst:
+                if c < num_centroids:
                     batch_peaks = torch.cat(
                         [
                             batch_peaks,
-                            torch.full((max_inst - num_inst, nodes, 2), torch.nan),
+                            torch.full((num_centroids - num_inst, nodes, 2), torch.nan),
                         ]
                     )
                     vals = torch.cat(
-                        [vals, torch.full((max_inst - num_inst, nodes), torch.nan)]
+                        [vals, torch.full((num_centroids - num_inst, nodes), torch.nan)]
                     )
                 else:
-                    batch_peaks = batch_peaks[:max_inst]
-                    vals = vals[:max_inst]
+                    batch_peaks = batch_peaks[:num_centroids]
+                    vals = vals[:num_centroids]
                 parsed += c
 
             batch_peaks = batch_peaks.unsqueeze(dim=0)
@@ -415,17 +419,16 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
         peaks_output["pred_instance_peaks"] = peaks
         peaks_output["pred_peak_values"] = peaks_vals
 
-        batch_size, num_centroids = (
-            batch["centroids"].shape[0],
-            batch["centroids"].shape[2],
-        )
+        batch_size = batch["centroids"].shape[0]
         output_dict = {}
         output_dict["centroid"] = batch["centroids"].squeeze(dim=1).reshape(-1, 1, 2)
         output_dict["centroid_val"] = batch["centroid_vals"].reshape(-1)
-        output_dict["pred_instance_peaks"] = batch["pred_instance_peaks"].reshape(
-            -1, nodes, 2
+        output_dict["pred_instance_peaks"] = peaks_output[
+            "pred_instance_peaks"
+        ].reshape(-1, nodes, 2)
+        output_dict["pred_peak_values"] = peaks_output["pred_peak_values"].reshape(
+            -1, nodes
         )
-        output_dict["pred_peak_values"] = batch["pred_peak_values"].reshape(-1, nodes)
         output_dict["instance_bbox"] = torch.zeros(
             (batch_size * num_centroids, 1, 4, 2)
         )
