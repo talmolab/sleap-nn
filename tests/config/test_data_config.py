@@ -17,6 +17,7 @@ from sleap_nn.config.data_config import (
     IntensityConfig,
     GeometricConfig,
     validate_proportion,
+    validate_test_file_path,
     data_mapper,
 )
 
@@ -208,3 +209,40 @@ def test_data_mapper():
 
     # Test skeletons
     assert config.skeletons == None
+
+
+def test_validate_test_file_path():
+    """Test the validate_test_file_path validator function."""
+    # Test with None (should pass)
+    config = DataConfig(test_file_path=None)
+    assert config.test_file_path is None
+
+    # Test with string (should pass)
+    config = DataConfig(test_file_path="test.slp")
+    assert config.test_file_path == "test.slp"
+
+    # Test with list of strings (should pass)
+    config = DataConfig(test_file_path=["test1.slp", "test2.slp"])
+    assert config.test_file_path == ["test1.slp", "test2.slp"]
+
+    # Test with tuple of strings (should pass)
+    config = DataConfig(test_file_path=("test1.slp", "test2.slp"))
+    assert config.test_file_path == ("test1.slp", "test2.slp")
+
+
+def test_validate_test_file_path_invalid(caplog):
+    """Test that validate_test_file_path raises error for invalid types."""
+    # Test with integer (should fail)
+    with pytest.raises(ValueError):
+        DataConfig(test_file_path=123)
+    assert "test_file_path must be a string or list of strings" in caplog.text
+
+    # Test with list containing non-strings (should fail)
+    with pytest.raises(ValueError):
+        DataConfig(test_file_path=["test.slp", 123])
+    assert "test_file_path must be a string or list of strings" in caplog.text
+
+    # Test with dict (should fail)
+    with pytest.raises(ValueError):
+        DataConfig(test_file_path={"path": "test.slp"})
+    assert "test_file_path must be a string or list of strings" in caplog.text

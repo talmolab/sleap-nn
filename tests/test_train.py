@@ -152,7 +152,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     train(
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
-        test_file_path=minimal_instance,
+        test_file_path=str(minimal_instance),
         max_epochs=1,
         trainer_num_devices=1,  # multi-gpu doesn't work well with pytest
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
@@ -179,7 +179,7 @@ def test_train_method(minimal_instance, tmp_path: str):
         train_labels_path=[minimal_instance],
         val_labels_path=[],
         validation_fraction=0.1,
-        test_file_path=minimal_instance,
+        test_file_path=str(minimal_instance),
         max_epochs=1,
         trainer_num_devices=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
@@ -206,7 +206,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     train(
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
-        test_file_path=minimal_instance,
+        test_file_path=str(minimal_instance),
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         trainer_num_devices=1,
@@ -228,7 +228,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     train(
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
-        test_file_path=minimal_instance,
+        test_file_path=str(minimal_instance),
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         trainer_num_devices=1,
@@ -250,7 +250,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     train(
         train_labels_path=[minimal_instance, minimal_instance, minimal_instance],
         val_labels_path=[minimal_instance, minimal_instance, minimal_instance],
-        test_file_path=minimal_instance,
+        test_file_path=str(minimal_instance),
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         trainer_num_devices=1,

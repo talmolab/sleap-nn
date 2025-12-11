@@ -456,7 +456,7 @@ def get_data_config(
     train_labels_path: Optional[List[str]] = None,
     val_labels_path: Optional[List[str]] = None,
     validation_fraction: float = 0.1,
-    test_file_path: Optional[str] = None,
+    test_file_path: Optional[Union[str, List[str]]] = None,
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
     data_pipeline_fw: str = "torch_dataset",
@@ -486,7 +486,7 @@ def get_data_config(
             training set to sample for generating the validation set. The remaining
             labeled frames will be left in the training set. If the `validation_labels`
             are already specified, this has no effect. Default: 0.1.
-        test_file_path: Path to test dataset (`.slp` file or `.mp4` file).
+        test_file_path: Path or list of paths to test dataset(s) (`.slp` file(s) or `.mp4` file(s)).
             Note: This is used to get evaluation on test set after training is completed.
         provider: Provider class to read the input sleap files. Only "LabelsReader"
             supported for the training pipeline. Default: "LabelsReader".
