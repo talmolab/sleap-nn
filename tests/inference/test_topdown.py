@@ -232,6 +232,33 @@ def test_find_instance_peaks_groundtruth(
     assert "pred_instance_peaks" in output.keys()
     assert output["pred_instance_peaks"].shape == (2, 2, 2)
     assert output["pred_peak_values"].shape == (2, 2)
+    assert output["image"].shape == (2, 1, 1, 384, 384)
+    assert "pred_centroid_confmaps" not in output.keys()
+
+    centroid_layer = CentroidCrop(
+        torch_model=torch_model.to("cpu"),
+        peak_threshold=0.0,
+        refinement="integral",
+        integral_patch_size=5,
+        output_stride=2,
+        return_confmaps=True,
+        max_instances=2,
+        return_crops=False,
+        crop_hw=(160, 160),
+    )
+
+    topdown_inf_layer = TopDownInferenceModel(
+        centroid_crop=centroid_layer, instance_peaks=FindInstancePeaksGroundTruth()
+    )
+
+    output = topdown_inf_layer(ex)[0]
+
+    assert "pred_instance_peaks" in output.keys()
+    assert output["pred_instance_peaks"].shape == (2, 2, 2)
+    assert output["pred_peak_values"].shape == (2, 2)
+    assert output["image"].shape == (2, 1, 1, 384, 384)
+    assert "pred_centroid_confmaps" in output.keys()
+    assert output["pred_centroid_confmaps"].shape == (2, 1, 96, 96)
 
 
 def test_find_instance_peaks(
