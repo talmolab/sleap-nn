@@ -442,9 +442,15 @@ class FindInstancePeaksGroundTruth(L.LightningModule):
             frame_inds.extend([batch["frame_idx"][b_idx]] * curr_batch_size)
             video_inds.extend([batch["video_idx"][b_idx]] * curr_batch_size)
             orig_szs.append(torch.cat([batch["orig_size"][b_idx]] * curr_batch_size))
-            images.append(batch["image"][b_idx].unsqueeze(0).repeat(curr_batch_size, 1, 1, 1, 1))
+            images.append(
+                batch["image"][b_idx].unsqueeze(0).repeat(curr_batch_size, 1, 1, 1, 1)
+            )
             if "pred_centroid_confmaps" in batch:
-                centroid_confmaps.append(batch["pred_centroid_confmaps"][b_idx].unsqueeze(0).repeat(curr_batch_size, 1, 1, 1))
+                centroid_confmaps.append(
+                    batch["pred_centroid_confmaps"][b_idx]
+                    .unsqueeze(0)
+                    .repeat(curr_batch_size, 1, 1, 1)
+                )
 
         output_dict["frame_idx"] = torch.tensor(frame_inds)
         output_dict["video_idx"] = torch.tensor(video_inds)

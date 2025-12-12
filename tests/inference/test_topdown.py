@@ -232,6 +232,8 @@ def test_find_instance_peaks_groundtruth(
     assert "pred_instance_peaks" in output.keys()
     assert output["pred_instance_peaks"].shape == (2, 2, 2)
     assert output["pred_peak_values"].shape == (2, 2)
+    assert output["image"].shape == (2, 1, 1, 384, 384)
+    assert "pred_centroid_confmaps" not in output.keys()
 
 
 def test_find_instance_peaks(
