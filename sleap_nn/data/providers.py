@@ -71,6 +71,8 @@ def process_lf(
     for inst in instances_list:
         if not inst.is_empty:
             instances.append(inst.numpy())
+    if len(instances) == 0:
+        return None
     instances = np.stack(instances, axis=0)
 
     # Add singleton time dimension for single frames.
@@ -333,6 +335,8 @@ class LabelsReader(Thread):
                     for inst in lf:
                         if not inst.is_empty:
                             instances.append(inst.numpy())
+                    if len(instances) == 0:
+                        continue
                     instances = np.stack(instances, axis=0)
 
                     # Add singleton time dimension for single frames.
