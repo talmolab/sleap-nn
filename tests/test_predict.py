@@ -165,6 +165,25 @@ def test_topdown_predictor(
     assert len(pred_labels) == 1
     assert len(pred_labels[0].instances) <= 6
 
+    # centroid + centroid instance model with labels (return confmaps)
+    pred_labels = run_inference(
+        model_paths=[
+            minimal_instance_centroid_ckpt,
+            minimal_instance_centered_instance_ckpt,
+        ],
+        input_labels=sio.load_slp(minimal_instance.as_posix()),
+        return_confmaps=True,
+        make_labels=False,
+        max_instances=6,
+        peak_threshold=[0.0, 0.0],
+        device="cpu",
+        integral_refinement="integral",
+    )
+    assert isinstance(pred_labels, list)
+    assert len(pred_labels) == 1
+    assert "pred_centroid_confmaps" in pred_labels[0].keys()
+    assert "pred_instance_peaks" in pred_labels[0].keys()
+
     # centroid model
     max_instances = 6
     pred_labels = run_inference(

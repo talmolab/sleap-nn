@@ -92,17 +92,21 @@ class CentroidCrop(L.LightningModule):
         self.use_gt_centroids = use_gt_centroids
         self.anchor_ind = anchor_ind
 
-    def _generate_crops(self, inputs):
+    def _generate_crops(self, inputs, cms: Optional[torch.Tensor] = None):
         """Generate Crops from the predicted centroids."""
         crops_dict = []
-        for centroid, centroid_val, image, fidx, vidx, sz, eff_sc in zip(
-            self.refined_peaks_batched,
-            self.peak_vals_batched,
-            inputs["image"],
-            inputs["frame_idx"],
-            inputs["video_idx"],
-            inputs["orig_size"],
-            inputs["eff_scale"],
+        if cms is not None:
+            cms = cms.detach()
+        for idx, (centroid, centroid_val, image, fidx, vidx, sz, eff_sc) in enumerate(
+            zip(
+                self.refined_peaks_batched,
+                self.peak_vals_batched,
+                inputs["image"],
+                inputs["frame_idx"],
+                inputs["video_idx"],
+                inputs["orig_size"],
+                inputs["eff_scale"],
+            )
         ):
             if torch.any(torch.isnan(centroid)):
                 if torch.all(torch.isnan(centroid)):
@@ -144,6 +148,11 @@ class CentroidCrop(L.LightningModule):
             ex["instance_image"] = instance_image.unsqueeze(dim=1)
             ex["orig_size"] = torch.cat([torch.Tensor(sz)] * n)
             ex["eff_scale"] = torch.Tensor([eff_sc] * n)
+            ex["pred_centroids"] = centroid
+            if self.return_confmaps:
+                ex["pred_centroid_confmaps"] = torch.cat(
+                    [cms[idx].unsqueeze(dim=0)] * n
+                )
             crops_dict.append(ex)
 
         return crops_dict
@@ -269,7 +278,7 @@ class CentroidCrop(L.LightningModule):
                         "centroid_vals": self.peak_vals_batched,
                     }
                 )
-                crops_dict = self._generate_crops(inputs)
+                crops_dict = self._generate_crops(inputs, cms)
                 return crops_dict
             else:
                 # batch the peaks to pass it to FindInstancePeaksGroundTruth class.
