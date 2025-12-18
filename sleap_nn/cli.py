@@ -80,7 +80,7 @@ For a detailed list of all available config options, please refer to https://nn.
     "--video-path-map",
     type=str,
     help="Mapping of old video paths to new video paths as comma-separated 'old:new' pairs. "
-    "Example: --video-path-map 'old1.mp4:new1.mp4,old2.mp4:new2.mp4'",
+    "Example: --video-path-map 'old1.mp4->new1.mp4,old2.mp4->new2.mp4'",
 )
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(config_name, config_dir, video_paths, video_path_map, overrides):
@@ -134,7 +134,7 @@ def train(config_name, config_dir, video_paths, video_path_map, overrides):
                 # Dictionary mapping old paths to new paths
                 replacement = {}
                 for pair in video_path_map.split(","):
-                    old_path, new_path = pair.strip().split(":")
+                    old_path, new_path = pair.strip().split("->")
                     replacement[old_path.strip()] = Path(new_path.strip()).as_posix()
 
             # Load and update train labels

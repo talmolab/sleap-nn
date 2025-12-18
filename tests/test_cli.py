@@ -280,7 +280,7 @@ def test_train_cli_with_video_paths(
         "--config-name",
         "test_config",
         "--video-path-map",
-        f"{video_path}:{small_robot_minimal_video.as_posix()}",
+        f"{video_path}->{small_robot_minimal_video.as_posix()}",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
