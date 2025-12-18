@@ -115,22 +115,177 @@ def sample_config(tmp_path, minimal_instance):
     return config_data
 
 
-def test_train_command(sample_config, tmp_path):
-    """Test successful train command execution."""
-    OmegaConf.save(sample_config, (Path(tmp_path) / "test_config.yaml").as_posix())
+def test_main_cli(sample_config, tmp_path):
     cmd = [
         "uv",
         "run",
         "sleap-nn",
         "train",
-        "--config-name",
-        f"test_config.yaml",
+        "--help",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 0
+    assert result.returncode == 0
+    assert "Usage" in result.stdout  # Should show usage information
+    assert "sleap.ai" in result.stdout  # should point user to read the documents
+
+    # Now to test overrides and defaults
+
+    sample_config.trainer_config.trainer_accelerator = (
+        "cpu" if torch.mps.is_available() else "auto"
+    )
+    OmegaConf.save(sample_config, (Path(tmp_path) / "test_config.yaml").as_posix())
+
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "train",
         "--config-dir",
         f"{tmp_path}",
+        "--config-name",
+        "test_config",
     ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    print(result.stdout)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 0
+    assert result.returncode == 0
+    # Try to parse the output back into the yaml, truncate the beginning (starts with "data_config")
+    # Only keep stdout starting from "data_config"
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    output = OmegaConf.create(stripped_out)
+    assert output == sample_config
+
+    # config override should work
+    sample_config.trainer_config.max_epochs = 2
+    sample_config.data_config.preprocessing.scale = 1.2
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+        "trainer_config.max_epochs=2",
+        "data_config.preprocessing.scale=1.2",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    # Exit code should be 0
+    assert result.returncode == 0
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    output = OmegaConf.create(stripped_out)
+    assert output == sample_config
+
+    # Test CLI with '--' to separate config overrides from positional args
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+        "--",
+        "trainer_config.max_epochs=3",
+        "data_config.preprocessing.scale=1.5",
+    ]
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+    )
+    assert (
+        Path(f"{sample_config.trainer_config.ckpt_dir}")
+        / sample_config.trainer_config.run_name
+    ).exists()
+    assert Path(
+        f"{sample_config.trainer_config.ckpt_dir}/{sample_config.trainer_config.run_name}/best.ckpt"
+    ).exists()
+    # Exit code should be 0
+    assert result.returncode == 0
+    # Check that overrides are applied
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    output = OmegaConf.create(stripped_out)
+    assert output.trainer_config.max_epochs == 3
+    assert output.data_config.preprocessing.scale == 1.5
+
+
+def test_train_cli_with_video_paths(
+    sample_config, tmp_path, small_robot_minimal, small_robot_minimal_video
+):
+    sample_config.trainer_config.trainer_accelerator = (
+        "cpu" if torch.mps.is_available() else "auto"
+    )
+    sample_config.trainer_config.run_name = "test_small_robot_video_paths"
+    sample_config.data_config.train_labels_path = [small_robot_minimal.as_posix()]
+    sample_config.data_config.val_labels_path = None
+    OmegaConf.save(sample_config, (Path(tmp_path) / "test_config.yaml").as_posix())
+
+    # with video paths as list
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+        "--video-paths",
+        f"{small_robot_minimal_video.as_posix()}",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
+
+    assert (
+        Path(f"{sample_config.trainer_config.ckpt_dir}")
+        / sample_config.trainer_config.run_name
+    ).exists()
+    assert Path(
+        f"{sample_config.trainer_config.ckpt_dir}/{sample_config.trainer_config.run_name}/best.ckpt"
+    ).exists()
+
+    # with video paths as dictionary
+    sample_config.trainer_config.run_name = "test_small_robot_video_paths_mapper"
+    sample_config.data_config.train_labels_path = [small_robot_minimal.as_posix()]
+    sample_config.data_config.val_labels_path = None
+    OmegaConf.save(sample_config, (Path(tmp_path) / "test_config.yaml").as_posix())
+    labels = sio.load_slp(small_robot_minimal)
+    video_path = labels.videos[0].filename
+
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+        "--video-path-map",
+        f"{video_path}:{small_robot_minimal_video.as_posix()}",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
     print(result.stderr)
+
     assert (
         Path(f"{sample_config.trainer_config.ckpt_dir}")
         / sample_config.trainer_config.run_name

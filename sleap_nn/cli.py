@@ -4,6 +4,7 @@ import click
 from loguru import logger
 from pathlib import Path
 from omegaconf import OmegaConf, DictConfig
+import sleap_io as sio
 from sleap_nn.predict import run_inference, frame_list
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.train import run_training
@@ -67,8 +68,22 @@ For a detailed list of all available config options, please refer to https://nn.
 @click.option(
     "--config-dir", "-d", type=str, default=".", help="Configuration directory path"
 )
+@click.option(
+    "--video-paths",
+    "-v",
+    type=str,
+    help="Comma-separated list of video paths to replace existing paths in the labels file. "
+    "Order must match the order of videos in the labels file. "
+    "Example: --video-paths '/path/to/vid1.mp4,/path/to/vid2.mp4'",
+)
+@click.option(
+    "--video-path-map",
+    type=str,
+    help="Mapping of old video paths to new video paths as comma-separated 'old:new' pairs. "
+    "Example: --video-path-map 'old1.mp4:new1.mp4,old2.mp4:new2.mp4'",
+)
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
-def train(config_name, config_dir, overrides):
+def train(config_name, config_dir, video_paths, video_path_map, overrides):
     """Run training workflow with Hydra config overrides.
 
     Examples:
@@ -97,7 +112,50 @@ def train(config_name, config_dir, overrides):
 
         logger.info("Input config:")
         logger.info("\n" + OmegaConf.to_yaml(cfg))
-        run_training(cfg)
+
+        # Handle video path replacement options
+        train_labels = None
+        val_labels = None
+
+        if video_paths is not None and video_path_map is not None:
+            raise click.UsageError(
+                "Cannot use both --video-paths and --video-path-map. Choose one."
+            )
+
+        if video_paths is not None or video_path_map is not None:
+            # Parse video path replacement
+            if video_paths is not None:
+                # List of paths (order must match videos in labels file)
+                video_path_list = [
+                    Path(p.strip()).as_posix() for p in video_paths.split(",")
+                ]
+                replacement = video_path_list
+            else:
+                # Dictionary mapping old paths to new paths
+                replacement = {}
+                for pair in video_path_map.split(","):
+                    old_path, new_path = pair.strip().split(":")
+                    replacement[old_path.strip()] = Path(new_path.strip()).as_posix()
+
+            # Load and update train labels
+            train_labels = [
+                sio.load_slp(path) for path in cfg.data_config.train_labels_path
+            ]
+            for labels in train_labels:
+                labels.replace_filenames(replacement)
+
+            # Load and update val labels if they exist
+            if (
+                cfg.data_config.val_labels_path is not None
+                and len(cfg.data_config.val_labels_path) > 0
+            ):
+                val_labels = [
+                    sio.load_slp(path) for path in cfg.data_config.val_labels_path
+                ]
+                for labels in val_labels:
+                    labels.replace_filenames(replacement)
+
+        run_training(config=cfg, train_labels=train_labels, val_labels=val_labels)
 
 
 @cli.command()
