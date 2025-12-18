@@ -295,6 +295,51 @@ def test_train_cli_with_video_paths(
     ).exists()
 
 
+def test_train_cli_with_prefix_map(
+    sample_config, tmp_path, small_robot_minimal, small_robot_minimal_video
+):
+    """Test --prefix-map option for replacing path prefixes."""
+    sample_config.trainer_config.trainer_accelerator = (
+        "cpu" if torch.mps.is_available() else "auto"
+    )
+    sample_config.trainer_config.run_name = "test_small_robot_prefix_map"
+    sample_config.data_config.train_labels_path = [small_robot_minimal.as_posix()]
+    sample_config.data_config.val_labels_path = None
+    OmegaConf.save(sample_config, (Path(tmp_path) / "test_config.yaml").as_posix())
+
+    # Get the video path from labels and extract the prefix
+    labels = sio.load_slp(small_robot_minimal)
+    old_video_path = Path(labels.videos[0].filename)
+    new_video_path = Path(small_robot_minimal_video)
+
+    # Find the common suffix and determine prefixes
+    old_prefix = old_video_path.parent.as_posix()
+    new_prefix = new_video_path.parent.as_posix()
+
+    cmd = [
+        "uv",
+        "run",
+        "sleap-nn",
+        "train",
+        "--config-dir",
+        f"{tmp_path}",
+        "--config-name",
+        "test_config",
+        "--prefix-map",
+        f"{old_prefix}->{new_prefix}",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+
+    assert (
+        Path(f"{sample_config.trainer_config.ckpt_dir}")
+        / sample_config.trainer_config.run_name
+    ).exists()
+    assert Path(
+        f"{sample_config.trainer_config.ckpt_dir}/{sample_config.trainer_config.run_name}/best.ckpt"
+    ).exists()
+
+
 def test_track_command(
     centered_instance_video,
     minimal_instance_centered_instance_ckpt,

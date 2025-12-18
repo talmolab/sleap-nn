@@ -79,11 +79,18 @@ For a detailed list of all available config options, please refer to https://nn.
 @click.option(
     "--video-path-map",
     type=str,
-    help="Mapping of old video paths to new video paths as comma-separated 'old:new' pairs. "
+    help="Mapping of old video paths to new video paths as comma-separated 'old->new' pairs. "
     "Example: --video-path-map 'old1.mp4->new1.mp4,old2.mp4->new2.mp4'",
 )
+@click.option(
+    "--prefix-map",
+    type=str,
+    help="Mapping of old path prefixes to new prefixes as comma-separated 'old->new' pairs. "
+    "This updates ALL videos that share the same prefix. Useful when moving data between machines. "
+    "Example: --prefix-map '/old/server/path->/new/local/path'",
+)
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
-def train(config_name, config_dir, video_paths, video_path_map, overrides):
+def train(config_name, config_dir, video_paths, video_path_map, prefix_map, overrides):
     """Run training workflow with Hydra config overrides.
 
     Examples:
@@ -117,34 +124,23 @@ def train(config_name, config_dir, video_paths, video_path_map, overrides):
         train_labels = None
         val_labels = None
 
-        if video_paths is not None and video_path_map is not None:
+        # Check that only one replacement option is used
+        options_used = sum(
+            opt is not None for opt in [video_paths, video_path_map, prefix_map]
+        )
+        if options_used > 1:
             raise click.UsageError(
-                "Cannot use both --video-paths and --video-path-map. Choose one."
+                "Cannot use multiple path replacement options. "
+                "Choose one of: --video-paths, --video-path-map, or --prefix-map."
             )
 
-        if video_paths is not None or video_path_map is not None:
-            # Parse video path replacement
-            if video_paths is not None:
-                # List of paths (order must match videos in labels file)
-                video_path_list = [
-                    Path(p.strip()).as_posix() for p in video_paths.split(",")
-                ]
-                replacement = video_path_list
-            else:
-                # Dictionary mapping old paths to new paths
-                replacement = {}
-                for pair in video_path_map.split(","):
-                    old_path, new_path = pair.strip().split("->")
-                    replacement[old_path.strip()] = Path(new_path.strip()).as_posix()
-
-            # Load and update train labels
+        if options_used == 1:
+            # Load train labels
             train_labels = [
                 sio.load_slp(path) for path in cfg.data_config.train_labels_path
             ]
-            for labels in train_labels:
-                labels.replace_filenames(replacement)
 
-            # Load and update val labels if they exist
+            # Load val labels if they exist
             if (
                 cfg.data_config.val_labels_path is not None
                 and len(cfg.data_config.val_labels_path) > 0
@@ -152,8 +148,42 @@ def train(config_name, config_dir, video_paths, video_path_map, overrides):
                 val_labels = [
                     sio.load_slp(path) for path in cfg.data_config.val_labels_path
                 ]
+
+            # Parse replacement arguments based on option used
+            if video_paths is not None:
+                # List of paths (order must match videos in labels file)
+                replace_kwargs = {
+                    "new_filenames": [
+                        Path(p.strip()).as_posix() for p in video_paths.split(",")
+                    ]
+                }
+            elif video_path_map is not None:
+                # Dictionary mapping old filenames to new filenames
+                replace_kwargs = {
+                    "filename_map": {
+                        old.strip(): Path(new.strip()).as_posix()
+                        for pair in video_path_map.split(",")
+                        for old, new in [pair.split("->")]
+                    }
+                }
+            else:  # prefix_map is not None
+                # Dictionary mapping old prefixes to new prefixes
+                replace_kwargs = {
+                    "prefix_map": {
+                        old.strip(): Path(new.strip()).as_posix()
+                        for pair in prefix_map.split(",")
+                        for old, new in [pair.split("->")]
+                    }
+                }
+
+            # Apply replacement to train labels
+            for labels in train_labels:
+                labels.replace_filenames(**replace_kwargs)
+
+            # Apply replacement to val labels if they exist
+            if val_labels:
                 for labels in val_labels:
-                    labels.replace_filenames(replacement)
+                    labels.replace_filenames(**replace_kwargs)
 
         run_training(config=cfg, train_labels=train_labels, val_labels=val_labels)
 
