@@ -4,6 +4,7 @@ import click
 from loguru import logger
 from pathlib import Path
 from omegaconf import OmegaConf, DictConfig
+import sleap_io as sio
 from sleap_nn.predict import run_inference, frame_list
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.train import run_training
@@ -67,8 +68,29 @@ For a detailed list of all available config options, please refer to https://nn.
 @click.option(
     "--config-dir", "-d", type=str, default=".", help="Configuration directory path"
 )
+@click.option(
+    "--video-paths",
+    "-v",
+    type=str,
+    help="Comma-separated list of video paths to replace existing paths in the labels file. "
+    "Order must match the order of videos in the labels file. "
+    "Example: --video-paths '/path/to/vid1.mp4,/path/to/vid2.mp4'",
+)
+@click.option(
+    "--video-path-map",
+    type=str,
+    help="Mapping of old video paths to new video paths as comma-separated 'old->new' pairs. "
+    "Example: --video-path-map 'old1.mp4->new1.mp4,old2.mp4->new2.mp4'",
+)
+@click.option(
+    "--prefix-map",
+    type=str,
+    help="Mapping of old path prefixes to new prefixes as comma-separated 'old->new' pairs. "
+    "This updates ALL videos that share the same prefix. Useful when moving data between machines. "
+    "Example: --prefix-map '/old/server/path->/new/local/path'",
+)
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
-def train(config_name, config_dir, overrides):
+def train(config_name, config_dir, video_paths, video_path_map, prefix_map, overrides):
     """Run training workflow with Hydra config overrides.
 
     Examples:
@@ -97,7 +119,73 @@ def train(config_name, config_dir, overrides):
 
         logger.info("Input config:")
         logger.info("\n" + OmegaConf.to_yaml(cfg))
-        run_training(cfg)
+
+        # Handle video path replacement options
+        train_labels = None
+        val_labels = None
+
+        # Check that only one replacement option is used
+        options_used = sum(
+            opt is not None for opt in [video_paths, video_path_map, prefix_map]
+        )
+        if options_used > 1:
+            raise click.UsageError(
+                "Cannot use multiple path replacement options. "
+                "Choose one of: --video-paths, --video-path-map, or --prefix-map."
+            )
+
+        if options_used == 1:
+            # Load train labels
+            train_labels = [
+                sio.load_slp(path) for path in cfg.data_config.train_labels_path
+            ]
+
+            # Load val labels if they exist
+            if (
+                cfg.data_config.val_labels_path is not None
+                and len(cfg.data_config.val_labels_path) > 0
+            ):
+                val_labels = [
+                    sio.load_slp(path) for path in cfg.data_config.val_labels_path
+                ]
+
+            # Parse replacement arguments based on option used
+            if video_paths is not None:
+                # List of paths (order must match videos in labels file)
+                replace_kwargs = {
+                    "new_filenames": [
+                        Path(p.strip()).as_posix() for p in video_paths.split(",")
+                    ]
+                }
+            elif video_path_map is not None:
+                # Dictionary mapping old filenames to new filenames
+                replace_kwargs = {
+                    "filename_map": {
+                        old.strip(): Path(new.strip()).as_posix()
+                        for pair in video_path_map.split(",")
+                        for old, new in [pair.split("->")]
+                    }
+                }
+            else:  # prefix_map is not None
+                # Dictionary mapping old prefixes to new prefixes
+                replace_kwargs = {
+                    "prefix_map": {
+                        old.strip(): Path(new.strip()).as_posix()
+                        for pair in prefix_map.split(",")
+                        for old, new in [pair.split("->")]
+                    }
+                }
+
+            # Apply replacement to train labels
+            for labels in train_labels:
+                labels.replace_filenames(**replace_kwargs)
+
+            # Apply replacement to val labels if they exist
+            if val_labels:
+                for labels in val_labels:
+                    labels.replace_filenames(**replace_kwargs)
+
+        run_training(config=cfg, train_labels=train_labels, val_labels=val_labels)
 
 
 @cli.command()

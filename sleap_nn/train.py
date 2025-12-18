@@ -6,6 +6,7 @@ from datetime import datetime
 from time import time
 from omegaconf import DictConfig, OmegaConf
 from typing import Any, Dict, Optional, List, Tuple, Union
+import sleap_io as sio
 from sleap_nn.config.training_job_config import TrainingJobConfig
 from sleap_nn.training.model_trainer import ModelTrainer
 from sleap_nn.predict import run_inference as predict
@@ -17,13 +18,27 @@ from sleap_nn.config.get_config import (
 )
 
 
-def run_training(config: DictConfig):
-    """Create ModelTrainer instance and start training."""
+def run_training(
+    config: DictConfig,
+    train_labels: Optional[List[sio.Labels]] = None,
+    val_labels: Optional[List[sio.Labels]] = None,
+):
+    """Create ModelTrainer instance and start training.
+
+    Args:
+        config: Training configuration as a DictConfig.
+        train_labels: List of Labels objects for training.
+        val_labels: List of Labels objects for validation.
+            If not provided, the labels will be loaded from paths in the config.
+    """
     start_train_time = time()
     start_timestamp = str(datetime.now())
     logger.info(f"Started training at: {start_timestamp}")
 
-    trainer = ModelTrainer.get_model_trainer_from_config(config)
+    # provide the labels as the train labels, val labels will be split from the train labels
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        config, train_labels=train_labels, val_labels=val_labels
+    )
     trainer.train()
 
     finish_timestamp = str(datetime.now())
@@ -39,7 +54,7 @@ def run_training(config: DictConfig):
         # run inference on val dataset
         if trainer.config.trainer_config.save_ckpt:
             data_paths = {}
-            for index, path in enumerate(trainer.config.data_config.train_labels_path):
+            for index, _ in enumerate(trainer.train_labels):
                 logger.info(
                     f"Training labels path for index {index}: {(Path(trainer.config.trainer_config.ckpt_dir) / trainer.config.trainer_config.run_name).as_posix()}"
                 )
