@@ -95,7 +95,7 @@ For a detailed list of all available config options, please refer to https://nn.
     metavar="OLD NEW",
     help="Map old video path to new path. Takes two arguments: old path and new path. "
     "Can be specified multiple times. "
-    "Example: --video-path-map \"/old/vid.mp`4\" \"/new/vid.mp4\"",
+    'Example: --video-path-map "/old/vid.mp`4" "/new/vid.mp4"',
 )
 @click.option(
     "--prefix-map",
@@ -106,7 +106,7 @@ For a detailed list of all available config options, please refer to https://nn.
     help="Map old path prefix to new prefix. Takes two arguments: old prefix and new prefix. "
     "Updates ALL videos that share the same prefix. Useful when moving data between machines. "
     "Can be specified multiple times. "
-    "Example: --prefix-map \"/old/server/path\" \"/new/local/path\"",
+    'Example: --prefix-map "/old/server/path" "/new/local/path"',
 )
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(config_name, config_dir, video_paths, video_path_map, prefix_map, overrides):
