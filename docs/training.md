@@ -17,7 +17,9 @@ This section explains how to train a model using an existing configuration file.
 
 ### Using CLI
 
-To train a model using CLI, 
+For a complete list of all CLI options, see the [CLI Reference](cli.md#sleap-nn-train).
+
+To train a model using CLI,
 ```bash
 sleap-nn train --config-name config --config-dir /path/to/config_dir
 ```
@@ -57,9 +59,66 @@ sleap-nn train -c config -d /path/to/config_dir/ trainer_config.optimizer.lr=5e-
     # Train centered instance model
     sleap-nn train \
         -d /path/to/config_dir/ \
-        -c centered_instance_unet \ 
+        -c centered_instance_unet \
         "data_config.train_labels_path=[labels.pkg.slp]"
-    ```  
+    ```
+
+#### Remapping Video Paths
+
+When training on a different machine than where your labels were created, the video file paths in your `.slp` file may no longer be valid. SLEAP-NN provides three CLI options to remap video paths at training time without modifying your labels file.
+
+**`--video-paths` / `-v`:**
+
+Replace video paths by specifying new paths in order. The order must match the order of videos in your labels file.
+
+```bash
+# Single video
+sleap-nn train -c config -d /path/to/config_dir \
+    --video-paths /new/path/to/video.mp4
+
+# Multiple videos (specify multiple times)
+sleap-nn train -c config -d /path/to/config_dir \
+    --video-paths /new/path/to/video1.mp4 \
+    --video-paths /new/path/to/video2.mp4
+```
+
+**`--video-path-map`:**
+
+Map specific old video paths to new paths. Takes two arguments: the old path and the new path.
+
+```bash
+# Single mapping
+sleap-nn train -c config -d /path/to/config_dir \
+    --video-path-map /old/path/video.mp4 /new/path/video.mp4
+
+# Multiple mappings (specify multiple times)
+sleap-nn train -c config -d /path/to/config_dir \
+    --video-path-map /old/path/video1.mp4 /new/path/video1.mp4 \
+    --video-path-map /old/path/video2.mp4 /new/path/video2.mp4
+```
+
+**`--prefix-map`:**
+
+Replace path prefixes for all videos that share the same prefix. This is useful when moving data between machines where only the base directory differs.
+
+```bash
+# Replace prefix for all matching videos
+sleap-nn train -c config -d /path/to/config_dir \
+    --prefix-map /old/server/data /new/local/data
+```
+
+For example, if your labels file references:
+
+- `/old/server/data/experiment1/video.mp4`
+- `/old/server/data/experiment2/video.mp4`
+
+Using `--prefix-map /old/server/data /new/local/data` will remap both to:
+
+- `/new/local/data/experiment1/video.mp4`
+- `/new/local/data/experiment2/video.mp4`
+
+!!! warning "Choose one option"
+    You can only use one of `--video-paths`, `--video-path-map`, or `--prefix-map` at a time.
 
 ### Using `ModelTrainer` API
 

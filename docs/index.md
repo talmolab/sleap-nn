@@ -111,10 +111,12 @@ To run inference:
 - **[Configuration Guide](config.md)** - Detailed explanation of all configuration parameters and how to set up your config file for training
 - **[Training Guide](training.md)** - How to train models using the CLI or Python API and advanced training options
 - **[Inference Guide](inference.md)** - How to run inference and tracking with CLI/ APIs and evaluate the models
+- **[CLI Reference](cli.md)** - Quick reference for all command-line options
 
 #### **Tutorials**
 - **[Example Notebooks](example_notebooks.md)** - Interactive marimo-based tutorial notebooks
-- **[Step-by-Step tutorial](step_by_step_tutorial.md)** - Comprehensive walkthrough of the entire workflow
+- **[Colab Notebooks](colab_notebooks/index.md)** - Jupyter notebooks to run on Google Colab
+- **[Step-by-Step Tutorial](step_by_step_tutorial.md)** - Comprehensive walkthrough of the entire workflow
 
 #### **Additional Resources**
 
