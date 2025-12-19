@@ -16,6 +16,9 @@ SLEAP-NN provides powerful inference capabilities for pose estimation with suppo
 
 ## Run Inference with CLI
 
+For a quick reference of all CLI options, see the [CLI Reference](cli.md#sleap-nn-track).
+
+
 ```bash
 sleap-nn track \
     --data_path video.mp4 \

@@ -109,8 +109,10 @@ nav:
     - Configuration Setup: config.md
     - Training: training.md
     - Inference & Tracking: inference.md
+    - CLI Reference: cli.md
   - Tutorials:
     - Example Notebooks: example_notebooks.md
+    - Colab Notebooks: colab_notebooks/index.md
     - Step-by-Step Tutorial: step_by_step_tutorial.md
   - Additional Resources:
     - Core Components: core_components.md
