@@ -8,31 +8,31 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/tracking/track_instance/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/cli/">
       
       
-        <link rel="prev" href="../candidates/local_queues/">
+        <link rel="prev" href="../inference/">
       
       
-        <link rel="next" href="../tracker/">
+        <link rel="next" href="../example_notebooks/">
       
       
         
       
       
-      <link rel="icon" href="../../../assets/favicon.ico">
+      <link rel="icon" href="../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>track_instance - sleap-nn documentation</title>
+        <title>CLI Reference - sleap-nn documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,9 +51,9 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.tracking.track_instance" class="md-skip">
+        <a href="#cli-reference" class="md-skip">
           Skip to content
         </a>
       
@@ -98,9 +98,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href=".." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              track_instance
+              CLI Reference
             
           </span>
         </div>
@@ -235,9 +235,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href=".." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     sleap-nn documentation
@@ -264,7 +264,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -291,7 +291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../installation/" class="md-nav__link">
+      <a href="../installation/" class="md-nav__link">
         
   
   
@@ -315,8 +315,10 @@
       
   
   
+    
   
   
+  
     
     
     
@@ -327,11 +329,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
           <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
@@ -352,7 +354,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -370,7 +372,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/" class="md-nav__link">
+      <a href="../config/" class="md-nav__link">
         
   
   
@@ -398,7 +400,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/" class="md-nav__link">
+      <a href="../training/" class="md-nav__link">
         
   
   
@@ -426,7 +428,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/" class="md-nav__link">
+      <a href="../inference/" class="md-nav__link">
         
   
   
@@ -451,10 +453,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../../../cli/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -470,6 +499,198 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#commands-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Commands Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sleap-nn-train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn train
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn train">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#config-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config Overrides
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#video-path-remapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Video Path Remapping
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sleap-nn-track" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn track
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn track">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#essential-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Essential Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#common-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#all-options-by-category" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        All Options by Category
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sleap-nn-eval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn eval
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn eval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#options_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -541,7 +762,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../example_notebooks/" class="md-nav__link">
+      <a href="../example_notebooks/" class="md-nav__link">
         
   
   
@@ -569,7 +790,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../colab_notebooks/" class="md-nav__link">
+      <a href="../colab_notebooks/" class="md-nav__link">
         
   
   
@@ -597,7 +818,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../step_by_step_tutorial/" class="md-nav__link">
+      <a href="../step_by_step_tutorial/" class="md-nav__link">
         
   
   
@@ -629,8 +850,6 @@
       
   
   
-    
-  
   
   
     
@@ -643,11 +862,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -668,7 +887,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -686,7 +905,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../core_components/" class="md-nav__link">
+      <a href="../core_components/" class="md-nav__link">
         
   
   
@@ -714,7 +933,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../models/" class="md-nav__link">
+      <a href="../models/" class="md-nav__link">
         
   
   
@@ -739,8 +958,6 @@
                 
   
   
-    
-  
   
   
     
@@ -750,11 +967,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
         
           
           <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
@@ -775,7 +992,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -790,8 +1007,6 @@
                 
   
   
-    
-  
   
   
     
@@ -801,15 +1016,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../" class="md-nav__link ">
+            <a href="../api/" class="md-nav__link ">
               
   
   
@@ -833,7 +1048,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5_3_1">
             <span class="md-nav__icon md-icon"></span>
             
@@ -865,7 +1080,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../architectures/" class="md-nav__link ">
+            <a href="../api/architectures/" class="md-nav__link ">
               
   
   
@@ -907,7 +1122,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/common/" class="md-nav__link">
+      <a href="../api/architectures/common/" class="md-nav__link">
         
   
   
@@ -935,7 +1150,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/convnext/" class="md-nav__link">
+      <a href="../api/architectures/convnext/" class="md-nav__link">
         
   
   
@@ -963,7 +1178,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/encoder_decoder/" class="md-nav__link">
+      <a href="../api/architectures/encoder_decoder/" class="md-nav__link">
         
   
   
@@ -991,7 +1206,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/heads/" class="md-nav__link">
+      <a href="../api/architectures/heads/" class="md-nav__link">
         
   
   
@@ -1019,7 +1234,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/model/" class="md-nav__link">
+      <a href="../api/architectures/model/" class="md-nav__link">
         
   
   
@@ -1047,7 +1262,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/swint/" class="md-nav__link">
+      <a href="../api/architectures/swint/" class="md-nav__link">
         
   
   
@@ -1075,7 +1290,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/unet/" class="md-nav__link">
+      <a href="../api/architectures/unet/" class="md-nav__link">
         
   
   
@@ -1103,7 +1318,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/utils/" class="md-nav__link">
+      <a href="../api/architectures/utils/" class="md-nav__link">
         
   
   
@@ -1139,7 +1354,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../cli/" class="md-nav__link">
+      <a href="../api/cli/" class="md-nav__link">
         
   
   
@@ -1181,7 +1396,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../config/" class="md-nav__link ">
+            <a href="../api/config/" class="md-nav__link ">
               
   
   
@@ -1223,7 +1438,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/data_config/" class="md-nav__link">
+      <a href="../api/config/data_config/" class="md-nav__link">
         
   
   
@@ -1251,7 +1466,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/get_config/" class="md-nav__link">
+      <a href="../api/config/get_config/" class="md-nav__link">
         
   
   
@@ -1279,7 +1494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/model_config/" class="md-nav__link">
+      <a href="../api/config/model_config/" class="md-nav__link">
         
   
   
@@ -1307,7 +1522,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/trainer_config/" class="md-nav__link">
+      <a href="../api/config/trainer_config/" class="md-nav__link">
         
   
   
@@ -1335,7 +1550,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/training_job_config/" class="md-nav__link">
+      <a href="../api/config/training_job_config/" class="md-nav__link">
         
   
   
@@ -1363,7 +1578,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/utils/" class="md-nav__link">
+      <a href="../api/config/utils/" class="md-nav__link">
         
   
   
@@ -1413,7 +1628,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../data/" class="md-nav__link ">
+            <a href="../api/data/" class="md-nav__link ">
               
   
   
@@ -1455,7 +1670,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/augmentation/" class="md-nav__link">
+      <a href="../api/data/augmentation/" class="md-nav__link">
         
   
   
@@ -1483,7 +1698,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/confidence_maps/" class="md-nav__link">
+      <a href="../api/data/confidence_maps/" class="md-nav__link">
         
   
   
@@ -1511,7 +1726,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/custom_datasets/" class="md-nav__link">
+      <a href="../api/data/custom_datasets/" class="md-nav__link">
         
   
   
@@ -1539,7 +1754,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/edge_maps/" class="md-nav__link">
+      <a href="../api/data/edge_maps/" class="md-nav__link">
         
   
   
@@ -1567,7 +1782,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/identity/" class="md-nav__link">
+      <a href="../api/data/identity/" class="md-nav__link">
         
   
   
@@ -1595,7 +1810,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/instance_centroids/" class="md-nav__link">
+      <a href="../api/data/instance_centroids/" class="md-nav__link">
         
   
   
@@ -1623,7 +1838,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/instance_cropping/" class="md-nav__link">
+      <a href="../api/data/instance_cropping/" class="md-nav__link">
         
   
   
@@ -1651,7 +1866,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/normalization/" class="md-nav__link">
+      <a href="../api/data/normalization/" class="md-nav__link">
         
   
   
@@ -1679,7 +1894,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/providers/" class="md-nav__link">
+      <a href="../api/data/providers/" class="md-nav__link">
         
   
   
@@ -1707,7 +1922,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/resizing/" class="md-nav__link">
+      <a href="../api/data/resizing/" class="md-nav__link">
         
   
   
@@ -1735,7 +1950,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/utils/" class="md-nav__link">
+      <a href="../api/data/utils/" class="md-nav__link">
         
   
   
@@ -1771,7 +1986,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../evaluation/" class="md-nav__link">
+      <a href="../api/evaluation/" class="md-nav__link">
         
   
   
@@ -1813,7 +2028,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/" class="md-nav__link ">
+            <a href="../api/inference/" class="md-nav__link ">
               
   
   
@@ -1855,7 +2070,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/bottomup/" class="md-nav__link">
+      <a href="../api/inference/bottomup/" class="md-nav__link">
         
   
   
@@ -1883,7 +2098,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/identity/" class="md-nav__link">
+      <a href="../api/inference/identity/" class="md-nav__link">
         
   
   
@@ -1911,7 +2126,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/paf_grouping/" class="md-nav__link">
+      <a href="../api/inference/paf_grouping/" class="md-nav__link">
         
   
   
@@ -1939,7 +2154,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/peak_finding/" class="md-nav__link">
+      <a href="../api/inference/peak_finding/" class="md-nav__link">
         
   
   
@@ -1967,7 +2182,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/predictors/" class="md-nav__link">
+      <a href="../api/inference/predictors/" class="md-nav__link">
         
   
   
@@ -1995,7 +2210,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/single_instance/" class="md-nav__link">
+      <a href="../api/inference/single_instance/" class="md-nav__link">
         
   
   
@@ -2023,7 +2238,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/topdown/" class="md-nav__link">
+      <a href="../api/inference/topdown/" class="md-nav__link">
         
   
   
@@ -2051,7 +2266,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/utils/" class="md-nav__link">
+      <a href="../api/inference/utils/" class="md-nav__link">
         
   
   
@@ -2087,7 +2302,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../legacy_models/" class="md-nav__link">
+      <a href="../api/legacy_models/" class="md-nav__link">
         
   
   
@@ -2115,7 +2330,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../predict/" class="md-nav__link">
+      <a href="../api/predict/" class="md-nav__link">
         
   
   
@@ -2140,8 +2355,6 @@
                 
   
   
-    
-  
   
   
     
@@ -2151,15 +2364,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_9" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_9" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../api/tracking/" class="md-nav__link ">
               
   
   
@@ -2183,7 +2396,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_9_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_9_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5_3_1_9">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2215,7 +2428,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../candidates/" class="md-nav__link ">
+            <a href="../api/tracking/candidates/" class="md-nav__link ">
               
   
   
@@ -2257,7 +2470,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../candidates/fixed_window/" class="md-nav__link">
+      <a href="../api/tracking/candidates/fixed_window/" class="md-nav__link">
         
   
   
@@ -2285,7 +2498,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../candidates/local_queues/" class="md-nav__link">
+      <a href="../api/tracking/candidates/local_queues/" class="md-nav__link">
         
   
   
@@ -2318,35 +2531,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    track_instance
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../api/tracking/track_instance/" class="md-nav__link">
         
   
   
@@ -2362,74 +2550,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        track_instance
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="track_instance">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackInstanceLocalQueue
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstances" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackInstances
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackedInstanceFeature
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2442,7 +2562,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracker/" class="md-nav__link">
+      <a href="../api/tracking/tracker/" class="md-nav__link">
         
   
   
@@ -2470,7 +2590,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../utils/" class="md-nav__link">
+      <a href="../api/tracking/utils/" class="md-nav__link">
         
   
   
@@ -2506,7 +2626,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../train/" class="md-nav__link">
+      <a href="../api/train/" class="md-nav__link">
         
   
   
@@ -2548,7 +2668,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../training/" class="md-nav__link ">
+            <a href="../api/training/" class="md-nav__link ">
               
   
   
@@ -2590,7 +2710,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/callbacks/" class="md-nav__link">
+      <a href="../api/training/callbacks/" class="md-nav__link">
         
   
   
@@ -2618,7 +2738,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/lightning_modules/" class="md-nav__link">
+      <a href="../api/training/lightning_modules/" class="md-nav__link">
         
   
   
@@ -2646,7 +2766,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/losses/" class="md-nav__link">
+      <a href="../api/training/losses/" class="md-nav__link">
         
   
   
@@ -2674,7 +2794,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/model_trainer/" class="md-nav__link">
+      <a href="../api/training/model_trainer/" class="md-nav__link">
         
   
   
@@ -2702,7 +2822,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/utils/" class="md-nav__link">
+      <a href="../api/training/utils/" class="md-nav__link">
         
   
   
@@ -2761,7 +2881,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../changelog/" class="md-nav__link">
+      <a href="../changelog/" class="md-nav__link">
         
   
   
@@ -2825,6 +2945,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -2833,22 +2955,33 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance" class="md-nav__link">
+  <a href="#commands-overview" class="md-nav__link">
     <span class="md-ellipsis">
       
-        track_instance
+        Commands Overview
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="track_instance">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sleap-nn-train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn train
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn train">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="md-nav__link">
+  <a href="#options" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TrackInstanceLocalQueue
+        Options
       
     </span>
   </a>
@@ -2856,10 +2989,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstances" class="md-nav__link">
+  <a href="#config-overrides" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TrackInstances
+        Config Overrides
       
     </span>
   </a>
@@ -2867,10 +3000,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="md-nav__link">
+  <a href="#video-path-remapping" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TrackedInstanceFeature
+        Video Path Remapping
       
     </span>
   </a>
@@ -2879,6 +3012,117 @@
         
       </ul>
     </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sleap-nn-track" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn track
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn track">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#essential-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Essential Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#common-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Common Examples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#all-options-by-category" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        All Options by Category
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sleap-nn-eval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        sleap-nn eval
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="sleap-nn eval">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#options_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#see-also" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        See Also
+      
+    </span>
+  </a>
   
 </li>
       
@@ -2902,326 +3146,613 @@
   
 
 
-  <h1>track_instance</h1>
-
-<div class="doc doc-object doc-module">
-
-
-
-<h2 id="sleap_nn.tracking.track_instance" class="doc doc-heading">
-            <code>sleap_nn.tracking.track_instance</code>
-
-
-<a href="#sleap_nn.tracking.track_instance" class="headerlink" title="Permanent link">&para;</a></h2>
-
-    <div class="doc doc-contents first">
-
-        <p>TrackInstance Data structure for Tracker queue.</p>
-
-
-
-
-
-
-
-
-
-
-<p><span class="doc-section-title">Classes:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackInstanceLocalQueue&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackInstanceLocalQueue&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue">TrackInstanceLocalQueue</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Data structure for instances in tracker queue for Local Queue method.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackInstances&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackInstances&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackInstances">TrackInstances</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Data structure for instances in tracker queue for fixed window method.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackedInstanceFeature&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackedInstanceFeature&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature">TrackedInstanceFeature</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Data structure for tracked instances.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="doc doc-heading">
-            <code>TrackInstanceLocalQueue</code>
-
-
-<a href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-
-
-
-        <p>Data structure for instances in tracker queue for Local Queue method.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-              <details class="mkdocstrings-source">
-                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-21">21</a></span>
-<span class="normal"><a href="#__codelineno-0-22">22</a></span>
-<span class="normal"><a href="#__codelineno-0-23">23</a></span>
-<span class="normal"><a href="#__codelineno-0-24">24</a></span>
-<span class="normal"><a href="#__codelineno-0-25">25</a></span>
-<span class="normal"><a href="#__codelineno-0-26">26</a></span>
-<span class="normal"><a href="#__codelineno-0-27">27</a></span>
-<span class="normal"><a href="#__codelineno-0-28">28</a></span>
-<span class="normal"><a href="#__codelineno-0-29">29</a></span>
-<span class="normal"><a href="#__codelineno-0-30">30</a></span>
-<span class="normal"><a href="#__codelineno-0-31">31</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackInstanceLocalQueue</span><span class="p">:</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for instances in tracker queue for Local Queue method.&quot;&quot;&quot;</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a>    <span class="n">src_instance</span><span class="p">:</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a>    <span class="n">src_instance_idx</span><span class="p">:</span> <span class="nb">int</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a>    <span class="n">feature</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a>    <span class="n">track_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>    <span class="n">tracking_score</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span></code></pre></div></td></tr></table></div>
-              </details>
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
+<h1 id="cli-reference">CLI Reference<a class="headerlink" href="#cli-reference" title="Permanent link">&para;</a></h1>
+<p>This page provides a quick reference for all <code>sleap-nn</code> command-line interface (CLI) commands. For detailed usage and examples, see the linked guides.</p>
+<h2 id="commands-overview">Commands Overview<a class="headerlink" href="#commands-overview" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>Description</th>
+<th>Guide</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="#sleap-nn-train"><code>sleap-nn train</code></a></td>
+<td>Train pose estimation models</td>
+<td><a href="../training/">Training Guide</a></td>
+</tr>
+<tr>
+<td><a href="#sleap-nn-track"><code>sleap-nn track</code></a></td>
+<td>Run inference and/or tracking</td>
+<td><a href="../inference/">Inference Guide</a></td>
+</tr>
+<tr>
+<td><a href="#sleap-nn-eval"><code>sleap-nn eval</code></a></td>
+<td>Evaluate predictions against ground truth</td>
+<td><a href="../inference/#evaluation-metrics">Inference Guide</a></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="sleap-nn-train"><code>sleap-nn train</code><a class="headerlink" href="#sleap-nn-train" title="Permanent link">&para;</a></h2>
+<p>Train SLEAP models using a configuration file.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-dir<span class="w"> </span>&lt;dir&gt;<span class="w"> </span>--config-name<span class="w"> </span>&lt;name&gt;<span class="w"> </span><span class="o">[</span>options<span class="o">]</span><span class="w"> </span><span class="o">[</span>overrides<span class="o">]</span>
+</span></code></pre></div>
+<h3 id="options">Options<a class="headerlink" href="#options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Short</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--config-name</code></td>
+<td><code>-c</code></td>
+<td>Name of the config file (without <code>.yaml</code> extension)</td>
+</tr>
+<tr>
+<td><code>--config-dir</code></td>
+<td><code>-d</code></td>
+<td>Path to the directory containing the config file</td>
+</tr>
+<tr>
+<td><code>--video-paths</code></td>
+<td><code>-v</code></td>
+<td>Video paths to replace existing paths in labels (can be specified multiple times)</td>
+</tr>
+<tr>
+<td><code>--video-path-map</code></td>
+<td></td>
+<td>Map old video path to new path (takes two arguments: OLD NEW)</td>
+</tr>
+<tr>
+<td><code>--prefix-map</code></td>
+<td></td>
+<td>Map old path prefix to new prefix (takes two arguments: OLD NEW)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="config-overrides">Config Overrides<a class="headerlink" href="#config-overrides" title="Permanent link">&para;</a></h3>
+<p>Override any configuration value directly from the command line:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="c1"># Change max epochs</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-c<span class="w"> </span>config<span class="w"> </span>-d<span class="w"> </span>/path/to/dir<span class="w"> </span>trainer_config.max_epochs<span class="o">=</span><span class="m">100</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="c1"># Change batch size</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-c<span class="w"> </span>config<span class="w"> </span>-d<span class="w"> </span>/path/to/dir<span class="w"> </span>trainer_config.train_data_loader.batch_size<span class="o">=</span><span class="m">8</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="c1"># Set training data path</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-c<span class="w"> </span>config<span class="w"> </span>-d<span class="w"> </span>/path/to/dir<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.slp]&quot;</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="c1"># Resume from checkpoint</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-c<span class="w"> </span>config<span class="w"> </span>-d<span class="w"> </span>/path/to/dir<span class="w"> </span>trainer_config.resume_ckpt_path<span class="o">=</span>/path/to/best.ckpt
+</span></code></pre></div>
+<h3 id="video-path-remapping">Video Path Remapping<a class="headerlink" href="#video-path-remapping" title="Permanent link">&para;</a></h3>
+<p>When training on a different machine than where labels were created:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Replace paths by order</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-c<span class="w"> </span>config<span class="w"> </span>-d<span class="w"> </span>/path/to/dir<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span>--video-paths<span class="w"> </span>/new/path/video1.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span>--video-paths<span class="w"> </span>/new/path/video2.mp4
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="c1"># Map specific paths</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-c<span class="w"> </span>config<span class="w"> </span>-d<span class="w"> </span>/path/to/dir<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span>--video-path-map<span class="w"> </span>/old/video.mp4<span class="w"> </span>/new/video.mp4
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="c1"># Replace path prefixes (updates all matching videos)</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a>sleap-nn<span class="w"> </span>train<span class="w"> </span>-c<span class="w"> </span>config<span class="w"> </span>-d<span class="w"> </span>/path/to/dir<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span>--prefix-map<span class="w"> </span>/old/server/data<span class="w"> </span>/new/local/data
+</span></code></pre></div>
+<p>See <a href="../training/#remapping-video-paths">Remapping Video Paths</a> for more details.</p>
+<hr />
+<h2 id="sleap-nn-track"><code>sleap-nn track</code><a class="headerlink" href="#sleap-nn-track" title="Permanent link">&para;</a></h2>
+<p>Run inference on videos or labels files, with optional tracking.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>&lt;input&gt;<span class="w"> </span>--model_paths<span class="w"> </span>&lt;model_dir&gt;<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</span></code></pre></div>
+<h3 id="essential-options">Essential Options<a class="headerlink" href="#essential-options" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Short</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--data_path</code></td>
+<td><code>-i</code></td>
+<td>Path to video (<code>.mp4</code>) or labels (<code>.slp</code>) file</td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>--model_paths</code></td>
+<td><code>-m</code></td>
+<td>Path to model checkpoint directory (can be specified multiple times for top-down)</td>
+<td>Required*</td>
+</tr>
+<tr>
+<td><code>--output_path</code></td>
+<td><code>-o</code></td>
+<td>Output path for predictions</td>
+<td><code>&lt;input&gt;.predictions.slp</code></td>
+</tr>
+<tr>
+<td><code>--device</code></td>
+<td><code>-d</code></td>
+<td>Device to use (<code>cpu</code>, <code>cuda</code>, <code>cuda:0</code>, <code>mps</code>, <code>auto</code>)</td>
+<td><code>auto</code></td>
+</tr>
+<tr>
+<td><code>--batch_size</code></td>
+<td><code>-b</code></td>
+<td>Frames per batch (higher = faster but more memory). Note: <code>--queue_maxsize</code> should be at least 2x batch size.</td>
+<td><code>4</code></td>
+</tr>
+<tr>
+<td><code>--queue_maxsize</code></td>
+<td></td>
+<td>Maximum size of the frame buffer queue (should be at least 2x batch size)</td>
+<td><code>8</code></td>
+</tr>
+<tr>
+<td><code>--max_instances</code></td>
+<td><code>-n</code></td>
+<td>Maximum instances per frame</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--tracking</code></td>
+<td><code>-t</code></td>
+<td>Enable tracking</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<p>*Not required for track-only workflow on labeled data.</p>
+<h3 id="common-examples">Common Examples<a class="headerlink" href="#common-examples" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Basic inference</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Top-down inference (two models)</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span>-m<span class="w"> </span>models/centroid/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span>-m<span class="w"> </span>models/centered_instance/
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a>
+</span><span id="__span-4-9"><a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="c1"># Inference with tracking</span>
+</span><span id="__span-4-10"><a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/<span class="w"> </span>-t
+</span><span id="__span-4-11"><a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a>
+</span><span id="__span-4-12"><a id="__codelineno-4-12" name="__codelineno-4-12" href="#__codelineno-4-12"></a><span class="c1"># Specific frames only</span>
+</span><span id="__span-4-13"><a id="__codelineno-4-13" name="__codelineno-4-13" href="#__codelineno-4-13"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/bottomup/<span class="w"> </span>--frames<span class="w"> </span><span class="m">0</span>-100,200-300
+</span><span id="__span-4-14"><a id="__codelineno-4-14" name="__codelineno-4-14" href="#__codelineno-4-14"></a>
+</span><span id="__span-4-15"><a id="__codelineno-4-15" name="__codelineno-4-15" href="#__codelineno-4-15"></a><span class="c1"># Track-only (no inference, just assign tracks to existing labels)</span>
+</span><span id="__span-4-16"><a id="__codelineno-4-16" name="__codelineno-4-16" href="#__codelineno-4-16"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>labels.slp<span class="w"> </span>-t
+</span></code></pre></div>
+<h3 id="all-options-by-category">All Options by Category<a class="headerlink" href="#all-options-by-category" title="Permanent link">&para;</a></h3>
+<h4 id="model-configuration">Model Configuration<a class="headerlink" href="#model-configuration" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--backbone_ckpt_path</code></td>
+<td>Path to alternative backbone weights</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--head_ckpt_path</code></td>
+<td>Path to alternative head weights</td>
+<td><code>None</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="image-pre-processing">Image Pre-processing<a class="headerlink" href="#image-pre-processing" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--max_height</code></td>
+<td>Pad image to this height</td>
+<td>From training config</td>
+</tr>
+<tr>
+<td><code>--max_width</code></td>
+<td>Pad image to this width</td>
+<td>From training config</td>
+</tr>
+<tr>
+<td><code>--input_scale</code></td>
+<td>Scale factor for input image</td>
+<td>From training config</td>
+</tr>
+<tr>
+<td><code>--crop_size</code></td>
+<td>Crop size for centered-instance models</td>
+<td>From training config</td>
+</tr>
+<tr>
+<td><code>--ensure_rgb</code></td>
+<td>Convert to RGB (3 channels)</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--ensure_grayscale</code></td>
+<td>Convert to grayscale (1 channel)</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--anchor_part</code></td>
+<td>Node name for centroid anchor</td>
+<td>From training config</td>
+</tr>
+</tbody>
+</table>
+<h4 id="data-selection">Data Selection<a class="headerlink" href="#data-selection" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--frames</code></td>
+<td>Frame indices (e.g., <code>0-100,200-300</code>)</td>
+<td>All frames</td>
+</tr>
+<tr>
+<td><code>--video_index</code></td>
+<td>Video index in <code>.slp</code> file</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--video_dataset</code></td>
+<td>Dataset name for HDF5 videos</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--video_input_format</code></td>
+<td>Input format for HDF5 videos</td>
+<td><code>channels_last</code></td>
+</tr>
+<tr>
+<td><code>--only_labeled_frames</code></td>
+<td>Only run on labeled frames</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--only_suggested_frames</code></td>
+<td>Only run on suggested frames</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--no_empty_frames</code></td>
+<td>Remove empty frames from output</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="peak-detection">Peak Detection<a class="headerlink" href="#peak-detection" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--peak_threshold</code></td>
+<td>Minimum confidence for valid peaks</td>
+<td><code>0.2</code></td>
+</tr>
+<tr>
+<td><code>--integral_refinement</code></td>
+<td>Refinement method (<code>integral</code> or <code>None</code>)</td>
+<td><code>integral</code></td>
+</tr>
+<tr>
+<td><code>--integral_patch_size</code></td>
+<td>Patch size for integral refinement</td>
+<td><code>5</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="tracking-options">Tracking Options<a class="headerlink" href="#tracking-options" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--tracking</code> / <code>-t</code></td>
+<td>Enable tracking</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--tracking_window_size</code></td>
+<td>Frames to look back for candidates</td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>--candidates_method</code></td>
+<td><code>fixed_window</code> or <code>local_queues</code></td>
+<td><code>fixed_window</code></td>
+</tr>
+<tr>
+<td><code>--features</code></td>
+<td>Feature type: <code>keypoints</code>, <code>centroids</code>, <code>bboxes</code>, <code>image</code></td>
+<td><code>keypoints</code></td>
+</tr>
+<tr>
+<td><code>--scoring_method</code></td>
+<td>Matching score: <code>oks</code>, <code>cosine_sim</code>, <code>iou</code>, <code>euclidean_dist</code></td>
+<td><code>oks</code></td>
+</tr>
+<tr>
+<td><code>--scoring_reduction</code></td>
+<td>Score reduction: <code>mean</code>, <code>max</code>, <code>robust_quantile</code></td>
+<td><code>mean</code></td>
+</tr>
+<tr>
+<td><code>--robust_best_instance</code></td>
+<td>Quantile for robust similarity (0-1, or 1 for max)</td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>--track_matching_method</code></td>
+<td>Matching algorithm: <code>hungarian</code>, <code>greedy</code></td>
+<td><code>hungarian</code></td>
+</tr>
+<tr>
+<td><code>--max_tracks</code></td>
+<td>Maximum number of tracks (local queues only)</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--min_new_track_points</code></td>
+<td>Minimum points to spawn new track</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--min_match_points</code></td>
+<td>Minimum points for match candidates</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--post_connect_single_breaks</code></td>
+<td>Connect single track breaks (local queues only)</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="optical-flow-tracking">Optical Flow Tracking<a class="headerlink" href="#optical-flow-tracking" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--use_flow</code></td>
+<td>Use optical flow for tracking</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--of_img_scale</code></td>
+<td>Image scale for optical flow (lower = faster)</td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>--of_window_size</code></td>
+<td>Window size at each pyramid level</td>
+<td><code>21</code></td>
+</tr>
+<tr>
+<td><code>--of_max_levels</code></td>
+<td>Number of pyramid levels</td>
+<td><code>3</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="bottom-up-specific">Bottom-Up Specific<a class="headerlink" href="#bottom-up-specific" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--max_edge_length_ratio</code></td>
+<td>Max edge length as fraction of image size</td>
+<td><code>0.25</code></td>
+</tr>
+<tr>
+<td><code>--dist_penalty_weight</code></td>
+<td>Distance penalty weight</td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>--n_points</code></td>
+<td>Points to sample along line integral</td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>--min_instance_peaks</code></td>
+<td>Minimum peaks for valid instance</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--min_line_scores</code></td>
+<td>Minimum line score for PAF matching</td>
+<td><code>0.25</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="legacy-tracking-options">Legacy Tracking Options<a class="headerlink" href="#legacy-tracking-options" title="Permanent link">&para;</a></h4>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>These options are provided for backwards compatibility and may be removed in future releases. Use <code>--max_instances</code> instead.</p>
 </div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="sleap_nn.tracking.track_instance.TrackInstances" class="doc doc-heading">
-            <code>TrackInstances</code>
-
-
-<a href="#sleap_nn.tracking.track_instance.TrackInstances" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-
-
-
-        <p>Data structure for instances in tracker queue for fixed window method.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-              <details class="mkdocstrings-source">
-                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-0-10">10</a></span>
-<span class="normal"><a href="#__codelineno-0-11">11</a></span>
-<span class="normal"><a href="#__codelineno-0-12">12</a></span>
-<span class="normal"><a href="#__codelineno-0-13">13</a></span>
-<span class="normal"><a href="#__codelineno-0-14">14</a></span>
-<span class="normal"><a href="#__codelineno-0-15">15</a></span>
-<span class="normal"><a href="#__codelineno-0-16">16</a></span>
-<span class="normal"><a href="#__codelineno-0-17">17</a></span>
-<span class="normal"><a href="#__codelineno-0-18">18</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackInstances</span><span class="p">:</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for instances in tracker queue for fixed window method.&quot;&quot;&quot;</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12"></a>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13"></a>    <span class="n">src_instances</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span><span class="p">]</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14"></a>    <span class="n">features</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a>    <span class="n">track_ids</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a>    <span class="n">tracking_scores</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span></code></pre></div></td></tr></table></div>
-              </details>
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="doc doc-heading">
-            <code>TrackedInstanceFeature</code>
-
-
-<a href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-
-
-
-        <p>Data structure for tracked instances.</p>
-<p>This data structure is used for updating the previous tracked instances and get the
-features of the tracked instances. <code>shifted_keypoints</code> is used only for the <code>FlowShiftTracker</code>
-to store the optical flow shifted instances.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-              <details class="mkdocstrings-source">
-                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-34">34</a></span>
-<span class="normal"><a href="#__codelineno-0-35">35</a></span>
-<span class="normal"><a href="#__codelineno-0-36">36</a></span>
-<span class="normal"><a href="#__codelineno-0-37">37</a></span>
-<span class="normal"><a href="#__codelineno-0-38">38</a></span>
-<span class="normal"><a href="#__codelineno-0-39">39</a></span>
-<span class="normal"><a href="#__codelineno-0-40">40</a></span>
-<span class="normal"><a href="#__codelineno-0-41">41</a></span>
-<span class="normal"><a href="#__codelineno-0-42">42</a></span>
-<span class="normal"><a href="#__codelineno-0-43">43</a></span>
-<span class="normal"><a href="#__codelineno-0-44">44</a></span>
-<span class="normal"><a href="#__codelineno-0-45">45</a></span>
-<span class="normal"><a href="#__codelineno-0-46">46</a></span>
-<span class="normal"><a href="#__codelineno-0-47">47</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackedInstanceFeature</span><span class="p">:</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for tracked instances.</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">    This data structure is used for updating the previous tracked instances and get the</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">    features of the tracked instances. `shifted_keypoints` is used only for the `FlowShiftTracker`</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">    to store the optical flow shifted instances.</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a>    <span class="n">feature</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>    <span class="n">src_predicted_instance</span><span class="p">:</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="nb">int</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>    <span class="n">tracking_score</span><span class="p">:</span> <span class="nb">float</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>    <span class="n">shifted_keypoints</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="kc">None</span>
-</span></code></pre></div></td></tr></table></div>
-              </details>
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--tracking_target_instance_count</code></td>
+<td>Target instances per frame</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--tracking_pre_cull_to_target</code></td>
+<td>Cull instances before tracking</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--tracking_pre_cull_iou_threshold</code></td>
+<td>IOU threshold for pre-cull</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--tracking_clean_instance_count</code></td>
+<td>Target instances after tracking</td>
+<td><code>0</code></td>
+</tr>
+<tr>
+<td><code>--tracking_clean_iou_threshold</code></td>
+<td>IOU threshold for post-tracking cull</td>
+<td><code>0</code></td>
+</tr>
+</tbody>
+</table>
+<p>See <a href="../inference/">Inference Guide</a> for detailed examples and explanations.</p>
+<hr />
+<h2 id="sleap-nn-eval"><code>sleap-nn eval</code><a class="headerlink" href="#sleap-nn-eval" title="Permanent link">&para;</a></h2>
+<p>Evaluate predictions against ground truth labels.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span>--ground_truth_path<span class="w"> </span>&lt;gt.slp&gt;<span class="w"> </span>--predicted_path<span class="w"> </span>&lt;pred.slp&gt;<span class="w"> </span><span class="o">[</span>options<span class="o">]</span>
+</span></code></pre></div>
+<h3 id="options_1">Options<a class="headerlink" href="#options_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Short</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--ground_truth_path</code></td>
+<td><code>-g</code></td>
+<td>Path to ground truth labels (<code>.slp</code>)</td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>--predicted_path</code></td>
+<td><code>-p</code></td>
+<td>Path to predicted labels (<code>.slp</code>)</td>
+<td>Required</td>
+</tr>
+<tr>
+<td><code>--save_metrics</code></td>
+<td><code>-s</code></td>
+<td>Path to save metrics (<code>.npz</code>)</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--oks_stddev</code></td>
+<td></td>
+<td>Standard deviation for OKS calculation</td>
+<td><code>0.05</code></td>
+</tr>
+<tr>
+<td><code>--oks_scale</code></td>
+<td></td>
+<td>Scale factor for OKS calculation</td>
+<td><code>None</code></td>
+</tr>
+<tr>
+<td><code>--match_threshold</code></td>
+<td></td>
+<td>Threshold for instance matching</td>
+<td><code>0.0</code></td>
+</tr>
+<tr>
+<td><code>--user_labels_only</code></td>
+<td></td>
+<td>Only evaluate user-labeled frames</td>
+<td><code>False</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">    </span>-g<span class="w"> </span>ground_truth.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span>-p<span class="w"> </span>predictions.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span>-s<span class="w"> </span>metrics.npz
+</span></code></pre></div>
+<p>See <a href="../inference/#evaluation-metrics">Evaluation Metrics</a> for more details.</p>
+<hr />
+<h2 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CUDA_VISIBLE_DEVICES</code></td>
+<td>Control which GPUs are visible (e.g., <code>0,1</code>)</td>
+</tr>
+<tr>
+<td><code>WANDB_API_KEY</code></td>
+<td>Weights &amp; Biases API key for logging</td>
+</tr>
+</tbody>
+</table>
+<h2 id="see-also">See Also<a class="headerlink" href="#see-also" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../installation/">Installation Guide</a> - Setup instructions</li>
+<li><a href="../config/">Configuration Guide</a> - Full config reference</li>
+<li><a href="../training/">Training Guide</a> - Detailed training documentation</li>
+<li><a href="../inference/">Inference Guide</a> - Detailed inference documentation</li>
+</ul>
 
 
 
@@ -3304,10 +3835,10 @@ to store the optical flow shifted instances.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

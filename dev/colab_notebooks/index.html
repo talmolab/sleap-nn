@@ -8,31 +8,31 @@
       
       
       
-        <link rel="canonical" href="https://nn.sleap.ai/dev/api/tracking/track_instance/">
+        <link rel="canonical" href="https://nn.sleap.ai/dev/colab_notebooks/">
       
       
-        <link rel="prev" href="../candidates/local_queues/">
+        <link rel="prev" href="../example_notebooks/">
       
       
-        <link rel="next" href="../tracker/">
+        <link rel="next" href="../step_by_step_tutorial/">
       
       
         
       
       
-      <link rel="icon" href="../../../assets/favicon.ico">
+      <link rel="icon" href="../assets/favicon.ico">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
     
     
       
-        <title>track_instance - sleap-nn documentation</title>
+        <title>Colab Notebooks - sleap-nn documentation</title>
       
     
     
-      <link rel="stylesheet" href="../../../assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="../../../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -51,9 +51,9 @@
       
     
     
-      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
     
-    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -78,7 +78,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#sleap_nn.tracking.track_instance" class="md-skip">
+        <a href="#colab-notebooks" class="md-skip">
           Skip to content
         </a>
       
@@ -98,9 +98,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="../../.." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href=".." title="sleap-nn documentation" class="md-header__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -117,7 +117,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              track_instance
+              Colab Notebooks
             
           </span>
         </div>
@@ -235,9 +235,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="../../.." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
+    <a href=".." title="sleap-nn documentation" class="md-nav__button md-logo" aria-label="sleap-nn documentation" data-md-component="logo">
       
-  <img src="../../../assets/sleap-logo.png" alt="logo">
+  <img src="../assets/sleap-logo.png" alt="logo">
 
     </a>
     sleap-nn documentation
@@ -264,7 +264,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../.." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -291,7 +291,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../installation/" class="md-nav__link">
+      <a href="../installation/" class="md-nav__link">
         
   
   
@@ -370,7 +370,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../config/" class="md-nav__link">
+      <a href="../config/" class="md-nav__link">
         
   
   
@@ -398,7 +398,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../training/" class="md-nav__link">
+      <a href="../training/" class="md-nav__link">
         
   
   
@@ -426,7 +426,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../inference/" class="md-nav__link">
+      <a href="../inference/" class="md-nav__link">
         
   
   
@@ -454,7 +454,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../cli/" class="md-nav__link">
+      <a href="../cli/" class="md-nav__link">
         
   
   
@@ -462,149 +462,6 @@
     
   
     CLI Reference
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
-    </li>
-  
-
-    
-      
-      
-  
-  
-  
-  
-    
-    
-    
-    
-      
-        
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
-        
-          
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
-            
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Tutorials
-  
-
-    
-  </span>
-  
-  
-
-            <span class="md-nav__icon md-icon"></span>
-          </label>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    Tutorials
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../example_notebooks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Example Notebooks
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../colab_notebooks/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Colab Notebooks
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../../../step_by_step_tutorial/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Step-by-Step Tutorial
   
 
     
@@ -647,7 +504,225 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Tutorials
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Tutorials
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example_notebooks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example Notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Colab Notebooks
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Colab Notebooks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#available-notebooks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Available Notebooks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Available Notebooks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#training-and-inference-with-sleap-nn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training and Inference with sleap-nn
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../step_by_step_tutorial/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Step-by-Step Tutorial
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
         
           
           <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="">
@@ -668,7 +743,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5">
             <span class="md-nav__icon md-icon"></span>
             
@@ -686,7 +761,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../core_components/" class="md-nav__link">
+      <a href="../core_components/" class="md-nav__link">
         
   
   
@@ -714,7 +789,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../models/" class="md-nav__link">
+      <a href="../models/" class="md-nav__link">
         
   
   
@@ -739,8 +814,6 @@
                 
   
   
-    
-  
   
   
     
@@ -750,11 +823,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3" >
         
           
           <label class="md-nav__link" for="__nav_5_3" id="__nav_5_3_label" tabindex="0">
@@ -775,7 +848,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_5_3_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -790,8 +863,6 @@
                 
   
   
-    
-  
   
   
     
@@ -801,15 +872,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../" class="md-nav__link ">
+            <a href="../api/" class="md-nav__link ">
               
   
   
@@ -833,7 +904,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_1_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="3" aria-labelledby="__nav_5_3_1_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5_3_1">
             <span class="md-nav__icon md-icon"></span>
             
@@ -865,7 +936,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../architectures/" class="md-nav__link ">
+            <a href="../api/architectures/" class="md-nav__link ">
               
   
   
@@ -907,7 +978,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/common/" class="md-nav__link">
+      <a href="../api/architectures/common/" class="md-nav__link">
         
   
   
@@ -935,7 +1006,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/convnext/" class="md-nav__link">
+      <a href="../api/architectures/convnext/" class="md-nav__link">
         
   
   
@@ -963,7 +1034,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/encoder_decoder/" class="md-nav__link">
+      <a href="../api/architectures/encoder_decoder/" class="md-nav__link">
         
   
   
@@ -991,7 +1062,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/heads/" class="md-nav__link">
+      <a href="../api/architectures/heads/" class="md-nav__link">
         
   
   
@@ -1019,7 +1090,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/model/" class="md-nav__link">
+      <a href="../api/architectures/model/" class="md-nav__link">
         
   
   
@@ -1047,7 +1118,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/swint/" class="md-nav__link">
+      <a href="../api/architectures/swint/" class="md-nav__link">
         
   
   
@@ -1075,7 +1146,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/unet/" class="md-nav__link">
+      <a href="../api/architectures/unet/" class="md-nav__link">
         
   
   
@@ -1103,7 +1174,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../architectures/utils/" class="md-nav__link">
+      <a href="../api/architectures/utils/" class="md-nav__link">
         
   
   
@@ -1139,7 +1210,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../cli/" class="md-nav__link">
+      <a href="../api/cli/" class="md-nav__link">
         
   
   
@@ -1181,7 +1252,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../config/" class="md-nav__link ">
+            <a href="../api/config/" class="md-nav__link ">
               
   
   
@@ -1223,7 +1294,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/data_config/" class="md-nav__link">
+      <a href="../api/config/data_config/" class="md-nav__link">
         
   
   
@@ -1251,7 +1322,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/get_config/" class="md-nav__link">
+      <a href="../api/config/get_config/" class="md-nav__link">
         
   
   
@@ -1279,7 +1350,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/model_config/" class="md-nav__link">
+      <a href="../api/config/model_config/" class="md-nav__link">
         
   
   
@@ -1307,7 +1378,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/trainer_config/" class="md-nav__link">
+      <a href="../api/config/trainer_config/" class="md-nav__link">
         
   
   
@@ -1335,7 +1406,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/training_job_config/" class="md-nav__link">
+      <a href="../api/config/training_job_config/" class="md-nav__link">
         
   
   
@@ -1363,7 +1434,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../config/utils/" class="md-nav__link">
+      <a href="../api/config/utils/" class="md-nav__link">
         
   
   
@@ -1413,7 +1484,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../data/" class="md-nav__link ">
+            <a href="../api/data/" class="md-nav__link ">
               
   
   
@@ -1455,7 +1526,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/augmentation/" class="md-nav__link">
+      <a href="../api/data/augmentation/" class="md-nav__link">
         
   
   
@@ -1483,7 +1554,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/confidence_maps/" class="md-nav__link">
+      <a href="../api/data/confidence_maps/" class="md-nav__link">
         
   
   
@@ -1511,7 +1582,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/custom_datasets/" class="md-nav__link">
+      <a href="../api/data/custom_datasets/" class="md-nav__link">
         
   
   
@@ -1539,7 +1610,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/edge_maps/" class="md-nav__link">
+      <a href="../api/data/edge_maps/" class="md-nav__link">
         
   
   
@@ -1567,7 +1638,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/identity/" class="md-nav__link">
+      <a href="../api/data/identity/" class="md-nav__link">
         
   
   
@@ -1595,7 +1666,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/instance_centroids/" class="md-nav__link">
+      <a href="../api/data/instance_centroids/" class="md-nav__link">
         
   
   
@@ -1623,7 +1694,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/instance_cropping/" class="md-nav__link">
+      <a href="../api/data/instance_cropping/" class="md-nav__link">
         
   
   
@@ -1651,7 +1722,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/normalization/" class="md-nav__link">
+      <a href="../api/data/normalization/" class="md-nav__link">
         
   
   
@@ -1679,7 +1750,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/providers/" class="md-nav__link">
+      <a href="../api/data/providers/" class="md-nav__link">
         
   
   
@@ -1707,7 +1778,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/resizing/" class="md-nav__link">
+      <a href="../api/data/resizing/" class="md-nav__link">
         
   
   
@@ -1735,7 +1806,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../data/utils/" class="md-nav__link">
+      <a href="../api/data/utils/" class="md-nav__link">
         
   
   
@@ -1771,7 +1842,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../evaluation/" class="md-nav__link">
+      <a href="../api/evaluation/" class="md-nav__link">
         
   
   
@@ -1813,7 +1884,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../inference/" class="md-nav__link ">
+            <a href="../api/inference/" class="md-nav__link ">
               
   
   
@@ -1855,7 +1926,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/bottomup/" class="md-nav__link">
+      <a href="../api/inference/bottomup/" class="md-nav__link">
         
   
   
@@ -1883,7 +1954,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/identity/" class="md-nav__link">
+      <a href="../api/inference/identity/" class="md-nav__link">
         
   
   
@@ -1911,7 +1982,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/paf_grouping/" class="md-nav__link">
+      <a href="../api/inference/paf_grouping/" class="md-nav__link">
         
   
   
@@ -1939,7 +2010,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/peak_finding/" class="md-nav__link">
+      <a href="../api/inference/peak_finding/" class="md-nav__link">
         
   
   
@@ -1967,7 +2038,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/predictors/" class="md-nav__link">
+      <a href="../api/inference/predictors/" class="md-nav__link">
         
   
   
@@ -1995,7 +2066,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/single_instance/" class="md-nav__link">
+      <a href="../api/inference/single_instance/" class="md-nav__link">
         
   
   
@@ -2023,7 +2094,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/topdown/" class="md-nav__link">
+      <a href="../api/inference/topdown/" class="md-nav__link">
         
   
   
@@ -2051,7 +2122,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../inference/utils/" class="md-nav__link">
+      <a href="../api/inference/utils/" class="md-nav__link">
         
   
   
@@ -2087,7 +2158,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../legacy_models/" class="md-nav__link">
+      <a href="../api/legacy_models/" class="md-nav__link">
         
   
   
@@ -2115,7 +2186,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../predict/" class="md-nav__link">
+      <a href="../api/predict/" class="md-nav__link">
         
   
   
@@ -2140,8 +2211,6 @@
                 
   
   
-    
-  
   
   
     
@@ -2151,15 +2220,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_9" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5_3_1_9" >
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../" class="md-nav__link ">
+            <a href="../api/tracking/" class="md-nav__link ">
               
   
   
@@ -2183,7 +2252,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_9_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="4" aria-labelledby="__nav_5_3_1_9_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_5_3_1_9">
             <span class="md-nav__icon md-icon"></span>
             
@@ -2215,7 +2284,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../candidates/" class="md-nav__link ">
+            <a href="../api/tracking/candidates/" class="md-nav__link ">
               
   
   
@@ -2257,7 +2326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../candidates/fixed_window/" class="md-nav__link">
+      <a href="../api/tracking/candidates/fixed_window/" class="md-nav__link">
         
   
   
@@ -2285,7 +2354,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../candidates/local_queues/" class="md-nav__link">
+      <a href="../api/tracking/candidates/local_queues/" class="md-nav__link">
         
   
   
@@ -2318,35 +2387,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    track_instance
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../api/tracking/track_instance/" class="md-nav__link">
         
   
   
@@ -2362,74 +2406,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        track_instance
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="track_instance">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackInstanceLocalQueue
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstances" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackInstances
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackedInstanceFeature
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2442,7 +2418,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../tracker/" class="md-nav__link">
+      <a href="../api/tracking/tracker/" class="md-nav__link">
         
   
   
@@ -2470,7 +2446,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../utils/" class="md-nav__link">
+      <a href="../api/tracking/utils/" class="md-nav__link">
         
   
   
@@ -2506,7 +2482,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../train/" class="md-nav__link">
+      <a href="../api/train/" class="md-nav__link">
         
   
   
@@ -2548,7 +2524,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="../../training/" class="md-nav__link ">
+            <a href="../api/training/" class="md-nav__link ">
               
   
   
@@ -2590,7 +2566,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/callbacks/" class="md-nav__link">
+      <a href="../api/training/callbacks/" class="md-nav__link">
         
   
   
@@ -2618,7 +2594,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/lightning_modules/" class="md-nav__link">
+      <a href="../api/training/lightning_modules/" class="md-nav__link">
         
   
   
@@ -2646,7 +2622,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/losses/" class="md-nav__link">
+      <a href="../api/training/losses/" class="md-nav__link">
         
   
   
@@ -2674,7 +2650,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/model_trainer/" class="md-nav__link">
+      <a href="../api/training/model_trainer/" class="md-nav__link">
         
   
   
@@ -2702,7 +2678,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../training/utils/" class="md-nav__link">
+      <a href="../api/training/utils/" class="md-nav__link">
         
   
   
@@ -2761,7 +2737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../../../changelog/" class="md-nav__link">
+      <a href="../changelog/" class="md-nav__link">
         
   
   
@@ -2825,6 +2801,8 @@
   
   
   
+    
+  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -2833,44 +2811,22 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance" class="md-nav__link">
+  <a href="#available-notebooks" class="md-nav__link">
     <span class="md-ellipsis">
       
-        track_instance
+        Available Notebooks
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="track_instance">
+    <nav class="md-nav" aria-label="Available Notebooks">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="md-nav__link">
+  <a href="#training-and-inference-with-sleap-nn" class="md-nav__link">
     <span class="md-ellipsis">
       
-        TrackInstanceLocalQueue
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackInstances" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackInstances
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        TrackedInstanceFeature
+        Training and Inference with sleap-nn
       
     </span>
   </a>
@@ -2902,325 +2858,24 @@
   
 
 
-  <h1>track_instance</h1>
-
-<div class="doc doc-object doc-module">
-
-
-
-<h2 id="sleap_nn.tracking.track_instance" class="doc doc-heading">
-            <code>sleap_nn.tracking.track_instance</code>
-
-
-<a href="#sleap_nn.tracking.track_instance" class="headerlink" title="Permanent link">&para;</a></h2>
-
-    <div class="doc doc-contents first">
-
-        <p>TrackInstance Data structure for Tracker queue.</p>
-
-
-
-
-
-
-
-
-
-
-<p><span class="doc-section-title">Classes:</span></p>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Description</th>
-        </tr>
-      </thead>
-      <tbody>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackInstanceLocalQueue&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackInstanceLocalQueue&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue">TrackInstanceLocalQueue</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Data structure for instances in tracker queue for Local Queue method.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackInstances&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackInstances&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackInstances">TrackInstances</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Data structure for instances in tracker queue for fixed window method.</p>
-              </div>
-            </td>
-          </tr>
-          <tr class="doc-section-item">
-            <td><code><a class="autorefs autorefs-internal" title="&lt;code&gt;TrackedInstanceFeature&lt;/code&gt; (&lt;code&gt;sleap_nn.tracking.track_instance.TrackedInstanceFeature&lt;/code&gt;)" href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature">TrackedInstanceFeature</a></code></td>
-            <td>
-              <div class="doc-md-description">
-                <p>Data structure for tracked instances.</p>
-              </div>
-            </td>
-          </tr>
-      </tbody>
-    </table>
-
-
-
-
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="doc doc-heading">
-            <code>TrackInstanceLocalQueue</code>
-
-
-<a href="#sleap_nn.tracking.track_instance.TrackInstanceLocalQueue" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-
-
-
-        <p>Data structure for instances in tracker queue for Local Queue method.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-              <details class="mkdocstrings-source">
-                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-21">21</a></span>
-<span class="normal"><a href="#__codelineno-0-22">22</a></span>
-<span class="normal"><a href="#__codelineno-0-23">23</a></span>
-<span class="normal"><a href="#__codelineno-0-24">24</a></span>
-<span class="normal"><a href="#__codelineno-0-25">25</a></span>
-<span class="normal"><a href="#__codelineno-0-26">26</a></span>
-<span class="normal"><a href="#__codelineno-0-27">27</a></span>
-<span class="normal"><a href="#__codelineno-0-28">28</a></span>
-<span class="normal"><a href="#__codelineno-0-29">29</a></span>
-<span class="normal"><a href="#__codelineno-0-30">30</a></span>
-<span class="normal"><a href="#__codelineno-0-31">31</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-21"><a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
-</span><span id="__span-0-22"><a id="__codelineno-0-22" name="__codelineno-0-22"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackInstanceLocalQueue</span><span class="p">:</span>
-</span><span id="__span-0-23"><a id="__codelineno-0-23" name="__codelineno-0-23"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for instances in tracker queue for Local Queue method.&quot;&quot;&quot;</span>
-</span><span id="__span-0-24"><a id="__codelineno-0-24" name="__codelineno-0-24"></a>
-</span><span id="__span-0-25"><a id="__codelineno-0-25" name="__codelineno-0-25"></a>    <span class="n">src_instance</span><span class="p">:</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span>
-</span><span id="__span-0-26"><a id="__codelineno-0-26" name="__codelineno-0-26"></a>    <span class="n">src_instance_idx</span><span class="p">:</span> <span class="nb">int</span>
-</span><span id="__span-0-27"><a id="__codelineno-0-27" name="__codelineno-0-27"></a>    <span class="n">feature</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span>
-</span><span id="__span-0-28"><a id="__codelineno-0-28" name="__codelineno-0-28"></a>    <span class="n">track_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-29"><a id="__codelineno-0-29" name="__codelineno-0-29"></a>    <span class="n">tracking_score</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-30"><a id="__codelineno-0-30" name="__codelineno-0-30"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-31"><a id="__codelineno-0-31" name="__codelineno-0-31"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span></code></pre></div></td></tr></table></div>
-              </details>
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="sleap_nn.tracking.track_instance.TrackInstances" class="doc doc-heading">
-            <code>TrackInstances</code>
-
-
-<a href="#sleap_nn.tracking.track_instance.TrackInstances" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-
-
-
-        <p>Data structure for instances in tracker queue for fixed window method.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-              <details class="mkdocstrings-source">
-                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-0-10">10</a></span>
-<span class="normal"><a href="#__codelineno-0-11">11</a></span>
-<span class="normal"><a href="#__codelineno-0-12">12</a></span>
-<span class="normal"><a href="#__codelineno-0-13">13</a></span>
-<span class="normal"><a href="#__codelineno-0-14">14</a></span>
-<span class="normal"><a href="#__codelineno-0-15">15</a></span>
-<span class="normal"><a href="#__codelineno-0-16">16</a></span>
-<span class="normal"><a href="#__codelineno-0-17">17</a></span>
-<span class="normal"><a href="#__codelineno-0-18">18</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackInstances</span><span class="p">:</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for instances in tracker queue for fixed window method.&quot;&quot;&quot;</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12"></a>
-</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13"></a>    <span class="n">src_instances</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span><span class="p">]</span>
-</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14"></a>    <span class="n">features</span><span class="p">:</span> <span class="n">List</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span>
-</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15"></a>    <span class="n">track_ids</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16"></a>    <span class="n">tracking_scores</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">float</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18"></a>    <span class="n">image</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-</span></code></pre></div></td></tr></table></div>
-              </details>
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-<div class="doc doc-object doc-class">
-
-
-
-<h3 id="sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="doc doc-heading">
-            <code>TrackedInstanceFeature</code>
-
-
-<a href="#sleap_nn.tracking.track_instance.TrackedInstanceFeature" class="headerlink" title="Permanent link">&para;</a></h3>
-
-
-    <div class="doc doc-contents ">
-
-
-
-        <p>Data structure for tracked instances.</p>
-<p>This data structure is used for updating the previous tracked instances and get the
-features of the tracked instances. <code>shifted_keypoints</code> is used only for the <code>FlowShiftTracker</code>
-to store the optical flow shifted instances.</p>
-
-
-
-
-
-
-
-
-
-
-
-
-
-              <details class="mkdocstrings-source">
-                <summary>Source code in <code>sleap_nn/tracking/track_instance.py</code></summary>
-                <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-34">34</a></span>
-<span class="normal"><a href="#__codelineno-0-35">35</a></span>
-<span class="normal"><a href="#__codelineno-0-36">36</a></span>
-<span class="normal"><a href="#__codelineno-0-37">37</a></span>
-<span class="normal"><a href="#__codelineno-0-38">38</a></span>
-<span class="normal"><a href="#__codelineno-0-39">39</a></span>
-<span class="normal"><a href="#__codelineno-0-40">40</a></span>
-<span class="normal"><a href="#__codelineno-0-41">41</a></span>
-<span class="normal"><a href="#__codelineno-0-42">42</a></span>
-<span class="normal"><a href="#__codelineno-0-43">43</a></span>
-<span class="normal"><a href="#__codelineno-0-44">44</a></span>
-<span class="normal"><a href="#__codelineno-0-45">45</a></span>
-<span class="normal"><a href="#__codelineno-0-46">46</a></span>
-<span class="normal"><a href="#__codelineno-0-47">47</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-34"><a id="__codelineno-0-34" name="__codelineno-0-34"></a><span class="nd">@attrs</span><span class="o">.</span><span class="n">define</span>
-</span><span id="__span-0-35"><a id="__codelineno-0-35" name="__codelineno-0-35"></a><span class="k">class</span><span class="w"> </span><span class="nc">TrackedInstanceFeature</span><span class="p">:</span>
-</span><span id="__span-0-36"><a id="__codelineno-0-36" name="__codelineno-0-36"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Data structure for tracked instances.</span>
-</span><span id="__span-0-37"><a id="__codelineno-0-37" name="__codelineno-0-37"></a>
-</span><span id="__span-0-38"><a id="__codelineno-0-38" name="__codelineno-0-38"></a><span class="sd">    This data structure is used for updating the previous tracked instances and get the</span>
-</span><span id="__span-0-39"><a id="__codelineno-0-39" name="__codelineno-0-39"></a><span class="sd">    features of the tracked instances. `shifted_keypoints` is used only for the `FlowShiftTracker`</span>
-</span><span id="__span-0-40"><a id="__codelineno-0-40" name="__codelineno-0-40"></a><span class="sd">    to store the optical flow shifted instances.</span>
-</span><span id="__span-0-41"><a id="__codelineno-0-41" name="__codelineno-0-41"></a><span class="sd">    &quot;&quot;&quot;</span>
-</span><span id="__span-0-42"><a id="__codelineno-0-42" name="__codelineno-0-42"></a>
-</span><span id="__span-0-43"><a id="__codelineno-0-43" name="__codelineno-0-43"></a>    <span class="n">feature</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span>
-</span><span id="__span-0-44"><a id="__codelineno-0-44" name="__codelineno-0-44"></a>    <span class="n">src_predicted_instance</span><span class="p">:</span> <span class="n">sio</span><span class="o">.</span><span class="n">PredictedInstance</span>
-</span><span id="__span-0-45"><a id="__codelineno-0-45" name="__codelineno-0-45"></a>    <span class="n">frame_idx</span><span class="p">:</span> <span class="nb">int</span>
-</span><span id="__span-0-46"><a id="__codelineno-0-46" name="__codelineno-0-46"></a>    <span class="n">tracking_score</span><span class="p">:</span> <span class="nb">float</span>
-</span><span id="__span-0-47"><a id="__codelineno-0-47" name="__codelineno-0-47"></a>    <span class="n">shifted_keypoints</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span> <span class="o">=</span> <span class="kc">None</span>
-</span></code></pre></div></td></tr></table></div>
-              </details>
-
-
-
-<div class="doc doc-children">
-
-
-
-
-
-
-
-
-
-
-
-
-  </div>
-
-    </div>
-
-</div>
-
-
-
-
-  </div>
-
-    </div>
-
+<h1 id="colab-notebooks">Colab Notebooks<a class="headerlink" href="#colab-notebooks" title="Permanent link">&para;</a></h1>
+<p>Here are Jupyter notebooks you can run on <a href="https://colab.research.google.com">Google Colaboratory</a> (Colab). Colab is great for running training and inference on your data if you don't have access to a local machine with a supported GPU.</p>
+<h2 id="available-notebooks">Available Notebooks<a class="headerlink" href="#available-notebooks" title="Permanent link">&para;</a></h2>
+<h3 id="training-and-inference-with-sleap-nn"><a href="Training_with_sleap_nn_on_colab/">Training and Inference with sleap-nn</a><a class="headerlink" href="#training-and-inference-with-sleap-nn" title="Permanent link">&para;</a></h3>
+<p><a href="https://colab.research.google.com/github/talmolab/sleap-nn/blob/main/docs/colab_notebooks/Training_with_sleap_nn_on_colab.ipynb"><img alt="Open In Colab" src="https://colab.research.google.com/assets/colab-badge.svg" /></a></p>
+<p>This tutorial notebook walks through running training, inference, and evaluation workflows in sleap-nn using the Python API. You'll learn how to:</p>
+<ul>
+<li>Install sleap-nn on Colab with GPU support</li>
+<li>Load and configure training settings</li>
+<li>Run model training</li>
+<li>Perform inference on new data</li>
+<li>Evaluate model predictions against ground truth</li>
+<li>Visualize predictions</li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Enable GPU Runtime</p>
+<p>Before running the notebook, make sure to enable GPU runtime in Colab:
+<strong>Runtime → Change runtime type → Select "T4 GPU"</strong></p>
 </div>
 
 
@@ -3304,10 +2959,10 @@ to store the optical flow shifted instances.</p>
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "../../..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tracking", "toc.follow", "navigation.sections", "navigation.top", "search.suggest", "search.highlight", "content.code.copy", "content.code.annotate", "content.tooltips", "content.code.select", "content.footnote.tooltips"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
     
     
-      <script src="../../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

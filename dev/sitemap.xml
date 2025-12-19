@@ -9,6 +9,10 @@
          <lastmod>2025-12-19</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/cli/</loc>
+         <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/config/</loc>
          <lastmod>2025-12-19</lastmod>
     </url>
@@ -266,6 +270,14 @@
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/training/utils/</loc>
+         <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/colab_notebooks/</loc>
+         <lastmod>2025-12-19</lastmod>
+    </url>
+    <url>
+         <loc>https://nn.sleap.ai/dev/colab_notebooks/Training_with_sleap_nn_on_colab/</loc>
          <lastmod>2025-12-19</lastmod>
     </url>
 </urlset>
