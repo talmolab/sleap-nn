@@ -21,6 +21,16 @@ class TrainCommand(Command):
         show_training_help()
 
 
+def parse_path_map(ctx, param, value):
+    """Parse (old, new) path pairs into a dictionary for path mapping options."""
+    if not value:
+        return None
+    result = {}
+    for old_path, new_path in value:
+        result[old_path] = Path(new_path).as_posix()
+    return result
+
+
 @click.group()
 def cli():
     """SLEAP-NN: Neural network backend for training and inference for animal pose estimation.
@@ -71,23 +81,32 @@ For a detailed list of all available config options, please refer to https://nn.
 @click.option(
     "--video-paths",
     "-v",
-    type=str,
-    help="Comma-separated list of video paths to replace existing paths in the labels file. "
+    multiple=True,
+    help="Video paths to replace existing paths in the labels file. "
     "Order must match the order of videos in the labels file. "
-    "Example: --video-paths '/path/to/vid1.mp4,/path/to/vid2.mp4'",
+    "Can be specified multiple times. "
+    "Example: --video-paths /path/to/vid1.mp4 --video-paths /path/to/vid2.mp4",
 )
 @click.option(
     "--video-path-map",
-    type=str,
-    help="Mapping of old video paths to new video paths as comma-separated 'old->new' pairs. "
-    "Example: --video-path-map 'old1.mp4->new1.mp4,old2.mp4->new2.mp4'",
+    nargs=2,
+    multiple=True,
+    callback=parse_path_map,
+    metavar="OLD NEW",
+    help="Map old video path to new path. Takes two arguments: old path and new path. "
+    "Can be specified multiple times. "
+    "Example: --video-path-map \"/old/vid.mp`4\" \"/new/vid.mp4\"",
 )
 @click.option(
     "--prefix-map",
-    type=str,
-    help="Mapping of old path prefixes to new prefixes as comma-separated 'old->new' pairs. "
-    "This updates ALL videos that share the same prefix. Useful when moving data between machines. "
-    "Example: --prefix-map '/old/server/path->/new/local/path'",
+    nargs=2,
+    multiple=True,
+    callback=parse_path_map,
+    metavar="OLD NEW",
+    help="Map old path prefix to new prefix. Takes two arguments: old prefix and new prefix. "
+    "Updates ALL videos that share the same prefix. Useful when moving data between machines. "
+    "Can be specified multiple times. "
+    "Example: --prefix-map \"/old/server/path\" \"/new/local/path\"",
 )
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
 def train(config_name, config_dir, video_paths, video_path_map, prefix_map, overrides):
@@ -125,9 +144,12 @@ def train(config_name, config_dir, video_paths, video_path_map, prefix_map, over
         val_labels = None
 
         # Check that only one replacement option is used
-        options_used = sum(
-            opt is not None for opt in [video_paths, video_path_map, prefix_map]
-        )
+        # video_paths is a tuple (empty if not used), others are None or dict
+        has_video_paths = len(video_paths) > 0
+        has_video_path_map = video_path_map is not None
+        has_prefix_map = prefix_map is not None
+        options_used = sum([has_video_paths, has_video_path_map, has_prefix_map])
+
         if options_used > 1:
             raise click.UsageError(
                 "Cannot use multiple path replacement options. "
@@ -149,32 +171,18 @@ def train(config_name, config_dir, video_paths, video_path_map, prefix_map, over
                     sio.load_slp(path) for path in cfg.data_config.val_labels_path
                 ]
 
-            # Parse replacement arguments based on option used
-            if video_paths is not None:
+            # Build replacement arguments based on option used
+            if has_video_paths:
                 # List of paths (order must match videos in labels file)
                 replace_kwargs = {
-                    "new_filenames": [
-                        Path(p.strip()).as_posix() for p in video_paths.split(",")
-                    ]
+                    "new_filenames": [Path(p).as_posix() for p in video_paths]
                 }
-            elif video_path_map is not None:
+            elif has_video_path_map:
                 # Dictionary mapping old filenames to new filenames
-                replace_kwargs = {
-                    "filename_map": {
-                        old.strip(): Path(new.strip()).as_posix()
-                        for pair in video_path_map.split(",")
-                        for old, new in [pair.split("->")]
-                    }
-                }
-            else:  # prefix_map is not None
+                replace_kwargs = {"filename_map": video_path_map}
+            else:  # has_prefix_map
                 # Dictionary mapping old prefixes to new prefixes
-                replace_kwargs = {
-                    "prefix_map": {
-                        old.strip(): Path(new.strip()).as_posix()
-                        for pair in prefix_map.split(",")
-                        for old, new in [pair.split("->")]
-                    }
-                }
+                replace_kwargs = {"prefix_map": prefix_map}
 
             # Apply replacement to train labels
             for labels in train_labels:

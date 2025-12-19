@@ -268,7 +268,7 @@ def test_train_cli_with_video_paths(
     sample_config.data_config.val_labels_path = None
     OmegaConf.save(sample_config, (Path(tmp_path) / "test_config.yaml").as_posix())
     labels = sio.load_slp(small_robot_minimal)
-    video_path = labels.videos[0].filename
+    video_path = Path(labels.videos[0].filename).as_posix()
 
     cmd = [
         "uv",
@@ -280,11 +280,11 @@ def test_train_cli_with_video_paths(
         "--config-name",
         "test_config",
         "--video-path-map",
-        f"{video_path}->{small_robot_minimal_video.as_posix()}",
+        f"{video_path}",
+        f"{small_robot_minimal_video.as_posix()}",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0
-    print(result.stderr)
 
     assert (
         Path(f"{sample_config.trainer_config.ckpt_dir}")
@@ -326,7 +326,8 @@ def test_train_cli_with_prefix_map(
         "--config-name",
         "test_config",
         "--prefix-map",
-        f"{old_prefix}->{new_prefix}",
+        f"{old_prefix}",
+        f"{new_prefix}",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
     assert result.returncode == 0, f"stderr: {result.stderr}"
