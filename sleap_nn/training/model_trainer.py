@@ -508,6 +508,14 @@ class ModelTrainer:
         """Compute config parameters."""
         logger.info("Setting up config...")
 
+        # Normalize empty strings to None for optional wandb fields
+        if self.config.trainer_config.wandb.prv_runid == "":
+            self.config.trainer_config.wandb.prv_runid = None
+
+        # Default wandb run name to trainer run_name if not specified
+        if self.config.trainer_config.wandb.name is None:
+            self.config.trainer_config.wandb.name = self.config.trainer_config.run_name
+
         # compute preprocessing parameters from the labels objects and fill in the config
         self._setup_preprocessing_config()
 
