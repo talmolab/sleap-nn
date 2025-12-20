@@ -53,6 +53,8 @@ from sleap_nn.training.callbacks import (
     TrainingControllerZMQ,
     MatplotlibSaver,
     WandBPredImageLogger,
+    WandBVizCallback,
+    WandBVizCallbackWithPAFs,
     CSVLoggerCallback,
     SleapProgressBar,
 )
@@ -857,13 +859,66 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb and OmegaConf.select(
                 self.config, "trainer_config.wandb.save_viz_imgs_wandb", default=False
             ):
-                callbacks.append(
-                    WandBPredImageLogger(
-                        viz_folder=viz_dir,
-                        wandb_run_name=self.config.trainer_config.wandb.name,
-                        is_bottomup=(self.model_type == "bottomup"),
-                    )
+                # Get wandb viz config options
+                viz_mode = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_mode", default="direct"
                 )
+                viz_box_size = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_box_size", default=5.0
+                )
+                viz_confmap_threshold = OmegaConf.select(
+                    self.config,
+                    "trainer_config.wandb.viz_confmap_threshold",
+                    default=0.1,
+                )
+                log_viz_table = OmegaConf.select(
+                    self.config, "trainer_config.wandb.log_viz_table", default=False
+                )
+
+                # Create viz data pipelines for wandb callback
+                wandb_train_viz_pipeline = cycle(copy.deepcopy(viz_train_dataset))
+                wandb_val_viz_pipeline = cycle(copy.deepcopy(viz_val_dataset))
+
+                if self.model_type == "bottomup":
+                    # Bottom-up model needs PAF visualizations
+                    wandb_train_pafs_pipeline = cycle(copy.deepcopy(viz_train_dataset))
+                    wandb_val_pafs_pipeline = cycle(copy.deepcopy(viz_val_dataset))
+                    callbacks.append(
+                        WandBVizCallbackWithPAFs(
+                            train_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_train_viz_pipeline)
+                            ),
+                            val_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_val_viz_pipeline)
+                            ),
+                            train_pafs_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_train_pafs_pipeline), include_pafs=True
+                            ),
+                            val_pafs_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_val_pafs_pipeline), include_pafs=True
+                            ),
+                            mode=viz_mode,
+                            box_size=viz_box_size,
+                            confmap_threshold=viz_confmap_threshold,
+                            log_table=log_viz_table,
+                        )
+                    )
+                else:
+                    # Standard models
+                    callbacks.append(
+                        WandBVizCallback(
+                            train_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_train_viz_pipeline)
+                            ),
+                            val_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_val_viz_pipeline)
+                            ),
+                            mode=viz_mode,
+                            box_size=viz_box_size,
+                            confmap_threshold=viz_confmap_threshold,
+                            log_table=log_viz_table,
+                        )
+                    )
 
         # Add custom progress bar with better metric formatting
         if self.config.trainer_config.enable_progress_bar:

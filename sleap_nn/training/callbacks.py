@@ -93,7 +93,11 @@ class CSVLoggerCallback(Callback):
 
 
 class WandBPredImageLogger(Callback):
-    """Callback for writing image predictions to wandb.
+    """Callback for writing image predictions to wandb as a Table.
+
+    .. deprecated::
+        This callback logs images to a wandb.Table which doesn't support
+        step sliders. Use WandBVizCallback instead for better UX.
 
     Attributes:
         viz_folder: Path to viz directory.
@@ -171,6 +175,191 @@ class WandBPredImageLogger(Callback):
             wandb.log({f"{self.wandb_run_name}": table})
 
         # Sync all processes after wandb logging
+        trainer.strategy.barrier()
+
+
+class WandBVizCallback(Callback):
+    """Callback for logging visualization images directly to wandb with slider support.
+
+    This callback logs images using wandb.log() which enables step slider navigation
+    in the wandb UI. It supports multiple rendering modes:
+    - "direct": Pre-render with matplotlib (same as disk viz)
+    - "boxes": Interactive keypoint boxes with filtering
+    - "masks": Confidence map overlay with per-node toggling
+
+    Attributes:
+        train_viz_fn: Function that returns VisualizationData for training sample.
+        val_viz_fn: Function that returns VisualizationData for validation sample.
+        mode: Rendering mode ("direct", "boxes", or "masks").
+        box_size: Size of keypoint boxes in pixels (for "boxes" mode).
+        confmap_threshold: Threshold for confmap masks (for "masks" mode).
+        log_table: Whether to also log to a wandb.Table (backwards compat).
+    """
+
+    def __init__(
+        self,
+        train_viz_fn: Callable,
+        val_viz_fn: Callable,
+        mode: str = "direct",
+        box_size: float = 5.0,
+        confmap_threshold: float = 0.1,
+        log_table: bool = False,
+    ):
+        """Initialize the callback.
+
+        Args:
+            train_viz_fn: Callable that returns VisualizationData for a training sample.
+            val_viz_fn: Callable that returns VisualizationData for a validation sample.
+            mode: Rendering mode - "direct", "boxes", or "masks".
+            box_size: Size of keypoint boxes in pixels (for "boxes" mode).
+            confmap_threshold: Threshold for confmap mask generation (for "masks" mode).
+            log_table: If True, also log images to a wandb.Table (for backwards compat).
+        """
+        super().__init__()
+        self.train_viz_fn = train_viz_fn
+        self.val_viz_fn = val_viz_fn
+        self.mode = mode
+        self.log_table = log_table
+
+        # Import here to avoid circular imports
+        from sleap_nn.training.utils import WandBRenderer
+
+        self.renderer = WandBRenderer(
+            mode=mode,
+            box_size=box_size,
+            confmap_threshold=confmap_threshold,
+        )
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Log visualization images at end of each epoch."""
+        if trainer.is_global_zero:
+            epoch = trainer.current_epoch
+
+            # Get visualization data
+            train_data = self.train_viz_fn()
+            val_data = self.val_viz_fn()
+
+            # Render to wandb.Image
+            train_img = self.renderer.render(train_data, caption=f"Train Epoch {epoch}")
+            val_img = self.renderer.render(val_data, caption=f"Val Epoch {epoch}")
+
+            # Log directly for slider support
+            wandb.log(
+                {
+                    "train_predictions": train_img,
+                    "val_predictions": val_img,
+                },
+                step=epoch,
+            )
+
+            # Optionally also log to table for backwards compat
+            if self.log_table:
+                table = wandb.Table(
+                    columns=["Epoch", "Train", "Validation"],
+                    data=[[epoch, train_img, val_img]],
+                )
+                wandb.log({"predictions_table": table}, step=epoch)
+
+        # Sync all processes
+        trainer.strategy.barrier()
+
+
+class WandBVizCallbackWithPAFs(WandBVizCallback):
+    """Extended WandBVizCallback that also logs PAF visualizations for bottom-up models."""
+
+    def __init__(
+        self,
+        train_viz_fn: Callable,
+        val_viz_fn: Callable,
+        train_pafs_viz_fn: Callable,
+        val_pafs_viz_fn: Callable,
+        mode: str = "direct",
+        box_size: float = 5.0,
+        confmap_threshold: float = 0.1,
+        log_table: bool = False,
+    ):
+        """Initialize the callback.
+
+        Args:
+            train_viz_fn: Callable returning VisualizationData for training sample.
+            val_viz_fn: Callable returning VisualizationData for validation sample.
+            train_pafs_viz_fn: Callable returning VisualizationData with PAFs for training.
+            val_pafs_viz_fn: Callable returning VisualizationData with PAFs for validation.
+            mode: Rendering mode - "direct", "boxes", or "masks".
+            box_size: Size of keypoint boxes in pixels.
+            confmap_threshold: Threshold for confmap mask generation.
+            log_table: If True, also log images to a wandb.Table.
+        """
+        super().__init__(
+            train_viz_fn=train_viz_fn,
+            val_viz_fn=val_viz_fn,
+            mode=mode,
+            box_size=box_size,
+            confmap_threshold=confmap_threshold,
+            log_table=log_table,
+        )
+        self.train_pafs_viz_fn = train_pafs_viz_fn
+        self.val_pafs_viz_fn = val_pafs_viz_fn
+
+        # Import here to avoid circular imports
+        from sleap_nn.training.utils import MatplotlibRenderer
+        from io import BytesIO
+
+        self._mpl_renderer = MatplotlibRenderer()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Log visualization images including PAFs at end of each epoch."""
+        if trainer.is_global_zero:
+            epoch = trainer.current_epoch
+
+            # Get visualization data
+            train_data = self.train_viz_fn()
+            val_data = self.val_viz_fn()
+            train_pafs_data = self.train_pafs_viz_fn()
+            val_pafs_data = self.val_pafs_viz_fn()
+
+            # Render main predictions
+            train_img = self.renderer.render(train_data, caption=f"Train Epoch {epoch}")
+            val_img = self.renderer.render(val_data, caption=f"Val Epoch {epoch}")
+
+            # Render PAFs (always use matplotlib/direct for PAFs)
+            from io import BytesIO
+            import matplotlib.pyplot as plt
+
+            train_pafs_fig = self._mpl_renderer.render_pafs(train_pafs_data)
+            buf = BytesIO()
+            train_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(train_pafs_fig)
+            train_pafs_img = wandb.Image(buf, caption=f"Train PAFs Epoch {epoch}")
+
+            val_pafs_fig = self._mpl_renderer.render_pafs(val_pafs_data)
+            buf = BytesIO()
+            val_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(val_pafs_fig)
+            val_pafs_img = wandb.Image(buf, caption=f"Val PAFs Epoch {epoch}")
+
+            # Log all images
+            wandb.log(
+                {
+                    "train_predictions": train_img,
+                    "val_predictions": val_img,
+                    "train_pafs": train_pafs_img,
+                    "val_pafs": val_pafs_img,
+                },
+                step=epoch,
+            )
+
+            # Optionally also log to table
+            if self.log_table:
+                table = wandb.Table(
+                    columns=["Epoch", "Train", "Validation", "Train PAFs", "Val PAFs"],
+                    data=[[epoch, train_img, val_img, train_pafs_img, val_pafs_img]],
+                )
+                wandb.log({"predictions_table": table}, step=epoch)
+
+        # Sync all processes
         trainer.strategy.barrier()
 
 

@@ -94,20 +94,28 @@ def test_compute_augmentation_padding_rotation_only():
     """Test padding with rotation augmentation only."""
     # 45 degree rotation is worst case: bbox expands by sqrt(2)
     # For 100px bbox: 100 * sqrt(2) - 100 = 41.4
-    padding = compute_augmentation_padding(bbox_size=100, rotation_max=45, scale_max=1.0)
+    padding = compute_augmentation_padding(
+        bbox_size=100, rotation_max=45, scale_max=1.0
+    )
     assert padding == math.ceil(100 * (math.sqrt(2) - 1))  # 42
 
     # 90 degree rotation: same as 45 for worst case
-    padding = compute_augmentation_padding(bbox_size=100, rotation_max=90, scale_max=1.0)
+    padding = compute_augmentation_padding(
+        bbox_size=100, rotation_max=90, scale_max=1.0
+    )
     assert padding == math.ceil(100 * (math.sqrt(2) - 1))  # 42
 
     # 180 degree rotation: same as 45 for worst case
-    padding = compute_augmentation_padding(bbox_size=100, rotation_max=180, scale_max=1.0)
+    padding = compute_augmentation_padding(
+        bbox_size=100, rotation_max=180, scale_max=1.0
+    )
     assert padding == math.ceil(100 * (math.sqrt(2) - 1))  # 42
 
     # Small rotation (15 degrees)
     # cos(15) + sin(15) = 0.966 + 0.259 = 1.225
-    padding = compute_augmentation_padding(bbox_size=100, rotation_max=15, scale_max=1.0)
+    padding = compute_augmentation_padding(
+        bbox_size=100, rotation_max=15, scale_max=1.0
+    )
     rotation_factor = abs(math.cos(math.radians(15))) + abs(math.sin(math.radians(15)))
     expected = math.ceil(100 * (rotation_factor - 1))
     assert padding == expected
@@ -118,7 +126,9 @@ def test_compute_augmentation_padding_combined():
     # 45 degree rotation + 1.1x scale
     # Expansion factor = sqrt(2) * 1.1 = 1.556
     # Padding = 100 * (1.556 - 1) = 55.6 -> 56
-    padding = compute_augmentation_padding(bbox_size=100, rotation_max=45, scale_max=1.1)
+    padding = compute_augmentation_padding(
+        bbox_size=100, rotation_max=45, scale_max=1.1
+    )
     expected = math.ceil(100 * (math.sqrt(2) * 1.1 - 1))
     assert padding == expected
 
