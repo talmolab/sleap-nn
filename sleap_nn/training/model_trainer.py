@@ -50,6 +50,7 @@ from sleap_nn.training.callbacks import (
     MatplotlibSaver,
     WandBPredImageLogger,
     CSVLoggerCallback,
+    SleapProgressBar,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -828,6 +829,10 @@ class ModelTrainer:
                         is_bottomup=(self.model_type == "bottomup"),
                     )
                 )
+
+        # Add custom progress bar with better metric formatting
+        if self.config.trainer_config.enable_progress_bar:
+            callbacks.append(SleapProgressBar())
 
         return loggers, callbacks
 
