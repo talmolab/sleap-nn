@@ -26,6 +26,9 @@ class PreprocessingConfig:
         crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
             If `scale` is provided, then the cropped image will be resized according to `scale`.*Default*: `None`.
         min_crop_size: (int) Minimum crop size to be used if `crop_size` is `None`. *Default*: `100`.
+        crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
+            If `None`, padding is auto-computed based on augmentation settings (rotation/scale).
+            Only used when `crop_size` is `None`. *Default*: `None`.
     """
 
     ensure_rgb: bool = False
@@ -37,6 +40,7 @@ class PreprocessingConfig:
     )
     crop_size: Optional[int] = None
     min_crop_size: Optional[int] = 100  # to help app work in case of error
+    crop_padding: Optional[int] = None
 
     def validate_scale(self):
         """Scale Validation.

@@ -28,7 +28,11 @@ from lightning.pytorch.profilers import (
     PassThroughProfiler,
 )
 from sleap_io.io.skeleton import SkeletonYAMLEncoder
-from sleap_nn.data.instance_cropping import find_instance_crop_size
+from sleap_nn.data.instance_cropping import (
+    find_instance_crop_size,
+    find_max_instance_bbox_size,
+    compute_augmentation_padding,
+)
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.custom_datasets import (
     get_train_val_dataloaders,
@@ -291,8 +295,39 @@ class ModelTrainer:
             ):
                 # compute crop size if not provided in config
                 if crop_size is None:
+                    # Get padding from config or auto-compute from augmentation settings
+                    padding = self.config.data_config.preprocessing.crop_padding
+                    if padding is None:
+                        # Auto-compute padding based on augmentation settings
+                        aug_config = self.config.data_config.augmentation_config
+                        if (
+                            self.config.data_config.use_augmentations_train
+                            and aug_config is not None
+                            and aug_config.geometric is not None
+                        ):
+                            # First find the actual max bbox size from labels
+                            bbox_size = find_max_instance_bbox_size(train_label)
+                            bbox_size = max(
+                                bbox_size,
+                                self.config.data_config.preprocessing.min_crop_size
+                                or 100,
+                            )
+                            rotation_max = max(
+                                abs(aug_config.geometric.rotation_min),
+                                abs(aug_config.geometric.rotation_max),
+                            )
+                            scale_max = aug_config.geometric.scale_max
+                            padding = compute_augmentation_padding(
+                                bbox_size=bbox_size,
+                                rotation_max=rotation_max,
+                                scale_max=scale_max,
+                            )
+                        else:
+                            padding = 0
+
                     crop_sz = find_instance_crop_size(
                         labels=train_label,
+                        padding=padding,
                         maximum_stride=self.config.model_config.backbone_config[
                             f"{self.backbone_type}"
                         ]["max_stride"],

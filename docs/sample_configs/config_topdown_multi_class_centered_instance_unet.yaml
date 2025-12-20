@@ -17,6 +17,7 @@ data_config:
     scale: 1.0
     crop_size:
     min_crop_size: 100
+    crop_padding: null
   use_augmentations_train: true
   augmentation_config:
     intensity:
