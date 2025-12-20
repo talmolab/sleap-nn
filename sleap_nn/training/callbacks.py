@@ -2,8 +2,9 @@
 
 import zmq
 import jsonpickle
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from loguru import logger
 import matplotlib
 import matplotlib.pyplot as plt
@@ -12,6 +13,32 @@ from pathlib import Path
 import wandb
 import csv
 from sleap_nn import RANK
+
+
+class SleapProgressBar(TQDMProgressBar):
+    """Custom progress bar with better formatting for small metric values.
+
+    The default TQDMProgressBar truncates small floats like 1e-5 to "0.000".
+    This subclass formats metrics using scientific notation when appropriate.
+    """
+
+    def get_metrics(
+        self, trainer, pl_module
+    ) -> dict[str, Union[int, str, float, dict[str, float]]]:
+        """Override to format metrics with scientific notation for small values."""
+        items = super().get_metrics(trainer, pl_module)
+        formatted = {}
+        for k, v in items.items():
+            if isinstance(v, float):
+                # Use scientific notation for very small values
+                if v != 0 and abs(v) < 0.001:
+                    formatted[k] = f"{v:.2e}"
+                else:
+                    # Use 4 decimal places for normal values
+                    formatted[k] = f"{v:.4f}"
+            else:
+                formatted[k] = v
+        return formatted
 
 
 class CSVLoggerCallback(Callback):
