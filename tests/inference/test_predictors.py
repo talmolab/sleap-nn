@@ -804,7 +804,6 @@ def test_single_instance_predictor(
     minimal_instance_single_instance_ckpt,
 ):
     """Test SingleInstancePredictor module."""
-
     # check loading diff head ckpt
     preprocess_config = {
         "ensure_rgb": None,
