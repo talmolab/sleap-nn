@@ -1071,7 +1071,7 @@ class ModelTrainer:
         logger.info(f"Backbone model: {self.lightning_model.model.backbone}")
         logger.info(f"Head model: {self.lightning_model.model.head_layers}")
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
-        logger.info(f"Total model parameters: {total_params}")
+        logger.info(f"Total model parameters: {total_params:,}")
         self.config.model_config.total_params = total_params
 
         # setup dataloaders
