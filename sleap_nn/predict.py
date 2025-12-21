@@ -15,6 +15,7 @@ from sleap_nn.tracking.tracker import (
     connect_single_breaks,
     cull_instances,
 )
+from sleap_nn.system_info import get_startup_info_string
 from omegaconf import OmegaConf
 import sleap_io as sio
 from pathlib import Path
@@ -362,6 +363,7 @@ def run_inference(
         start_inf_time = time()
         start_timestamp = str(datetime.now())
         logger.info(f"Started inference at: {start_timestamp}")
+        logger.info(get_startup_info_string())
 
         if device == "auto":
             device = (
