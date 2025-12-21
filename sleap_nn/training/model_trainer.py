@@ -825,8 +825,14 @@ class ModelTrainer:
                 self.config, "trainer_config.wandb.save_viz_imgs_wandb", default=False
             ):
                 # Get wandb viz config options
-                viz_mode = OmegaConf.select(
-                    self.config, "trainer_config.wandb.viz_mode", default="direct"
+                viz_enabled = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_enabled", default=True
+                )
+                viz_boxes = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_boxes", default=False
+                )
+                viz_masks = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_masks", default=False
                 )
                 viz_box_size = OmegaConf.select(
                     self.config, "trainer_config.wandb.viz_box_size", default=5.0
@@ -862,7 +868,9 @@ class ModelTrainer:
                             val_pafs_viz_fn=lambda: self.lightning_model.get_visualization_data(
                                 next(wandb_val_pafs_pipeline), include_pafs=True
                             ),
-                            mode=viz_mode,
+                            viz_enabled=viz_enabled,
+                            viz_boxes=viz_boxes,
+                            viz_masks=viz_masks,
                             box_size=viz_box_size,
                             confmap_threshold=viz_confmap_threshold,
                             log_table=log_viz_table,
@@ -878,7 +886,9 @@ class ModelTrainer:
                             val_viz_fn=lambda: self.lightning_model.get_visualization_data(
                                 next(wandb_val_viz_pipeline)
                             ),
-                            mode=viz_mode,
+                            viz_enabled=viz_enabled,
+                            viz_boxes=viz_boxes,
+                            viz_masks=viz_masks,
                             box_size=viz_box_size,
                             confmap_threshold=viz_confmap_threshold,
                             log_table=log_viz_table,
