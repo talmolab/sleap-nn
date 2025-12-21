@@ -898,7 +898,14 @@ def run_tracker(
             tracking_target_instance_count is None
             or tracking_target_instance_count == 0
         ):
-            message = "tracking_target_instance_count is None or 0. To connect single breaks, tracking_target_instance_count should be set to an integer."
+            if max_tracks is not None:
+                suggestion = f"Add --tracking_target_instance_count {max_tracks} to your command (using your --max_tracks value)."
+            else:
+                suggestion = "Add --tracking_target_instance_count N where N is the expected number of instances per frame."
+            message = (
+                f"--post_connect_single_breaks requires --tracking_target_instance_count to be set. "
+                f"{suggestion}"
+            )
             logger.error(message)
             raise ValueError(message)
         start_final_pass_time = time()
