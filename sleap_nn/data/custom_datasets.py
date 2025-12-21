@@ -177,6 +177,9 @@ class BaseDataset(Dataset):
                 if self.user_instances_only:
                     if lf.user_instances is not None and len(lf.user_instances) > 0:
                         lf.instances = lf.user_instances
+                    else:
+                        # Skip frames without user instances
+                        continue
                 is_empty = True
                 for _, inst in enumerate(lf.instances):
                     if not inst.is_empty:  # filter all NaN instances.
@@ -745,6 +748,9 @@ class CenteredInstanceDataset(BaseDataset):
                 if self.user_instances_only:
                     if lf.user_instances is not None and len(lf.user_instances) > 0:
                         lf.instances = lf.user_instances
+                    else:
+                        # Skip frames without user instances
+                        continue
                 for inst_idx, inst in enumerate(lf.instances):
                     if not inst.is_empty:  # filter all NaN instances.
                         video_idx = labels[labels_idx].videos.index(lf.video)
