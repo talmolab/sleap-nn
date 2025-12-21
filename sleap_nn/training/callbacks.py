@@ -182,17 +182,19 @@ class WandBVizCallback(Callback):
     """Callback for logging visualization images directly to wandb with slider support.
 
     This callback logs images using wandb.log() which enables step slider navigation
-    in the wandb UI. It supports multiple rendering modes:
-    - "direct": Pre-render with matplotlib (same as disk viz)
-    - "boxes": Interactive keypoint boxes with filtering
-    - "masks": Confidence map overlay with per-node toggling
+    in the wandb UI. Multiple visualization modes can be enabled simultaneously:
+    - viz_enabled: Pre-render with matplotlib (same as disk viz)
+    - viz_boxes: Interactive keypoint boxes with filtering
+    - viz_masks: Confidence map overlay with per-node toggling
 
     Attributes:
         train_viz_fn: Function that returns VisualizationData for training sample.
         val_viz_fn: Function that returns VisualizationData for validation sample.
-        mode: Rendering mode ("direct", "boxes", or "masks").
-        box_size: Size of keypoint boxes in pixels (for "boxes" mode).
-        confmap_threshold: Threshold for confmap masks (for "masks" mode).
+        viz_enabled: Whether to log pre-rendered matplotlib images.
+        viz_boxes: Whether to log interactive keypoint boxes.
+        viz_masks: Whether to log confidence map overlay masks.
+        box_size: Size of keypoint boxes in pixels (for viz_boxes).
+        confmap_threshold: Threshold for confmap masks (for viz_masks).
         log_table: Whether to also log to a wandb.Table (backwards compat).
     """
 
@@ -200,7 +202,9 @@ class WandBVizCallback(Callback):
         self,
         train_viz_fn: Callable,
         val_viz_fn: Callable,
-        mode: str = "direct",
+        viz_enabled: bool = True,
+        viz_boxes: bool = False,
+        viz_masks: bool = False,
         box_size: float = 5.0,
         confmap_threshold: float = 0.1,
         log_table: bool = False,
@@ -210,25 +214,41 @@ class WandBVizCallback(Callback):
         Args:
             train_viz_fn: Callable that returns VisualizationData for a training sample.
             val_viz_fn: Callable that returns VisualizationData for a validation sample.
-            mode: Rendering mode - "direct", "boxes", or "masks".
-            box_size: Size of keypoint boxes in pixels (for "boxes" mode).
-            confmap_threshold: Threshold for confmap mask generation (for "masks" mode).
+            viz_enabled: If True, log pre-rendered matplotlib images.
+            viz_boxes: If True, log interactive keypoint boxes.
+            viz_masks: If True, log confidence map overlay masks.
+            box_size: Size of keypoint boxes in pixels (for viz_boxes).
+            confmap_threshold: Threshold for confmap mask generation (for viz_masks).
             log_table: If True, also log images to a wandb.Table (for backwards compat).
         """
         super().__init__()
         self.train_viz_fn = train_viz_fn
         self.val_viz_fn = val_viz_fn
-        self.mode = mode
+        self.viz_enabled = viz_enabled
+        self.viz_boxes = viz_boxes
+        self.viz_masks = viz_masks
         self.log_table = log_table
 
         # Import here to avoid circular imports
         from sleap_nn.training.utils import WandBRenderer
 
-        self.renderer = WandBRenderer(
-            mode=mode,
-            box_size=box_size,
-            confmap_threshold=confmap_threshold,
-        )
+        self.box_size = box_size
+        self.confmap_threshold = confmap_threshold
+
+        # Create renderers for each enabled mode
+        self.renderers = {}
+        if viz_enabled:
+            self.renderers["direct"] = WandBRenderer(
+                mode="direct", box_size=box_size, confmap_threshold=confmap_threshold
+            )
+        if viz_boxes:
+            self.renderers["boxes"] = WandBRenderer(
+                mode="boxes", box_size=box_size, confmap_threshold=confmap_threshold
+            )
+        if viz_masks:
+            self.renderers["masks"] = WandBRenderer(
+                mode="masks", box_size=box_size, confmap_threshold=confmap_threshold
+            )
 
     def on_train_epoch_end(self, trainer, pl_module):
         """Log visualization images at end of each epoch."""
@@ -239,21 +259,26 @@ class WandBVizCallback(Callback):
             train_data = self.train_viz_fn()
             val_data = self.val_viz_fn()
 
-            # Render to wandb.Image
-            train_img = self.renderer.render(train_data, caption=f"Train Epoch {epoch}")
-            val_img = self.renderer.render(val_data, caption=f"Val Epoch {epoch}")
+            # Render and log for each enabled mode
+            log_dict = {}
+            for mode_name, renderer in self.renderers.items():
+                suffix = "" if mode_name == "direct" else f"_{mode_name}"
+                train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
+                val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
+                log_dict[f"train_predictions{suffix}"] = train_img
+                log_dict[f"val_predictions{suffix}"] = val_img
 
-            # Log directly for slider support
-            wandb.log(
-                {
-                    "train_predictions": train_img,
-                    "val_predictions": val_img,
-                },
-                step=epoch,
-            )
+            if log_dict:
+                wandb.log(log_dict, step=epoch)
 
             # Optionally also log to table for backwards compat
-            if self.log_table:
+            if self.log_table and "direct" in self.renderers:
+                train_img = self.renderers["direct"].render(
+                    train_data, caption=f"Train Epoch {epoch}"
+                )
+                val_img = self.renderers["direct"].render(
+                    val_data, caption=f"Val Epoch {epoch}"
+                )
                 table = wandb.Table(
                     columns=["Epoch", "Train", "Validation"],
                     data=[[epoch, train_img, val_img]],
@@ -273,7 +298,9 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
         val_viz_fn: Callable,
         train_pafs_viz_fn: Callable,
         val_pafs_viz_fn: Callable,
-        mode: str = "direct",
+        viz_enabled: bool = True,
+        viz_boxes: bool = False,
+        viz_masks: bool = False,
         box_size: float = 5.0,
         confmap_threshold: float = 0.1,
         log_table: bool = False,
@@ -285,7 +312,9 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             val_viz_fn: Callable returning VisualizationData for validation sample.
             train_pafs_viz_fn: Callable returning VisualizationData with PAFs for training.
             val_pafs_viz_fn: Callable returning VisualizationData with PAFs for validation.
-            mode: Rendering mode - "direct", "boxes", or "masks".
+            viz_enabled: If True, log pre-rendered matplotlib images.
+            viz_boxes: If True, log interactive keypoint boxes.
+            viz_masks: If True, log confidence map overlay masks.
             box_size: Size of keypoint boxes in pixels.
             confmap_threshold: Threshold for confmap mask generation.
             log_table: If True, also log images to a wandb.Table.
@@ -293,7 +322,9 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
         super().__init__(
             train_viz_fn=train_viz_fn,
             val_viz_fn=val_viz_fn,
-            mode=mode,
+            viz_enabled=viz_enabled,
+            viz_boxes=viz_boxes,
+            viz_masks=viz_masks,
             box_size=box_size,
             confmap_threshold=confmap_threshold,
             log_table=log_table,
@@ -303,7 +334,6 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
 
         # Import here to avoid circular imports
         from sleap_nn.training.utils import MatplotlibRenderer
-        from io import BytesIO
 
         self._mpl_renderer = MatplotlibRenderer()
 
@@ -318,9 +348,14 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             train_pafs_data = self.train_pafs_viz_fn()
             val_pafs_data = self.val_pafs_viz_fn()
 
-            # Render main predictions
-            train_img = self.renderer.render(train_data, caption=f"Train Epoch {epoch}")
-            val_img = self.renderer.render(val_data, caption=f"Val Epoch {epoch}")
+            # Render and log for each enabled mode
+            log_dict = {}
+            for mode_name, renderer in self.renderers.items():
+                suffix = "" if mode_name == "direct" else f"_{mode_name}"
+                train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
+                val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
+                log_dict[f"train_predictions{suffix}"] = train_img
+                log_dict[f"val_predictions{suffix}"] = val_img
 
             # Render PAFs (always use matplotlib/direct for PAFs)
             from io import BytesIO
@@ -331,31 +366,39 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             train_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
             buf.seek(0)
             plt.close(train_pafs_fig)
-            train_pafs_img = wandb.Image(buf, caption=f"Train PAFs Epoch {epoch}")
+            log_dict["train_pafs"] = wandb.Image(
+                buf, caption=f"Train PAFs Epoch {epoch}"
+            )
 
             val_pafs_fig = self._mpl_renderer.render_pafs(val_pafs_data)
             buf = BytesIO()
             val_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
             buf.seek(0)
             plt.close(val_pafs_fig)
-            val_pafs_img = wandb.Image(buf, caption=f"Val PAFs Epoch {epoch}")
+            log_dict["val_pafs"] = wandb.Image(buf, caption=f"Val PAFs Epoch {epoch}")
 
-            # Log all images
-            wandb.log(
-                {
-                    "train_predictions": train_img,
-                    "val_predictions": val_img,
-                    "train_pafs": train_pafs_img,
-                    "val_pafs": val_pafs_img,
-                },
-                step=epoch,
-            )
+            if log_dict:
+                wandb.log(log_dict, step=epoch)
 
             # Optionally also log to table
-            if self.log_table:
+            if self.log_table and "direct" in self.renderers:
+                train_img = self.renderers["direct"].render(
+                    train_data, caption=f"Train Epoch {epoch}"
+                )
+                val_img = self.renderers["direct"].render(
+                    val_data, caption=f"Val Epoch {epoch}"
+                )
                 table = wandb.Table(
                     columns=["Epoch", "Train", "Validation", "Train PAFs", "Val PAFs"],
-                    data=[[epoch, train_img, val_img, train_pafs_img, val_pafs_img]],
+                    data=[
+                        [
+                            epoch,
+                            train_img,
+                            val_img,
+                            log_dict["train_pafs"],
+                            log_dict["val_pafs"],
+                        ]
+                    ],
                 )
                 wandb.log({"predictions_table": table}, step=epoch)
 

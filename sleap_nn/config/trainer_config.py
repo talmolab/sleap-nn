@@ -84,10 +84,11 @@ class WandBConfig:
         prv_runid: (str) Previous run ID if training should be resumed from a previous ckpt. *Default*: `None`.
         group: (str) Group for wandb logging. *Default*: `None`.
         current_run_id: (str) Run ID for the current model training. (stored once the training starts). *Default*: `None`.
-        viz_mode: (str) Visualization mode for wandb image logging. One of "direct" (pre-rendered matplotlib),
-            "boxes" (interactive keypoint boxes), or "masks" (confidence map overlay). *Default*: `"direct"`.
-        viz_box_size: (float) Size of keypoint boxes in pixels (for "boxes" mode). *Default*: `5.0`.
-        viz_confmap_threshold: (float) Threshold for confidence map masks (for "masks" mode). *Default*: `0.1`.
+        viz_enabled: (bool) If True, log pre-rendered matplotlib images to wandb. *Default*: `True`.
+        viz_boxes: (bool) If True, log interactive keypoint boxes. *Default*: `False`.
+        viz_masks: (bool) If True, log confidence map overlay masks. *Default*: `False`.
+        viz_box_size: (float) Size of keypoint boxes in pixels (for viz_boxes). *Default*: `5.0`.
+        viz_confmap_threshold: (float) Threshold for confidence map masks (for viz_masks). *Default*: `0.1`.
         log_viz_table: (bool) If True, also log images to a wandb.Table for backwards compatibility. *Default*: `False`.
     """
 
@@ -100,7 +101,9 @@ class WandBConfig:
     prv_runid: Optional[str] = None
     group: Optional[str] = None
     current_run_id: Optional[str] = None
-    viz_mode: str = "direct"
+    viz_enabled: bool = True
+    viz_boxes: bool = False
+    viz_masks: bool = False
     viz_box_size: float = 5.0
     viz_confmap_threshold: float = 0.1
     log_viz_table: bool = False
