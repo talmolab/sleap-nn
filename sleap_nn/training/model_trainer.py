@@ -234,6 +234,32 @@ class ModelTrainer:
                 total += len(label)
         return total
 
+    def _filter_to_user_labeled(self, labels: sio.Labels) -> sio.Labels:
+        """Filter a Labels object to only include user-labeled frames.
+
+        Args:
+            labels: Labels object to filter.
+
+        Returns:
+            New Labels object containing only frames with user instances.
+        """
+        # Filter labeled frames to only those with user instances
+        user_lfs = [lf for lf in labels if lf.has_user_instances]
+
+        # Set instances to user instances only
+        for lf in user_lfs:
+            lf.instances = lf.user_instances
+
+        # Create new Labels with filtered frames
+        return sio.Labels(
+            labeled_frames=user_lfs,
+            videos=labels.videos,
+            skeletons=labels.skeletons,
+            tracks=labels.tracks,
+            suggestions=labels.suggestions,
+            provenance=labels.provenance,
+        )
+
     def _setup_train_val_labels(
         self,
         labels: Optional[List[sio.Labels]] = None,
@@ -688,12 +714,25 @@ class ModelTrainer:
                 raise OSError(message)
 
         if RANK in [0, -1]:
+            # Check if we should filter to user-labeled frames only
+            user_instances_only = OmegaConf.select(
+                self.config, "data_config.user_instances_only", default=True
+            )
+
             for idx, (train, val) in enumerate(zip(self.train_labels, self.val_labels)):
-                train.save(
+                # Filter to user-labeled frames if needed (for evaluation)
+                if user_instances_only:
+                    train_filtered = self._filter_to_user_labeled(train)
+                    val_filtered = self._filter_to_user_labeled(val)
+                else:
+                    train_filtered = train
+                    val_filtered = val
+
+                train_filtered.save(
                     Path(ckpt_path) / f"labels_train_gt_{idx}.slp",
                     restore_original_videos=False,
                 )
-                val.save(
+                val_filtered.save(
                     Path(ckpt_path) / f"labels_val_gt_{idx}.slp",
                     restore_original_videos=False,
                 )
