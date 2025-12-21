@@ -1294,3 +1294,15 @@ class ModelTrainer:
                     if viz_dir.exists():
                         logger.info(f"Deleting viz folder at {viz_dir}...")
                         shutil.rmtree(viz_dir, ignore_errors=True)
+
+            # Clean up entire run folder if training was canceled
+            if self.trainer.should_stop and self.trainer.global_rank == 0:
+                run_dir = (
+                    Path(self.config.trainer_config.ckpt_dir)
+                    / self.config.trainer_config.run_name
+                )
+                if run_dir.exists():
+                    logger.info(
+                        f"Training canceled - cleaning up run folder at {run_dir}..."
+                    )
+                    shutil.rmtree(run_dir, ignore_errors=True)
