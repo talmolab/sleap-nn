@@ -8,9 +8,18 @@ import sleap_io as sio
 from sleap_nn.predict import run_inference, frame_list
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.train import run_training
+from sleap_nn import __version__
 import hydra
 import sys
 from click import Command
+
+
+def print_version(ctx, param, value):
+    """Print version and exit."""
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo(f"sleap-nn {__version__}")
+    ctx.exit()
 
 
 class TrainCommand(Command):
@@ -32,6 +41,15 @@ def parse_path_map(ctx, param, value):
 
 
 @click.group()
+@click.option(
+    "--version",
+    "-v",
+    is_flag=True,
+    callback=print_version,
+    expose_value=False,
+    is_eager=True,
+    help="Show version and exit.",
+)
 def cli():
     """SLEAP-NN: Neural network backend for training and inference for animal pose estimation.
 
@@ -40,6 +58,7 @@ def cli():
     train    - Run training workflow
     track    - Run inference/ tracking workflow
     eval     - Run evaluation workflow
+    system   - Display system information and GPU status
     """
     pass
 
@@ -568,6 +587,18 @@ def track(**kwargs):
 def eval(**kwargs):
     """Run evaluation workflow."""
     run_evaluation(**kwargs)
+
+
+@cli.command()
+def system():
+    """Display system information and GPU status.
+
+    Shows Python version, platform, PyTorch version, CUDA availability,
+    driver version with compatibility check, GPU details, and package versions.
+    """
+    from sleap_nn.system_info import print_system_info
+
+    print_system_info()
 
 
 if __name__ == "__main__":
