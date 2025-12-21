@@ -112,10 +112,13 @@ def apply_geometric_augmentation(
     instances: torch.Tensor,
     rotation_min: Optional[float] = -15.0,
     rotation_max: Optional[float] = 15.0,
+    rotation_p: Optional[float] = None,
     scale_min: Optional[float] = 0.9,
     scale_max: Optional[float] = 1.1,
+    scale_p: Optional[float] = None,
     translate_width: Optional[float] = 0.02,
     translate_height: Optional[float] = 0.02,
+    translate_p: Optional[float] = None,
     affine_p: float = 0.0,
     erase_scale_min: Optional[float] = 0.0001,
     erase_scale_max: Optional[float] = 0.01,
@@ -133,11 +136,18 @@ def apply_geometric_augmentation(
         instances: Input keypoints. (n_samples, n_instances, n_nodes, 2) or (n_samples, n_nodes, 2)
         rotation_min: Minimum rotation angle in degrees. Default: -15.0.
         rotation_max: Maximum rotation angle in degrees. Default: 15.0.
+        rotation_p: Probability of applying random rotation independently. If None,
+            falls back to affine_p for bundled behavior. Default: None.
         scale_min: Minimum scaling factor for isotropic scaling. Default: 0.9.
         scale_max: Maximum scaling factor for isotropic scaling. Default: 1.1.
+        scale_p: Probability of applying random scaling independently. If None,
+            falls back to affine_p for bundled behavior. Default: None.
         translate_width: Maximum absolute fraction for horizontal translation. Default: 0.02.
         translate_height: Maximum absolute fraction for vertical translation. Default: 0.02.
-        affine_p: Probability of applying random affine transformations. Default: 0.0.
+        translate_p: Probability of applying random translation independently. If None,
+            falls back to affine_p for bundled behavior. Default: None.
+        affine_p: Probability of applying random affine transformations (rotation, scale,
+            translate bundled). Used when individual *_p params are None. Default: 0.0.
         erase_scale_min: Minimum value of range of proportion of erased area against input image. Default: 0.0001.
         erase_scale_max: Maximum value of range of proportion of erased area against input image. Default: 0.01.
         erase_ratio_min: Minimum value of range of aspect ratio of erased area. Default: 1.
@@ -151,7 +161,49 @@ def apply_geometric_augmentation(
         Returns tuple: (image, instances) with augmentation applied.
     """
     aug_stack = []
-    if affine_p > 0:
+
+    # Check if any individual probability is set
+    use_independent = (
+        rotation_p is not None or scale_p is not None or translate_p is not None
+    )
+
+    if use_independent:
+        # New behavior: Apply augmentations independently with separate probabilities
+        if rotation_p is not None and rotation_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomRotation(
+                    degrees=(rotation_min, rotation_max),
+                    p=rotation_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+
+        if scale_p is not None and scale_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomAffine(
+                    degrees=0,  # No rotation
+                    translate=None,  # No translation
+                    scale=(scale_min, scale_max),
+                    p=scale_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+
+        if translate_p is not None and translate_p > 0:
+            aug_stack.append(
+                K.augmentation.RandomAffine(
+                    degrees=0,  # No rotation
+                    translate=(translate_width, translate_height),
+                    scale=None,  # No scaling
+                    p=translate_p,
+                    keepdim=True,
+                    same_on_batch=True,
+                )
+            )
+    elif affine_p > 0:
+        # Legacy behavior: Bundled affine transformation
         aug_stack.append(
             K.augmentation.RandomAffine(
                 degrees=(rotation_min, rotation_max),

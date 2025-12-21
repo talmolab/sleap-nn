@@ -343,23 +343,50 @@ class ModelTrainer:
                             and aug_config is not None
                             and aug_config.geometric is not None
                         ):
-                            # First find the actual max bbox size from labels
-                            bbox_size = find_max_instance_bbox_size(train_label)
-                            bbox_size = max(
-                                bbox_size,
-                                self.config.data_config.preprocessing.min_crop_size
-                                or 100,
+                            geo = aug_config.geometric
+                            # Check if rotation is enabled (via rotation_p or affine_p)
+                            rotation_enabled = (
+                                geo.rotation_p is not None and geo.rotation_p > 0
+                            ) or (
+                                geo.rotation_p is None
+                                and geo.scale_p is None
+                                and geo.translate_p is None
+                                and geo.affine_p > 0
                             )
-                            rotation_max = max(
-                                abs(aug_config.geometric.rotation_min),
-                                abs(aug_config.geometric.rotation_max),
+                            # Check if scale is enabled (via scale_p or affine_p)
+                            scale_enabled = (
+                                geo.scale_p is not None and geo.scale_p > 0
+                            ) or (
+                                geo.rotation_p is None
+                                and geo.scale_p is None
+                                and geo.translate_p is None
+                                and geo.affine_p > 0
                             )
-                            scale_max = aug_config.geometric.scale_max
-                            padding = compute_augmentation_padding(
-                                bbox_size=bbox_size,
-                                rotation_max=rotation_max,
-                                scale_max=scale_max,
-                            )
+
+                            if rotation_enabled or scale_enabled:
+                                # First find the actual max bbox size from labels
+                                bbox_size = find_max_instance_bbox_size(train_label)
+                                bbox_size = max(
+                                    bbox_size,
+                                    self.config.data_config.preprocessing.min_crop_size
+                                    or 100,
+                                )
+                                rotation_max = (
+                                    max(
+                                        abs(geo.rotation_min),
+                                        abs(geo.rotation_max),
+                                    )
+                                    if rotation_enabled
+                                    else 0.0
+                                )
+                                scale_max = geo.scale_max if scale_enabled else 1.0
+                                padding = compute_augmentation_padding(
+                                    bbox_size=bbox_size,
+                                    rotation_max=rotation_max,
+                                    scale_max=scale_max,
+                                )
+                            else:
+                                padding = 0
                         else:
                             padding = 0
 

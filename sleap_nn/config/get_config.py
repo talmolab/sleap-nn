@@ -131,27 +131,18 @@ def get_aug_config(
 
         for g in geometric_aug:
             if g == "rotation":
-                aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.scale_min = 1.0
-                aug_config.geometric.scale_max = 1.0
-                aug_config.geometric.translate_height = 0
-                aug_config.geometric.translate_width = 0
+                # Use new independent rotation probability
+                aug_config.geometric.rotation_p = 1.0
             elif g == "scale":
+                # Use new independent scale probability
                 aug_config.geometric.scale_min = 0.9
                 aug_config.geometric.scale_max = 1.1
-                aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.rotation_min = 0
-                aug_config.geometric.rotation_max = 0
-                aug_config.geometric.translate_height = 0
-                aug_config.geometric.translate_width = 0
+                aug_config.geometric.scale_p = 1.0
             elif g == "translate":
+                # Use new independent translate probability
                 aug_config.geometric.translate_height = 0.2
                 aug_config.geometric.translate_width = 0.2
-                aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.rotation_min = 0
-                aug_config.geometric.rotation_max = 0
-                aug_config.geometric.scale_min = 1.0
-                aug_config.geometric.scale_max = 1.0
+                aug_config.geometric.translate_p = 1.0
             elif g == "erase_scale":
                 aug_config.geometric.erase_p = 1.0
             elif g == "mixup":
