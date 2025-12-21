@@ -393,16 +393,18 @@ class WandBRenderer:
     ) -> "wandb.Image":
         """Pre-render with matplotlib, return as wandb.Image."""
         import wandb
+        from PIL import Image
 
         fig = self._mpl_renderer.render(data)
 
-        # Convert figure to image array
+        # Convert figure to PIL Image
         buf = BytesIO()
         fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
         buf.seek(0)
         plt.close(fig)
 
-        return wandb.Image(buf, caption=caption)
+        pil_image = Image.open(buf)
+        return wandb.Image(pil_image, caption=caption)
 
     def _render_with_boxes(
         self, data: VisualizationData, caption: Optional[str] = None
