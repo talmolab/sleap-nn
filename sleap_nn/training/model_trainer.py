@@ -237,7 +237,18 @@ class ModelTrainer:
                 logger.error(message)
                 raise ValueError(message)
 
-        if val_labels is None or not len(val_labels):
+        # Check for same-data mode (train = val, for intentional overfitting)
+        use_same = OmegaConf.select(
+            self.config, "data_config.use_same_data_for_val", default=False
+        )
+
+        if use_same:
+            # Same mode: use identical data for train and val (for overfitting)
+            logger.info("Using same data for train and val (overfit mode)")
+            self.train_labels = labels
+            self.val_labels = labels
+            total_val_lfs = total_train_lfs
+        elif val_labels is None or not len(val_labels):
             # if val labels are not provided, split from train
             total_train_lfs = 0
             val_fraction = OmegaConf.select(

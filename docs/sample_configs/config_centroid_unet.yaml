@@ -2,6 +2,7 @@ data_config:
   train_labels_path: null
   val_labels_path: null
   validation_fraction: 0.1
+  use_same_data_for_val: false
   test_file_path: null
   provider: LabelsReader
   user_instances_only: true
