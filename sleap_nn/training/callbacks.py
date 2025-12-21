@@ -250,17 +250,31 @@ class WandBVizCallback(Callback):
                 mode="masks", box_size=box_size, confmap_threshold=confmap_threshold
             )
 
+    def _get_wandb_logger(self, trainer):
+        """Get the WandbLogger from trainer's loggers."""
+        from lightning.pytorch.loggers import WandbLogger
+
+        for logger in trainer.loggers:
+            if isinstance(logger, WandbLogger):
+                return logger
+        return None
+
     def on_train_epoch_end(self, trainer, pl_module):
         """Log visualization images at end of each epoch."""
         if trainer.is_global_zero:
             epoch = trainer.current_epoch
-            step = trainer.global_step
+
+            # Get the wandb logger to use its experiment for logging
+            wandb_logger = self._get_wandb_logger(trainer)
+            if wandb_logger is None:
+                return  # No wandb logger, skip visualization logging
 
             # Get visualization data
             train_data = self.train_viz_fn()
             val_data = self.val_viz_fn()
 
             # Render and log for each enabled mode
+            # Use the logger's experiment to let Lightning manage step tracking
             log_dict = {}
             for mode_name, renderer in self.renderers.items():
                 suffix = "" if mode_name == "direct" else f"_{mode_name}"
@@ -270,7 +284,7 @@ class WandBVizCallback(Callback):
                 log_dict[f"val_predictions{suffix}"] = val_img
 
             if log_dict:
-                wandb.log(log_dict, step=step)
+                wandb_logger.experiment.log(log_dict)
 
             # Optionally also log to table for backwards compat
             if self.log_table and "direct" in self.renderers:
@@ -284,7 +298,7 @@ class WandBVizCallback(Callback):
                     columns=["Epoch", "Train", "Validation"],
                     data=[[epoch, train_img, val_img]],
                 )
-                wandb.log({"predictions_table": table}, step=step)
+                wandb_logger.experiment.log({"predictions_table": table})
 
         # Sync all processes
         trainer.strategy.barrier()
@@ -342,7 +356,11 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
         """Log visualization images including PAFs at end of each epoch."""
         if trainer.is_global_zero:
             epoch = trainer.current_epoch
-            step = trainer.global_step
+
+            # Get the wandb logger to use its experiment for logging
+            wandb_logger = self._get_wandb_logger(trainer)
+            if wandb_logger is None:
+                return  # No wandb logger, skip visualization logging
 
             # Get visualization data
             train_data = self.train_viz_fn()
@@ -351,6 +369,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             val_pafs_data = self.val_pafs_viz_fn()
 
             # Render and log for each enabled mode
+            # Use the logger's experiment to let Lightning manage step tracking
             log_dict = {}
             for mode_name, renderer in self.renderers.items():
                 suffix = "" if mode_name == "direct" else f"_{mode_name}"
@@ -385,7 +404,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             )
 
             if log_dict:
-                wandb.log(log_dict, step=step)
+                wandb_logger.experiment.log(log_dict)
 
             # Optionally also log to table
             if self.log_table and "direct" in self.renderers:
@@ -407,7 +426,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
                         ]
                     ],
                 )
-                wandb.log({"predictions_table": table}, step=step)
+                wandb_logger.experiment.log({"predictions_table": table})
 
         # Sync all processes
         trainer.strategy.barrier()
