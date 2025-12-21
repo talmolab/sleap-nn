@@ -172,7 +172,8 @@ class WandBPredImageLogger(Callback):
                     ]
                 ]
             table = wandb.Table(columns=column_names, data=data)
-            wandb.log({f"{self.wandb_run_name}": table})
+            # Use commit=False to accumulate with other metrics in this step
+            wandb.log({f"{self.wandb_run_name}": table}, commit=False)
 
         # Sync all processes after wandb logging
         trainer.strategy.barrier()
@@ -284,7 +285,9 @@ class WandBVizCallback(Callback):
                 log_dict[f"val_predictions{suffix}"] = val_img
 
             if log_dict:
-                wandb_logger.experiment.log(log_dict)
+                # Use commit=False to accumulate with other metrics in this step
+                # Lightning will commit when it logs its own metrics
+                wandb_logger.experiment.log(log_dict, commit=False)
 
             # Optionally also log to table for backwards compat
             if self.log_table and "direct" in self.renderers:
@@ -298,7 +301,7 @@ class WandBVizCallback(Callback):
                     columns=["Epoch", "Train", "Validation"],
                     data=[[epoch, train_img, val_img]],
                 )
-                wandb_logger.experiment.log({"predictions_table": table})
+                wandb_logger.experiment.log({"predictions_table": table}, commit=False)
 
         # Sync all processes
         trainer.strategy.barrier()
@@ -404,7 +407,9 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             )
 
             if log_dict:
-                wandb_logger.experiment.log(log_dict)
+                # Use commit=False to accumulate with other metrics in this step
+                # Lightning will commit when it logs its own metrics
+                wandb_logger.experiment.log(log_dict, commit=False)
 
             # Optionally also log to table
             if self.log_table and "direct" in self.renderers:
@@ -426,7 +431,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
                         ]
                     ],
                 )
-                wandb_logger.experiment.log({"predictions_table": table})
+                wandb_logger.experiment.log({"predictions_table": table}, commit=False)
 
         # Sync all processes
         trainer.strategy.barrier()

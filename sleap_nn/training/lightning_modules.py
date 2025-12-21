@@ -312,6 +312,15 @@ class LightningModel(L.LightningModule):
             logger=True,
             sync_dist=True,
         )
+        # Log epoch explicitly for custom x-axis support in wandb
+        self.log(
+            "epoch",
+            float(self.current_epoch),
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
 
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
@@ -577,8 +586,8 @@ class SingleInstanceLightningModule(LightningModel):
                 self.log(
                     f"{name}",
                     channel_wise_loss[node_idx],
-                    prog_bar=True,
-                    on_step=True,
+                    prog_bar=False,
+                    on_step=False,
                     on_epoch=True,
                     logger=True,
                     sync_dist=True,
@@ -588,7 +597,7 @@ class SingleInstanceLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -617,7 +626,7 @@ class SingleInstanceLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -792,8 +801,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 self.log(
                     f"{name}",
                     channel_wise_loss[node_idx],
-                    prog_bar=True,
-                    on_step=True,
+                    prog_bar=False,
+                    on_step=False,
                     on_epoch=True,
                     logger=True,
                     sync_dist=True,
@@ -804,7 +813,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -833,7 +842,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -991,7 +1000,7 @@ class CentroidLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -1010,7 +1019,7 @@ class CentroidLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -1234,7 +1243,7 @@ class BottomUpLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -1283,7 +1292,7 @@ class BottomUpLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -1494,7 +1503,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -1534,7 +1543,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -1720,8 +1729,8 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 self.log(
                     f"{name}",
                     channel_wise_loss[node_idx],
-                    prog_bar=True,
-                    on_step=True,
+                    prog_bar=False,
+                    on_step=False,
                     on_epoch=True,
                     logger=True,
                     sync_dist=True,
@@ -1732,7 +1741,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -1770,7 +1779,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
