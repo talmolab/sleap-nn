@@ -20,7 +20,11 @@ from itertools import cycle, count
 from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import WandbLogger
 from sleap_nn.data.utils import check_cache_memory
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from lightning.pytorch.callbacks import (
+    ModelCheckpoint,
+    EarlyStopping,
+    LearningRateMonitor,
+)
 from lightning.pytorch.profilers import (
     SimpleProfiler,
     AdvancedProfiler,
@@ -840,6 +844,9 @@ class ModelTrainer:
                     patience=self.config.trainer_config.early_stopping.patience,
                 )
             )
+
+        # Learning rate monitor callback - logs LR at each step for dynamic schedulers
+        callbacks.append(LearningRateMonitor(logging_interval="step"))
 
         if self.config.trainer_config.use_wandb:
             # wandb logger

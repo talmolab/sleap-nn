@@ -613,16 +613,6 @@ class SingleInstanceLightningModule(LightningModel):
                 loss_scale=self.loss_scale,
             )
             val_loss = val_loss + ohkm_loss
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
@@ -839,16 +829,6 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 loss_scale=self.loss_scale,
             )
             val_loss = val_loss + ohkm_loss
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
@@ -1026,16 +1006,6 @@ class CentroidLightningModule(LightningModel):
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
@@ -1309,16 +1279,6 @@ class BottomUpLightningModule(LightningModel):
         }
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
@@ -1570,16 +1530,6 @@ class BottomUpMultiClassLightningModule(LightningModel):
         }
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
@@ -1816,17 +1766,6 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             "ClassVectorsHead": classvector_loss,
         }
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
