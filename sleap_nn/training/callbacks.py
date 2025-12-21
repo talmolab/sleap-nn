@@ -254,6 +254,7 @@ class WandBVizCallback(Callback):
         """Log visualization images at end of each epoch."""
         if trainer.is_global_zero:
             epoch = trainer.current_epoch
+            step = trainer.global_step
 
             # Get visualization data
             train_data = self.train_viz_fn()
@@ -269,7 +270,7 @@ class WandBVizCallback(Callback):
                 log_dict[f"val_predictions{suffix}"] = val_img
 
             if log_dict:
-                wandb.log(log_dict, step=epoch)
+                wandb.log(log_dict, step=step)
 
             # Optionally also log to table for backwards compat
             if self.log_table and "direct" in self.renderers:
@@ -283,7 +284,7 @@ class WandBVizCallback(Callback):
                     columns=["Epoch", "Train", "Validation"],
                     data=[[epoch, train_img, val_img]],
                 )
-                wandb.log({"predictions_table": table}, step=epoch)
+                wandb.log({"predictions_table": table}, step=step)
 
         # Sync all processes
         trainer.strategy.barrier()
@@ -341,6 +342,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
         """Log visualization images including PAFs at end of each epoch."""
         if trainer.is_global_zero:
             epoch = trainer.current_epoch
+            step = trainer.global_step
 
             # Get visualization data
             train_data = self.train_viz_fn()
@@ -360,14 +362,16 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             # Render PAFs (always use matplotlib/direct for PAFs)
             from io import BytesIO
             import matplotlib.pyplot as plt
+            from PIL import Image
 
             train_pafs_fig = self._mpl_renderer.render_pafs(train_pafs_data)
             buf = BytesIO()
             train_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
             buf.seek(0)
             plt.close(train_pafs_fig)
+            train_pafs_pil = Image.open(buf)
             log_dict["train_pafs"] = wandb.Image(
-                buf, caption=f"Train PAFs Epoch {epoch}"
+                train_pafs_pil, caption=f"Train PAFs Epoch {epoch}"
             )
 
             val_pafs_fig = self._mpl_renderer.render_pafs(val_pafs_data)
@@ -375,10 +379,13 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             val_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
             buf.seek(0)
             plt.close(val_pafs_fig)
-            log_dict["val_pafs"] = wandb.Image(buf, caption=f"Val PAFs Epoch {epoch}")
+            val_pafs_pil = Image.open(buf)
+            log_dict["val_pafs"] = wandb.Image(
+                val_pafs_pil, caption=f"Val PAFs Epoch {epoch}"
+            )
 
             if log_dict:
-                wandb.log(log_dict, step=epoch)
+                wandb.log(log_dict, step=step)
 
             # Optionally also log to table
             if self.log_table and "direct" in self.renderers:
@@ -400,7 +407,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
                         ]
                     ],
                 )
-                wandb.log({"predictions_table": table}, step=epoch)
+                wandb.log({"predictions_table": table}, step=step)
 
         # Sync all processes
         trainer.strategy.barrier()
