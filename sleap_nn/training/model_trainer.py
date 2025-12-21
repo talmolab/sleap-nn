@@ -1220,6 +1220,17 @@ class ModelTrainer:
                         id=self.config.trainer_config.wandb.prv_runid,
                         group=self.config.trainer_config.wandb.group,
                     )
+
+                # Define custom x-axes for wandb metrics
+                # Epoch-level metrics use epoch as x-axis, step-level use default global_step
+                wandb.define_metric("epoch")
+                wandb.define_metric("val_loss", step_metric="epoch")
+                wandb.define_metric("val_time", step_metric="epoch")
+                wandb.define_metric("train_time", step_metric="epoch")
+                # Per-node losses use epoch as x-axis
+                for node_name in self.skeletons[0].node_names:
+                    wandb.define_metric(node_name, step_metric="epoch")
+
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name
                 wandb.config["run_config"] = OmegaConf.to_container(
