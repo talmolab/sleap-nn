@@ -8,6 +8,75 @@ import torch
 from kornia.geometry.transform import crop_and_resize
 
 
+def compute_augmentation_padding(
+    bbox_size: float,
+    rotation_max: float = 0.0,
+    scale_max: float = 1.0,
+) -> int:
+    """Compute padding needed to accommodate augmentation transforms.
+
+    When rotation and scaling augmentations are applied, the bounding box of an
+    instance can expand beyond its original size. This function calculates the
+    padding needed to ensure the full instance remains visible after augmentation.
+
+    Args:
+        bbox_size: The size of the instance bounding box (max of width/height).
+        rotation_max: Maximum absolute rotation angle in degrees. For symmetric
+            rotation ranges like [-180, 180], pass 180.
+        scale_max: Maximum scaling factor. For scale range [0.9, 1.1], pass 1.1.
+
+    Returns:
+        Padding in pixels to add around the bounding box (total, not per side).
+    """
+    if rotation_max == 0.0 and scale_max <= 1.0:
+        return 0
+
+    # For a square bbox rotated by angle θ, the new bbox has side length:
+    # L' = L * (|cos(θ)| + |sin(θ)|)
+    # Maximum expansion occurs at 45°: L' = L * sqrt(2)
+    # For arbitrary angle: we use the worst case within the rotation range
+    rotation_rad = math.radians(min(abs(rotation_max), 90))
+    rotation_factor = abs(math.cos(rotation_rad)) + abs(math.sin(rotation_rad))
+
+    # For angles > 45°, the factor increases, max at 45° = sqrt(2)
+    # But for angles approaching 90°, it goes back to 1
+    # Worst case in any range including 45° is sqrt(2)
+    if abs(rotation_max) >= 45:
+        rotation_factor = math.sqrt(2)
+
+    # Combined expansion factor
+    expansion_factor = rotation_factor * max(scale_max, 1.0)
+
+    # Total padding needed (both sides)
+    expanded_size = bbox_size * expansion_factor
+    padding = expanded_size - bbox_size
+
+    return int(math.ceil(padding))
+
+
+def find_max_instance_bbox_size(labels: sio.Labels) -> float:
+    """Find the maximum bounding box dimension across all instances in labels.
+
+    Args:
+        labels: A `sio.Labels` containing user-labeled instances.
+
+    Returns:
+        The maximum bounding box dimension (max of width or height) across all instances.
+    """
+    max_length = 0.0
+    for lf in labels:
+        for inst in lf.instances:
+            if not inst.is_empty:
+                pts = inst.numpy()
+                diff_x = np.nanmax(pts[:, 0]) - np.nanmin(pts[:, 0])
+                diff_x = 0 if np.isnan(diff_x) else diff_x
+                max_length = np.maximum(max_length, diff_x)
+                diff_y = np.nanmax(pts[:, 1]) - np.nanmin(pts[:, 1])
+                diff_y = 0 if np.isnan(diff_y) else diff_y
+                max_length = np.maximum(max_length, diff_y)
+    return float(max_length)
+
+
 def find_instance_crop_size(
     labels: sio.Labels,
     padding: int = 0,

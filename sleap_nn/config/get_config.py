@@ -131,27 +131,18 @@ def get_aug_config(
 
         for g in geometric_aug:
             if g == "rotation":
-                aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.scale_min = 1.0
-                aug_config.geometric.scale_max = 1.0
-                aug_config.geometric.translate_height = 0
-                aug_config.geometric.translate_width = 0
+                # Use new independent rotation probability
+                aug_config.geometric.rotation_p = 1.0
             elif g == "scale":
+                # Use new independent scale probability
                 aug_config.geometric.scale_min = 0.9
                 aug_config.geometric.scale_max = 1.1
-                aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.rotation_min = 0
-                aug_config.geometric.rotation_max = 0
-                aug_config.geometric.translate_height = 0
-                aug_config.geometric.translate_width = 0
+                aug_config.geometric.scale_p = 1.0
             elif g == "translate":
+                # Use new independent translate probability
                 aug_config.geometric.translate_height = 0.2
                 aug_config.geometric.translate_width = 0.2
-                aug_config.geometric.affine_p = 1.0
-                aug_config.geometric.rotation_min = 0
-                aug_config.geometric.rotation_max = 0
-                aug_config.geometric.scale_min = 1.0
-                aug_config.geometric.scale_max = 1.0
+                aug_config.geometric.translate_p = 1.0
             elif g == "erase_scale":
                 aug_config.geometric.erase_p = 1.0
             elif g == "mixup":
@@ -470,6 +461,7 @@ def get_data_config(
     max_width: Optional[int] = None,
     crop_size: Optional[int] = None,
     min_crop_size: Optional[int] = 100,
+    crop_padding: Optional[int] = None,
     use_augmentations_train: bool = False,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
@@ -516,6 +508,9 @@ def get_data_config(
             If `None`, this would be automatically computed based on the largest instance
             in the `sio.Labels` file. If `scale` is provided, then the cropped image will be resized according to `scale`. Default: None.
         min_crop_size: Minimum crop size to be used if `crop_size` is `None`. Default: 100.
+        crop_padding: Padding in pixels to add around instance bounding box when computing
+            crop size. If `None`, padding is auto-computed based on augmentation settings.
+            Only used when `crop_size` is `None`. Default: None.
         use_augmentations_train: True if the data augmentation should be applied to the
             training data, else False. Default: False.
         intensity_aug: One of ["uniform_noise", "gaussian_noise", "contrast", "brightness"]
@@ -541,6 +536,7 @@ def get_data_config(
         scale=scale,
         crop_size=crop_size,
         min_crop_size=min_crop_size,
+        crop_padding=crop_padding,
     )
     augmentation_config = None
     if use_augmentations_train:
