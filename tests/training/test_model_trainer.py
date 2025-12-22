@@ -313,6 +313,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     )
     OmegaConf.update(training_cfg, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(training_cfg, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(training_cfg, "data_config.preprocessing.crop_padding", 0)
     OmegaConf.update(training_cfg, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(training_cfg, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
     OmegaConf.update(training_cfg, "data_config.data_pipeline_fw", "torch_dataset")
