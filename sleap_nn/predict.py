@@ -15,6 +15,7 @@ from sleap_nn.tracking.tracker import (
     connect_single_breaks,
     cull_instances,
 )
+from sleap_nn.system_info import get_startup_info_string
 from omegaconf import OmegaConf
 import sleap_io as sio
 from pathlib import Path
@@ -302,7 +303,22 @@ def run_inference(
 
             if post_connect_single_breaks or tracking_pre_cull_to_target:
                 if tracking_target_instance_count is None and max_instances is None:
-                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, at least one of them should be set to an integer."
+                    features_requested = []
+                    if post_connect_single_breaks:
+                        features_requested.append("--post_connect_single_breaks")
+                    if tracking_pre_cull_to_target:
+                        features_requested.append("--tracking_pre_cull_to_target")
+                    features_str = " and ".join(features_requested)
+
+                    if max_tracks is not None:
+                        suggestion = f"Add --tracking_target_instance_count {max_tracks} to your command (using your --max_tracks value)."
+                    else:
+                        suggestion = "Add --tracking_target_instance_count N where N is the expected number of instances per frame."
+
+                    message = (
+                        f"{features_str} requires --tracking_target_instance_count to be set. "
+                        f"{suggestion}"
+                    )
                     logger.error(message)
                     raise ValueError(message)
                 elif tracking_target_instance_count is None:
@@ -347,6 +363,7 @@ def run_inference(
         start_inf_time = time()
         start_timestamp = str(datetime.now())
         logger.info(f"Started inference at: {start_timestamp}")
+        logger.info(get_startup_info_string())
 
         if device == "auto":
             device = (
@@ -387,7 +404,22 @@ def run_inference(
         ):
             if post_connect_single_breaks or tracking_pre_cull_to_target:
                 if tracking_target_instance_count is None and max_instances is None:
-                    message = "Both tracking_target_instance_count and max_instances is set to 0. To connect single breaks or pre-cull to target, at least one of them should be set to an integer."
+                    features_requested = []
+                    if post_connect_single_breaks:
+                        features_requested.append("--post_connect_single_breaks")
+                    if tracking_pre_cull_to_target:
+                        features_requested.append("--tracking_pre_cull_to_target")
+                    features_str = " and ".join(features_requested)
+
+                    if max_tracks is not None:
+                        suggestion = f"Add --tracking_target_instance_count {max_tracks} to your command (using your --max_tracks value)."
+                    else:
+                        suggestion = "Add --tracking_target_instance_count N or --max_instances N where N is the expected number of instances per frame."
+
+                    message = (
+                        f"{features_str} requires --tracking_target_instance_count or --max_instances to be set. "
+                        f"{suggestion}"
+                    )
                     logger.error(message)
                     raise ValueError(message)
                 elif tracking_target_instance_count is None:

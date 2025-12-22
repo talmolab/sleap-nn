@@ -236,6 +236,9 @@ def create_labels_no_match_frame_pairs(minimal_instance):
 
     video1 = copy.deepcopy(video)
     video1.filename = "test.mp4"
+    # Also update backend source_filename for HDF5 videos (matches_path checks this)
+    if hasattr(video1.backend, "source_filename"):
+        video1.backend.source_filename = "test.mp4"
 
     # Create user labelled instance.
     user_inst_1 = sio.Instance.from_numpy(

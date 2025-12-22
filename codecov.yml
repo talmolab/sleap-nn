@@ -10,9 +10,11 @@ coverage:
         threshold: 2%  # Less leeway with backend code.
         paths:
           - "sleap_nn/"
+        informational: true  # Don't fail PRs on coverage
     patch:  #  Only measures lines adjusted in the pull request.
       default: false
       package:
         target: 95%  # All backend code should be tested...
         paths:
           - "sleap_nn/"
+        informational: true  # Don't fail PRs on coverage

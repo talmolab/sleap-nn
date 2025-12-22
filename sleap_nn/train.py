@@ -16,6 +16,7 @@ from sleap_nn.config.get_config import (
     get_model_config,
     get_data_config,
 )
+from sleap_nn.system_info import get_startup_info_string
 
 
 def run_training(
@@ -34,6 +35,7 @@ def run_training(
     start_train_time = time()
     start_timestamp = str(datetime.now())
     logger.info(f"Started training at: {start_timestamp}")
+    logger.info(get_startup_info_string())
 
     # provide the labels as the train labels, val labels will be split from the train labels
     trainer = ModelTrainer.get_model_trainer_from_config(
