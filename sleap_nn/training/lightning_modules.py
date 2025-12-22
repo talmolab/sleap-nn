@@ -42,6 +42,9 @@ from sleap_nn.training.utils import (
     plot_peaks,
     VisualizationData,
 )
+import matplotlib
+
+matplotlib.use("Agg")  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.config.trainer_config import (

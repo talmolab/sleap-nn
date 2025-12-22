@@ -3,11 +3,13 @@
 from dataclasses import dataclass, field
 from io import BytesIO
 import numpy as np
+import matplotlib
+
+matplotlib.use("Agg")  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
 from loguru import logger
 from torch import nn
 import torch.distributed as dist
-import matplotlib
 import seaborn as sns
 from typing import List, Optional
 import shutil
