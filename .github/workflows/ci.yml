@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu", "windows", "mac", "self-hosted-gpu"]
+        os: ["ubuntu", "windows", "mac"]  # "self-hosted-gpu" temporarily disabled
         include:
           - os: ubuntu
             runs-on: ubuntu-latest
@@ -47,8 +47,8 @@ jobs:
             runs-on: windows-latest
           - os: mac
             runs-on: macos-14
-          - os: self-hosted-gpu
-            runs-on: [self-hosted, puma, gpu, 2xgpu]
+          # - os: self-hosted-gpu
+          #   runs-on: [self-hosted, puma, gpu, 2xgpu]
         python: [3.13]
 
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
