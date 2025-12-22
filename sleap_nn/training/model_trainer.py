@@ -1016,6 +1016,9 @@ class ModelTrainer:
 
         self.trainer.strategy.barrier()
 
+        # Flag to track if training was interrupted (not completed normally)
+        training_interrupted = False
+
         try:
             logger.info(
                 f"Finished trainer set up. [{time.time() - start_setup_time:.1f}s]"
@@ -1031,6 +1034,7 @@ class ModelTrainer:
 
         except KeyboardInterrupt:
             logger.info("Stopping training...")
+            training_interrupted = True
 
         finally:
             logger.info(
@@ -1063,8 +1067,8 @@ class ModelTrainer:
                         logger.info(f"Deleting viz folder at {viz_dir}...")
                         shutil.rmtree(viz_dir, ignore_errors=True)
 
-            # Clean up entire run folder if training was canceled
-            if self.trainer.should_stop and self.trainer.global_rank == 0:
+            # Clean up entire run folder if training was interrupted (KeyboardInterrupt)
+            if training_interrupted and self.trainer.global_rank == 0:
                 run_dir = (
                     Path(self.config.trainer_config.ckpt_dir)
                     / self.config.trainer_config.run_name
