@@ -709,9 +709,6 @@ class ModelTrainer:
                 )
             )
 
-        # Learning rate monitor callback - logs LR at each step for dynamic schedulers
-        callbacks.append(LearningRateMonitor(logging_interval="step"))
-
         if self.config.trainer_config.use_wandb:
             # wandb logger
             wandb_config = self.config.trainer_config.wandb
@@ -732,6 +729,10 @@ class ModelTrainer:
                 group=self.config.trainer_config.wandb.group,
             )
             loggers.append(wandb_logger)
+
+            # Learning rate monitor callback - logs LR at each step for dynamic schedulers
+            # Only added when wandb is enabled since it requires a logger
+            callbacks.append(LearningRateMonitor(logging_interval="step"))
 
             # save the configs as yaml in the checkpoint dir
             # Mask API key in both configs to prevent saving to disk
