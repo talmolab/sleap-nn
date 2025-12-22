@@ -8,7 +8,9 @@ from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from loguru import logger
 import matplotlib
 
-matplotlib.use("Agg")  # Use non-interactive backend to avoid tkinter issues on Windows CI
+matplotlib.use(
+    "Agg"
+)  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
 from PIL import Image
 from pathlib import Path

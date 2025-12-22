@@ -5,7 +5,9 @@ from io import BytesIO
 import numpy as np
 import matplotlib
 
-matplotlib.use("Agg")  # Use non-interactive backend to avoid tkinter issues on Windows CI
+matplotlib.use(
+    "Agg"
+)  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
 from loguru import logger
 from torch import nn
