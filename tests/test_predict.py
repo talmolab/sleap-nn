@@ -981,6 +981,7 @@ def test_tracking_only_pipeline(
     minimal_instance_centered_instance_ckpt,
     centered_instance_video,
     minimal_instance,
+    small_robot_minimal_video,
     tmp_path,
 ):
     """Test tracking-only pipeline."""
@@ -1073,7 +1074,8 @@ def test_tracking_only_pipeline(
         tracking_target_instance_count=2,
         device="cpu" if torch.backends.mps.is_available() else "auto",
     )
-    labels.videos.append(sio.load_video(minimal_instance))
+    # Use a regular video file (not .pkg.slp) to avoid sleap-io video matching issues
+    labels.videos.append(sio.load_video(small_robot_minimal_video))
     assert len(labels.videos) == 2
     labels.save(f"{tmp_path}/preds.slp")
 
