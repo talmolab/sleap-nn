@@ -209,11 +209,18 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
 
 def test_wandb():
     """Test wandb integration."""
-    os.environ["WANDB_MODE"] = "offline"
-    wandb_logger = WandbLogger()
-    wandb.init()
-    assert wandb.run is not None
-    wandb.finish()
+    old_mode = os.environ.get("WANDB_MODE")
+    try:
+        os.environ["WANDB_MODE"] = "offline"
+        wandb.init()
+        assert wandb.run is not None
+        wandb.finish()
+    finally:
+        # Restore original WANDB_MODE
+        if old_mode is not None:
+            os.environ["WANDB_MODE"] = old_mode
+        elif "WANDB_MODE" in os.environ:
+            del os.environ["WANDB_MODE"]
 
 
 @pytest.mark.skipif(
