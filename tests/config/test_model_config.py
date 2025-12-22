@@ -62,7 +62,6 @@ def test_default_initialization(default_config):
 
 def test_invalid_pre_trained_weights(caplog):
     """Test validation failure with an invalid pre_trained_weights."""
-
     with pytest.raises(ValueError):
         ModelConfig(
             backbone_config=BackboneConfig(

@@ -1,5 +1,7 @@
 """Miscellaneous utility functions for training."""
 
+from dataclasses import dataclass, field
+from io import BytesIO
 import numpy as np
 import matplotlib.pyplot as plt
 from loguru import logger
@@ -7,7 +9,7 @@ from torch import nn
 import torch.distributed as dist
 import matplotlib
 import seaborn as sns
-from typing import List
+from typing import List, Optional
 import shutil
 import os
 import subprocess
@@ -236,3 +238,308 @@ def plot_peaks(
                 )
             )
     return handles
+
+
+@dataclass
+class VisualizationData:
+    """Container for visualization data from a single sample.
+
+    This dataclass decouples data extraction from rendering, allowing the same
+    data to be rendered to different output targets (matplotlib, wandb, etc.).
+
+    Attributes:
+        image: Input image as (H, W, C) numpy array, normalized to [0, 1].
+        pred_confmaps: Predicted confidence maps as (H, W, nodes) array, values in [0, 1].
+        pred_peaks: Predicted keypoints as (instances, nodes, 2) or (nodes, 2) array.
+        pred_peak_values: Confidence values as (instances, nodes) or (nodes,) array.
+        gt_instances: Ground truth keypoints, same shape as pred_peaks.
+        node_names: List of node/keypoint names, e.g., ["head", "thorax", ...].
+        output_scale: Ratio of confmap size to image size (confmap_h / image_h).
+        is_paired: Whether GT and predictions can be paired for error visualization.
+        pred_pafs: Part affinity fields for bottom-up models, optional.
+        pred_class_maps: Class maps for multi-class models, optional.
+    """
+
+    image: np.ndarray
+    pred_confmaps: np.ndarray
+    pred_peaks: np.ndarray
+    pred_peak_values: np.ndarray
+    gt_instances: np.ndarray
+    node_names: List[str] = field(default_factory=list)
+    output_scale: float = 1.0
+    is_paired: bool = True
+    pred_pafs: Optional[np.ndarray] = None
+    pred_class_maps: Optional[np.ndarray] = None
+
+
+class MatplotlibRenderer:
+    """Renders VisualizationData to matplotlib figures."""
+
+    def render(self, data: VisualizationData) -> matplotlib.figure.Figure:
+        """Render visualization data to a matplotlib figure.
+
+        Args:
+            data: VisualizationData containing image, confmaps, peaks, etc.
+
+        Returns:
+            A matplotlib Figure object.
+        """
+        img = data.image
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
+        return fig
+
+    def render_pafs(self, data: VisualizationData) -> matplotlib.figure.Figure:
+        """Render PAF magnitude visualization.
+
+        Args:
+            data: VisualizationData with pred_pafs populated.
+
+        Returns:
+            A matplotlib Figure object showing PAF magnitudes.
+        """
+        if data.pred_pafs is None:
+            raise ValueError("pred_pafs is None, cannot render PAFs")
+
+        img = data.image
+        scale = 1.0
+        if img.shape[0] < 512:
+            scale = 2.0
+        if img.shape[0] < 256:
+            scale = 4.0
+
+        # Compute PAF magnitude
+        pafs = data.pred_pafs  # (H, W, 2*edges) or (H, W, edges, 2)
+        if pafs.ndim == 3:
+            n_edges = pafs.shape[-1] // 2
+            pafs = pafs.reshape(pafs.shape[0], pafs.shape[1], n_edges, 2)
+        magnitude = np.sqrt(pafs[..., 0] ** 2 + pafs[..., 1] ** 2)
+        magnitude = magnitude.max(axis=-1)  # Max over edges
+
+        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        ax = plt.gca()
+        ax.imshow(
+            magnitude,
+            alpha=0.5,
+            origin="upper",
+            cmap="viridis",
+            extent=[
+                -0.5,
+                magnitude.shape[1] / data.output_scale - 0.5,
+                magnitude.shape[0] / data.output_scale - 0.5,
+                -0.5,
+            ],
+        )
+        return fig
+
+
+class WandBRenderer:
+    """Renders VisualizationData to wandb.Image objects.
+
+    Supports multiple rendering modes:
+    - "direct": Pre-render with matplotlib, convert to wandb.Image
+    - "boxes": Use wandb boxes for interactive keypoint visualization
+    - "masks": Use wandb masks for confidence map overlay
+    """
+
+    def __init__(
+        self,
+        mode: str = "direct",
+        box_size: float = 5.0,
+        confmap_threshold: float = 0.1,
+    ):
+        """Initialize the renderer.
+
+        Args:
+            mode: Rendering mode - "direct", "boxes", or "masks".
+            box_size: Size of keypoint boxes in pixels (for "boxes" mode).
+            confmap_threshold: Threshold for confmap mask (for "masks" mode).
+        """
+        self.mode = mode
+        self.box_size = box_size
+        self.confmap_threshold = confmap_threshold
+        self._mpl_renderer = MatplotlibRenderer()
+
+    def render(
+        self, data: VisualizationData, caption: Optional[str] = None
+    ) -> "wandb.Image":
+        """Render visualization data to a wandb.Image.
+
+        Args:
+            data: VisualizationData containing image, confmaps, peaks, etc.
+            caption: Optional caption for the image.
+
+        Returns:
+            A wandb.Image object.
+        """
+        import wandb
+
+        if self.mode == "boxes":
+            return self._render_with_boxes(data, caption)
+        elif self.mode == "masks":
+            return self._render_with_masks(data, caption)
+        else:  # "direct"
+            return self._render_direct(data, caption)
+
+    def _render_direct(
+        self, data: VisualizationData, caption: Optional[str] = None
+    ) -> "wandb.Image":
+        """Pre-render with matplotlib, return as wandb.Image."""
+        import wandb
+        from PIL import Image
+
+        fig = self._mpl_renderer.render(data)
+
+        # Convert figure to PIL Image
+        buf = BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+        buf.seek(0)
+        plt.close(fig)
+
+        pil_image = Image.open(buf)
+        return wandb.Image(pil_image, caption=caption)
+
+    def _render_with_boxes(
+        self, data: VisualizationData, caption: Optional[str] = None
+    ) -> "wandb.Image":
+        """Use wandb boxes for interactive keypoint visualization."""
+        import wandb
+
+        # Prepare class labels from node names
+        class_labels = {i: name for i, name in enumerate(data.node_names)}
+        if not class_labels:
+            class_labels = {i: f"node_{i}" for i in range(data.pred_peaks.shape[-2])}
+
+        # Build ground truth boxes
+        gt_box_data = self._peaks_to_boxes(
+            data.gt_instances, data.node_names, is_gt=True
+        )
+
+        # Build prediction boxes
+        pred_box_data = self._peaks_to_boxes(
+            data.pred_peaks,
+            data.node_names,
+            peak_values=data.pred_peak_values,
+            is_gt=False,
+        )
+
+        # Convert image to uint8
+        img_uint8 = (np.clip(data.image, 0, 1) * 255).astype(np.uint8)
+
+        return wandb.Image(
+            img_uint8,
+            boxes={
+                "ground_truth": {"box_data": gt_box_data, "class_labels": class_labels},
+                "predictions": {
+                    "box_data": pred_box_data,
+                    "class_labels": class_labels,
+                },
+            },
+            caption=caption,
+        )
+
+    def _peaks_to_boxes(
+        self,
+        peaks: np.ndarray,
+        node_names: List[str],
+        peak_values: Optional[np.ndarray] = None,
+        is_gt: bool = False,
+    ) -> List[dict]:
+        """Convert peaks array to wandb box_data format.
+
+        Args:
+            peaks: Keypoints as (instances, nodes, 2) or (nodes, 2).
+            node_names: List of node names.
+            peak_values: Optional confidence values.
+            is_gt: Whether these are ground truth points.
+
+        Returns:
+            List of box dictionaries for wandb.
+        """
+        box_data = []
+
+        # Normalize shape to (instances, nodes, 2)
+        if peaks.ndim == 2:
+            peaks = peaks[np.newaxis, ...]
+            if peak_values is not None and peak_values.ndim == 1:
+                peak_values = peak_values[np.newaxis, ...]
+
+        for inst_idx, instance in enumerate(peaks):
+            for node_idx, (x, y) in enumerate(instance):
+                if np.isnan(x) or np.isnan(y):
+                    continue
+
+                node_name = (
+                    node_names[node_idx]
+                    if node_idx < len(node_names)
+                    else f"node_{node_idx}"
+                )
+
+                box = {
+                    "position": {
+                        "middle": [float(x), float(y)],
+                        "width": float(self.box_size),
+                        "height": float(self.box_size),
+                    },
+                    "domain": "pixel",
+                    "class_id": node_idx,
+                }
+
+                if is_gt:
+                    box["box_caption"] = f"GT: {node_name}"
+                else:
+                    if peak_values is not None:
+                        conf = float(peak_values[inst_idx, node_idx])
+                        box["box_caption"] = f"{node_name} ({conf:.2f})"
+                        box["scores"] = {"confidence": conf}
+                    else:
+                        box["box_caption"] = node_name
+
+                box_data.append(box)
+
+        return box_data
+
+    def _render_with_masks(
+        self, data: VisualizationData, caption: Optional[str] = None
+    ) -> "wandb.Image":
+        """Use wandb masks for confidence map overlay.
+
+        Uses argmax approach: each pixel shows the dominant node.
+        """
+        import wandb
+
+        # Prepare class labels (0 = background, 1+ = nodes)
+        class_labels = {0: "background"}
+        for i, name in enumerate(data.node_names):
+            class_labels[i + 1] = name
+        if not data.node_names:
+            n_nodes = data.pred_confmaps.shape[-1]
+            for i in range(n_nodes):
+                class_labels[i + 1] = f"node_{i}"
+
+        # Create argmax mask from confmaps
+        confmaps = data.pred_confmaps  # (H, W, nodes)
+        max_vals = confmaps.max(axis=-1)
+        argmax_map = confmaps.argmax(axis=-1) + 1  # +1 for background offset
+        argmax_map[max_vals < self.confmap_threshold] = 0  # Background
+
+        # Convert image to uint8
+        img_uint8 = (np.clip(data.image, 0, 1) * 255).astype(np.uint8)
+
+        return wandb.Image(
+            img_uint8,
+            masks={
+                "confidence_maps": {
+                    "mask_data": argmax_map.astype(np.uint8),
+                    "class_labels": class_labels,
+                }
+            },
+            caption=caption,
+        )

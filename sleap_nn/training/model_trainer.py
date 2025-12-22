@@ -20,7 +20,11 @@ from itertools import cycle, count
 from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import WandbLogger
 from sleap_nn.data.utils import check_cache_memory
-from lightning.pytorch.callbacks import ModelCheckpoint, EarlyStopping
+from lightning.pytorch.callbacks import (
+    ModelCheckpoint,
+    EarlyStopping,
+    LearningRateMonitor,
+)
 from lightning.pytorch.profilers import (
     SimpleProfiler,
     AdvancedProfiler,
@@ -49,7 +53,10 @@ from sleap_nn.training.callbacks import (
     TrainingControllerZMQ,
     MatplotlibSaver,
     WandBPredImageLogger,
+    WandBVizCallback,
+    WandBVizCallbackWithPAFs,
     CSVLoggerCallback,
+    SleapProgressBar,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -508,6 +515,14 @@ class ModelTrainer:
         """Compute config parameters."""
         logger.info("Setting up config...")
 
+        # Normalize empty strings to None for optional wandb fields
+        if self.config.trainer_config.wandb.prv_runid == "":
+            self.config.trainer_config.wandb.prv_runid = None
+
+        # Default wandb run name to trainer run_name if not specified
+        if self.config.trainer_config.wandb.name is None:
+            self.config.trainer_config.wandb.name = self.config.trainer_config.run_name
+
         # compute preprocessing parameters from the labels objects and fill in the config
         self._setup_preprocessing_config()
 
@@ -715,6 +730,10 @@ class ModelTrainer:
             )
             loggers.append(wandb_logger)
 
+            # Learning rate monitor callback - logs LR at each step for dynamic schedulers
+            # Only added when wandb is enabled since it requires a logger
+            callbacks.append(LearningRateMonitor(logging_interval="step"))
+
             # save the configs as yaml in the checkpoint dir
             # Mask API key in both configs to prevent saving to disk
             self.config.trainer_config.wandb.api_key = ""
@@ -813,13 +832,80 @@ class ModelTrainer:
             if self.config.trainer_config.use_wandb and OmegaConf.select(
                 self.config, "trainer_config.wandb.save_viz_imgs_wandb", default=False
             ):
-                callbacks.append(
-                    WandBPredImageLogger(
-                        viz_folder=viz_dir,
-                        wandb_run_name=self.config.trainer_config.wandb.name,
-                        is_bottomup=(self.model_type == "bottomup"),
-                    )
+                # Get wandb viz config options
+                viz_enabled = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_enabled", default=True
                 )
+                viz_boxes = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_boxes", default=False
+                )
+                viz_masks = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_masks", default=False
+                )
+                viz_box_size = OmegaConf.select(
+                    self.config, "trainer_config.wandb.viz_box_size", default=5.0
+                )
+                viz_confmap_threshold = OmegaConf.select(
+                    self.config,
+                    "trainer_config.wandb.viz_confmap_threshold",
+                    default=0.1,
+                )
+                log_viz_table = OmegaConf.select(
+                    self.config, "trainer_config.wandb.log_viz_table", default=False
+                )
+
+                # Create viz data pipelines for wandb callback
+                wandb_train_viz_pipeline = cycle(copy.deepcopy(viz_train_dataset))
+                wandb_val_viz_pipeline = cycle(copy.deepcopy(viz_val_dataset))
+
+                if self.model_type == "bottomup":
+                    # Bottom-up model needs PAF visualizations
+                    wandb_train_pafs_pipeline = cycle(copy.deepcopy(viz_train_dataset))
+                    wandb_val_pafs_pipeline = cycle(copy.deepcopy(viz_val_dataset))
+                    callbacks.append(
+                        WandBVizCallbackWithPAFs(
+                            train_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_train_viz_pipeline)
+                            ),
+                            val_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_val_viz_pipeline)
+                            ),
+                            train_pafs_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_train_pafs_pipeline), include_pafs=True
+                            ),
+                            val_pafs_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_val_pafs_pipeline), include_pafs=True
+                            ),
+                            viz_enabled=viz_enabled,
+                            viz_boxes=viz_boxes,
+                            viz_masks=viz_masks,
+                            box_size=viz_box_size,
+                            confmap_threshold=viz_confmap_threshold,
+                            log_table=log_viz_table,
+                        )
+                    )
+                else:
+                    # Standard models
+                    callbacks.append(
+                        WandBVizCallback(
+                            train_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_train_viz_pipeline)
+                            ),
+                            val_viz_fn=lambda: self.lightning_model.get_visualization_data(
+                                next(wandb_val_viz_pipeline)
+                            ),
+                            viz_enabled=viz_enabled,
+                            viz_boxes=viz_boxes,
+                            viz_masks=viz_masks,
+                            box_size=viz_box_size,
+                            confmap_threshold=viz_confmap_threshold,
+                            log_table=log_viz_table,
+                        )
+                    )
+
+        # Add custom progress bar with better metric formatting
+        if self.config.trainer_config.enable_progress_bar:
+            callbacks.append(SleapProgressBar())
 
         return loggers, callbacks
 
@@ -958,7 +1044,7 @@ class ModelTrainer:
         logger.info(f"Backbone model: {self.lightning_model.model.backbone}")
         logger.info(f"Head model: {self.lightning_model.model.head_layers}")
         total_params = sum(p.numel() for p in self.lightning_model.parameters())
-        logger.info(f"Total model parameters: {total_params}")
+        logger.info(f"Total model parameters: {total_params:,}")
         self.config.model_config.total_params = total_params
 
         # setup dataloaders
@@ -999,6 +1085,17 @@ class ModelTrainer:
                         id=self.config.trainer_config.wandb.prv_runid,
                         group=self.config.trainer_config.wandb.group,
                     )
+
+                # Define custom x-axes for wandb metrics
+                # Epoch-level metrics use epoch as x-axis, step-level use default global_step
+                wandb.define_metric("epoch")
+                wandb.define_metric("val_loss", step_metric="epoch")
+                wandb.define_metric("val_time", step_metric="epoch")
+                wandb.define_metric("train_time", step_metric="epoch")
+                # Per-node losses use epoch as x-axis
+                for node_name in self.skeletons[0].node_names:
+                    wandb.define_metric(node_name, step_metric="epoch")
+
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name
                 wandb.config["run_config"] = OmegaConf.to_container(

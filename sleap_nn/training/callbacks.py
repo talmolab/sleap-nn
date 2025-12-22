@@ -2,8 +2,9 @@
 
 import zmq
 import jsonpickle
-from typing import Callable, Optional
+from typing import Callable, Optional, Union
 from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from loguru import logger
 import matplotlib
 import matplotlib.pyplot as plt
@@ -12,6 +13,32 @@ from pathlib import Path
 import wandb
 import csv
 from sleap_nn import RANK
+
+
+class SleapProgressBar(TQDMProgressBar):
+    """Custom progress bar with better formatting for small metric values.
+
+    The default TQDMProgressBar truncates small floats like 1e-5 to "0.000".
+    This subclass formats metrics using scientific notation when appropriate.
+    """
+
+    def get_metrics(
+        self, trainer, pl_module
+    ) -> dict[str, Union[int, str, float, dict[str, float]]]:
+        """Override to format metrics with scientific notation for small values."""
+        items = super().get_metrics(trainer, pl_module)
+        formatted = {}
+        for k, v in items.items():
+            if isinstance(v, float):
+                # Use scientific notation for very small values
+                if v != 0 and abs(v) < 0.001:
+                    formatted[k] = f"{v:.2e}"
+                else:
+                    # Use 4 decimal places for normal values
+                    formatted[k] = f"{v:.4f}"
+            else:
+                formatted[k] = v
+        return formatted
 
 
 class CSVLoggerCallback(Callback):
@@ -53,6 +80,16 @@ class CSVLoggerCallback(Callback):
             for key in self.keys:
                 if key == "epoch":
                     log_data["epoch"] = trainer.current_epoch
+                elif key == "learning_rate":
+                    # Handle both direct logging and LearningRateMonitor format (lr-*)
+                    value = metrics.get(key, None)
+                    if value is None:
+                        # Look for lr-* keys from LearningRateMonitor
+                        for metric_key in metrics.keys():
+                            if metric_key.startswith("lr-"):
+                                value = metrics[metric_key]
+                                break
+                    log_data[key] = value.item() if value is not None else None
                 else:
                     value = metrics.get(key, None)
                     log_data[key] = value.item() if value is not None else None
@@ -66,7 +103,11 @@ class CSVLoggerCallback(Callback):
 
 
 class WandBPredImageLogger(Callback):
-    """Callback for writing image predictions to wandb.
+    """Callback for writing image predictions to wandb as a Table.
+
+    .. deprecated::
+        This callback logs images to a wandb.Table which doesn't support
+        step sliders. Use WandBVizCallback instead for better UX.
 
     Attributes:
         viz_folder: Path to viz directory.
@@ -141,9 +182,268 @@ class WandBPredImageLogger(Callback):
                     ]
                 ]
             table = wandb.Table(columns=column_names, data=data)
-            wandb.log({f"{self.wandb_run_name}": table})
+            # Use commit=False to accumulate with other metrics in this step
+            wandb.log({f"{self.wandb_run_name}": table}, commit=False)
 
         # Sync all processes after wandb logging
+        trainer.strategy.barrier()
+
+
+class WandBVizCallback(Callback):
+    """Callback for logging visualization images directly to wandb with slider support.
+
+    This callback logs images using wandb.log() which enables step slider navigation
+    in the wandb UI. Multiple visualization modes can be enabled simultaneously:
+    - viz_enabled: Pre-render with matplotlib (same as disk viz)
+    - viz_boxes: Interactive keypoint boxes with filtering
+    - viz_masks: Confidence map overlay with per-node toggling
+
+    Attributes:
+        train_viz_fn: Function that returns VisualizationData for training sample.
+        val_viz_fn: Function that returns VisualizationData for validation sample.
+        viz_enabled: Whether to log pre-rendered matplotlib images.
+        viz_boxes: Whether to log interactive keypoint boxes.
+        viz_masks: Whether to log confidence map overlay masks.
+        box_size: Size of keypoint boxes in pixels (for viz_boxes).
+        confmap_threshold: Threshold for confmap masks (for viz_masks).
+        log_table: Whether to also log to a wandb.Table (backwards compat).
+    """
+
+    def __init__(
+        self,
+        train_viz_fn: Callable,
+        val_viz_fn: Callable,
+        viz_enabled: bool = True,
+        viz_boxes: bool = False,
+        viz_masks: bool = False,
+        box_size: float = 5.0,
+        confmap_threshold: float = 0.1,
+        log_table: bool = False,
+    ):
+        """Initialize the callback.
+
+        Args:
+            train_viz_fn: Callable that returns VisualizationData for a training sample.
+            val_viz_fn: Callable that returns VisualizationData for a validation sample.
+            viz_enabled: If True, log pre-rendered matplotlib images.
+            viz_boxes: If True, log interactive keypoint boxes.
+            viz_masks: If True, log confidence map overlay masks.
+            box_size: Size of keypoint boxes in pixels (for viz_boxes).
+            confmap_threshold: Threshold for confmap mask generation (for viz_masks).
+            log_table: If True, also log images to a wandb.Table (for backwards compat).
+        """
+        super().__init__()
+        self.train_viz_fn = train_viz_fn
+        self.val_viz_fn = val_viz_fn
+        self.viz_enabled = viz_enabled
+        self.viz_boxes = viz_boxes
+        self.viz_masks = viz_masks
+        self.log_table = log_table
+
+        # Import here to avoid circular imports
+        from sleap_nn.training.utils import WandBRenderer
+
+        self.box_size = box_size
+        self.confmap_threshold = confmap_threshold
+
+        # Create renderers for each enabled mode
+        self.renderers = {}
+        if viz_enabled:
+            self.renderers["direct"] = WandBRenderer(
+                mode="direct", box_size=box_size, confmap_threshold=confmap_threshold
+            )
+        if viz_boxes:
+            self.renderers["boxes"] = WandBRenderer(
+                mode="boxes", box_size=box_size, confmap_threshold=confmap_threshold
+            )
+        if viz_masks:
+            self.renderers["masks"] = WandBRenderer(
+                mode="masks", box_size=box_size, confmap_threshold=confmap_threshold
+            )
+
+    def _get_wandb_logger(self, trainer):
+        """Get the WandbLogger from trainer's loggers."""
+        from lightning.pytorch.loggers import WandbLogger
+
+        for logger in trainer.loggers:
+            if isinstance(logger, WandbLogger):
+                return logger
+        return None
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Log visualization images at end of each epoch."""
+        if trainer.is_global_zero:
+            epoch = trainer.current_epoch
+
+            # Get the wandb logger to use its experiment for logging
+            wandb_logger = self._get_wandb_logger(trainer)
+            if wandb_logger is None:
+                return  # No wandb logger, skip visualization logging
+
+            # Get visualization data
+            train_data = self.train_viz_fn()
+            val_data = self.val_viz_fn()
+
+            # Render and log for each enabled mode
+            # Use the logger's experiment to let Lightning manage step tracking
+            log_dict = {}
+            for mode_name, renderer in self.renderers.items():
+                suffix = "" if mode_name == "direct" else f"_{mode_name}"
+                train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
+                val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
+                log_dict[f"train_predictions{suffix}"] = train_img
+                log_dict[f"val_predictions{suffix}"] = val_img
+
+            if log_dict:
+                # Use commit=False to accumulate with other metrics in this step
+                # Lightning will commit when it logs its own metrics
+                wandb_logger.experiment.log(log_dict, commit=False)
+
+            # Optionally also log to table for backwards compat
+            if self.log_table and "direct" in self.renderers:
+                train_img = self.renderers["direct"].render(
+                    train_data, caption=f"Train Epoch {epoch}"
+                )
+                val_img = self.renderers["direct"].render(
+                    val_data, caption=f"Val Epoch {epoch}"
+                )
+                table = wandb.Table(
+                    columns=["Epoch", "Train", "Validation"],
+                    data=[[epoch, train_img, val_img]],
+                )
+                wandb_logger.experiment.log({"predictions_table": table}, commit=False)
+
+        # Sync all processes
+        trainer.strategy.barrier()
+
+
+class WandBVizCallbackWithPAFs(WandBVizCallback):
+    """Extended WandBVizCallback that also logs PAF visualizations for bottom-up models."""
+
+    def __init__(
+        self,
+        train_viz_fn: Callable,
+        val_viz_fn: Callable,
+        train_pafs_viz_fn: Callable,
+        val_pafs_viz_fn: Callable,
+        viz_enabled: bool = True,
+        viz_boxes: bool = False,
+        viz_masks: bool = False,
+        box_size: float = 5.0,
+        confmap_threshold: float = 0.1,
+        log_table: bool = False,
+    ):
+        """Initialize the callback.
+
+        Args:
+            train_viz_fn: Callable returning VisualizationData for training sample.
+            val_viz_fn: Callable returning VisualizationData for validation sample.
+            train_pafs_viz_fn: Callable returning VisualizationData with PAFs for training.
+            val_pafs_viz_fn: Callable returning VisualizationData with PAFs for validation.
+            viz_enabled: If True, log pre-rendered matplotlib images.
+            viz_boxes: If True, log interactive keypoint boxes.
+            viz_masks: If True, log confidence map overlay masks.
+            box_size: Size of keypoint boxes in pixels.
+            confmap_threshold: Threshold for confmap mask generation.
+            log_table: If True, also log images to a wandb.Table.
+        """
+        super().__init__(
+            train_viz_fn=train_viz_fn,
+            val_viz_fn=val_viz_fn,
+            viz_enabled=viz_enabled,
+            viz_boxes=viz_boxes,
+            viz_masks=viz_masks,
+            box_size=box_size,
+            confmap_threshold=confmap_threshold,
+            log_table=log_table,
+        )
+        self.train_pafs_viz_fn = train_pafs_viz_fn
+        self.val_pafs_viz_fn = val_pafs_viz_fn
+
+        # Import here to avoid circular imports
+        from sleap_nn.training.utils import MatplotlibRenderer
+
+        self._mpl_renderer = MatplotlibRenderer()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        """Log visualization images including PAFs at end of each epoch."""
+        if trainer.is_global_zero:
+            epoch = trainer.current_epoch
+
+            # Get the wandb logger to use its experiment for logging
+            wandb_logger = self._get_wandb_logger(trainer)
+            if wandb_logger is None:
+                return  # No wandb logger, skip visualization logging
+
+            # Get visualization data
+            train_data = self.train_viz_fn()
+            val_data = self.val_viz_fn()
+            train_pafs_data = self.train_pafs_viz_fn()
+            val_pafs_data = self.val_pafs_viz_fn()
+
+            # Render and log for each enabled mode
+            # Use the logger's experiment to let Lightning manage step tracking
+            log_dict = {}
+            for mode_name, renderer in self.renderers.items():
+                suffix = "" if mode_name == "direct" else f"_{mode_name}"
+                train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
+                val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
+                log_dict[f"train_predictions{suffix}"] = train_img
+                log_dict[f"val_predictions{suffix}"] = val_img
+
+            # Render PAFs (always use matplotlib/direct for PAFs)
+            from io import BytesIO
+            import matplotlib.pyplot as plt
+            from PIL import Image
+
+            train_pafs_fig = self._mpl_renderer.render_pafs(train_pafs_data)
+            buf = BytesIO()
+            train_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(train_pafs_fig)
+            train_pafs_pil = Image.open(buf)
+            log_dict["train_pafs"] = wandb.Image(
+                train_pafs_pil, caption=f"Train PAFs Epoch {epoch}"
+            )
+
+            val_pafs_fig = self._mpl_renderer.render_pafs(val_pafs_data)
+            buf = BytesIO()
+            val_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
+            buf.seek(0)
+            plt.close(val_pafs_fig)
+            val_pafs_pil = Image.open(buf)
+            log_dict["val_pafs"] = wandb.Image(
+                val_pafs_pil, caption=f"Val PAFs Epoch {epoch}"
+            )
+
+            if log_dict:
+                # Use commit=False to accumulate with other metrics in this step
+                # Lightning will commit when it logs its own metrics
+                wandb_logger.experiment.log(log_dict, commit=False)
+
+            # Optionally also log to table
+            if self.log_table and "direct" in self.renderers:
+                train_img = self.renderers["direct"].render(
+                    train_data, caption=f"Train Epoch {epoch}"
+                )
+                val_img = self.renderers["direct"].render(
+                    val_data, caption=f"Val Epoch {epoch}"
+                )
+                table = wandb.Table(
+                    columns=["Epoch", "Train", "Validation", "Train PAFs", "Val PAFs"],
+                    data=[
+                        [
+                            epoch,
+                            train_img,
+                            val_img,
+                            log_dict["train_pafs"],
+                            log_dict["val_pafs"],
+                        ]
+                    ],
+                )
+                wandb_logger.experiment.log({"predictions_table": table}, commit=False)
+
+        # Sync all processes
         trainer.strategy.barrier()
 
 

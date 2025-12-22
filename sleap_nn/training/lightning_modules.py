@@ -40,6 +40,7 @@ from sleap_nn.training.utils import (
     plot_confmaps,
     plot_img,
     plot_peaks,
+    VisualizationData,
 )
 import matplotlib.pyplot as plt
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
@@ -311,6 +312,15 @@ class LightningModel(L.LightningModule):
             logger=True,
             sync_dist=True,
         )
+        # Log epoch explicitly for custom x-axis support in wandb
+        self.log(
+            "epoch",
+            float(self.current_epoch),
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
 
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
@@ -493,8 +503,15 @@ class SingleInstanceLightningModule(LightningModel):
         )
         self.node_names = self.head_configs.single_instance.confmaps.part_names
 
-    def visualize_example(self, sample):
-        """Visualize predictions during training (used with callbacks)."""
+    def get_visualization_data(self, sample) -> VisualizationData:
+        """Extract visualization data from a sample.
+
+        Args:
+            sample: A sample dictionary from the data pipeline.
+
+        Returns:
+            VisualizationData containing image, confmaps, peaks, etc.
+        """
         ex = sample.copy()
         ex["eff_scale"] = torch.tensor([1.0])
         for k, v in ex.items():
@@ -502,22 +519,35 @@ class SingleInstanceLightningModule(LightningModel):
                 ex[k] = v.to(device=self.device)
         ex["image"] = ex["image"].unsqueeze(dim=0)
         output = self.single_instance_inf_layer(ex)[0]
+
         peaks = output["pred_instance_peaks"].cpu().numpy()
-        img = (
-            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        peak_values = output["pred_peak_values"].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
         gt_instances = ex["instances"][0].cpu().numpy()
-        confmaps = (
-            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        confmaps = output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=peak_values,
+            gt_instances=gt_instances,
+            node_names=list(self.node_names) if self.node_names else [],
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=True,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        data = self.get_visualization_data(sample)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
-        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
-        plot_peaks(gt_instances, peaks, paired=True)
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
         return fig
 
     def forward(self, img):
@@ -556,8 +586,8 @@ class SingleInstanceLightningModule(LightningModel):
                 self.log(
                     f"{name}",
                     channel_wise_loss[node_idx],
-                    prog_bar=True,
-                    on_step=True,
+                    prog_bar=False,
+                    on_step=False,
                     on_epoch=True,
                     logger=True,
                     sync_dist=True,
@@ -567,7 +597,7 @@ class SingleInstanceLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -592,21 +622,11 @@ class SingleInstanceLightningModule(LightningModel):
                 loss_scale=self.loss_scale,
             )
             val_loss = val_loss + ohkm_loss
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -705,8 +725,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
 
         self.node_names = self.head_configs.centered_instance.confmaps.part_names
 
-    def visualize_example(self, sample):
-        """Visualize predictions during training (used with callbacks)."""
+    def get_visualization_data(self, sample) -> VisualizationData:
+        """Extract visualization data from a sample."""
         ex = sample.copy()
         ex["eff_scale"] = torch.tensor([1.0])
         for k, v in ex.items():
@@ -714,22 +734,35 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
         output = self.instance_peaks_inf_layer(ex)
+
         peaks = output["pred_instance_peaks"].cpu().numpy()
-        img = (
-            output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        peak_values = output["pred_peak_values"].cpu().numpy()
+        img = output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
         gt_instances = ex["instance"].cpu().numpy()
-        confmaps = (
-            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        confmaps = output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=peak_values,
+            gt_instances=gt_instances,
+            node_names=list(self.node_names) if self.node_names else [],
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=True,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        data = self.get_visualization_data(sample)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
-        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
-        plot_peaks(gt_instances, peaks, paired=True)
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
         return fig
 
     def forward(self, img):
@@ -768,8 +801,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 self.log(
                     f"{name}",
                     channel_wise_loss[node_idx],
-                    prog_bar=True,
-                    on_step=True,
+                    prog_bar=False,
+                    on_step=False,
                     on_epoch=True,
                     logger=True,
                     sync_dist=True,
@@ -780,7 +813,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -805,21 +838,11 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 loss_scale=self.loss_scale,
             )
             val_loss = val_loss + ohkm_loss
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -916,9 +939,10 @@ class CentroidLightningModule(LightningModel):
             output_stride=self.head_configs.centroid.confmaps.output_stride,
             input_scale=1.0,
         )
+        self.node_names = ["centroid"]
 
-    def visualize_example(self, sample):
-        """Visualize predictions during training (used with callbacks)."""
+    def get_visualization_data(self, sample) -> VisualizationData:
+        """Extract visualization data from a sample."""
         ex = sample.copy()
         ex["eff_scale"] = torch.tensor([1.0])
         for k, v in ex.items():
@@ -927,21 +951,34 @@ class CentroidLightningModule(LightningModel):
         ex["image"] = ex["image"].unsqueeze(dim=0)
         gt_centroids = ex["centroids"].cpu().numpy()
         output = self.centroid_inf_layer(ex)
+
         peaks = output["centroids"][0].cpu().numpy()
-        img = (
-            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
-        confmaps = (
-            output["pred_centroid_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        centroid_vals = output["centroid_vals"][0].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        confmaps = output["pred_centroid_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=centroid_vals,
+            gt_instances=gt_centroids,
+            node_names=self.node_names,
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=False,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        data = self.get_visualization_data(sample)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
-        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
-        plot_peaks(gt_centroids, peaks, paired=False)
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
         return fig
 
     def forward(self, img):
@@ -963,7 +1000,7 @@ class CentroidLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -978,21 +1015,11 @@ class CentroidLightningModule(LightningModel):
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -1097,59 +1124,72 @@ class BottomUpLightningModule(LightningModel):
             cms_output_stride=self.head_configs.bottomup.confmaps.output_stride,
             pafs_output_stride=self.head_configs.bottomup.pafs.output_stride,
         )
+        self.node_names = list(self.head_configs.bottomup.confmaps.part_names)
+
+    def get_visualization_data(
+        self, sample, include_pafs: bool = False
+    ) -> VisualizationData:
+        """Extract visualization data from a sample."""
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        output = self.bottomup_inf_layer(ex)[0]
+
+        peaks = output["pred_instance_peaks"][0].cpu().numpy()
+        peak_values = output["pred_peak_values"][0].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        gt_instances = ex["instances"][0].cpu().numpy()
+        confmaps = output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        pred_pafs = None
+        if include_pafs:
+            pafs = output["pred_part_affinity_fields"].cpu().numpy()[0]
+            pred_pafs = pafs  # (h, w, 2*edges)
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=peak_values,
+            gt_instances=gt_instances,
+            node_names=self.node_names,
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=False,
+            pred_pafs=pred_pafs,
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
-        ex = sample.copy()
-        ex["eff_scale"] = torch.tensor([1.0])
-        for k, v in ex.items():
-            if isinstance(v, torch.Tensor):
-                ex[k] = v.to(device=self.device)
-        ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
-        peaks = output["pred_instance_peaks"][0].cpu().numpy()
-        img = (
-            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
-        gt_instances = ex["instances"][0].cpu().numpy()
-        confmaps = (
-            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        data = self.get_visualization_data(sample)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
-        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
         plt.xlim(plt.xlim())
         plt.ylim(plt.ylim())
-        plot_peaks(gt_instances, peaks, paired=False)
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
         return fig
 
     def visualize_pafs_example(self, sample):
-        """Visualize predictions during training (used with callbacks)."""
-        ex = sample.copy()
-        ex["eff_scale"] = torch.tensor([1.0])
-        for k, v in ex.items():
-            if isinstance(v, torch.Tensor):
-                ex[k] = v.to(device=self.device)
-        ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
-        img = (
-            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
-        pafs = output["pred_part_affinity_fields"].cpu().numpy()[0]  # (h, w, 2*edges)
+        """Visualize PAF predictions during training (used with callbacks)."""
+        data = self.get_visualization_data(sample, include_pafs=True)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
 
+        pafs = data.pred_pafs
         pafs = pafs.reshape((pafs.shape[0], pafs.shape[1], -1, 2))
         pafs_mag = np.sqrt(pafs[..., 0] ** 2 + pafs[..., 1] ** 2)
-        plot_confmaps(pafs_mag, output_scale=pafs_mag.shape[0] / img.shape[0])
+        plot_confmaps(pafs_mag, output_scale=pafs_mag.shape[0] / data.image.shape[0])
         return fig
 
     def forward(self, img):
@@ -1203,7 +1243,7 @@ class BottomUpLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -1248,21 +1288,11 @@ class BottomUpLightningModule(LightningModel):
         }
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -1361,59 +1391,74 @@ class BottomUpMultiClassLightningModule(LightningModel):
             cms_output_stride=self.head_configs.multi_class_bottomup.confmaps.output_stride,
             class_maps_output_stride=self.head_configs.multi_class_bottomup.class_maps.output_stride,
         )
+        self.node_names = list(
+            self.head_configs.multi_class_bottomup.confmaps.part_names
+        )
+
+    def get_visualization_data(
+        self, sample, include_class_maps: bool = False
+    ) -> VisualizationData:
+        """Extract visualization data from a sample."""
+        ex = sample.copy()
+        ex["eff_scale"] = torch.tensor([1.0])
+        for k, v in ex.items():
+            if isinstance(v, torch.Tensor):
+                ex[k] = v.to(device=self.device)
+        ex["image"] = ex["image"].unsqueeze(dim=0)
+        output = self.bottomup_inf_layer(ex)[0]
+
+        peaks = output["pred_instance_peaks"][0].cpu().numpy()
+        peak_values = output["pred_peak_values"][0].cpu().numpy()
+        img = output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
+        gt_instances = ex["instances"][0].cpu().numpy()
+        confmaps = output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        pred_class_maps = None
+        if include_class_maps:
+            pred_class_maps = (
+                output["pred_class_maps"].cpu().numpy()[0].transpose(1, 2, 0)
+            )
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=peak_values,
+            gt_instances=gt_instances,
+            node_names=self.node_names,
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=False,
+            pred_class_maps=pred_class_maps,
+        )
 
     def visualize_example(self, sample):
         """Visualize predictions during training (used with callbacks)."""
-        ex = sample.copy()
-        ex["eff_scale"] = torch.tensor([1.0])
-        for k, v in ex.items():
-            if isinstance(v, torch.Tensor):
-                ex[k] = v.to(device=self.device)
-        ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
-        peaks = output["pred_instance_peaks"][0].cpu().numpy()
-        img = (
-            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
-        gt_instances = ex["instances"][0].cpu().numpy()
-        confmaps = (
-            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        data = self.get_visualization_data(sample)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
-        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
         plt.xlim(plt.xlim())
         plt.ylim(plt.ylim())
-        plot_peaks(gt_instances, peaks, paired=False)
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
         return fig
 
     def visualize_class_maps_example(self, sample):
-        """Visualize predictions during training (used with callbacks)."""
-        ex = sample.copy()
-        ex["eff_scale"] = torch.tensor([1.0])
-        for k, v in ex.items():
-            if isinstance(v, torch.Tensor):
-                ex[k] = v.to(device=self.device)
-        ex["image"] = ex["image"].unsqueeze(dim=0)
-        output = self.bottomup_inf_layer(ex)[0]
-        img = (
-            output["image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
-        classmaps = (
-            output["pred_class_maps"].cpu().numpy()[0].transpose(1, 2, 0)
-        )  # (n_classes, h, w)
+        """Visualize class map predictions during training (used with callbacks)."""
+        data = self.get_visualization_data(sample, include_class_maps=True)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
-
-        plot_confmaps(classmaps, output_scale=classmaps.shape[0] / img.shape[0])
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(
+            data.pred_class_maps,
+            output_scale=data.pred_class_maps.shape[0] / data.image.shape[0],
+        )
         return fig
 
     def forward(self, img):
@@ -1458,7 +1503,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -1494,21 +1539,11 @@ class BottomUpMultiClassLightningModule(LightningModel):
         }
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
@@ -1607,8 +1642,8 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
 
         self.node_names = self.head_configs.multi_class_topdown.confmaps.part_names
 
-    def visualize_example(self, sample):
-        """Visualize predictions during training (used with callbacks)."""
+    def get_visualization_data(self, sample) -> VisualizationData:
+        """Extract visualization data from a sample."""
         ex = sample.copy()
         ex["eff_scale"] = torch.tensor([1.0])
         for k, v in ex.items():
@@ -1616,22 +1651,35 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 ex[k] = v.to(device=self.device)
         ex["instance_image"] = ex["instance_image"].unsqueeze(dim=0)
         output = self.instance_peaks_inf_layer(ex)
+
         peaks = output["pred_instance_peaks"].cpu().numpy()
-        img = (
-            output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        peak_values = output["pred_peak_values"].cpu().numpy()
+        img = output["instance_image"][0, 0].cpu().numpy().transpose(1, 2, 0)
         gt_instances = ex["instance"].cpu().numpy()
-        confmaps = (
-            output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
-        )  # convert from (C, H, W) to (H, W, C)
+        confmaps = output["pred_confmaps"][0].cpu().numpy().transpose(1, 2, 0)
+
+        return VisualizationData(
+            image=img,
+            pred_confmaps=confmaps,
+            pred_peaks=peaks,
+            pred_peak_values=peak_values,
+            gt_instances=gt_instances,
+            node_names=list(self.node_names) if self.node_names else [],
+            output_scale=confmaps.shape[0] / img.shape[0],
+            is_paired=True,
+        )
+
+    def visualize_example(self, sample):
+        """Visualize predictions during training (used with callbacks)."""
+        data = self.get_visualization_data(sample)
         scale = 1.0
-        if img.shape[0] < 512:
+        if data.image.shape[0] < 512:
             scale = 2.0
-        if img.shape[0] < 256:
+        if data.image.shape[0] < 256:
             scale = 4.0
-        fig = plot_img(img, dpi=72 * scale, scale=scale)
-        plot_confmaps(confmaps, output_scale=confmaps.shape[0] / img.shape[0])
-        plot_peaks(gt_instances, peaks, paired=True)
+        fig = plot_img(data.image, dpi=72 * scale, scale=scale)
+        plot_confmaps(data.pred_confmaps, output_scale=data.output_scale)
+        plot_peaks(data.gt_instances, data.pred_peaks, paired=data.is_paired)
         return fig
 
     def forward(self, img):
@@ -1681,8 +1729,8 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 self.log(
                     f"{name}",
                     channel_wise_loss[node_idx],
-                    prog_bar=True,
-                    on_step=True,
+                    prog_bar=False,
+                    on_step=False,
                     on_epoch=True,
                     logger=True,
                     sync_dist=True,
@@ -1693,7 +1741,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             loss,
             prog_bar=True,
             on_step=True,
-            on_epoch=True,
+            on_epoch=False,
             logger=True,
             sync_dist=True,
         )
@@ -1727,22 +1775,11 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             "ClassVectorsHead": classvector_loss,
         }
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
-
-        lr = self.optimizers().optimizer.param_groups[0]["lr"]
-        self.log(
-            "learning_rate",
-            lr,
-            prog_bar=True,
-            on_step=True,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
         self.log(
             "val_loss",
             val_loss,
             prog_bar=True,
-            on_step=True,
+            on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
