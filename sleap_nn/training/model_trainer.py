@@ -32,7 +32,11 @@ from lightning.pytorch.profilers import (
     PassThroughProfiler,
 )
 from sleap_io.io.skeleton import SkeletonYAMLEncoder
-from sleap_nn.data.instance_cropping import find_instance_crop_size
+from sleap_nn.data.instance_cropping import (
+    find_instance_crop_size,
+    find_max_instance_bbox_size,
+    compute_augmentation_padding,
+)
 from sleap_nn.data.providers import get_max_height_width
 from sleap_nn.data.custom_datasets import (
     get_train_val_dataloaders,
@@ -214,6 +218,52 @@ class ModelTrainer:
                 trainer_devices = 1
         return trainer_devices
 
+    def _count_labeled_frames(
+        self, labels_list: List[sio.Labels], user_only: bool = True
+    ) -> int:
+        """Count labeled frames, optionally filtering to user-labeled only.
+
+        Args:
+            labels_list: List of Labels objects to count frames from.
+            user_only: If True, count only frames with user instances.
+
+        Returns:
+            Total count of labeled frames.
+        """
+        total = 0
+        for label in labels_list:
+            if user_only:
+                total += sum(1 for lf in label if lf.has_user_instances)
+            else:
+                total += len(label)
+        return total
+
+    def _filter_to_user_labeled(self, labels: sio.Labels) -> sio.Labels:
+        """Filter a Labels object to only include user-labeled frames.
+
+        Args:
+            labels: Labels object to filter.
+
+        Returns:
+            New Labels object containing only frames with user instances.
+        """
+        # Filter labeled frames to only those with user instances
+        user_lfs = [lf for lf in labels if lf.has_user_instances]
+
+        # Set instances to user instances only
+        for lf in user_lfs:
+            lf.instances = lf.user_instances
+
+        # Create new Labels with filtered frames
+        return sio.Labels(
+            labeled_frames=user_lfs,
+            videos=labels.videos,
+            skeletons=labels.skeletons,
+            tracks=labels.tracks,
+            suggestions=labels.suggestions,
+            provenance=labels.provenance,
+        )
+
     def _setup_train_val_labels(
         self,
         labels: Optional[List[sio.Labels]] = None,
@@ -225,21 +275,35 @@ class ModelTrainer:
         total_val_lfs = 0
         self.skeletons = labels[0].skeletons
 
+        # Check if we should count only user-labeled frames
+        user_instances_only = OmegaConf.select(
+            self.config, "data_config.user_instances_only", default=True
+        )
+
         # check if all `.slp` file shave same skeleton structure (if multiple slp file paths are provided)
         skeleton = self.skeletons[0]
         for index, train_label in enumerate(labels):
             skel_temp = train_label.skeletons[0]
             skeletons_equal = skeleton.matches(skel_temp)
-            if skeletons_equal:
-                total_train_lfs += len(train_label)
-            else:
+            if not skeletons_equal:
                 message = f"The skeletons in the training labels: {index + 1} do not match the skeleton in the first training label file."
                 logger.error(message)
                 raise ValueError(message)
 
-        if val_labels is None or not len(val_labels):
+        # Check for same-data mode (train = val, for intentional overfitting)
+        use_same = OmegaConf.select(
+            self.config, "data_config.use_same_data_for_val", default=False
+        )
+
+        if use_same:
+            # Same mode: use identical data for train and val (for overfitting)
+            logger.info("Using same data for train and val (overfit mode)")
+            self.train_labels = labels
+            self.val_labels = labels
+            total_train_lfs = self._count_labeled_frames(labels, user_instances_only)
+            total_val_lfs = total_train_lfs
+        elif val_labels is None or not len(val_labels):
             # if val labels are not provided, split from train
-            total_train_lfs = 0
             val_fraction = OmegaConf.select(
                 self.config, "data_config.validation_fraction", default=0.1
             )
@@ -257,13 +321,14 @@ class ModelTrainer:
                 )
                 self.train_labels.append(train_split)
                 self.val_labels.append(val_split)
+                # make_training_splits returns only user-labeled frames
                 total_train_lfs += len(train_split)
                 total_val_lfs += len(val_split)
         else:
             self.train_labels = labels
             self.val_labels = val_labels
-            for val_l in self.val_labels:
-                total_val_lfs += len(val_l)
+            total_train_lfs = self._count_labeled_frames(labels, user_instances_only)
+            total_val_lfs = self._count_labeled_frames(val_labels, user_instances_only)
 
         logger.info(f"# Train Labeled frames: {total_train_lfs}")
         logger.info(f"# Val Labeled frames: {total_val_lfs}")
@@ -298,8 +363,66 @@ class ModelTrainer:
             ):
                 # compute crop size if not provided in config
                 if crop_size is None:
+                    # Get padding from config or auto-compute from augmentation settings
+                    padding = self.config.data_config.preprocessing.crop_padding
+                    if padding is None:
+                        # Auto-compute padding based on augmentation settings
+                        aug_config = self.config.data_config.augmentation_config
+                        if (
+                            self.config.data_config.use_augmentations_train
+                            and aug_config is not None
+                            and aug_config.geometric is not None
+                        ):
+                            geo = aug_config.geometric
+                            # Check if rotation is enabled (via rotation_p or affine_p)
+                            rotation_enabled = (
+                                geo.rotation_p is not None and geo.rotation_p > 0
+                            ) or (
+                                geo.rotation_p is None
+                                and geo.scale_p is None
+                                and geo.translate_p is None
+                                and geo.affine_p > 0
+                            )
+                            # Check if scale is enabled (via scale_p or affine_p)
+                            scale_enabled = (
+                                geo.scale_p is not None and geo.scale_p > 0
+                            ) or (
+                                geo.rotation_p is None
+                                and geo.scale_p is None
+                                and geo.translate_p is None
+                                and geo.affine_p > 0
+                            )
+
+                            if rotation_enabled or scale_enabled:
+                                # First find the actual max bbox size from labels
+                                bbox_size = find_max_instance_bbox_size(train_label)
+                                bbox_size = max(
+                                    bbox_size,
+                                    self.config.data_config.preprocessing.min_crop_size
+                                    or 100,
+                                )
+                                rotation_max = (
+                                    max(
+                                        abs(geo.rotation_min),
+                                        abs(geo.rotation_max),
+                                    )
+                                    if rotation_enabled
+                                    else 0.0
+                                )
+                                scale_max = geo.scale_max if scale_enabled else 1.0
+                                padding = compute_augmentation_padding(
+                                    bbox_size=bbox_size,
+                                    rotation_max=rotation_max,
+                                    scale_max=scale_max,
+                                )
+                            else:
+                                padding = 0
+                        else:
+                            padding = 0
+
                     crop_sz = find_instance_crop_size(
                         labels=train_label,
+                        padding=padding,
                         maximum_stride=self.config.model_config.backbone_config[
                             f"{self.backbone_type}"
                         ]["max_stride"],
@@ -595,12 +718,25 @@ class ModelTrainer:
                 raise OSError(message)
 
         if RANK in [0, -1]:
+            # Check if we should filter to user-labeled frames only
+            user_instances_only = OmegaConf.select(
+                self.config, "data_config.user_instances_only", default=True
+            )
+
             for idx, (train, val) in enumerate(zip(self.train_labels, self.val_labels)):
-                train.save(
+                # Filter to user-labeled frames if needed (for evaluation)
+                if user_instances_only:
+                    train_filtered = self._filter_to_user_labeled(train)
+                    val_filtered = self._filter_to_user_labeled(val)
+                else:
+                    train_filtered = train
+                    val_filtered = val
+
+                train_filtered.save(
                     Path(ckpt_path) / f"labels_train_gt_{idx}.slp",
                     restore_original_videos=False,
                 )
-                val.save(
+                val_filtered.save(
                     Path(ckpt_path) / f"labels_val_gt_{idx}.slp",
                     restore_original_videos=False,
                 )

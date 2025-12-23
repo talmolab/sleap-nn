@@ -26,6 +26,9 @@ class PreprocessingConfig:
         crop_size: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file.
             If `scale` is provided, then the cropped image will be resized according to `scale`.*Default*: `None`.
         min_crop_size: (int) Minimum crop size to be used if `crop_size` is `None`. *Default*: `100`.
+        crop_padding: (int) Padding in pixels to add around the instance bounding box when computing crop size.
+            If `None`, padding is auto-computed based on augmentation settings (rotation/scale).
+            Only used when `crop_size` is `None`. *Default*: `None`.
     """
 
     ensure_rgb: bool = False
@@ -37,6 +40,7 @@ class PreprocessingConfig:
     )
     crop_size: Optional[int] = None
     min_crop_size: Optional[int] = 100  # to help app work in case of error
+    crop_padding: Optional[int] = None
 
     def validate_scale(self):
         """Scale Validation.
@@ -105,11 +109,14 @@ class GeometricConfig:
     Attributes:
         rotation_min: (float) Minimum rotation angle in degrees. A random angle in (rotation_min, rotation_max) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation. *Default*: `-15.0`.
         rotation_max: (float) Maximum rotation angle in degrees. A random angle in (rotation_min, rotation_max) will be sampled and applied to both images and keypoints. Set to 0 to disable rotation augmentation. *Default*: `15.0`.
+        rotation_p: (float, optional) Probability of applying random rotation independently. If set, rotation is applied separately from scale/translate. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `None`.
         scale_min: (float) Minimum scaling factor. If scale_min and scale_max are provided, the scale is randomly sampled from the range scale_min <= scale <= scale_max for isotropic scaling. *Default*: `0.9`.
         scale_max: (float) Maximum scaling factor. If scale_min and scale_max are provided, the scale is randomly sampled from the range scale_min <= scale <= scale_max for isotropic scaling. *Default*: `1.1`.
+        scale_p: (float, optional) Probability of applying random scaling independently. If set, scaling is applied separately from rotation/translate. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `None`.
         translate_width: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default. *Default*: `0.0`.
         translate_height: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default. *Default*: `0.0`.
-        affine_p: (float) Probability of applying random affine transformations. *Default*: `0.0`.
+        translate_p: (float, optional) Probability of applying random translation independently. If set, translation is applied separately from rotation/scale. If `None`, falls back to `affine_p` for bundled behavior. *Default*: `None`.
+        affine_p: (float) Probability of applying random affine transformations (rotation, scale, translate bundled together). Used for backwards compatibility when individual `*_p` params are not set. *Default*: `0.0`.
         erase_scale_min: (float) Minimum value of range of proportion of erased area against input image. *Default*: `0.0001`.
         erase_scale_max: (float) Maximum value of range of proportion of erased area against input image. *Default*: `0.01`.
         erase_ratio_min: (float) Minimum value of range of aspect ratio of erased area. *Default*: `1.0`.
@@ -122,10 +129,13 @@ class GeometricConfig:
 
     rotation_min: float = field(default=-15.0, validator=validators.ge(-180))
     rotation_max: float = field(default=15.0, validator=validators.le(180))
+    rotation_p: Optional[float] = field(default=None)
     scale_min: float = field(default=0.9, validator=validators.ge(0))
     scale_max: float = field(default=1.1, validator=validators.ge(0))
+    scale_p: Optional[float] = field(default=None)
     translate_width: float = 0.0
     translate_height: float = 0.0
+    translate_p: Optional[float] = field(default=None)
     affine_p: float = field(default=0.0, validator=validate_proportion)
     erase_scale_min: float = 0.0001
     erase_scale_max: float = 0.01
@@ -180,6 +190,7 @@ class DataConfig:
         train_labels_path: (List[str]) List of paths to training data (`.slp` file(s)). *Default*: `None`.
         val_labels_path: (List[str]) List of paths to validation data (`.slp` file(s)). *Default*: `None`.
         validation_fraction: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. *Default*: `0.1`.
+        use_same_data_for_val: (bool) If `True`, use the same data for both training and validation (train = val). Useful for intentional overfitting on small datasets. When enabled, `val_labels_path` and `validation_fraction` are ignored. *Default*: `False`.
         test_file_path: (str or List[str]) Path or list of paths to test dataset(s) (`.slp` file(s) or `.mp4` file(s)). *Note*: This is used only with CLI to get evaluation on test set after training is completed. *Default*: `None`.
         provider: (str) Provider class to read the input sleap files. Only "LabelsReader" is currently supported for the training pipeline. *Default*: `"LabelsReader"`.
         user_instances_only: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. *Default*: `True`.
@@ -196,6 +207,7 @@ class DataConfig:
     train_labels_path: Optional[List[str]] = None
     val_labels_path: Optional[List[str]] = None  # TODO : revisit MISSING!
     validation_fraction: float = 0.1
+    use_same_data_for_val: bool = False
     test_file_path: Optional[Any] = field(
         default=None, validator=validate_test_file_path
     )

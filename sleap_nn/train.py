@@ -136,6 +136,7 @@ def train(
     train_labels_path: Optional[List[str]] = None,
     val_labels_path: Optional[List[str]] = None,
     validation_fraction: float = 0.1,
+    use_same_data_for_val: bool = False,
     test_file_path: Optional[Union[str, List[str]]] = None,
     provider: str = "LabelsReader",
     user_instances_only: bool = True,
@@ -150,6 +151,7 @@ def train(
     max_width: Optional[int] = None,
     crop_size: Optional[int] = None,
     min_crop_size: Optional[int] = 100,
+    crop_padding: Optional[int] = None,
     use_augmentations_train: bool = False,
     intensity_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
     geometry_aug: Optional[Union[str, List[str], Dict[str, Any]]] = None,
@@ -214,6 +216,10 @@ def train(
             training set to sample for generating the validation set. The remaining
             labeled frames will be left in the training set. If the `validation_labels`
             are already specified, this has no effect. Default: 0.1.
+        use_same_data_for_val: If `True`, use the same data for both training and
+            validation (train = val). Useful for intentional overfitting on small
+            datasets. When enabled, `val_labels_path` and `validation_fraction` are
+            ignored. Default: False.
         test_file_path: Path or list of paths to test dataset(s) (`.slp` file(s) or `.mp4` file(s)).
             Note: This is used to get evaluation on test set after training is completed.
         provider: Provider class to read the input sleap files. Only "LabelsReader"
@@ -244,6 +250,9 @@ def train(
             If `None`, this would be automatically computed based on the largest instance
             in the `sio.Labels` file. If `scale` is provided, then the cropped image will be resized according to `scale`. Default: None.
         min_crop_size: Minimum crop size to be used if `crop_size` is `None`. Default: 100.
+        crop_padding: Padding in pixels to add around instance bounding box when computing
+            crop size. If `None`, padding is auto-computed based on augmentation settings.
+            Only used when `crop_size` is `None`. Default: None.
         use_augmentations_train: True if the data augmentation should be applied to the
             training data, else False. Default: False.
         intensity_aug: One of ["uniform_noise", "gaussian_noise", "contrast", "brightness"]
@@ -402,6 +411,7 @@ def train(
         train_labels_path=train_labels_path,
         val_labels_path=val_labels_path,
         validation_fraction=validation_fraction,
+        use_same_data_for_val=use_same_data_for_val,
         test_file_path=test_file_path,
         provider=provider,
         user_instances_only=user_instances_only,
@@ -416,6 +426,7 @@ def train(
         max_width=max_width,
         crop_size=crop_size,
         min_crop_size=min_crop_size,
+        crop_padding=crop_padding,
         use_augmentations_train=use_augmentations_train,
         intensity_aug=intensity_aug,
         geometry_aug=geometry_aug,

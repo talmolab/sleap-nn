@@ -77,6 +77,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config_copy, "trainer_config.train_data_loader.num_workers", 0)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_padding", 0)
     OmegaConf.update(config_copy, "data_config.data_pipeline_fw", "torch_dataset")
     model_trainer = ModelTrainer.get_model_trainer_from_config(config_copy)
     train_dataset, val_dataset = get_train_val_datasets(
@@ -98,6 +99,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_padding", 0)
     OmegaConf.update(
         config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
     )
@@ -121,6 +123,7 @@ def test_setup_data_loaders_torch_dataset(caplog, config, tmp_path, minimal_inst
     config_copy = config.copy()
     OmegaConf.update(config_copy, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(config_copy, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(config_copy, "data_config.preprocessing.crop_padding", 0)
     OmegaConf.update(
         config_copy, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
     )
@@ -310,6 +313,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     )
     OmegaConf.update(training_cfg, "data_config.preprocessing.crop_size", None)
     OmegaConf.update(training_cfg, "data_config.preprocessing.min_crop_size", 100)
+    OmegaConf.update(training_cfg, "data_config.preprocessing.crop_padding", 0)
     OmegaConf.update(training_cfg, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(training_cfg, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
     OmegaConf.update(training_cfg, "data_config.data_pipeline_fw", "torch_dataset")
