@@ -59,6 +59,8 @@ def run_inference(
     anchor_part: Optional[str] = None,
     only_labeled_frames: bool = False,
     only_suggested_frames: bool = False,
+    exclude_user_labeled: bool = False,
+    only_predicted_frames: bool = False,
     no_empty_frames: bool = False,
     batch_size: int = 4,
     queue_maxsize: int = 8,
@@ -137,6 +139,8 @@ def run_inference(
                 provided, the anchor part in the `training_config.yaml` is used. Default: `None`.
         only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
         only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+        exclude_user_labeled: (bool) `True` to skip frames that have user-labeled instances. Default: `False`.
+        only_predicted_frames: (bool) `True` to run inference only on frames that already have predictions. Default: `False`.
         no_empty_frames: (bool) `True` if empty frames that did not have predictions should be cleared before saving to output. Default: `False`.
         batch_size: (int) Number of samples per batch. Default: 4.
         queue_maxsize: (int) Maximum size of the frame buffer queue. Default: 8.
@@ -256,6 +260,27 @@ def run_inference(
         "max_height": max_height,
         "scale": input_scale,
     }
+
+    # Validate mutually exclusive frame filter flags
+    if only_labeled_frames and exclude_user_labeled:
+        message = (
+            "--only_labeled_frames and --exclude_user_labeled are mutually exclusive "
+            "(would result in zero frames)"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
+    if (
+        only_predicted_frames
+        and data_path is not None
+        and not data_path.endswith(".slp")
+    ):
+        message = (
+            "--only_predicted_frames requires a .slp file input "
+            "(need Labels to know which frames have predictions)"
+        )
+        logger.error(message)
+        raise ValueError(message)
 
     if model_paths is None or not len(
         model_paths
@@ -480,6 +505,8 @@ def run_inference(
             frames=frames,
             only_labeled_frames=only_labeled_frames,
             only_suggested_frames=only_suggested_frames,
+            exclude_user_labeled=exclude_user_labeled,
+            only_predicted_frames=only_predicted_frames,
             video_index=video_index,
             video_dataset=video_dataset,
             video_input_format=video_input_format,

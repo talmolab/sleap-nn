@@ -321,6 +321,8 @@ class Predictor(ABC):
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
         video_index: Optional[int] = None,
         video_dataset: Optional[str] = None,
         video_input_format: str = "channels_last",
@@ -1072,6 +1074,8 @@ class TopDownPredictor(Predictor):
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
         video_index: Optional[int] = None,
         video_dataset: Optional[str] = None,
         video_input_format: str = "channels_last",
@@ -1084,6 +1088,8 @@ class TopDownPredictor(Predictor):
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            exclude_user_labeled: (bool) `True` to skip frames that have user-labeled instances. Default: `False`.
+            only_predicted_frames: (bool) `True` to run inference only on frames that already have predictions. Default: `False`.
             video_index: (int) Integer index of video in .slp file to predict on. To be used
                 with an .slp path as an alternative to specifying the video path.
             video_dataset: (str) The dataset for HDF5 videos.
@@ -1118,6 +1124,8 @@ class TopDownPredictor(Predictor):
                 instances_key=self.instances_key,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
+                exclude_user_labeled=exclude_user_labeled,
+                only_predicted_frames=only_predicted_frames,
             )
             self.videos = self.pipeline.labels.videos
 
@@ -1491,6 +1499,8 @@ class SingleInstancePredictor(Predictor):
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
         video_index: Optional[int] = None,
         video_dataset: Optional[str] = None,
         video_input_format: str = "channels_last",
@@ -1503,6 +1513,8 @@ class SingleInstancePredictor(Predictor):
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            exclude_user_labeled: (bool) `True` to skip frames that have user-labeled instances. Default: `False`.
+            only_predicted_frames: (bool) `True` to run inference only on frames that already have predictions. Default: `False`.
             video_index: (int) Integer index of video in .slp file to predict on. To be used
                 with an .slp path as an alternative to specifying the video path.
             video_dataset: (str) The dataset for HDF5 videos.
@@ -1536,6 +1548,8 @@ class SingleInstancePredictor(Predictor):
                 frame_buffer=frame_buffer,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
+                exclude_user_labeled=exclude_user_labeled,
+                only_predicted_frames=only_predicted_frames,
             )
             self.videos = self.pipeline.labels.videos
 
@@ -1930,6 +1944,8 @@ class BottomUpPredictor(Predictor):
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
         video_index: Optional[int] = None,
         video_dataset: Optional[str] = None,
         video_input_format: str = "channels_last",
@@ -1942,6 +1958,8 @@ class BottomUpPredictor(Predictor):
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            exclude_user_labeled: (bool) `True` to skip frames that have user-labeled instances. Default: `False`.
+            only_predicted_frames: (bool) `True` to run inference only on frames that already have predictions. Default: `False`.
             video_index: (int) Integer index of video in .slp file to predict on. To be used
                 with an .slp path as an alternative to specifying the video path.
             video_dataset: (str) The dataset for HDF5 videos.
@@ -1975,6 +1993,8 @@ class BottomUpPredictor(Predictor):
                 frame_buffer=frame_buffer,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
+                exclude_user_labeled=exclude_user_labeled,
+                only_predicted_frames=only_predicted_frames,
             )
 
             self.videos = self.pipeline.labels.videos
@@ -2366,6 +2386,8 @@ class BottomUpMultiClassPredictor(Predictor):
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
         video_index: Optional[int] = None,
         video_dataset: Optional[str] = None,
         video_input_format: str = "channels_last",
@@ -2378,6 +2400,8 @@ class BottomUpMultiClassPredictor(Predictor):
             frames: List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            exclude_user_labeled: (bool) `True` to skip frames that have user-labeled instances. Default: `False`.
+            only_predicted_frames: (bool) `True` to run inference only on frames that already have predictions. Default: `False`.
             video_index: (int) Integer index of video in .slp file to predict on. To be used
                 with an .slp path as an alternative to specifying the video path.
             video_dataset: (str) The dataset for HDF5 videos.
@@ -2413,6 +2437,8 @@ class BottomUpMultiClassPredictor(Predictor):
                 frame_buffer=frame_buffer,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
+                exclude_user_labeled=exclude_user_labeled,
+                only_predicted_frames=only_predicted_frames,
             )
 
             self.videos = self.pipeline.labels.videos
@@ -3110,6 +3136,8 @@ class TopDownMultiClassPredictor(Predictor):
         frames: Optional[list] = None,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
         video_index: Optional[int] = None,
         video_dataset: Optional[str] = None,
         video_input_format: str = "channels_last",
@@ -3122,6 +3150,8 @@ class TopDownMultiClassPredictor(Predictor):
             frames: (list) List of frames indices. If `None`, all frames in the video are used. Default: None.
             only_labeled_frames: (bool) `True` if inference should be run only on user-labeled frames. Default: `False`.
             only_suggested_frames: (bool) `True` if inference should be run only on unlabeled suggested frames. Default: `False`.
+            exclude_user_labeled: (bool) `True` to skip frames that have user-labeled instances. Default: `False`.
+            only_predicted_frames: (bool) `True` to run inference only on frames that already have predictions. Default: `False`.
             video_index: (int) Integer index of video in .slp file to predict on. To be used
                 with an .slp path as an alternative to specifying the video path.
             video_dataset: (str) The dataset for HDF5 videos.
@@ -3156,6 +3186,8 @@ class TopDownMultiClassPredictor(Predictor):
                 instances_key=self.instances_key,
                 only_labeled_frames=only_labeled_frames,
                 only_suggested_frames=only_suggested_frames,
+                exclude_user_labeled=exclude_user_labeled,
+                only_predicted_frames=only_predicted_frames,
             )
             self.videos = self.pipeline.labels.videos
 
