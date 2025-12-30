@@ -235,6 +235,8 @@ class LabelsReader(Thread):
         instances_key: bool = False,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
     ):
         """Initialize attribute of the class."""
         super().__init__()
@@ -247,6 +249,8 @@ class LabelsReader(Thread):
 
         self.only_labeled_frames = only_labeled_frames
         self.only_suggested_frames = only_suggested_frames
+        self.exclude_user_labeled = exclude_user_labeled
+        self.only_predicted_frames = only_predicted_frames
 
         # Filter to only user labeled instances
         if self.only_labeled_frames:
@@ -266,6 +270,20 @@ class LabelsReader(Thread):
                         video=suggestion.video, frame_idx=suggestion.frame_idx
                     )
                     self.filtered_lfs.append(new_lf)
+
+        # Filter out user labeled frames
+        elif self.exclude_user_labeled:
+            self.filtered_lfs = []
+            for lf in self.labels:
+                if not lf.has_user_instances:
+                    self.filtered_lfs.append(lf)
+
+        # Filter to only predicted frames
+        elif self.only_predicted_frames:
+            self.filtered_lfs = []
+            for lf in self.labels:
+                if lf.has_predicted_instances:
+                    self.filtered_lfs.append(lf)
 
         else:
             self.filtered_lfs = [lf for lf in self.labels]
@@ -302,6 +320,8 @@ class LabelsReader(Thread):
         instances_key: bool = False,
         only_labeled_frames: bool = False,
         only_suggested_frames: bool = False,
+        exclude_user_labeled: bool = False,
+        only_predicted_frames: bool = False,
     ):
         """Create LabelsReader from a .slp filename."""
         labels = sio.load_slp(filename)
@@ -312,6 +332,8 @@ class LabelsReader(Thread):
             instances_key,
             only_labeled_frames,
             only_suggested_frames,
+            exclude_user_labeled,
+            only_predicted_frames,
         )
 
     def run(self):

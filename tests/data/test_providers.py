@@ -262,3 +262,104 @@ def test_process_lf(minimal_instance):
     assert ex["instances"].shape == torch.Size([1, 4, 2, 2])
     assert torch.isnan(ex["instances"][:, 2:, :, :]).all()
     assert not torch.is_floating_point(ex["image"])
+
+
+def test_exclude_user_labeled(minimal_instance):
+    """Test LabelsReader with exclude_user_labeled flag."""
+    labels = sio.load_slp(minimal_instance)
+
+    # Add a frame with only predicted instances (frame_idx=5)
+    pred_lf = sio.LabeledFrame(
+        video=labels.videos[0],
+        frame_idx=5,
+        instances=[
+            sio.PredictedInstance.from_numpy(
+                points_data=np.array([[1.0, 2.0], [2.0, 3.0]]),
+                skeleton=labels.skeletons[0],
+                point_scores=np.array([0.9, 0.8]),
+                score=0.85,
+            )
+        ],
+    )
+    labels.labeled_frames.append(pred_lf)
+
+    # Now we have 2 frames: frame 0 with user labels, frame 5 with only predictions
+    assert len(labels) == 2
+
+    queue = Queue(maxsize=4)
+    reader = LabelsReader(
+        labels=labels,
+        frame_buffer=queue,
+        instances_key=False,
+        exclude_user_labeled=True,
+    )
+
+    # Original frame has user labels and should be excluded
+    # New frame has only predictions and should be included
+    assert reader.total_len() == 1
+    assert reader.filtered_lfs[0].frame_idx == 5
+
+
+def test_only_predicted_frames(minimal_instance):
+    """Test LabelsReader with only_predicted_frames flag."""
+    labels = sio.load_slp(minimal_instance)
+
+    # Add a frame with predicted instances (frame_idx=5)
+    pred_lf = sio.LabeledFrame(
+        video=labels.videos[0],
+        frame_idx=5,
+        instances=[
+            sio.PredictedInstance.from_numpy(
+                points_data=np.array([[1.0, 2.0], [2.0, 3.0]]),
+                skeleton=labels.skeletons[0],
+                point_scores=np.array([0.9, 0.8]),
+                score=0.85,
+            )
+        ],
+    )
+    labels.labeled_frames.append(pred_lf)
+
+    # Now we have 2 frames: frame 0 with user labels only, frame 5 with predictions
+    assert len(labels) == 2
+
+    queue = Queue(maxsize=4)
+    reader = LabelsReader(
+        labels=labels,
+        frame_buffer=queue,
+        instances_key=False,
+        only_predicted_frames=True,
+    )
+
+    # Only the predicted frame should be included
+    assert reader.total_len() == 1
+    assert reader.filtered_lfs[0].frame_idx == 5
+
+
+def test_only_predicted_frames_with_both_types(minimal_instance):
+    """Test only_predicted_frames includes frames with both user and predicted instances."""
+    labels = sio.load_slp(minimal_instance)
+
+    # Add predicted instance to existing user-labeled frame
+    pred_inst = sio.PredictedInstance.from_numpy(
+        points_data=np.array([[5.0, 5.0], [10.0, 10.0]]),
+        skeleton=labels.skeletons[0],
+        point_scores=np.array([0.95, 0.9]),
+        score=0.92,
+    )
+    labels[0].instances.append(pred_inst)
+
+    # Now frame 0 has both user and predicted instances
+    assert labels[0].has_user_instances
+    assert labels[0].has_predicted_instances
+
+    queue = Queue(maxsize=4)
+    reader = LabelsReader(
+        labels=labels,
+        frame_buffer=queue,
+        instances_key=False,
+        only_predicted_frames=True,
+    )
+
+    # Frame with both types should be included
+    assert reader.total_len() == 1
+    assert reader.filtered_lfs[0].frame_idx == 0
