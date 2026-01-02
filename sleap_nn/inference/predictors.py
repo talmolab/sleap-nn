@@ -61,6 +61,47 @@ from rich.progress import (
 from time import time
 
 
+def _filter_user_labeled_frames(
+    labels: sio.Labels,
+    video: sio.Video,
+    frames: Optional[list],
+    exclude_user_labeled: bool,
+) -> Optional[list]:
+    """Filter out user-labeled frames from a frame list.
+
+    This function is used when running inference with VideoReader (video_index specified)
+    to implement the exclude_user_labeled functionality.
+
+    Args:
+        labels: The Labels object containing labeled frames.
+        video: The video to filter frames for.
+        frames: List of frame indices to filter. If None, builds list of all frames.
+        exclude_user_labeled: If True, filter out user-labeled frames.
+
+    Returns:
+        Filtered list of frame indices excluding user-labeled frames if
+        exclude_user_labeled is True. Returns original frames if exclude_user_labeled
+        is False or if there are no user-labeled frames.
+    """
+    if not exclude_user_labeled:
+        return frames
+
+    # Get user-labeled frame indices for this video
+    user_frame_indices = {
+        lf.frame_idx for lf in labels.find(video=video) if lf.has_user_instances
+    }
+
+    if not user_frame_indices:
+        return frames
+
+    # Build full frame list if frames is None
+    if frames is None:
+        frames = list(range(len(video)))
+
+    # Filter out user-labeled frames
+    return [f for f in frames if f not in user_frame_indices]
+
+
 class RateColumn(rich.progress.ProgressColumn):
     """Renders the progress rate."""
 
@@ -1143,10 +1184,15 @@ class TopDownPredictor(Predictor):
 
             if isinstance(inference_object, sio.Labels) and video_index is not None:
                 labels = inference_object
+                video = labels.videos[video_index]
+                # Filter out user-labeled frames if requested
+                filtered_frames = _filter_user_labeled_frames(
+                    labels, video, frames, exclude_user_labeled
+                )
                 self.pipeline = provider.from_video(
-                    video=labels.videos[video_index],
+                    video=video,
                     queue_maxsize=queue_maxsize,
-                    frames=frames,
+                    frames=filtered_frames,
                 )
 
             else:  # for mp4 or hdf5 videos
@@ -1558,10 +1604,15 @@ class SingleInstancePredictor(Predictor):
 
             if isinstance(inference_object, sio.Labels) and video_index is not None:
                 labels = inference_object
+                video = labels.videos[video_index]
+                # Filter out user-labeled frames if requested
+                filtered_frames = _filter_user_labeled_frames(
+                    labels, video, frames, exclude_user_labeled
+                )
                 self.pipeline = provider.from_video(
-                    video=labels.videos[video_index],
+                    video=video,
                     queue_maxsize=queue_maxsize,
-                    frames=frames,
+                    frames=filtered_frames,
                 )
 
             else:  # for mp4 or hdf5 videos
@@ -2004,10 +2055,15 @@ class BottomUpPredictor(Predictor):
 
             if isinstance(inference_object, sio.Labels) and video_index is not None:
                 labels = inference_object
+                video = labels.videos[video_index]
+                # Filter out user-labeled frames if requested
+                filtered_frames = _filter_user_labeled_frames(
+                    labels, video, frames, exclude_user_labeled
+                )
                 self.pipeline = provider.from_video(
-                    video=labels.videos[video_index],
+                    video=video,
                     queue_maxsize=queue_maxsize,
-                    frames=frames,
+                    frames=filtered_frames,
                 )
 
             else:  # for mp4 or hdf5 videos
@@ -2448,10 +2504,15 @@ class BottomUpMultiClassPredictor(Predictor):
 
             if isinstance(inference_object, sio.Labels) and video_index is not None:
                 labels = inference_object
+                video = labels.videos[video_index]
+                # Filter out user-labeled frames if requested
+                filtered_frames = _filter_user_labeled_frames(
+                    labels, video, frames, exclude_user_labeled
+                )
                 self.pipeline = provider.from_video(
-                    video=labels.videos[video_index],
+                    video=video,
                     queue_maxsize=queue_maxsize,
-                    frames=frames,
+                    frames=filtered_frames,
                 )
 
             else:  # for mp4 or hdf5 videos
@@ -3205,10 +3266,15 @@ class TopDownMultiClassPredictor(Predictor):
 
             if isinstance(inference_object, sio.Labels) and video_index is not None:
                 labels = inference_object
+                video = labels.videos[video_index]
+                # Filter out user-labeled frames if requested
+                filtered_frames = _filter_user_labeled_frames(
+                    labels, video, frames, exclude_user_labeled
+                )
                 self.pipeline = provider.from_video(
-                    video=labels.videos[video_index],
+                    video=video,
                     queue_maxsize=queue_maxsize,
-                    frames=frames,
+                    frames=filtered_frames,
                 )
 
             else:  # for mp4 or hdf5 videos
