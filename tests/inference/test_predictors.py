@@ -1104,3 +1104,179 @@ def test_filter_user_labeled_frames_with_predicted_instances(tmp_path):
     # Frame 1 has only predicted instances so should NOT be filtered
     # Frame 2 has user instances so should be filtered
     assert result == [0, 1, 3, 4]
+
+
+def test_predictor_make_pipeline_with_labels_and_video_index(
+    small_robot_minimal,
+    minimal_instance_single_instance_ckpt,
+):
+    """Test make_pipeline with sio.Labels object and video_index parameter.
+
+    This tests the code path where make_pipeline receives a Labels object
+    with video_index specified, which triggers the filtering logic.
+    """
+    # Load the SLP file as a Labels object
+    labels = sio.load_slp(small_robot_minimal.as_posix())
+
+    preprocess_config = {
+        "ensure_rgb": None,
+        "ensure_grayscale": None,
+        "crop_size": None,
+        "max_width": None,
+        "max_height": None,
+        "scale": None,
+    }
+
+    # Create a SingleInstancePredictor
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_single_instance_ckpt],
+        peak_threshold=0.3,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    # Call make_pipeline with Labels object and video_index
+    predictor.make_pipeline(
+        labels,
+        video_index=0,
+        frames=[0, 1, 2],
+    )
+
+    # Verify the pipeline was created correctly
+    assert predictor.pipeline is not None
+    assert len(predictor.videos) == 1
+    assert predictor.videos[0] == labels.videos[0]
+
+
+def test_topdown_predictor_with_labels_and_video_index(
+    minimal_instance,
+    minimal_instance_centered_instance_ckpt,
+    minimal_instance_centroid_ckpt,
+):
+    """Test TopDownPredictor make_pipeline with sio.Labels and video_index."""
+    # Load SLP file as Labels object
+    labels = sio.load_slp(minimal_instance.as_posix())
+
+    preprocess_config = {
+        "ensure_rgb": None,
+        "ensure_grayscale": None,
+        "crop_size": None,
+        "max_width": None,
+        "max_height": None,
+        "scale": None,
+    }
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt],
+        peak_threshold=0.03,
+        max_instances=6,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    # Call make_pipeline with Labels object and video_index
+    predictor.make_pipeline(
+        labels,
+        video_index=0,
+        frames=[0],
+    )
+
+    assert predictor.pipeline is not None
+    assert len(predictor.videos) == 1
+
+
+def test_bottomup_predictor_with_labels_and_video_index(
+    minimal_instance,
+    minimal_instance_bottomup_ckpt,
+):
+    """Test BottomUpPredictor make_pipeline with sio.Labels and video_index."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+
+    preprocess_config = {
+        "ensure_rgb": None,
+        "ensure_grayscale": None,
+        "crop_size": None,
+        "max_width": None,
+        "max_height": None,
+        "scale": None,
+    }
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_bottomup_ckpt],
+        peak_threshold=0.05,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    predictor.make_pipeline(
+        labels,
+        video_index=0,
+        frames=[0],
+    )
+
+    assert predictor.pipeline is not None
+    assert len(predictor.videos) == 1
+
+
+def test_centroid_predictor_with_labels_and_video_index(
+    minimal_instance,
+    minimal_instance_centroid_ckpt,
+):
+    """Test CentroidPredictor make_pipeline with sio.Labels and video_index."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+
+    preprocess_config = {
+        "ensure_rgb": None,
+        "ensure_grayscale": None,
+        "crop_size": None,
+        "max_width": None,
+        "max_height": None,
+        "scale": None,
+    }
+
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt],
+        peak_threshold=0.03,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    predictor.make_pipeline(
+        labels,
+        video_index=0,
+        frames=[0],
+    )
+
+    assert predictor.pipeline is not None
+    assert len(predictor.videos) == 1
+
+
+def test_multiclass_topdown_predictor_with_labels_and_video_index(
+    minimal_instance,
+    minimal_instance_multi_class_topdown_ckpt,
+    minimal_instance_centroid_ckpt,
+):
+    """Test TopDownMultiClassPredictor make_pipeline with sio.Labels and video_index."""
+    labels = sio.load_slp(minimal_instance.as_posix())
+
+    preprocess_config = {
+        "ensure_rgb": None,
+        "ensure_grayscale": None,
+        "crop_size": None,
+        "max_width": None,
+        "max_height": None,
+        "scale": None,
+    }
+
+    # TopDownMultiClassPredictor requires both centroid and instance models
+    # when using video_index (no ground truth available)
+    predictor = Predictor.from_model_paths(
+        [minimal_instance_centroid_ckpt, minimal_instance_multi_class_topdown_ckpt],
+        peak_threshold=0.03,
+        preprocess_config=OmegaConf.create(preprocess_config),
+    )
+
+    predictor.make_pipeline(
+        labels,
+        video_index=0,
+        frames=[0],
+    )
+
+    assert predictor.pipeline is not None
+    assert len(predictor.videos) == 1
