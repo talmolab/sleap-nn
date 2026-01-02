@@ -996,28 +996,40 @@ def test_filter_user_labeled_frames(tmp_path):
     lf0 = sio.LabeledFrame(
         video=video,
         frame_idx=0,
-        instances=[sio.Instance(skeleton=skeleton, points={"A": [10, 10], "B": [20, 20]})],
+        instances=[
+            sio.Instance(skeleton=skeleton, points={"A": [10, 10], "B": [20, 20]})
+        ],
     )
     lf2 = sio.LabeledFrame(
         video=video,
         frame_idx=2,
-        instances=[sio.Instance(skeleton=skeleton, points={"A": [15, 15], "B": [25, 25]})],
+        instances=[
+            sio.Instance(skeleton=skeleton, points={"A": [15, 15], "B": [25, 25]})
+        ],
     )
     lf5 = sio.LabeledFrame(
         video=video,
         frame_idx=5,
-        instances=[sio.Instance(skeleton=skeleton, points={"A": [30, 30], "B": [40, 40]})],
+        instances=[
+            sio.Instance(skeleton=skeleton, points={"A": [30, 30], "B": [40, 40]})
+        ],
     )
 
-    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf0, lf2, lf5])
+    labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[lf0, lf2, lf5]
+    )
 
     # Test 1: exclude_user_labeled=False should return original frames
     frames = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    result = _filter_user_labeled_frames(labels, video, frames, exclude_user_labeled=False)
+    result = _filter_user_labeled_frames(
+        labels, video, frames, exclude_user_labeled=False
+    )
     assert result == frames
 
     # Test 2: exclude_user_labeled=True should filter out user-labeled frames
-    result = _filter_user_labeled_frames(labels, video, frames, exclude_user_labeled=True)
+    result = _filter_user_labeled_frames(
+        labels, video, frames, exclude_user_labeled=True
+    )
     assert result == [1, 3, 4, 6, 7, 8, 9]
 
     # Test 3: frames=None should build full list and filter
@@ -1025,17 +1037,23 @@ def test_filter_user_labeled_frames(tmp_path):
     assert result == [1, 3, 4, 6, 7, 8, 9]
 
     # Test 4: frames=None with exclude_user_labeled=False should return None
-    result = _filter_user_labeled_frames(labels, video, None, exclude_user_labeled=False)
+    result = _filter_user_labeled_frames(
+        labels, video, None, exclude_user_labeled=False
+    )
     assert result is None
 
     # Test 5: Empty labels (no user-labeled frames) should return original frames
     empty_labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[])
-    result = _filter_user_labeled_frames(empty_labels, video, frames, exclude_user_labeled=True)
+    result = _filter_user_labeled_frames(
+        empty_labels, video, frames, exclude_user_labeled=True
+    )
     assert result == frames
 
     # Test 6: All frames are user-labeled should return empty list
     all_user_labeled = [0, 2, 5]
-    result = _filter_user_labeled_frames(labels, video, all_user_labeled, exclude_user_labeled=True)
+    result = _filter_user_labeled_frames(
+        labels, video, all_user_labeled, exclude_user_labeled=True
+    )
     assert result == []
 
 
@@ -1069,13 +1087,19 @@ def test_filter_user_labeled_frames_with_predicted_instances(tmp_path):
     lf_user = sio.LabeledFrame(
         video=video,
         frame_idx=2,
-        instances=[sio.Instance(skeleton=skeleton, points={"A": [15, 15], "B": [25, 25]})],
+        instances=[
+            sio.Instance(skeleton=skeleton, points={"A": [15, 15], "B": [25, 25]})
+        ],
     )
 
-    labels = sio.Labels(videos=[video], skeletons=[skeleton], labeled_frames=[lf_pred, lf_user])
+    labels = sio.Labels(
+        videos=[video], skeletons=[skeleton], labeled_frames=[lf_pred, lf_user]
+    )
 
     frames = [0, 1, 2, 3, 4]
-    result = _filter_user_labeled_frames(labels, video, frames, exclude_user_labeled=True)
+    result = _filter_user_labeled_frames(
+        labels, video, frames, exclude_user_labeled=True
+    )
 
     # Frame 1 has only predicted instances so should NOT be filtered
     # Frame 2 has user instances so should be filtered
