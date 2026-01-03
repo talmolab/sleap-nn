@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+sleap-nn is a PyTorch-based neural network backend for animal pose estimation.
+
+## Notes
+- We use `uv` for environment management and packaging.
+- We use `sleap-io` (https://github.com/talmolab/sleap-io) as the I/O backend for `.slp` files, which are HDF5-based containers for labels and sometimes embedded image data (typically ending with `.pkg.slp`). Refer to https://raw.githubusercontent.com/talmolab/sleap-io/refs/heads/main/docs/examples.md for usage examples when you need to do I/O with SLP files.
+- This package (`sleap-nn`) is used as the neural network training backend to SLEAP, which is primarily used through its frontend package `sleap` (https://github.com/talmolab/sleap).
+
 ## Common Development Commands
 
 ### Testing
@@ -15,15 +22,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Check formatting: `black --check sleap_nn tests`
 - Run linter: `ruff check sleap_nn/`
 
-### Environment Setup
-- GPU (Windows/Linux): `mamba env create -f environment.yml`
-- CPU (Windows/Linux/Intel Mac): `mamba env create -f environment_cpu.yml`
-- Apple Silicon (M1/M2 Mac): `mamba env create -f environment_osx-arm64.yml`
-- Activate environment: `mamba activate sleap-nn`
-
 ## Architecture Overview
 
-sleap-nn is a PyTorch-based neural network backend for animal pose estimation. The codebase follows a modular architecture:
+The codebase follows a modular architecture:
 
 ### Core Components
 
@@ -68,14 +69,3 @@ Configurations are managed via Hydra and can be specified in YAML files (see `do
 - Inference: `sleap_nn/predict.py` - Run inference on trained models
 - CLI: `sleap_nn/cli.py` - Command-line interface (currently minimal)
 - Evaluation: `sleap_nn/evaluation.py` - Model evaluation utilities
-
-### Model Types
-
-The system supports multiple model architectures for pose estimation:
-- Single Instance: One animal per frame
-- Centered Instance: Crop-based single instance
-- Centroid: Animal center detection
-- Top-Down: Centroid → Instance detection
-- Bottom-Up: Multi-instance with PAFs
-
-Each model type has corresponding head modules, data processing, and inference pipelines.
