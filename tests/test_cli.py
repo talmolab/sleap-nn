@@ -164,7 +164,9 @@ class TestTrackCommand:
         # This will fail because data_path is required, but we can check the error
         result = runner.invoke(cli, ["track"])
         assert result.exit_code != 0
-        assert "data_path" in result.output.lower() or "required" in result.output.lower()
+        assert (
+            "data_path" in result.output.lower() or "required" in result.output.lower()
+        )
 
     def test_track_without_frames(self):
         """Test track command with empty frames string."""
@@ -196,7 +198,10 @@ class TestEvalCommand:
         runner = CliRunner()
         result = runner.invoke(cli, ["eval"])
         assert result.exit_code != 0
-        assert "ground_truth_path" in result.output.lower() or "required" in result.output.lower()
+        assert (
+            "ground_truth_path" in result.output.lower()
+            or "required" in result.output.lower()
+        )
 
 
 # =============================================================================

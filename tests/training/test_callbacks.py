@@ -254,7 +254,9 @@ class TestWandBVizCallback:
         # Need to actually test the real method
         from lightning.pytorch.loggers import WandbLogger
 
-        with patch.object(callback, "_get_wandb_logger", wraps=callback._get_wandb_logger):
+        with patch.object(
+            callback, "_get_wandb_logger", wraps=callback._get_wandb_logger
+        ):
             result = callback._get_wandb_logger(mock_trainer)
             # Since mock loggers aren't WandbLogger instances, should return None
             assert result is None
@@ -311,7 +313,9 @@ class TestWandBVizCallback:
         mock_experiment = MagicMock()
         mock_wandb_logger.experiment = mock_experiment
 
-        with patch.object(callback, "_get_wandb_logger", return_value=mock_wandb_logger):
+        with patch.object(
+            callback, "_get_wandb_logger", return_value=mock_wandb_logger
+        ):
             # Mock the renderer's render method
             for renderer in callback.renderers.values():
                 renderer.render = MagicMock(return_value="mock_image")
@@ -343,7 +347,9 @@ class TestWandBVizCallback:
         mock_experiment = MagicMock()
         mock_wandb_logger.experiment = mock_experiment
 
-        with patch.object(callback, "_get_wandb_logger", return_value=mock_wandb_logger):
+        with patch.object(
+            callback, "_get_wandb_logger", return_value=mock_wandb_logger
+        ):
             for renderer in callback.renderers.values():
                 renderer.render = MagicMock(return_value="mock_image")
 
@@ -383,7 +389,9 @@ class TestWandBVizCallbackWithPAFs:
             pred_pafs=np.random.rand(64, 64, 8).astype(np.float32),  # 4 edges * 2
         )
 
-    def test_init_inherits_from_wandb_viz_callback(self, sample_viz_data, sample_pafs_data):
+    def test_init_inherits_from_wandb_viz_callback(
+        self, sample_viz_data, sample_pafs_data
+    ):
         """Inherits from WandBVizCallback and adds PAF viz functions."""
         callback = WandBVizCallbackWithPAFs(
             train_viz_fn=lambda: sample_viz_data,
@@ -432,7 +440,9 @@ class TestWandBVizCallbackWithPAFs:
         mock_experiment = MagicMock()
         mock_wandb_logger.experiment = mock_experiment
 
-        with patch.object(callback, "_get_wandb_logger", return_value=mock_wandb_logger):
+        with patch.object(
+            callback, "_get_wandb_logger", return_value=mock_wandb_logger
+        ):
             for renderer in callback.renderers.values():
                 renderer.render = MagicMock(return_value="mock_image")
 
@@ -773,9 +783,7 @@ class TestTrainingControllerZMQ:
             with patch("sleap_nn.training.callbacks.jsonpickle") as mock_jp:
                 mock_jp.decode.return_value = {"command": "stop"}
 
-                callback.on_train_batch_end(
-                    mock_trainer, mock_pl_module, {}, {}, 0
-                )
+                callback.on_train_batch_end(mock_trainer, mock_pl_module, {}, {}, 0)
 
                 assert mock_trainer.should_stop is True
 
@@ -797,9 +805,7 @@ class TestTrainingControllerZMQ:
             # No message available
             mock_socket.poll.return_value = False
 
-            callback.on_train_batch_end(
-                mock_trainer, mock_pl_module, {}, {}, 0
-            )
+            callback.on_train_batch_end(mock_trainer, mock_pl_module, {}, {}, 0)
 
             assert mock_trainer.should_stop is False
 
@@ -971,9 +977,7 @@ class TestProgressReporterZMQ:
             mock_pl_module = MagicMock()
 
             with patch.object(callback, "send") as mock_send:
-                callback.on_train_batch_end(
-                    mock_trainer, mock_pl_module, {}, {}, 15
-                )
+                callback.on_train_batch_end(mock_trainer, mock_pl_module, {}, {}, 15)
                 mock_send.assert_called_once()
                 call_args = mock_send.call_args
                 assert call_args[0][0] == "batch_end"

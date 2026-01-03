@@ -284,9 +284,7 @@ class TestGetPackageInfo:
         mock_dist.version = "1.0.0"
         mock_dist._path = None
         mock_dist.read_text.side_effect = lambda f: (
-            '{"url": "file:///local/path/to/pkg"}'
-            if f == "direct_url.json"
-            else None
+            '{"url": "file:///local/path/to/pkg"}' if f == "direct_url.json" else None
         )
 
         with patch("importlib.metadata.distribution", return_value=mock_dist):
