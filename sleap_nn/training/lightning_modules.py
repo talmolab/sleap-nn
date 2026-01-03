@@ -1252,6 +1252,22 @@ class BottomUpLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        self.log(
+            "train_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "train_paf_loss",
+            pafs_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1297,6 +1313,22 @@ class BottomUpLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_paf_loss",
+            pafs_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
@@ -1512,6 +1544,22 @@ class BottomUpMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        self.log(
+            "train_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "train_classmap_loss",
+            classmaps_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1548,6 +1596,22 @@ class BottomUpMultiClassLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_classmap_loss",
+            classmaps_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
@@ -1750,6 +1814,22 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        self.log(
+            "train_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "train_classvector_loss",
+            classvector_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1784,6 +1864,22 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_classvector_loss",
+            classvector_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
