@@ -116,9 +116,18 @@ class TestParsePathMap:
 
     def test_parse_path_map_normalizes_paths(self):
         """Test parse_path_map converts paths to posix format."""
-        # Windows-style path should be converted to posix
-        result = parse_path_map(None, None, [("/old", "C:\\new\\path")])
-        assert "\\" not in result["/old"]
+        import sys
+
+        # Test with a forward-slash path (works on all platforms)
+        result = parse_path_map(None, None, [("/old", "/new/path")])
+        assert result["/old"] == "/new/path"
+
+        # On Windows, backslashes should be converted to forward slashes
+        # On other platforms, backslashes are literal characters (not path separators)
+        if sys.platform == "win32":
+            result = parse_path_map(None, None, [("/old", "C:\\new\\path")])
+            assert "\\" not in result["/old"]
+            assert result["/old"] == "C:/new/path"
 
 
 class TestShowTrainingHelp:
