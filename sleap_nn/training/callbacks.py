@@ -607,7 +607,11 @@ class ProgressReporterZMQ(Callback):
     def on_train_start(self, trainer, pl_module):
         """Called at the beginning of training process."""
         if trainer.is_global_zero:
-            self.send("train_begin")
+            # Include WandB URL if available
+            wandb_url = None
+            if wandb.run is not None:
+                wandb_url = wandb.run.get_url()
+            self.send("train_begin", wandb_url=wandb_url)
         trainer.strategy.barrier()
 
     def on_train_end(self, trainer, pl_module):
