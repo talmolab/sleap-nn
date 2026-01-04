@@ -865,7 +865,7 @@ class TestProgressReporterZMQ:
                 mock_socket.send_string.assert_called_once()
 
     def test_on_train_start(self):
-        """Sends train_begin event."""
+        """Sends train_begin event with wandb_url."""
         with patch("sleap_nn.training.callbacks.zmq") as mock_zmq:
             mock_context = MagicMock()
             mock_socket = MagicMock()
@@ -880,7 +880,7 @@ class TestProgressReporterZMQ:
 
             with patch.object(callback, "send") as mock_send:
                 callback.on_train_start(mock_trainer, mock_pl_module)
-                mock_send.assert_called_with("train_begin")
+                mock_send.assert_called_with("train_begin", wandb_url=None)
 
     def test_on_train_end(self):
         """Sends train_end event."""
