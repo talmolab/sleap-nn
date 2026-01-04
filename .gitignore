@@ -177,3 +177,9 @@ wandb/
 
 # Development scratch folder
 scratch/
+
+# Trained models
+models/
+
+# Test config files
+test_*.yaml

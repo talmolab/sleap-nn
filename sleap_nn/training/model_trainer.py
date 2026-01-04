@@ -1232,6 +1232,12 @@ class ModelTrainer:
                 for node_name in self.skeletons[0].node_names:
                     wandb.define_metric(node_name, step_metric="epoch")
 
+                # Visualization images use epoch as x-axis
+                wandb.define_metric("train_predictions*", step_metric="epoch")
+                wandb.define_metric("val_predictions*", step_metric="epoch")
+                wandb.define_metric("train_pafs*", step_metric="epoch")
+                wandb.define_metric("val_pafs*", step_metric="epoch")
+
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name
                 wandb.config["run_config"] = OmegaConf.to_container(
