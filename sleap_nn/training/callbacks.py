@@ -610,7 +610,7 @@ class ProgressReporterZMQ(Callback):
             # Include WandB URL if available
             wandb_url = None
             if wandb.run is not None:
-                wandb_url = wandb.run.get_url()
+                wandb_url = wandb.run.url
             self.send("train_begin", wandb_url=wandb_url)
         trainer.strategy.barrier()
 
