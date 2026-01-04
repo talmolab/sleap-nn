@@ -4105,7 +4105,11 @@ if a prefix is not specified.</p>
 <span class="normal"><a href="#__codelineno-0-653">653</a></span>
 <span class="normal"><a href="#__codelineno-0-654">654</a></span>
 <span class="normal"><a href="#__codelineno-0-655">655</a></span>
-<span class="normal"><a href="#__codelineno-0-656">656</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-571"><a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="k">class</span><span class="w"> </span><span class="nc">ProgressReporterZMQ</span><span class="p">(</span><span class="n">Callback</span><span class="p">):</span>
+<span class="normal"><a href="#__codelineno-0-656">656</a></span>
+<span class="normal"><a href="#__codelineno-0-657">657</a></span>
+<span class="normal"><a href="#__codelineno-0-658">658</a></span>
+<span class="normal"><a href="#__codelineno-0-659">659</a></span>
+<span class="normal"><a href="#__codelineno-0-660">660</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-571"><a id="__codelineno-0-571" name="__codelineno-0-571"></a><span class="k">class</span><span class="w"> </span><span class="nc">ProgressReporterZMQ</span><span class="p">(</span><span class="n">Callback</span><span class="p">):</span>
 </span><span id="__span-0-572"><a id="__codelineno-0-572" name="__codelineno-0-572"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Callback to publish training progress events to a ZMQ PUB socket.</span>
 </span><span id="__span-0-573"><a id="__codelineno-0-573" name="__codelineno-0-573"></a>
 </span><span id="__span-0-574"><a id="__codelineno-0-574" name="__codelineno-0-574"></a><span class="sd">    This is used to publish training metrics to the given socket.</span>
@@ -4144,53 +4148,57 @@ if a prefix is not specified.</p>
 </span><span id="__span-0-607"><a id="__codelineno-0-607" name="__codelineno-0-607"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
 </span><span id="__span-0-608"><a id="__codelineno-0-608" name="__codelineno-0-608"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the beginning of training process.&quot;&quot;&quot;</span>
 </span><span id="__span-0-609"><a id="__codelineno-0-609" name="__codelineno-0-609"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-610"><a id="__codelineno-0-610" name="__codelineno-0-610"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_begin&quot;</span><span class="p">)</span>
-</span><span id="__span-0-611"><a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
-</span><span id="__span-0-612"><a id="__codelineno-0-612" name="__codelineno-0-612"></a>
-</span><span id="__span-0-613"><a id="__codelineno-0-613" name="__codelineno-0-613"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
-</span><span id="__span-0-614"><a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the end of training process.&quot;&quot;&quot;</span>
-</span><span id="__span-0-615"><a id="__codelineno-0-615" name="__codelineno-0-615"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-616"><a id="__codelineno-0-616" name="__codelineno-0-616"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_end&quot;</span><span class="p">)</span>
-</span><span id="__span-0-617"><a id="__codelineno-0-617" name="__codelineno-0-617"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
-</span><span id="__span-0-618"><a id="__codelineno-0-618" name="__codelineno-0-618"></a>
-</span><span id="__span-0-619"><a id="__codelineno-0-619" name="__codelineno-0-619"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
-</span><span id="__span-0-620"><a id="__codelineno-0-620" name="__codelineno-0-620"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each epoch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-621"><a id="__codelineno-0-621" name="__codelineno-0-621"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-622"><a id="__codelineno-0-622" name="__codelineno-0-622"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;epoch_begin&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
-</span><span id="__span-0-623"><a id="__codelineno-0-623" name="__codelineno-0-623"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
-</span><span id="__span-0-624"><a id="__codelineno-0-624" name="__codelineno-0-624"></a>
-</span><span id="__span-0-625"><a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
-</span><span id="__span-0-626"><a id="__codelineno-0-626" name="__codelineno-0-626"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the end of each epoch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-627"><a id="__codelineno-0-627" name="__codelineno-0-627"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-628"><a id="__codelineno-0-628" name="__codelineno-0-628"></a>            <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
-</span><span id="__span-0-629"><a id="__codelineno-0-629" name="__codelineno-0-629"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
-</span><span id="__span-0-630"><a id="__codelineno-0-630" name="__codelineno-0-630"></a>                <span class="s2">&quot;epoch_end&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span> <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">)</span>
-</span><span id="__span-0-631"><a id="__codelineno-0-631" name="__codelineno-0-631"></a>            <span class="p">)</span>
-</span><span id="__span-0-632"><a id="__codelineno-0-632" name="__codelineno-0-632"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
-</span><span id="__span-0-633"><a id="__codelineno-0-633" name="__codelineno-0-633"></a>
-</span><span id="__span-0-634"><a id="__codelineno-0-634" name="__codelineno-0-634"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
-</span><span id="__span-0-635"><a id="__codelineno-0-635" name="__codelineno-0-635"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each training batch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-636"><a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-637"><a id="__codelineno-0-637" name="__codelineno-0-637"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;batch_start&quot;</span><span class="p">,</span> <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">)</span>
-</span><span id="__span-0-638"><a id="__codelineno-0-638" name="__codelineno-0-638"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
-</span><span id="__span-0-639"><a id="__codelineno-0-639" name="__codelineno-0-639"></a>
-</span><span id="__span-0-640"><a id="__codelineno-0-640" name="__codelineno-0-640"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">outputs</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
-</span><span id="__span-0-641"><a id="__codelineno-0-641" name="__codelineno-0-641"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the end of each training batch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-642"><a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-643"><a id="__codelineno-0-643" name="__codelineno-0-643"></a>            <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
-</span><span id="__span-0-644"><a id="__codelineno-0-644" name="__codelineno-0-644"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
-</span><span id="__span-0-645"><a id="__codelineno-0-645" name="__codelineno-0-645"></a>                <span class="s2">&quot;batch_end&quot;</span><span class="p">,</span>
-</span><span id="__span-0-646"><a id="__codelineno-0-646" name="__codelineno-0-646"></a>                <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span>
-</span><span id="__span-0-647"><a id="__codelineno-0-647" name="__codelineno-0-647"></a>                <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">,</span>
-</span><span id="__span-0-648"><a id="__codelineno-0-648" name="__codelineno-0-648"></a>                <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">),</span>
-</span><span id="__span-0-649"><a id="__codelineno-0-649" name="__codelineno-0-649"></a>            <span class="p">)</span>
-</span><span id="__span-0-650"><a id="__codelineno-0-650" name="__codelineno-0-650"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
-</span><span id="__span-0-651"><a id="__codelineno-0-651" name="__codelineno-0-651"></a>
-</span><span id="__span-0-652"><a id="__codelineno-0-652" name="__codelineno-0-652"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_sanitize_logs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logs</span><span class="p">):</span>
-</span><span id="__span-0-653"><a id="__codelineno-0-653" name="__codelineno-0-653"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert any torch tensors to Python floats for serialization.&quot;&quot;&quot;</span>
-</span><span id="__span-0-654"><a id="__codelineno-0-654" name="__codelineno-0-654"></a>        <span class="k">return</span> <span class="p">{</span>
-</span><span id="__span-0-655"><a id="__codelineno-0-655" name="__codelineno-0-655"></a>            <span class="n">k</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">item</span><span class="p">())</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="s2">&quot;item&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">logs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
-</span><span id="__span-0-656"><a id="__codelineno-0-656" name="__codelineno-0-656"></a>        <span class="p">}</span>
+</span><span id="__span-0-610"><a id="__codelineno-0-610" name="__codelineno-0-610"></a>            <span class="c1"># Include WandB URL if available</span>
+</span><span id="__span-0-611"><a id="__codelineno-0-611" name="__codelineno-0-611"></a>            <span class="n">wandb_url</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-612"><a id="__codelineno-0-612" name="__codelineno-0-612"></a>            <span class="k">if</span> <span class="n">wandb</span><span class="o">.</span><span class="n">run</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-613"><a id="__codelineno-0-613" name="__codelineno-0-613"></a>                <span class="n">wandb_url</span> <span class="o">=</span> <span class="n">wandb</span><span class="o">.</span><span class="n">run</span><span class="o">.</span><span class="n">get_url</span><span class="p">()</span>
+</span><span id="__span-0-614"><a id="__codelineno-0-614" name="__codelineno-0-614"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_begin&quot;</span><span class="p">,</span> <span class="n">wandb_url</span><span class="o">=</span><span class="n">wandb_url</span><span class="p">)</span>
+</span><span id="__span-0-615"><a id="__codelineno-0-615" name="__codelineno-0-615"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-616"><a id="__codelineno-0-616" name="__codelineno-0-616"></a>
+</span><span id="__span-0-617"><a id="__codelineno-0-617" name="__codelineno-0-617"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-618"><a id="__codelineno-0-618" name="__codelineno-0-618"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the end of training process.&quot;&quot;&quot;</span>
+</span><span id="__span-0-619"><a id="__codelineno-0-619" name="__codelineno-0-619"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-620"><a id="__codelineno-0-620" name="__codelineno-0-620"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_end&quot;</span><span class="p">)</span>
+</span><span id="__span-0-621"><a id="__codelineno-0-621" name="__codelineno-0-621"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-622"><a id="__codelineno-0-622" name="__codelineno-0-622"></a>
+</span><span id="__span-0-623"><a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-624"><a id="__codelineno-0-624" name="__codelineno-0-624"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each epoch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-625"><a id="__codelineno-0-625" name="__codelineno-0-625"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-626"><a id="__codelineno-0-626" name="__codelineno-0-626"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;epoch_begin&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-627"><a id="__codelineno-0-627" name="__codelineno-0-627"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-628"><a id="__codelineno-0-628" name="__codelineno-0-628"></a>
+</span><span id="__span-0-629"><a id="__codelineno-0-629" name="__codelineno-0-629"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-630"><a id="__codelineno-0-630" name="__codelineno-0-630"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the end of each epoch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-631"><a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-632"><a id="__codelineno-0-632" name="__codelineno-0-632"></a>            <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
+</span><span id="__span-0-633"><a id="__codelineno-0-633" name="__codelineno-0-633"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
+</span><span id="__span-0-634"><a id="__codelineno-0-634" name="__codelineno-0-634"></a>                <span class="s2">&quot;epoch_end&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span> <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">)</span>
+</span><span id="__span-0-635"><a id="__codelineno-0-635" name="__codelineno-0-635"></a>            <span class="p">)</span>
+</span><span id="__span-0-636"><a id="__codelineno-0-636" name="__codelineno-0-636"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-637"><a id="__codelineno-0-637" name="__codelineno-0-637"></a>
+</span><span id="__span-0-638"><a id="__codelineno-0-638" name="__codelineno-0-638"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
+</span><span id="__span-0-639"><a id="__codelineno-0-639" name="__codelineno-0-639"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each training batch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-640"><a id="__codelineno-0-640" name="__codelineno-0-640"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-641"><a id="__codelineno-0-641" name="__codelineno-0-641"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;batch_start&quot;</span><span class="p">,</span> <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">)</span>
+</span><span id="__span-0-642"><a id="__codelineno-0-642" name="__codelineno-0-642"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-643"><a id="__codelineno-0-643" name="__codelineno-0-643"></a>
+</span><span id="__span-0-644"><a id="__codelineno-0-644" name="__codelineno-0-644"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">outputs</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
+</span><span id="__span-0-645"><a id="__codelineno-0-645" name="__codelineno-0-645"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Called at the end of each training batch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-646"><a id="__codelineno-0-646" name="__codelineno-0-646"></a>        <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-647"><a id="__codelineno-0-647" name="__codelineno-0-647"></a>            <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
+</span><span id="__span-0-648"><a id="__codelineno-0-648" name="__codelineno-0-648"></a>            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
+</span><span id="__span-0-649"><a id="__codelineno-0-649" name="__codelineno-0-649"></a>                <span class="s2">&quot;batch_end&quot;</span><span class="p">,</span>
+</span><span id="__span-0-650"><a id="__codelineno-0-650" name="__codelineno-0-650"></a>                <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span>
+</span><span id="__span-0-651"><a id="__codelineno-0-651" name="__codelineno-0-651"></a>                <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">,</span>
+</span><span id="__span-0-652"><a id="__codelineno-0-652" name="__codelineno-0-652"></a>                <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">),</span>
+</span><span id="__span-0-653"><a id="__codelineno-0-653" name="__codelineno-0-653"></a>            <span class="p">)</span>
+</span><span id="__span-0-654"><a id="__codelineno-0-654" name="__codelineno-0-654"></a>        <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-655"><a id="__codelineno-0-655" name="__codelineno-0-655"></a>
+</span><span id="__span-0-656"><a id="__codelineno-0-656" name="__codelineno-0-656"></a>    <span class="k">def</span><span class="w"> </span><span class="nf">_sanitize_logs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logs</span><span class="p">):</span>
+</span><span id="__span-0-657"><a id="__codelineno-0-657" name="__codelineno-0-657"></a><span class="w">        </span><span class="sd">&quot;&quot;&quot;Convert any torch tensors to Python floats for serialization.&quot;&quot;&quot;</span>
+</span><span id="__span-0-658"><a id="__codelineno-0-658" name="__codelineno-0-658"></a>        <span class="k">return</span> <span class="p">{</span>
+</span><span id="__span-0-659"><a id="__codelineno-0-659" name="__codelineno-0-659"></a>            <span class="n">k</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">item</span><span class="p">())</span> <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="s2">&quot;item&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">logs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+</span><span id="__span-0-660"><a id="__codelineno-0-660" name="__codelineno-0-660"></a>        <span class="p">}</span>
 </span></code></pre></div></td></tr></table></div>
               </details>
 
@@ -4303,27 +4311,27 @@ if a prefix is not specified.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-640">640</a></span>
-<span class="normal"><a href="#__codelineno-0-641">641</a></span>
-<span class="normal"><a href="#__codelineno-0-642">642</a></span>
-<span class="normal"><a href="#__codelineno-0-643">643</a></span>
-<span class="normal"><a href="#__codelineno-0-644">644</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-644">644</a></span>
 <span class="normal"><a href="#__codelineno-0-645">645</a></span>
 <span class="normal"><a href="#__codelineno-0-646">646</a></span>
 <span class="normal"><a href="#__codelineno-0-647">647</a></span>
 <span class="normal"><a href="#__codelineno-0-648">648</a></span>
 <span class="normal"><a href="#__codelineno-0-649">649</a></span>
-<span class="normal"><a href="#__codelineno-0-650">650</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-640"><a id="__codelineno-0-640" name="__codelineno-0-640"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">outputs</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
-</span><span id="__span-0-641"><a id="__codelineno-0-641" name="__codelineno-0-641"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the end of each training batch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-642"><a id="__codelineno-0-642" name="__codelineno-0-642"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-643"><a id="__codelineno-0-643" name="__codelineno-0-643"></a>        <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
-</span><span id="__span-0-644"><a id="__codelineno-0-644" name="__codelineno-0-644"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
-</span><span id="__span-0-645"><a id="__codelineno-0-645" name="__codelineno-0-645"></a>            <span class="s2">&quot;batch_end&quot;</span><span class="p">,</span>
-</span><span id="__span-0-646"><a id="__codelineno-0-646" name="__codelineno-0-646"></a>            <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span>
-</span><span id="__span-0-647"><a id="__codelineno-0-647" name="__codelineno-0-647"></a>            <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">,</span>
-</span><span id="__span-0-648"><a id="__codelineno-0-648" name="__codelineno-0-648"></a>            <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">),</span>
-</span><span id="__span-0-649"><a id="__codelineno-0-649" name="__codelineno-0-649"></a>        <span class="p">)</span>
-</span><span id="__span-0-650"><a id="__codelineno-0-650" name="__codelineno-0-650"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+<span class="normal"><a href="#__codelineno-0-650">650</a></span>
+<span class="normal"><a href="#__codelineno-0-651">651</a></span>
+<span class="normal"><a href="#__codelineno-0-652">652</a></span>
+<span class="normal"><a href="#__codelineno-0-653">653</a></span>
+<span class="normal"><a href="#__codelineno-0-654">654</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-644"><a id="__codelineno-0-644" name="__codelineno-0-644"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">outputs</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
+</span><span id="__span-0-645"><a id="__codelineno-0-645" name="__codelineno-0-645"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the end of each training batch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-646"><a id="__codelineno-0-646" name="__codelineno-0-646"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-647"><a id="__codelineno-0-647" name="__codelineno-0-647"></a>        <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
+</span><span id="__span-0-648"><a id="__codelineno-0-648" name="__codelineno-0-648"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
+</span><span id="__span-0-649"><a id="__codelineno-0-649" name="__codelineno-0-649"></a>            <span class="s2">&quot;batch_end&quot;</span><span class="p">,</span>
+</span><span id="__span-0-650"><a id="__codelineno-0-650" name="__codelineno-0-650"></a>            <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span>
+</span><span id="__span-0-651"><a id="__codelineno-0-651" name="__codelineno-0-651"></a>            <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">,</span>
+</span><span id="__span-0-652"><a id="__codelineno-0-652" name="__codelineno-0-652"></a>            <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">),</span>
+</span><span id="__span-0-653"><a id="__codelineno-0-653" name="__codelineno-0-653"></a>        <span class="p">)</span>
+</span><span id="__span-0-654"><a id="__codelineno-0-654" name="__codelineno-0-654"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -4346,15 +4354,15 @@ if a prefix is not specified.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-634">634</a></span>
-<span class="normal"><a href="#__codelineno-0-635">635</a></span>
-<span class="normal"><a href="#__codelineno-0-636">636</a></span>
-<span class="normal"><a href="#__codelineno-0-637">637</a></span>
-<span class="normal"><a href="#__codelineno-0-638">638</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-634"><a id="__codelineno-0-634" name="__codelineno-0-634"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
-</span><span id="__span-0-635"><a id="__codelineno-0-635" name="__codelineno-0-635"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each training batch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-636"><a id="__codelineno-0-636" name="__codelineno-0-636"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-637"><a id="__codelineno-0-637" name="__codelineno-0-637"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;batch_start&quot;</span><span class="p">,</span> <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">)</span>
-</span><span id="__span-0-638"><a id="__codelineno-0-638" name="__codelineno-0-638"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-638">638</a></span>
+<span class="normal"><a href="#__codelineno-0-639">639</a></span>
+<span class="normal"><a href="#__codelineno-0-640">640</a></span>
+<span class="normal"><a href="#__codelineno-0-641">641</a></span>
+<span class="normal"><a href="#__codelineno-0-642">642</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-638"><a id="__codelineno-0-638" name="__codelineno-0-638"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_batch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">,</span> <span class="n">batch</span><span class="p">,</span> <span class="n">batch_idx</span><span class="p">):</span>
+</span><span id="__span-0-639"><a id="__codelineno-0-639" name="__codelineno-0-639"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each training batch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-640"><a id="__codelineno-0-640" name="__codelineno-0-640"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-641"><a id="__codelineno-0-641" name="__codelineno-0-641"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;batch_start&quot;</span><span class="p">,</span> <span class="n">batch</span><span class="o">=</span><span class="n">batch_idx</span><span class="p">)</span>
+</span><span id="__span-0-642"><a id="__codelineno-0-642" name="__codelineno-0-642"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -4377,15 +4385,15 @@ if a prefix is not specified.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-613">613</a></span>
-<span class="normal"><a href="#__codelineno-0-614">614</a></span>
-<span class="normal"><a href="#__codelineno-0-615">615</a></span>
-<span class="normal"><a href="#__codelineno-0-616">616</a></span>
-<span class="normal"><a href="#__codelineno-0-617">617</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-613"><a id="__codelineno-0-613" name="__codelineno-0-613"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
-</span><span id="__span-0-614"><a id="__codelineno-0-614" name="__codelineno-0-614"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the end of training process.&quot;&quot;&quot;</span>
-</span><span id="__span-0-615"><a id="__codelineno-0-615" name="__codelineno-0-615"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-616"><a id="__codelineno-0-616" name="__codelineno-0-616"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_end&quot;</span><span class="p">)</span>
-</span><span id="__span-0-617"><a id="__codelineno-0-617" name="__codelineno-0-617"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-617">617</a></span>
+<span class="normal"><a href="#__codelineno-0-618">618</a></span>
+<span class="normal"><a href="#__codelineno-0-619">619</a></span>
+<span class="normal"><a href="#__codelineno-0-620">620</a></span>
+<span class="normal"><a href="#__codelineno-0-621">621</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-617"><a id="__codelineno-0-617" name="__codelineno-0-617"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-618"><a id="__codelineno-0-618" name="__codelineno-0-618"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the end of training process.&quot;&quot;&quot;</span>
+</span><span id="__span-0-619"><a id="__codelineno-0-619" name="__codelineno-0-619"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-620"><a id="__codelineno-0-620" name="__codelineno-0-620"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_end&quot;</span><span class="p">)</span>
+</span><span id="__span-0-621"><a id="__codelineno-0-621" name="__codelineno-0-621"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -4408,21 +4416,21 @@ if a prefix is not specified.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-625">625</a></span>
-<span class="normal"><a href="#__codelineno-0-626">626</a></span>
-<span class="normal"><a href="#__codelineno-0-627">627</a></span>
-<span class="normal"><a href="#__codelineno-0-628">628</a></span>
-<span class="normal"><a href="#__codelineno-0-629">629</a></span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-629">629</a></span>
 <span class="normal"><a href="#__codelineno-0-630">630</a></span>
 <span class="normal"><a href="#__codelineno-0-631">631</a></span>
-<span class="normal"><a href="#__codelineno-0-632">632</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-625"><a id="__codelineno-0-625" name="__codelineno-0-625"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
-</span><span id="__span-0-626"><a id="__codelineno-0-626" name="__codelineno-0-626"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the end of each epoch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-627"><a id="__codelineno-0-627" name="__codelineno-0-627"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-628"><a id="__codelineno-0-628" name="__codelineno-0-628"></a>        <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
-</span><span id="__span-0-629"><a id="__codelineno-0-629" name="__codelineno-0-629"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
-</span><span id="__span-0-630"><a id="__codelineno-0-630" name="__codelineno-0-630"></a>            <span class="s2">&quot;epoch_end&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span> <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">)</span>
-</span><span id="__span-0-631"><a id="__codelineno-0-631" name="__codelineno-0-631"></a>        <span class="p">)</span>
-</span><span id="__span-0-632"><a id="__codelineno-0-632" name="__codelineno-0-632"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+<span class="normal"><a href="#__codelineno-0-632">632</a></span>
+<span class="normal"><a href="#__codelineno-0-633">633</a></span>
+<span class="normal"><a href="#__codelineno-0-634">634</a></span>
+<span class="normal"><a href="#__codelineno-0-635">635</a></span>
+<span class="normal"><a href="#__codelineno-0-636">636</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-629"><a id="__codelineno-0-629" name="__codelineno-0-629"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_end</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-630"><a id="__codelineno-0-630" name="__codelineno-0-630"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the end of each epoch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-631"><a id="__codelineno-0-631" name="__codelineno-0-631"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-632"><a id="__codelineno-0-632" name="__codelineno-0-632"></a>        <span class="n">logs</span> <span class="o">=</span> <span class="n">trainer</span><span class="o">.</span><span class="n">callback_metrics</span>
+</span><span id="__span-0-633"><a id="__codelineno-0-633" name="__codelineno-0-633"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span>
+</span><span id="__span-0-634"><a id="__codelineno-0-634" name="__codelineno-0-634"></a>            <span class="s2">&quot;epoch_end&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">,</span> <span class="n">logs</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sanitize_logs</span><span class="p">(</span><span class="n">logs</span><span class="p">)</span>
+</span><span id="__span-0-635"><a id="__codelineno-0-635" name="__codelineno-0-635"></a>        <span class="p">)</span>
+</span><span id="__span-0-636"><a id="__codelineno-0-636" name="__codelineno-0-636"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -4445,15 +4453,15 @@ if a prefix is not specified.</p>
 
             <details class="mkdocstrings-source">
               <summary>Source code in <code>sleap_nn/training/callbacks.py</code></summary>
-              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-619">619</a></span>
-<span class="normal"><a href="#__codelineno-0-620">620</a></span>
-<span class="normal"><a href="#__codelineno-0-621">621</a></span>
-<span class="normal"><a href="#__codelineno-0-622">622</a></span>
-<span class="normal"><a href="#__codelineno-0-623">623</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-619"><a id="__codelineno-0-619" name="__codelineno-0-619"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
-</span><span id="__span-0-620"><a id="__codelineno-0-620" name="__codelineno-0-620"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each epoch.&quot;&quot;&quot;</span>
-</span><span id="__span-0-621"><a id="__codelineno-0-621" name="__codelineno-0-621"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-622"><a id="__codelineno-0-622" name="__codelineno-0-622"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;epoch_begin&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
-</span><span id="__span-0-623"><a id="__codelineno-0-623" name="__codelineno-0-623"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+              <div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-623">623</a></span>
+<span class="normal"><a href="#__codelineno-0-624">624</a></span>
+<span class="normal"><a href="#__codelineno-0-625">625</a></span>
+<span class="normal"><a href="#__codelineno-0-626">626</a></span>
+<span class="normal"><a href="#__codelineno-0-627">627</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-623"><a id="__codelineno-0-623" name="__codelineno-0-623"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_epoch_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+</span><span id="__span-0-624"><a id="__codelineno-0-624" name="__codelineno-0-624"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the beginning of each epoch.&quot;&quot;&quot;</span>
+</span><span id="__span-0-625"><a id="__codelineno-0-625" name="__codelineno-0-625"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
+</span><span id="__span-0-626"><a id="__codelineno-0-626" name="__codelineno-0-626"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;epoch_begin&quot;</span><span class="p">,</span> <span class="n">epoch</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">current_epoch</span><span class="p">)</span>
+</span><span id="__span-0-627"><a id="__codelineno-0-627" name="__codelineno-0-627"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
@@ -4480,11 +4488,19 @@ if a prefix is not specified.</p>
 <span class="normal"><a href="#__codelineno-0-608">608</a></span>
 <span class="normal"><a href="#__codelineno-0-609">609</a></span>
 <span class="normal"><a href="#__codelineno-0-610">610</a></span>
-<span class="normal"><a href="#__codelineno-0-611">611</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-607"><a id="__codelineno-0-607" name="__codelineno-0-607"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
+<span class="normal"><a href="#__codelineno-0-611">611</a></span>
+<span class="normal"><a href="#__codelineno-0-612">612</a></span>
+<span class="normal"><a href="#__codelineno-0-613">613</a></span>
+<span class="normal"><a href="#__codelineno-0-614">614</a></span>
+<span class="normal"><a href="#__codelineno-0-615">615</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-0-607"><a id="__codelineno-0-607" name="__codelineno-0-607"></a><span class="k">def</span><span class="w"> </span><span class="nf">on_train_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">trainer</span><span class="p">,</span> <span class="n">pl_module</span><span class="p">):</span>
 </span><span id="__span-0-608"><a id="__codelineno-0-608" name="__codelineno-0-608"></a><span class="w">    </span><span class="sd">&quot;&quot;&quot;Called at the beginning of training process.&quot;&quot;&quot;</span>
 </span><span id="__span-0-609"><a id="__codelineno-0-609" name="__codelineno-0-609"></a>    <span class="k">if</span> <span class="n">trainer</span><span class="o">.</span><span class="n">is_global_zero</span><span class="p">:</span>
-</span><span id="__span-0-610"><a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_begin&quot;</span><span class="p">)</span>
-</span><span id="__span-0-611"><a id="__codelineno-0-611" name="__codelineno-0-611"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
+</span><span id="__span-0-610"><a id="__codelineno-0-610" name="__codelineno-0-610"></a>        <span class="c1"># Include WandB URL if available</span>
+</span><span id="__span-0-611"><a id="__codelineno-0-611" name="__codelineno-0-611"></a>        <span class="n">wandb_url</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-0-612"><a id="__codelineno-0-612" name="__codelineno-0-612"></a>        <span class="k">if</span> <span class="n">wandb</span><span class="o">.</span><span class="n">run</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-0-613"><a id="__codelineno-0-613" name="__codelineno-0-613"></a>            <span class="n">wandb_url</span> <span class="o">=</span> <span class="n">wandb</span><span class="o">.</span><span class="n">run</span><span class="o">.</span><span class="n">get_url</span><span class="p">()</span>
+</span><span id="__span-0-614"><a id="__codelineno-0-614" name="__codelineno-0-614"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="s2">&quot;train_begin&quot;</span><span class="p">,</span> <span class="n">wandb_url</span><span class="o">=</span><span class="n">wandb_url</span><span class="p">)</span>
+</span><span id="__span-0-615"><a id="__codelineno-0-615" name="__codelineno-0-615"></a>    <span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">barrier</span><span class="p">()</span>
 </span></code></pre></div></td></tr></table></div>
             </details>
     </div>
