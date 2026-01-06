@@ -56,19 +56,19 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
    - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
 
    ```bash
-   uv sync --extra dev --extra torch-cuda118
+   uv sync --extra torch-cuda118
    ```
 
    - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
 
    ```bash
-   uv sync --extra dev --extra torch-cuda128
+   uv sync --extra torch-cuda128
    ```
    
    - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
    Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
    ```bash
-   uv sync --extra dev --extra torch-cpu
+   uv sync --extra torch-cpu
    ```
 
 4. **Run tests**  
@@ -85,6 +85,6 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 > **Upgrading All Dependencies**
 > To ensure you have the latest versions of all dependencies, use the `--upgrade` flag with `uv sync`:
 > ```bash
-> uv sync --extra dev --upgrade
+> uv sync --upgrade
 > ```
 > This will upgrade all installed packages in your environment to the latest available versions compatible with your `pyproject.toml`.
