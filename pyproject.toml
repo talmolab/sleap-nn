@@ -68,6 +68,9 @@ torch-cuda128 = [
     "torch",
     "torchvision>=0.20.0,<0.24.0",
 ]
+
+[dependency-groups]
+# PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)
 dev = [
     "pytest",
     "pytest-cov",
@@ -77,7 +80,7 @@ dev = [
     "twine",
     "build",
     "ipython",
-    "ruff"
+    "ruff",
 ]
 docs = [
     "mkdocs",
@@ -87,7 +90,7 @@ docs = [
     "mkdocstrings[python]",
     "mkdocs-gen-files",
     "mkdocs-literate-nav",
-    "mkdocs-section-index"
+    "mkdocs-section-index",
 ]
 
 [project.scripts]
