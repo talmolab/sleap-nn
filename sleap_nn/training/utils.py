@@ -577,6 +577,7 @@ class WandBRenderer:
 
         # Resize mask to match image dimensions (confmaps are H/stride, W/stride)
         from PIL import Image
+
         mask_pil = Image.fromarray(argmax_map.astype(np.uint8))
         mask_pil = mask_pil.resize((img_w, img_h), resample=Image.NEAREST)
         argmax_map = np.array(mask_pil)
