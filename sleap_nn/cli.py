@@ -325,6 +325,18 @@ def train(config_name, config_dir, video_paths, video_path_map, prefix_map, over
     help="Only run inference on unlabeled suggested frames when running on labels dataset. This is useful for generating predictions for initialization during labeling.",
 )
 @click.option(
+    "--exclude_user_labeled",
+    is_flag=True,
+    default=False,
+    help="Skip frames that have user-labeled instances. Useful when predicting on entire video but skipping already-labeled frames.",
+)
+@click.option(
+    "--only_predicted_frames",
+    is_flag=True,
+    default=False,
+    help="Only run inference on frames that already have predictions. Requires .slp input file. Useful for re-predicting with a different model.",
+)
+@click.option(
     "--no_empty_frames",
     is_flag=True,
     default=False,

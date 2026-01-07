@@ -330,7 +330,9 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert config.data_config.augmentation_config.intensity.gaussian_noise_p == 1.0
     assert config.data_config.augmentation_config.intensity.contrast_p == 1.0
     assert config.data_config.augmentation_config.intensity.brightness_p != 1.0
-    assert config.data_config.augmentation_config.geometric.affine_p == 1.0
+    # Check individual augmentation probabilities (new independent probability system)
+    assert config.data_config.augmentation_config.geometric.rotation_p == 1.0
+    assert config.data_config.augmentation_config.geometric.scale_p == 1.0
 
     train(
         train_labels_path=[minimal_instance],
@@ -351,7 +353,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     config = OmegaConf.load(f"{tmp_path}/test_aug-1/training_config.yaml")
     assert config.data_config.augmentation_config.intensity.uniform_noise_p == 0.0
     assert config.data_config.augmentation_config.intensity.brightness_p == 1.0
-    assert config.data_config.augmentation_config.geometric.affine_p == 1.0
+    # Check individual augmentation probabilities (new independent probability system)
+    assert config.data_config.augmentation_config.geometric.translate_p == 1.0
     assert config.data_config.augmentation_config.geometric.erase_p == 1.0
     assert config.data_config.augmentation_config.geometric.mixup_p == 1.0
 

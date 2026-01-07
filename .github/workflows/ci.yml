@@ -26,7 +26,7 @@ jobs:
         run: uv python install 3.13
 
       - name: Install dev dependencies and torch
-        run: uv sync --extra dev --extra torch-cpu
+        run: uv sync --extra torch-cpu
 
       - name: Run Black
         run: uv run black --check sleap_nn tests
@@ -69,11 +69,11 @@ jobs:
 
       - name: Install dev dependencies and torch (self-hosted GPU)
         if: matrix.os == 'self-hosted-gpu'
-        run: uv sync --python 3.13 --extra dev --extra torch-cuda128
+        run: uv sync --python 3.13 --extra torch-cuda128
 
       - name: Install dev dependencies and torch (non-self-hosted GPU)
         if: matrix.os != 'self-hosted-gpu'
-        run: uv sync --extra dev --extra torch-cpu
+        run: uv sync --extra torch-cpu
 
       - name: Print environment info
         run: |

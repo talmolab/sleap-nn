@@ -7,6 +7,10 @@ from lightning.pytorch.callbacks import Callback
 from lightning.pytorch.callbacks.progress import TQDMProgressBar
 from loguru import logger
 import matplotlib
+
+matplotlib.use(
+    "Agg"
+)  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
 from PIL import Image
 from pathlib import Path
@@ -607,7 +611,11 @@ class ProgressReporterZMQ(Callback):
     def on_train_start(self, trainer, pl_module):
         """Called at the beginning of training process."""
         if trainer.is_global_zero:
-            self.send("train_begin")
+            # Include WandB URL if available
+            wandb_url = None
+            if wandb.run is not None:
+                wandb_url = wandb.run.url
+            self.send("train_begin", wandb_url=wandb_url)
         trainer.strategy.barrier()
 
     def on_train_end(self, trainer, pl_module):

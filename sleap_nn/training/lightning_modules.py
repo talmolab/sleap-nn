@@ -42,6 +42,11 @@ from sleap_nn.training.utils import (
     plot_peaks,
     VisualizationData,
 )
+import matplotlib
+
+matplotlib.use(
+    "Agg"
+)  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
 from sleap_nn.config.utils import get_backbone_type_from_cfg, get_model_type_from_cfg
 from sleap_nn.config.trainer_config import (
@@ -1247,6 +1252,22 @@ class BottomUpLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        self.log(
+            "train_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "train_paf_loss",
+            pafs_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1292,6 +1313,22 @@ class BottomUpLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_paf_loss",
+            pafs_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
@@ -1507,6 +1544,22 @@ class BottomUpMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        self.log(
+            "train_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "train_classmap_loss",
+            classmaps_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1543,6 +1596,22 @@ class BottomUpMultiClassLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_classmap_loss",
+            classmaps_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
@@ -1745,6 +1814,22 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        self.log(
+            "train_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "train_classvector_loss",
+            classvector_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1779,6 +1864,22 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             "val_loss",
             val_loss,
             prog_bar=True,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_confmap_loss",
+            confmap_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        self.log(
+            "val_classvector_loss",
+            classvector_loss,
             on_step=False,
             on_epoch=True,
             logger=True,

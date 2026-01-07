@@ -3,11 +3,15 @@
 from dataclasses import dataclass, field
 from io import BytesIO
 import numpy as np
+import matplotlib
+
+matplotlib.use(
+    "Agg"
+)  # Use non-interactive backend to avoid tkinter issues on Windows CI
 import matplotlib.pyplot as plt
 from loguru import logger
 from torch import nn
 import torch.distributed as dist
-import matplotlib
 import seaborn as sns
 from typing import List, Optional
 import shutil
@@ -325,6 +329,11 @@ class MatplotlibRenderer:
 
         fig = plot_img(img, dpi=72 * scale, scale=scale)
         ax = plt.gca()
+
+        # Calculate PAF output scale from actual PAF dimensions, not confmap output_scale
+        # PAFs may have a different output_stride than confmaps
+        paf_output_scale = magnitude.shape[0] / img.shape[0]
+
         ax.imshow(
             magnitude,
             alpha=0.5,
@@ -332,8 +341,8 @@ class MatplotlibRenderer:
             cmap="viridis",
             extent=[
                 -0.5,
-                magnitude.shape[1] / data.output_scale - 0.5,
-                magnitude.shape[0] / data.output_scale - 0.5,
+                magnitude.shape[1] / paf_output_scale - 0.5,
+                magnitude.shape[0] / paf_output_scale - 0.5,
                 -0.5,
             ],
         )

@@ -376,17 +376,17 @@ cd sleap-nn
 
 === "Windows/Linux (CUDA 11.8)"
     ```bash
-    uv sync --extra dev --extra torch-cuda118
+    uv sync --extra torch-cuda118
     ```
 
 === "Windows/Linux (CUDA 12.8)"
     ```bash
-    uv sync --extra dev --extra torch-cuda128
+    uv sync --extra torch-cuda128
     ```
 
 === "macOS/CPU Only"
     ```bash
-    uv sync --extra dev --extra torch-cpu
+    uv sync --extra torch-cpu
     ```
 
 #### 4. Updating Dependencies
@@ -395,17 +395,17 @@ To update sleap-nn and its dependencies to their latest versions:
 
 === "Windows/Linux (CUDA 11.8)"
     ```bash
-    uv sync --extra dev --extra torch-cuda118 --upgrade
+    uv sync --extra torch-cuda118 --upgrade
     ```
 
 === "Windows/Linux (CUDA 12.8)"
     ```bash
-    uv sync --extra dev --extra torch-cuda128 --upgrade
+    uv sync --extra torch-cuda128 --upgrade
     ```
 
 === "macOS/CPU Only"
     ```bash
-    uv sync --extra dev --extra torch-cpu --upgrade
+    uv sync --extra torch-cpu --upgrade
     ```
 
 !!! tip "How --upgrade Works"

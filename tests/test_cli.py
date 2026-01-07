@@ -5,9 +5,217 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 from omegaconf import OmegaConf
 import subprocess
+from click.testing import CliRunner
 from sleap_nn.predict import run_inference
+from sleap_nn.cli import cli, print_version, parse_path_map, show_training_help
+from sleap_nn import __version__
 import sleap_io as sio
 import torch
+
+
+# =============================================================================
+# CliRunner-based tests (in-process, tracked by coverage)
+# =============================================================================
+
+
+class TestCliVersion:
+    """Tests for --version flag using CliRunner."""
+
+    def test_version_long_flag(self):
+        """Test --version flag displays version and exits."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--version"])
+        assert result.exit_code == 0
+        assert f"sleap-nn {__version__}" in result.output
+
+    def test_version_short_flag(self):
+        """Test -v short flag for version."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["-v"])
+        assert result.exit_code == 0
+        assert f"sleap-nn {__version__}" in result.output
+
+
+class TestCliHelp:
+    """Tests for CLI help output using CliRunner."""
+
+    def test_main_help(self):
+        """Test main CLI --help output."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "SLEAP-NN" in result.output
+        assert "train" in result.output
+        assert "track" in result.output
+        assert "eval" in result.output
+        assert "system" in result.output
+
+    def test_train_help(self):
+        """Test train command --help shows custom help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["train", "--help"])
+        assert result.exit_code == 0
+        assert "sleap-nn train" in result.output
+        assert "Usage:" in result.output
+        assert "sleap.ai" in result.output
+
+    def test_train_no_config_shows_help(self):
+        """Test train without --config-name shows help."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["train", "--config-dir", "."])
+        assert result.exit_code == 0
+        assert "sleap-nn train" in result.output
+        assert "Usage:" in result.output
+
+
+class TestSystemCommand:
+    """Tests for system command using CliRunner."""
+
+    def test_system_command_runs(self):
+        """Test system command executes and produces output."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["system"])
+        assert result.exit_code == 0
+        # Should contain system info sections
+        assert "Python" in result.output or "sleap-nn" in result.output
+
+    def test_system_command_shows_pytorch(self):
+        """Test system command shows PyTorch info."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["system"])
+        assert result.exit_code == 0
+        assert "torch" in result.output.lower() or "pytorch" in result.output.lower()
+
+
+class TestParsePathMap:
+    """Tests for parse_path_map callback function."""
+
+    def test_parse_path_map_empty(self):
+        """Test parse_path_map with empty value returns None."""
+        result = parse_path_map(None, None, None)
+        assert result is None
+
+        result = parse_path_map(None, None, ())
+        assert result is None
+
+        result = parse_path_map(None, None, [])
+        assert result is None
+
+    def test_parse_path_map_single_pair(self):
+        """Test parse_path_map with single path pair."""
+        result = parse_path_map(None, None, [("/old/path.mp4", "/new/path.mp4")])
+        assert result == {"/old/path.mp4": "/new/path.mp4"}
+
+    def test_parse_path_map_multiple_pairs(self):
+        """Test parse_path_map with multiple path pairs."""
+        pairs = [("/old1.mp4", "/new1.mp4"), ("/old2.mp4", "/new2.mp4")]
+        result = parse_path_map(None, None, pairs)
+        assert len(result) == 2
+        assert result["/old1.mp4"] == "/new1.mp4"
+        assert result["/old2.mp4"] == "/new2.mp4"
+
+    def test_parse_path_map_normalizes_paths(self):
+        """Test parse_path_map converts paths to posix format."""
+        import sys
+
+        # Test with a forward-slash path (works on all platforms)
+        result = parse_path_map(None, None, [("/old", "/new/path")])
+        assert result["/old"] == "/new/path"
+
+        # On Windows, backslashes should be converted to forward slashes
+        # On other platforms, backslashes are literal characters (not path separators)
+        if sys.platform == "win32":
+            result = parse_path_map(None, None, [("/old", "C:\\new\\path")])
+            assert "\\" not in result["/old"]
+            assert result["/old"] == "C:/new/path"
+
+
+class TestShowTrainingHelp:
+    """Tests for show_training_help function."""
+
+    def test_show_training_help_output(self, capsys):
+        """Test show_training_help outputs correct help text."""
+        show_training_help()
+        captured = capsys.readouterr()
+        assert "sleap-nn train" in captured.out
+        assert "Usage:" in captured.out
+        assert "--config-dir" in captured.out
+        assert "--config-name" in captured.out
+        assert "sleap.ai" in captured.out
+
+
+class TestPrintVersion:
+    """Tests for print_version callback function."""
+
+    def test_print_version_with_resilient_parsing(self):
+        """Test print_version returns early during resilient parsing."""
+        ctx = MagicMock()
+        ctx.resilient_parsing = True
+        result = print_version(ctx, None, True)
+        assert result is None
+        ctx.exit.assert_not_called()
+
+    def test_print_version_with_false_value(self):
+        """Test print_version returns early when value is False."""
+        ctx = MagicMock()
+        ctx.resilient_parsing = False
+        result = print_version(ctx, None, False)
+        assert result is None
+        ctx.exit.assert_not_called()
+
+
+class TestTrackCommand:
+    """Tests for track command argument handling using CliRunner."""
+
+    def test_track_without_model_paths(self):
+        """Test track command with no model paths sets None."""
+        runner = CliRunner()
+        # This will fail because data_path is required, but we can check the error
+        result = runner.invoke(cli, ["track"])
+        assert result.exit_code != 0
+        assert (
+            "data_path" in result.output.lower() or "required" in result.output.lower()
+        )
+
+    def test_track_without_frames(self):
+        """Test track command with empty frames string."""
+        runner = CliRunner()
+        # Mock run_inference to avoid actual inference
+        with patch("sleap_nn.cli.run_inference") as mock_inference:
+            mock_inference.return_value = None
+            result = runner.invoke(
+                cli,
+                [
+                    "track",
+                    "--data_path",
+                    "/fake/path.mp4",
+                    "--model_paths",
+                    "/fake/model",
+                ],
+            )
+            # Check that frames was set to None (empty string -> None)
+            if mock_inference.called:
+                call_kwargs = mock_inference.call_args[1]
+                assert call_kwargs.get("frames") is None
+
+
+class TestEvalCommand:
+    """Tests for eval command using CliRunner."""
+
+    def test_eval_missing_required_args(self):
+        """Test eval command fails without required arguments."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["eval"])
+        assert result.exit_code != 0
+        assert (
+            "ground_truth_path" in result.output.lower()
+            or "required" in result.output.lower()
+        )
+
+
+# =============================================================================
+# Subprocess-based tests (integration tests, run external process)
+# =============================================================================
 
 
 @pytest.fixture
