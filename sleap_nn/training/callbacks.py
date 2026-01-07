@@ -299,6 +299,8 @@ class WandBVizCallback(Callback):
                 log_dict[f"val_predictions{suffix}"] = val_img
 
             if log_dict:
+                # Include epoch so wandb can use it as x-axis (via define_metric)
+                log_dict["epoch"] = epoch
                 # Use commit=False to accumulate with other metrics in this step
                 # Lightning will commit when it logs its own metrics
                 wandb_logger.experiment.log(log_dict, commit=False)
@@ -421,6 +423,8 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             )
 
             if log_dict:
+                # Include epoch so wandb can use it as x-axis (via define_metric)
+                log_dict["epoch"] = epoch
                 # Use commit=False to accumulate with other metrics in this step
                 # Lightning will commit when it logs its own metrics
                 wandb_logger.experiment.log(log_dict, commit=False)
@@ -498,7 +502,7 @@ class MatplotlibSaver(Callback):
             ).as_posix()
 
             # Save rendered figure.
-            figure.savefig(figure_path, format="png", pad_inches=0)
+            figure.savefig(figure_path, format="png")
             plt.close(figure)
 
         # Sync all processes after file I/O

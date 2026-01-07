@@ -434,27 +434,33 @@ class TestWandBRenderer:
             mock_render.assert_called_once_with(sample_data, "test")
 
     def test_peaks_to_boxes_2d_input(self):
-        """Converts 2D peaks array to boxes."""
+        """Converts 2D peaks array to boxes with percent coordinates."""
         renderer = WandBRenderer()
         peaks = np.array([[10.0, 20.0], [30.0, 40.0]])  # (nodes, 2)
         node_names = ["head", "tail"]
+        img_w, img_h = 100, 100  # Image dimensions for percent conversion
 
-        boxes = renderer._peaks_to_boxes(peaks, node_names, is_gt=True)
+        boxes = renderer._peaks_to_boxes(peaks, node_names, img_w, img_h, is_gt=True)
 
         assert len(boxes) == 2
-        assert boxes[0]["position"]["middle"] == [10.0, 20.0]
+        # Coordinates are now in percent (0-1 range)
+        assert boxes[0]["position"]["middle"] == [0.1, 0.2]  # 10/100, 20/100
+        assert boxes[0]["domain"] == "percent"
         assert boxes[0]["box_caption"] == "GT: head"
         assert boxes[0]["class_id"] == 0
 
     def test_peaks_to_boxes_3d_input(self):
-        """Converts 3D peaks array to boxes."""
+        """Converts 3D peaks array to boxes with percent coordinates."""
         renderer = WandBRenderer()
         peaks = np.array([[[10.0, 20.0], [30.0, 40.0]]])  # (1, nodes, 2)
         node_names = ["head", "tail"]
+        img_w, img_h = 100, 100
 
-        boxes = renderer._peaks_to_boxes(peaks, node_names, is_gt=False)
+        boxes = renderer._peaks_to_boxes(peaks, node_names, img_w, img_h, is_gt=False)
 
         assert len(boxes) == 2
+        assert boxes[0]["position"]["middle"] == [0.1, 0.2]  # 10/100, 20/100
+        assert boxes[0]["domain"] == "percent"
         assert boxes[0]["box_caption"] == "head"
 
     def test_peaks_to_boxes_with_confidence(self):
@@ -463,9 +469,10 @@ class TestWandBRenderer:
         peaks = np.array([[10.0, 20.0], [30.0, 40.0]])
         peak_values = np.array([0.95, 0.87])
         node_names = ["head", "tail"]
+        img_w, img_h = 100, 100
 
         boxes = renderer._peaks_to_boxes(
-            peaks, node_names, peak_values=peak_values, is_gt=False
+            peaks, node_names, img_w, img_h, peak_values=peak_values, is_gt=False
         )
 
         assert "scores" in boxes[0]
@@ -477,20 +484,23 @@ class TestWandBRenderer:
         renderer = WandBRenderer()
         peaks = np.array([[10.0, 20.0], [np.nan, np.nan], [30.0, 40.0]])
         node_names = ["head", "neck", "tail"]
+        img_w, img_h = 100, 100
 
-        boxes = renderer._peaks_to_boxes(peaks, node_names, is_gt=True)
+        boxes = renderer._peaks_to_boxes(peaks, node_names, img_w, img_h, is_gt=True)
 
         assert len(boxes) == 2  # Skipped NaN
-        assert boxes[0]["position"]["middle"] == [10.0, 20.0]
-        assert boxes[1]["position"]["middle"] == [30.0, 40.0]
+        # Coordinates are in percent
+        assert boxes[0]["position"]["middle"] == [0.1, 0.2]  # 10/100, 20/100
+        assert boxes[1]["position"]["middle"] == [0.3, 0.4]  # 30/100, 40/100
 
     def test_peaks_to_boxes_missing_node_names(self):
         """Uses default names when node_names list is shorter."""
         renderer = WandBRenderer()
         peaks = np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]])
         node_names = ["head"]  # Only one name for 3 nodes
+        img_w, img_h = 100, 100
 
-        boxes = renderer._peaks_to_boxes(peaks, node_names, is_gt=True)
+        boxes = renderer._peaks_to_boxes(peaks, node_names, img_w, img_h, is_gt=True)
 
         assert boxes[0]["box_caption"] == "GT: head"
         assert boxes[1]["box_caption"] == "GT: node_1"

@@ -363,6 +363,7 @@ class WandBRenderer:
         mode: str = "direct",
         box_size: float = 5.0,
         confmap_threshold: float = 0.1,
+        min_size: int = 512,
     ):
         """Initialize the renderer.
 
@@ -370,10 +371,12 @@ class WandBRenderer:
             mode: Rendering mode - "direct", "boxes", or "masks".
             box_size: Size of keypoint boxes in pixels (for "boxes" mode).
             confmap_threshold: Threshold for confmap mask (for "masks" mode).
+            min_size: Minimum image dimension. Smaller images will be upscaled.
         """
         self.mode = mode
         self.box_size = box_size
         self.confmap_threshold = confmap_threshold
+        self.min_size = min_size
         self._mpl_renderer = MatplotlibRenderer()
 
     def render(
@@ -396,6 +399,13 @@ class WandBRenderer:
             return self._render_with_masks(data, caption)
         else:  # "direct"
             return self._render_direct(data, caption)
+
+    def _get_scale_factor(self, img_h: int, img_w: int) -> int:
+        """Calculate scale factor to ensure minimum image size."""
+        min_dim = min(img_h, img_w)
+        if min_dim >= self.min_size:
+            return 1
+        return int(np.ceil(self.min_size / min_dim))
 
     def _render_direct(
         self, data: VisualizationData, caption: Optional[str] = None
@@ -420,27 +430,43 @@ class WandBRenderer:
     ) -> "wandb.Image":
         """Use wandb boxes for interactive keypoint visualization."""
         import wandb
+        from PIL import Image
 
         # Prepare class labels from node names
         class_labels = {i: name for i, name in enumerate(data.node_names)}
         if not class_labels:
             class_labels = {i: f"node_{i}" for i in range(data.pred_peaks.shape[-2])}
 
-        # Build ground truth boxes
+        # Convert image to uint8
+        img_uint8 = (np.clip(data.image, 0, 1) * 255).astype(np.uint8)
+        # Handle single-channel images: squeeze (H, W, 1) -> (H, W)
+        if img_uint8.ndim == 3 and img_uint8.shape[2] == 1:
+            img_uint8 = img_uint8.squeeze(axis=2)
+        img_h, img_w = img_uint8.shape[:2]
+
+        # Scale up small images for better visibility in wandb
+        scale = self._get_scale_factor(img_h, img_w)
+        if scale > 1:
+            pil_img = Image.fromarray(img_uint8)
+            pil_img = pil_img.resize(
+                (img_w * scale, img_h * scale), resample=Image.BILINEAR
+            )
+            img_uint8 = np.array(pil_img)
+
+        # Build ground truth boxes (use percent domain for proper thumbnail scaling)
         gt_box_data = self._peaks_to_boxes(
-            data.gt_instances, data.node_names, is_gt=True
+            data.gt_instances, data.node_names, img_w, img_h, is_gt=True
         )
 
         # Build prediction boxes
         pred_box_data = self._peaks_to_boxes(
             data.pred_peaks,
             data.node_names,
+            img_w,
+            img_h,
             peak_values=data.pred_peak_values,
             is_gt=False,
         )
-
-        # Convert image to uint8
-        img_uint8 = (np.clip(data.image, 0, 1) * 255).astype(np.uint8)
 
         return wandb.Image(
             img_uint8,
@@ -458,6 +484,8 @@ class WandBRenderer:
         self,
         peaks: np.ndarray,
         node_names: List[str],
+        img_w: int,
+        img_h: int,
         peak_values: Optional[np.ndarray] = None,
         is_gt: bool = False,
     ) -> List[dict]:
@@ -466,6 +494,8 @@ class WandBRenderer:
         Args:
             peaks: Keypoints as (instances, nodes, 2) or (nodes, 2).
             node_names: List of node names.
+            img_w: Image width in pixels.
+            img_h: Image height in pixels.
             peak_values: Optional confidence values.
             is_gt: Whether these are ground truth points.
 
@@ -480,6 +510,10 @@ class WandBRenderer:
             if peak_values is not None and peak_values.ndim == 1:
                 peak_values = peak_values[np.newaxis, ...]
 
+        # Convert box_size from pixels to percent
+        box_w_pct = self.box_size / img_w
+        box_h_pct = self.box_size / img_h
+
         for inst_idx, instance in enumerate(peaks):
             for node_idx, (x, y) in enumerate(instance):
                 if np.isnan(x) or np.isnan(y):
@@ -491,13 +525,17 @@ class WandBRenderer:
                     else f"node_{node_idx}"
                 )
 
+                # Convert pixel coordinates to percent (0-1 range)
+                x_pct = float(x) / img_w
+                y_pct = float(y) / img_h
+
                 box = {
                     "position": {
-                        "middle": [float(x), float(y)],
-                        "width": float(self.box_size),
-                        "height": float(self.box_size),
+                        "middle": [x_pct, y_pct],
+                        "width": box_w_pct,
+                        "height": box_h_pct,
                     },
-                    "domain": "pixel",
+                    "domain": "percent",
                     "class_id": node_idx,
                 }
 
@@ -534,13 +572,24 @@ class WandBRenderer:
                 class_labels[i + 1] = f"node_{i}"
 
         # Create argmax mask from confmaps
-        confmaps = data.pred_confmaps  # (H, W, nodes)
+        confmaps = data.pred_confmaps  # (H/stride, W/stride, nodes)
         max_vals = confmaps.max(axis=-1)
         argmax_map = confmaps.argmax(axis=-1) + 1  # +1 for background offset
         argmax_map[max_vals < self.confmap_threshold] = 0  # Background
 
         # Convert image to uint8
         img_uint8 = (np.clip(data.image, 0, 1) * 255).astype(np.uint8)
+        # Handle single-channel images: (H, W, 1) -> (H, W)
+        if img_uint8.ndim == 3 and img_uint8.shape[2] == 1:
+            img_uint8 = img_uint8.squeeze(axis=2)
+        img_h, img_w = img_uint8.shape[:2]
+
+        # Resize mask to match image dimensions (confmaps are H/stride, W/stride)
+        from PIL import Image
+
+        mask_pil = Image.fromarray(argmax_map.astype(np.uint8))
+        mask_pil = mask_pil.resize((img_w, img_h), resample=Image.NEAREST)
+        argmax_map = np.array(mask_pil)
 
         return wandb.Image(
             img_uint8,
