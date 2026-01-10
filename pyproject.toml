@@ -97,6 +97,17 @@ Homepage = "https://sleap.ai"
 Repository = "https://github.com/talmolab/sleap-nn"
 
 [tool.uv]
+# Only resolve for platforms we actually support (excludes win_arm64 which has incomplete pytorch wheels)
+environments = [
+    "sys_platform == 'darwin'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+# Exclude torchvision builds that only have win_arm64 wheels
+constraint-dependencies = [
+    "torchvision!=0.24.1+d801a34",
+]
 conflicts = [
     [
         { extra = "torch-cpu" },
