@@ -48,18 +48,25 @@ Python 3.11 (or) 3.12 (or) 3.13 (required for all installation methods)
 
 ### Platform-Specific Installation
 
-=== "Windows/Linux (CUDA)"
+=== "Windows/Linux (GPU - Auto-detect)"
     ```bash
-    # CUDA 12.8
-    uv tool install sleap-nn[torch] --index https://download.pytorch.org/whl/cu128 --index https://pypi.org/simple
+    # Recommended: Automatically detects your GPU and installs optimal PyTorch
+    uv tool install sleap-nn[torch] --torch-backend auto
+    ```
 
-    # CUDA 11.8
-    uv tool install sleap-nn[torch] --index https://download.pytorch.org/whl/cu118 --index https://pypi.org/simple
+=== "Windows/Linux (CUDA 13.0)"
+    ```bash
+    uv tool install sleap-nn[torch] --torch-backend cu130
+    ```
+
+=== "Windows/Linux (CUDA 12.8)"
+    ```bash
+    uv tool install sleap-nn[torch] --torch-backend cu128
     ```
 
 === "Windows/Linux (CPU)"
     ```bash
-    uv tool install sleap-nn[torch] --index https://download.pytorch.org/whl/cpu --index https://pypi.org/simple
+    uv tool install sleap-nn[torch] --torch-backend cpu
     ```
 
 === "macOS"
@@ -67,9 +74,19 @@ Python 3.11 (or) 3.12 (or) 3.13 (required for all installation methods)
     uv tool install "sleap-nn[torch]"
     ```
 
+!!! note "uv Version Requirement"
+    The `--torch-backend` option requires **uv 0.9.20 or later**. Check your version:
+    ```bash
+    uv --version
+    ```
+    Update if needed:
+    ```bash
+    uv self update
+    ```
+
 !!! info
-    - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
+    - The `--torch-backend auto` option automatically detects your GPU and installs the optimal PyTorch version.
+    - For manual selection, use `--torch-backend cu130` (CUDA 13), `--torch-backend cu128` (CUDA 12.8), `--torch-backend cu118` (CUDA 11.8), or `--torch-backend cpu`.
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 ### Verify installation
@@ -109,16 +126,16 @@ uv tool upgrade sleap-nn
 
 ### Platform-Specific Commands
 
-=== "Windows/Linux (CUDA)"
+=== "Windows/Linux (GPU)"
     ```bash
-    uvx --from "sleap-nn[torch]" --index https://download.pytorch.org/whl/cu128 --index https://pypi.org/simple sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
-    uvx --from "sleap-nn[torch]" --index https://download.pytorch.org/whl/cu128 --index https://pypi.org/simple sleap-nn track --data_path video.mp4 --model_paths models/
+    uvx --from "sleap-nn[torch]" --torch-backend auto sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
+    uvx --from "sleap-nn[torch]" --torch-backend auto sleap-nn track --data_path video.mp4 --model_paths models/
     ```
 
 === "Windows/Linux (CPU)"
     ```bash
-    uvx --from "sleap-nn[torch]" --index https://download.pytorch.org/whl/cpu --index https://pypi.org/simple sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
-    uvx --from "sleap-nn[torch]" --index https://download.pytorch.org/whl/cpu --index https://pypi.org/simple sleap-nn track --data_path video.mp4 --model_paths models/
+    uvx --from "sleap-nn[torch]" --torch-backend cpu sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
+    uvx --from "sleap-nn[torch]" --torch-backend cpu sleap-nn track --data_path video.mp4 --model_paths models/
     ```
 
 === "macOS"
@@ -128,8 +145,8 @@ uv tool upgrade sleap-nn
     ```
 
 !!! note
-    - For more information on which CUDA version to use for your system, see the [PyTorch installation guide](https://pytorch.org/get-started/locally/).  
-      The `--index` in the install command should match the CUDA version you need (e.g., `https://download.pytorch.org/whl/cu118` for CUDA 11.8, `https://download.pytorch.org/whl/cu128` for CUDA 12.8, etc.).
+    - The `--torch-backend auto` option automatically detects your GPU and installs the optimal PyTorch version. Requires uv 0.9.20+.
+    - For manual selection, use `--torch-backend cu130` (CUDA 13), `--torch-backend cu128` (CUDA 12.8), or `--torch-backend cpu`.
     - On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.
 
 !!! note "uvx Installation"
@@ -374,14 +391,19 @@ cd sleap-nn
 
 #### 3. Install Dependencies
 
-=== "Windows/Linux (CUDA 11.8)"
+=== "Windows/Linux (CUDA 13.0)"
     ```bash
-    uv sync --extra torch-cuda118
+    uv sync --extra torch-cuda130
     ```
 
 === "Windows/Linux (CUDA 12.8)"
     ```bash
     uv sync --extra torch-cuda128
+    ```
+
+=== "Windows/Linux (CUDA 11.8)"
+    ```bash
+    uv sync --extra torch-cuda118
     ```
 
 === "macOS/CPU Only"
@@ -393,14 +415,19 @@ cd sleap-nn
 
 To update sleap-nn and its dependencies to their latest versions:
 
-=== "Windows/Linux (CUDA 11.8)"
+=== "Windows/Linux (CUDA 13.0)"
     ```bash
-    uv sync --extra torch-cuda118 --upgrade
+    uv sync --extra torch-cuda130 --upgrade
     ```
 
 === "Windows/Linux (CUDA 12.8)"
     ```bash
     uv sync --extra torch-cuda128 --upgrade
+    ```
+
+=== "Windows/Linux (CUDA 11.8)"
+    ```bash
+    uv sync --extra torch-cuda118 --upgrade
     ```
 
 === "macOS/CPU Only"
