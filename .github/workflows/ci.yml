@@ -32,10 +32,10 @@ jobs:
         run: uv sync --extra torch-cpu
 
       - name: Run Black
-        run: uv run --frozen black --check sleap_nn tests
+        run: uv run --frozen --extra torch-cpu black --check sleap_nn tests
 
       - name: Run Ruff
-        run: uv run --frozen ruff check sleap_nn/
+        run: uv run --frozen --extra torch-cpu ruff check sleap_nn/
 
   tests:
     timeout-minutes: 30
@@ -84,12 +84,12 @@ jobs:
       - name: Print environment info
         run: |
           echo "=== UV Environment ==="
-          uv run --frozen python --version
-          uv run --frozen python -c "import sys; print('Python executable:', sys.executable)"
+          uv run --frozen --extra torch-cpu python --version
+          uv run --frozen --extra torch-cpu python -c "import sys; print('Python executable:', sys.executable)"
           echo "=== UV Environment NumPy Check ==="
-          uv run --frozen python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
+          uv run --frozen --extra torch-cpu python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
           echo "=== CUDA Availability Check ==="
-          uv run --frozen python -c "
+          uv run --frozen --extra torch-cpu python -c "
           import torch
           print(f'PyTorch version: {torch.__version__}')
           print(f'CUDA available: {torch.cuda.is_available()}')
@@ -102,13 +102,13 @@ jobs:
               print('CUDA is not available')
           " || echo "CUDA check failed"
           echo "=== Import Test ==="
-          uv run --frozen python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
+          uv run --frozen --extra torch-cpu python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
 
       - name: Check MPS backend (macOS only)
         if: runner.os == 'macOS'
         run: |
           echo "=== macOS MPS Backend Check ==="
-          uv run --frozen python -c "
+          uv run --frozen --extra torch-cpu python -c "
           import torch
           print(f'PyTorch version: {torch.__version__}')
           print(f'MPS available: {torch.backends.mps.is_available()}')
@@ -125,9 +125,9 @@ jobs:
       - name: Run pytest
         run: |
           echo "=== Final environment check before tests ==="
-          uv run --frozen python -c "import numpy, torch, lightning, kornia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
+          uv run --frozen --extra torch-cpu python -c "import numpy, torch, lightning, kornia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
           echo "=== Running pytest ==="
-          uv run --frozen pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+          uv run --frozen --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
