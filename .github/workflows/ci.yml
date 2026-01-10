@@ -42,6 +42,7 @@ jobs:
     env:
       CUDA_VISIBLE_DEVICES: ""
       USE_CUDA: "0"
+      UV_FROZEN: "1"
     strategy:
       fail-fast: false
       matrix:
