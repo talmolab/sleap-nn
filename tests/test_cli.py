@@ -327,6 +327,9 @@ def test_main_cli(sample_config, tmp_path):
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "train",
         "--help",
@@ -351,6 +354,9 @@ def test_main_cli(sample_config, tmp_path):
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "train",
         "--config-dir",
@@ -378,6 +384,9 @@ def test_main_cli(sample_config, tmp_path):
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "train",
         "--config-dir",
@@ -403,6 +412,9 @@ def test_main_cli(sample_config, tmp_path):
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "train",
         "--config-dir",
@@ -450,6 +462,9 @@ def test_train_cli_with_video_paths(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "train",
         "--config-dir",
@@ -481,6 +496,9 @@ def test_train_cli_with_video_paths(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "train",
         "--config-dir",
@@ -527,6 +545,9 @@ def test_train_cli_with_prefix_map(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "train",
         "--config-dir",
@@ -560,6 +581,9 @@ def test_track_command(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "track",
         "--model_paths",
@@ -599,6 +623,9 @@ def test_eval_command(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "eval",
         "--ground_truth_path",
