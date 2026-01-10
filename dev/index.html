@@ -3055,14 +3055,14 @@ For example:
 </span></code></pre></div>
 Replace <code>...</code> with the rest of your install command as needed.</p>
 </div>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Windows/Linux (CUDA)</label><label for="__tabbed_1_2">Windows/Linux (CPU)</label><label for="__tabbed_1_3">macOS</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Windows/Linux (GPU)</label><label for="__tabbed_1_2">Windows/Linux (CPU)</label><label for="__tabbed_1_3">macOS</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>cpu<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>config.yaml<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/<span class="w"> </span><span class="s2">&quot;data_config.train_labels_path=[train.pkg.slp]&quot;</span><span class="w"> </span><span class="s2">&quot;data_config.val_labels_path=[val.pkg.slp]&quot;</span>
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -3074,21 +3074,21 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 <div class="admonition info">
 <p class="admonition-title">Info</p>
 <ul>
-<li>For more information on which CUDA version to use for your system, see the <a href="https://pytorch.org/get-started/locally/">PyTorch installation guide</a>.<br />
-  The <code>--index</code> in the install command should match the CUDA version you need (e.g., <code>https://download.pytorch.org/whl/cu118</code> for CUDA 11.8, <code>https://download.pytorch.org/whl/cu128</code> for CUDA 12.8, etc.).</li>
+<li>The <code>--torch-backend auto</code> option automatically detects your GPU and installs the optimal PyTorch version. Requires uv 0.9.20+.</li>
+<li>For manual selection, use <code>--torch-backend cu130</code> (CUDA 13), <code>--torch-backend cu128</code> (CUDA 12.8), or <code>--torch-backend cpu</code>.</li>
 <li>On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.</li>
 </ul>
 </div>
 <h3 id="step-3-run-inference-on-the-trained-model">Step - 3 : Run Inference on the Trained Model<a class="headerlink" href="#step-3-run-inference-on-the-trained-model" title="Permanent link">&para;</a></h3>
 <p>To run inference:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Windows/Linux (CUDA)</label><label for="__tabbed_2_2">Windows/Linux (CPU)</label><label for="__tabbed_2_3">macOS</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Windows/Linux (GPU)</label><label for="__tabbed_2_2">Windows/Linux (CPU)</label><label for="__tabbed_2_3">macOS</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>cpu<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data-path<span class="w"> </span>video.mp4<span class="w"> </span>--model-paths<span class="w"> </span>model_ckpt_dir/
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
@@ -3100,8 +3100,8 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 <div class="admonition info">
 <p class="admonition-title">Info</p>
 <ul>
-<li>For more information on which CUDA version to use for your system, see the <a href="https://pytorch.org/get-started/locally/">PyTorch installation guide</a>.<br />
-  The <code>--index</code> in the install command should match the CUDA version you need (e.g., <code>https://download.pytorch.org/whl/cu118</code> for CUDA 11.8, <code>https://download.pytorch.org/whl/cu128</code> for CUDA 12.8, etc.).</li>
+<li>The <code>--torch-backend auto</code> option automatically detects your GPU and installs the optimal PyTorch version. Requires uv 0.9.20+.</li>
+<li>For manual selection, use <code>--torch-backend cu130</code> (CUDA 13), <code>--torch-backend cu128</code> (CUDA 12.8), or <code>--torch-backend cpu</code>.</li>
 <li>On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.</li>
 </ul>
 </div>

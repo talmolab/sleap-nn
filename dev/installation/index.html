@@ -3407,42 +3407,56 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 </span></code></pre></div></p>
 </div>
 <h3 id="platform-specific-installation">Platform-Specific Installation<a class="headerlink" href="#platform-specific-installation" title="Permanent link">&para;</a></h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Windows/Linux (CUDA)</label><label for="__tabbed_1_2">Windows/Linux (CPU)</label><label for="__tabbed_1_3">macOS</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:5"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><input id="__tabbed_1_4" name="__tabbed_1" type="radio" /><input id="__tabbed_1_5" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Windows/Linux (GPU - Auto-detect)</label><label for="__tabbed_1_2">Windows/Linux (CUDA 13.0)</label><label for="__tabbed_1_3">Windows/Linux (CUDA 12.8)</label><label for="__tabbed_1_4">Windows/Linux (CPU)</label><label for="__tabbed_1_5">macOS</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># CUDA 12.8</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># CUDA 11.8</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu118<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Recommended: Automatically detects your GPU and installs optimal PyTorch</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>cu130
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>cu128
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>cpu
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
 </span></code></pre></div>
 </div>
 </div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">uv Version Requirement</p>
+<p>The <code>--torch-backend</code> option requires <strong>uv 0.9.20 or later</strong>. Check your version:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>uv<span class="w"> </span>--version
+</span></code></pre></div>
+Update if needed:
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uv<span class="w"> </span>self<span class="w"> </span>update
+</span></code></pre></div></p>
 </div>
 <div class="admonition info">
 <p class="admonition-title">Info</p>
 <ul>
-<li>For more information on which CUDA version to use for your system, see the <a href="https://pytorch.org/get-started/locally/">PyTorch installation guide</a>.<br />
-  The <code>--index</code> in the install command should match the CUDA version you need (e.g., <code>https://download.pytorch.org/whl/cu118</code> for CUDA 11.8, <code>https://download.pytorch.org/whl/cu128</code> for CUDA 12.8, etc.).</li>
+<li>The <code>--torch-backend auto</code> option automatically detects your GPU and installs the optimal PyTorch version.</li>
+<li>For manual selection, use <code>--torch-backend cu130</code> (CUDA 13), <code>--torch-backend cu128</code> (CUDA 12.8), <code>--torch-backend cu118</code> (CUDA 11.8), or <code>--torch-backend cpu</code>.</li>
 <li>On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.</li>
 </ul>
 </div>
 <h3 id="verify-installation">Verify installation<a class="headerlink" href="#verify-installation" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Test the installation</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>sleap-nn<span class="w"> </span>--help
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="c1"># Test the installation</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>sleap-nn<span class="w"> </span>--help
 </span></code></pre></div>
 <h3 id="updating-dependencies">Updating Dependencies<a class="headerlink" href="#updating-dependencies" title="Permanent link">&para;</a></h3>
 <p>To update sleap-nn and its dependencies (e.g., sleap-io) to their latest versions:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Upgrade sleap-nn to the latest version</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>uv<span class="w"> </span>tool<span class="w"> </span>upgrade<span class="w"> </span>sleap-nn
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1"># Upgrade sleap-nn to the latest version</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>uv<span class="w"> </span>tool<span class="w"> </span>upgrade<span class="w"> </span>sleap-nn
 </span></code></pre></div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -3454,29 +3468,29 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 <div class="admonition note">
 <p class="admonition-title">Install uv</p>
 <p>Install <a href="https://github.com/astral-sh/uv"><code>uv</code></a> - a fast Python package manager:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># macOS/Linux</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="c1"># Windows</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>powershell<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># macOS/Linux</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Windows</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>powershell<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
 </span></code></pre></div></p>
 </div>
 <h3 id="platform-specific-commands">Platform-Specific Commands<a class="headerlink" href="#platform-specific-commands" title="Permanent link">&para;</a></h3>
-<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Windows/Linux (CUDA)</label><label for="__tabbed_2_2">Windows/Linux (CPU)</label><label for="__tabbed_2_3">macOS</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:3"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><input id="__tabbed_2_3" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Windows/Linux (GPU)</label><label for="__tabbed_2_2">Windows/Linux (CPU)</label><label for="__tabbed_2_3">macOS</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>myconfig<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>myconfig<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>myconfig<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/
-</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>cpu<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>myconfig<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>cpu<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>uvx<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>myconfig<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>uvx<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>uvx<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>train<span class="w"> </span>--config-name<span class="w"> </span>myconfig<span class="w"> </span>--config-dir<span class="w"> </span>/path/to/config_dir/
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>uvx<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>track<span class="w"> </span>--data_path<span class="w"> </span>video.mp4<span class="w"> </span>--model_paths<span class="w"> </span>models/
 </span></code></pre></div>
 </div>
 </div>
@@ -3484,8 +3498,8 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <ul>
-<li>For more information on which CUDA version to use for your system, see the <a href="https://pytorch.org/get-started/locally/">PyTorch installation guide</a>.<br />
-  The <code>--index</code> in the install command should match the CUDA version you need (e.g., <code>https://download.pytorch.org/whl/cu118</code> for CUDA 11.8, <code>https://download.pytorch.org/whl/cu128</code> for CUDA 12.8, etc.).</li>
+<li>The <code>--torch-backend auto</code> option automatically detects your GPU and installs the optimal PyTorch version. Requires uv 0.9.20+.</li>
+<li>For manual selection, use <code>--torch-backend cu130</code> (CUDA 13), <code>--torch-backend cu128</code> (CUDA 12.8), or <code>--torch-backend cpu</code>.</li>
 <li>On macOS, MPS (Metal Performance Shaders) is automatically enabled for Apple Silicon acceleration.</li>
 </ul>
 </div>
@@ -3506,15 +3520,15 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 <div class="admonition note">
 <p class="admonition-title">Install and set-up uv</p>
 <p>Step-1: Install <a href="https://github.com/astral-sh/uv"><code>uv</code></a> - a fast Python package manager:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="c1"># macOS/Linux</span>
-</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="c1"># Windows</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>powershell<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1"># macOS/Linux</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="c1"># Windows</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a>powershell<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
 </span></code></pre></div></p>
 <p>Step-2: Move to your project directory and initialize the virtual env.
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>uv<span class="w"> </span>init
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>uv<span class="w"> </span>venv
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>uv<span class="w"> </span>init
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>uv<span class="w"> </span>venv
 </span></code></pre></div></p>
 </div>
 <h3 id="platform-specific-installation_1">Platform-Specific Installation<a class="headerlink" href="#platform-specific-installation_1" title="Permanent link">&para;</a></h3>
@@ -3525,7 +3539,7 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 <li>When you use <code>uv add sleap-nn[torch]</code>, it adds <code>sleap-nn[torch]</code> as a dependency in your <code>pyproject.toml</code> and installs it in your virtual environment.</li>
 <li>To add other packages, simply run <code>uv add &lt;package&gt;</code>. After adding new packages, you should run <code>uv sync</code> to update your environment with all dependencies specified in <code>pyproject.toml</code>. (or <code>uv sync --upgrade</code> to update all dependencies)</li>
 <li>To install a local package (such as a local clone of sleap-nn) in editable mode, use:
-  <div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>uv<span class="w"> </span>add<span class="w"> </span>--editable<span class="w"> </span><span class="s2">&quot;path/to/sleap-nn[torch]&quot;</span><span class="w"> </span>...
+  <div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>uv<span class="w"> </span>add<span class="w"> </span>--editable<span class="w"> </span><span class="s2">&quot;path/to/sleap-nn[torch]&quot;</span><span class="w"> </span>...
 </span></code></pre></div>
   This is useful for development, as changes to the code are immediately reflected in your environment.</li>
 </ul>
@@ -3536,28 +3550,28 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 Similar issues: <a href="https://github.com/astral-sh/uv/issues/11532">#11532</a> and <a href="https://github.com/astral-sh/uv/issues/12620">#12620</a>.</p>
 <p><strong>Workaround:</strong><br />
 Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually install a compatible version of MarkupSafe:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>uv<span class="w"> </span>add<span class="w"> </span>git+https://github.com/pallets/markupsafe@3.0.2
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>uv<span class="w"> </span>add<span class="w"> </span>git+https://github.com/pallets/markupsafe@3.0.2
 </span></code></pre></div>
 <p>Then proceed with:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>...
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>...
 </span></code></pre></div>
 </div>
 <div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Windows/Linux (CUDA)</label><label for="__tabbed_3_2">Windows/Linux (CPU)</label><label for="__tabbed_3_3">macOS</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># CUDA 12.8</span>
-</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
-</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>
-</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a><span class="c1"># CUDA 11.8</span>
-</span><span id="__span-16-5"><a id="__codelineno-16-5" name="__codelineno-16-5" href="#__codelineno-16-5"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu118<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="c1"># CUDA 12.8</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="c1"># CUDA 11.8</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu118<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cpu<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
 </span></code></pre></div>
 </div>
 </div>
@@ -3571,8 +3585,8 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 </ul>
 </div>
 <h3 id="verify-installation_1">Verify Installation<a class="headerlink" href="#verify-installation_1" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="c1"># Test the installation</span>
-</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>--help
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># Test the installation</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>--help
 </span></code></pre></div>
 <div class="admonition warning">
 <p class="admonition-title">sleap-nn not recognized after installation?</p>
@@ -3580,7 +3594,7 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 <ul>
 <li>
 <p>Activate your virtual environment (the venv name should be the same as your current working dir name). If you used <code>uv</code>, activate it and then run:
-  <div class="language-bash highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a>uv<span class="w"> </span>run<span class="w"> </span>--active<span class="w"> </span>sleap-nn<span class="w"> </span>--help
+  <div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>uv<span class="w"> </span>run<span class="w"> </span>--active<span class="w"> </span>sleap-nn<span class="w"> </span>--help
 </span></code></pre></div>
   This ensures the command runs in the correct environment.</p>
 </li>
@@ -3595,16 +3609,16 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 <div class="tabbed-set tabbed-alternate" data-tabs="4:2"><input checked="checked" id="__tabbed_4_1" name="__tabbed_4" type="radio" /><input id="__tabbed_4_2" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="__tabbed_4_1">Upgrade a Specific Package</label><label for="__tabbed_4_2">Upgrade All Dependencies</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># Upgrade sleap-nn and update the lock file</span>
-</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--upgrade-package<span class="w"> </span>sleap-nn
-</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>
-</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a><span class="c1"># Upgrade a specific dependency like sleap-io</span>
-</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-io<span class="w"> </span>--upgrade-package<span class="w"> </span>sleap-io
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1"># Upgrade sleap-nn and update the lock file</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a>uv<span class="w"> </span>add<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--upgrade-package<span class="w"> </span>sleap-nn
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="c1"># Upgrade a specific dependency like sleap-io</span>
+</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-io<span class="w"> </span>--upgrade-package<span class="w"> </span>sleap-io
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># Upgrade all packages to their latest compatible versions</span>
-</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>uv<span class="w"> </span>sync<span class="w"> </span>--upgrade
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Upgrade all packages to their latest compatible versions</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a>uv<span class="w"> </span>sync<span class="w"> </span>--upgrade
 </span></code></pre></div>
 </div>
 </div>
@@ -3625,26 +3639,26 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 <p>SLEAP currently supports <strong>Python 3.11, 3.12, and 3.13</strong>. <strong>Python 3.14 is not yet tested or supported.</strong></p>
 </div>
 <p>To create a conda environment, run:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>sleap-nn-env<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.13
-</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>conda<span class="w"> </span>activate<span class="w"> </span>sleap-nn-env
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a>conda<span class="w"> </span>create<span class="w"> </span>-n<span class="w"> </span>sleap-nn-env<span class="w"> </span><span class="nv">python</span><span class="o">=</span><span class="m">3</span>.13
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>conda<span class="w"> </span>activate<span class="w"> </span>sleap-nn-env
 </span></code></pre></div></p>
 <h3 id="platform-specific-installation_2">Platform-Specific Installation<a class="headerlink" href="#platform-specific-installation_2" title="Permanent link">&para;</a></h3>
 <div class="tabbed-set tabbed-alternate" data-tabs="5:3"><input checked="checked" id="__tabbed_5_1" name="__tabbed_5" type="radio" /><input id="__tabbed_5_2" name="__tabbed_5" type="radio" /><input id="__tabbed_5_3" name="__tabbed_5" type="radio" /><div class="tabbed-labels"><label for="__tabbed_5_1">Windows/Linux (CUDA)</label><label for="__tabbed_5_2">Windows/Linux (CPU)</label><label for="__tabbed_5_3">macOS</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># CUDA 12.8</span>
-</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128
-</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a>
-</span><span id="__span-24-4"><a id="__codelineno-24-4" name="__codelineno-24-4" href="#__codelineno-24-4"></a><span class="c1"># CUDA 11.8</span>
-</span><span id="__span-24-5"><a id="__codelineno-24-5" name="__codelineno-24-5" href="#__codelineno-24-5"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu118
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="c1"># CUDA 12.8</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="c1"># CUDA 11.8</span>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu118
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>pip<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
 </span></code></pre></div>
 </div>
 </div>
@@ -3658,30 +3672,30 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 </ul>
 </div>
 <h3 id="verify-installation_2">Verify Installation<a class="headerlink" href="#verify-installation_2" title="Permanent link">&para;</a></h3>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># Test the installation</span>
-</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>sleap-nn<span class="w"> </span>--help
-</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a>
-</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a><span class="c1"># Check PyTorch installation</span>
-</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(f&#39;PyTorch: {torch.__version__}&#39;); print(f&#39;CUDA available: {torch.cuda.is_available()}&#39;)&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="c1"># Test the installation</span>
+</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>sleap-nn<span class="w"> </span>--help
+</span><span id="__span-31-3"><a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a>
+</span><span id="__span-31-4"><a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="c1"># Check PyTorch installation</span>
+</span><span id="__span-31-5"><a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a>python<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;import torch; print(f&#39;PyTorch: {torch.__version__}&#39;); print(f&#39;CUDA available: {torch.cuda.is_available()}&#39;)&quot;</span>
 </span></code></pre></div>
 <h3 id="updating-dependencies_3">Updating Dependencies<a class="headerlink" href="#updating-dependencies_3" title="Permanent link">&para;</a></h3>
 <p>To update sleap-nn and its dependencies to their latest versions:</p>
 <div class="tabbed-set tabbed-alternate" data-tabs="6:3"><input checked="checked" id="__tabbed_6_1" name="__tabbed_6" type="radio" /><input id="__tabbed_6_2" name="__tabbed_6" type="radio" /><input id="__tabbed_6_3" name="__tabbed_6" type="radio" /><div class="tabbed-labels"><label for="__tabbed_6_1">Windows/Linux (CUDA)</label><label for="__tabbed_6_2">Windows/Linux (CPU)</label><label for="__tabbed_6_3">macOS</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="c1"># CUDA 12.8</span>
-</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128
-</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a>
-</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="c1"># CUDA 11.8</span>
-</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu118
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="c1"># CUDA 12.8</span>
+</span><span id="__span-32-2"><a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128
+</span><span id="__span-32-3"><a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a>
+</span><span id="__span-32-4"><a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a><span class="c1"># CUDA 11.8</span>
+</span><span id="__span-32-5"><a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu118
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span>
 </span></code></pre></div>
 </div>
 </div>
@@ -3689,7 +3703,7 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 <div class="admonition tip">
 <p class="admonition-title">Upgrading Specific Dependencies</p>
 <p>To upgrade a specific dependency like sleap-io independently:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-io
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>pip<span class="w"> </span>install<span class="w"> </span>--upgrade<span class="w"> </span>sleap-io
 </span></code></pre></div></p>
 </div>
 <hr />
@@ -3700,53 +3714,61 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 <p><code>uv sync</code> creates a <code>.venv</code> (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with <code>uv run</code> (e.g., <code>uv run sleap-nn train ...</code> or <code>uv run pytest ...</code>).</p>
 </div>
 <h4 id="1-clone-the-repository">1. Clone the Repository<a class="headerlink" href="#1-clone-the-repository" title="Permanent link">&para;</a></h4>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/talmolab/sleap-nn.git
-</span><span id="__span-32-2"><a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a><span class="nb">cd</span><span class="w"> </span>sleap-nn
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/talmolab/sleap-nn.git
+</span><span id="__span-36-2"><a id="__codelineno-36-2" name="__codelineno-36-2" href="#__codelineno-36-2"></a><span class="nb">cd</span><span class="w"> </span>sleap-nn
 </span></code></pre></div>
 <h4 id="2-install-uv">2. Install uv<a class="headerlink" href="#2-install-uv" title="Permanent link">&para;</a></h4>
 <div class="tabbed-set tabbed-alternate" data-tabs="7:2"><input checked="checked" id="__tabbed_7_1" name="__tabbed_7" type="radio" /><input id="__tabbed_7_2" name="__tabbed_7" type="radio" /><div class="tabbed-labels"><label for="__tabbed_7_1">macOS/Linux</label><label for="__tabbed_7_2">Windows</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>curl<span class="w"> </span>-LsSf<span class="w"> </span>https://astral.sh/uv/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>sh
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a>powershell<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>powershell<span class="w"> </span>-c<span class="w"> </span><span class="s2">&quot;irm https://astral.sh/uv/install.ps1 | iex&quot;</span>
 </span></code></pre></div>
 </div>
 </div>
 </div>
 <h4 id="3-install-dependencies">3. Install Dependencies<a class="headerlink" href="#3-install-dependencies" title="Permanent link">&para;</a></h4>
-<div class="tabbed-set tabbed-alternate" data-tabs="8:3"><input checked="checked" id="__tabbed_8_1" name="__tabbed_8" type="radio" /><input id="__tabbed_8_2" name="__tabbed_8" type="radio" /><input id="__tabbed_8_3" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="__tabbed_8_1">Windows/Linux (CUDA 11.8)</label><label for="__tabbed_8_2">Windows/Linux (CUDA 12.8)</label><label for="__tabbed_8_3">macOS/CPU Only</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="8:4"><input checked="checked" id="__tabbed_8_1" name="__tabbed_8" type="radio" /><input id="__tabbed_8_2" name="__tabbed_8" type="radio" /><input id="__tabbed_8_3" name="__tabbed_8" type="radio" /><input id="__tabbed_8_4" name="__tabbed_8" type="radio" /><div class="tabbed-labels"><label for="__tabbed_8_1">Windows/Linux (CUDA 13.0)</label><label for="__tabbed_8_2">Windows/Linux (CUDA 12.8)</label><label for="__tabbed_8_3">Windows/Linux (CUDA 11.8)</label><label for="__tabbed_8_4">macOS/CPU Only</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda118
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda130
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda128
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda128
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cpu
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda118
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cpu
 </span></code></pre></div>
 </div>
 </div>
 </div>
 <h4 id="4-updating-dependencies">4. Updating Dependencies<a class="headerlink" href="#4-updating-dependencies" title="Permanent link">&para;</a></h4>
 <p>To update sleap-nn and its dependencies to their latest versions:</p>
-<div class="tabbed-set tabbed-alternate" data-tabs="9:3"><input checked="checked" id="__tabbed_9_1" name="__tabbed_9" type="radio" /><input id="__tabbed_9_2" name="__tabbed_9" type="radio" /><input id="__tabbed_9_3" name="__tabbed_9" type="radio" /><div class="tabbed-labels"><label for="__tabbed_9_1">Windows/Linux (CUDA 11.8)</label><label for="__tabbed_9_2">Windows/Linux (CUDA 12.8)</label><label for="__tabbed_9_3">macOS/CPU Only</label></div>
+<div class="tabbed-set tabbed-alternate" data-tabs="9:4"><input checked="checked" id="__tabbed_9_1" name="__tabbed_9" type="radio" /><input id="__tabbed_9_2" name="__tabbed_9" type="radio" /><input id="__tabbed_9_3" name="__tabbed_9" type="radio" /><input id="__tabbed_9_4" name="__tabbed_9" type="radio" /><div class="tabbed-labels"><label for="__tabbed_9_1">Windows/Linux (CUDA 13.0)</label><label for="__tabbed_9_2">Windows/Linux (CUDA 12.8)</label><label for="__tabbed_9_3">Windows/Linux (CUDA 11.8)</label><label for="__tabbed_9_4">macOS/CPU Only</label></div>
 <div class="tabbed-content">
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda118<span class="w"> </span>--upgrade
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda130<span class="w"> </span>--upgrade
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda128<span class="w"> </span>--upgrade
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda128<span class="w"> </span>--upgrade
 </span></code></pre></div>
 </div>
 <div class="tabbed-block">
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cpu<span class="w"> </span>--upgrade
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cuda118<span class="w"> </span>--upgrade
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>torch-cpu<span class="w"> </span>--upgrade
 </span></code></pre></div>
 </div>
 </div>
@@ -3757,16 +3779,16 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 </div>
 <h3 id="verify-installation_3">Verify Installation<a class="headerlink" href="#verify-installation_3" title="Permanent link">&para;</a></h3>
 <p>In your working dir (where you ran <code>uv sync</code>):</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="c1"># Run tests</span>
-</span><span id="__span-41-2"><a id="__codelineno-41-2" name="__codelineno-41-2" href="#__codelineno-41-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests
-</span><span id="__span-41-3"><a id="__codelineno-41-3" name="__codelineno-41-3" href="#__codelineno-41-3"></a>
-</span><span id="__span-41-4"><a id="__codelineno-41-4" name="__codelineno-41-4" href="#__codelineno-41-4"></a><span class="c1"># Check code formatting</span>
-</span><span id="__span-41-5"><a id="__codelineno-41-5" name="__codelineno-41-5" href="#__codelineno-41-5"></a>uv<span class="w"> </span>run<span class="w"> </span>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
-</span><span id="__span-41-6"><a id="__codelineno-41-6" name="__codelineno-41-6" href="#__codelineno-41-6"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
-</span><span id="__span-41-7"><a id="__codelineno-41-7" name="__codelineno-41-7" href="#__codelineno-41-7"></a>
-</span><span id="__span-41-8"><a id="__codelineno-41-8" name="__codelineno-41-8" href="#__codelineno-41-8"></a><span class="c1"># Run CLI commands</span>
-</span><span id="__span-41-9"><a id="__codelineno-41-9" name="__codelineno-41-9" href="#__codelineno-41-9"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>...
-</span><span id="__span-41-10"><a id="__codelineno-41-10" name="__codelineno-41-10" href="#__codelineno-41-10"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>...
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="c1"># Run tests</span>
+</span><span id="__span-47-2"><a id="__codelineno-47-2" name="__codelineno-47-2" href="#__codelineno-47-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests
+</span><span id="__span-47-3"><a id="__codelineno-47-3" name="__codelineno-47-3" href="#__codelineno-47-3"></a>
+</span><span id="__span-47-4"><a id="__codelineno-47-4" name="__codelineno-47-4" href="#__codelineno-47-4"></a><span class="c1"># Check code formatting</span>
+</span><span id="__span-47-5"><a id="__codelineno-47-5" name="__codelineno-47-5" href="#__codelineno-47-5"></a>uv<span class="w"> </span>run<span class="w"> </span>black<span class="w"> </span>--check<span class="w"> </span>sleap_nn<span class="w"> </span>tests
+</span><span id="__span-47-6"><a id="__codelineno-47-6" name="__codelineno-47-6" href="#__codelineno-47-6"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>sleap_nn/
+</span><span id="__span-47-7"><a id="__codelineno-47-7" name="__codelineno-47-7" href="#__codelineno-47-7"></a>
+</span><span id="__span-47-8"><a id="__codelineno-47-8" name="__codelineno-47-8" href="#__codelineno-47-8"></a><span class="c1"># Run CLI commands</span>
+</span><span id="__span-47-9"><a id="__codelineno-47-9" name="__codelineno-47-9" href="#__codelineno-47-9"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>...
+</span><span id="__span-47-10"><a id="__codelineno-47-10" name="__codelineno-47-10" href="#__codelineno-47-10"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>...
 </span></code></pre></div>
 <hr />
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
