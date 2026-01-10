@@ -53,10 +53,10 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 > Replace `...` with the rest of your install command as needed.
 
 - Sync all dependencies based on your correct wheel using `uv sync`. `uv sync` creates a `.venv` (virtual environment) inside your current working directory. This environment is only active within that directory and can't be directly accessed from outside. To use all installed packages, you must run commands with `uv run` (e.g., `uv run sleap-nn train ...` or `uv run pytest ...`).
-   - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+   - **Windows/Linux with NVIDIA GPU (CUDA 13.0):**
 
    ```bash
-   uv sync --extra torch-cuda118
+   uv sync --extra torch-cuda130
    ```
 
    - **Windows/Linux with NVIDIA GPU (CUDA 12.8):**
@@ -64,8 +64,14 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
    ```bash
    uv sync --extra torch-cuda128
    ```
-   
-   - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):** 
+
+   - **Windows/Linux with NVIDIA GPU (CUDA 11.8):**
+
+   ```bash
+   uv sync --extra torch-cuda118
+   ```
+
+   - **macOS with Apple Silicon (M1, M2, M3, M4) or CPU-only (no GPU or unsupported GPU):**
    Note: Even if torch-cpu is used on macOS, the MPS backend will be available.
    ```bash
    uv sync --extra torch-cpu

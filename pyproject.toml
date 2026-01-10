@@ -59,10 +59,11 @@ version = { attr = "sleap_nn.__version__" }
 readme = { file = ["README.md"], content-type = "text/markdown" }
 
 [project.optional-dependencies]
-torch = ["torch", "torchvision>=0.20.0,<0.24.0"]
-torch-cpu = ["torch", "torchvision>=0.20.0,<0.24.0"]
-torch-cuda118 = ["torch", "torchvision>=0.20.0,<0.24.0"]
-torch-cuda128 = ["torch", "torchvision>=0.20.0,<0.24.0"]
+torch = ["torch", "torchvision>=0.20.0"]
+torch-cpu = ["torch", "torchvision>=0.20.0"]
+torch-cuda118 = ["torch", "torchvision>=0.20.0"]
+torch-cuda128 = ["torch", "torchvision>=0.20.0"]
+torch-cuda130 = ["torch", "torchvision>=0.20.0"]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)
@@ -101,19 +102,22 @@ conflicts = [
         { extra = "torch-cpu" },
         { extra = "torch-cuda118" },
         { extra = "torch-cuda128" },
+        { extra = "torch-cuda130" },
     ],
 ]
 
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
-    { index = "pytorch-cu118", extra = "torch-cuda118" },
-    { index = "pytorch-cu128", extra = "torch-cuda128" },
+    { index = "pytorch-cu118", extra = "torch-cuda118", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pytorch-cu128", extra = "torch-cuda128", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pytorch-cu130", extra = "torch-cuda130", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "torch-cpu" },
-    { index = "pytorch-cu118", extra = "torch-cuda118" },
-    { index = "pytorch-cu128", extra = "torch-cuda128" },
+    { index = "pytorch-cu118", extra = "torch-cuda118", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pytorch-cu128", extra = "torch-cuda128", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
+    { index = "pytorch-cu130", extra = "torch-cuda130", marker = "platform_machine == 'x86_64' and sys_platform != 'darwin'" },
 ]
 
 [[tool.uv.index]]
@@ -129,6 +133,11 @@ explicit = true
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
 explicit = true
 
 [[tool.uv.index]]
