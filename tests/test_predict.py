@@ -1277,6 +1277,9 @@ def test_predict_main(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "track",
         "--model_paths",
@@ -1304,6 +1307,9 @@ def test_predict_main(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "track",
         "--model_paths",
@@ -1339,6 +1345,9 @@ def test_predict_main(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "track",
         "--model_paths",

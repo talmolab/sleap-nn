@@ -516,6 +516,9 @@ def test_evaluator_main(
     cmd = [
         "uv",
         "run",
+        "--frozen",
+        "--extra",
+        "torch-cpu",
         "sleap-nn",
         "eval",
         "--ground_truth_path",

@@ -13,6 +13,9 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      USE_CUDA: "0"
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -29,13 +32,17 @@ jobs:
         run: uv sync --extra torch-cpu
 
       - name: Run Black
-        run: uv run black --check sleap_nn tests
+        run: uv run --frozen --extra torch-cpu black --check sleap_nn tests
 
       - name: Run Ruff
-        run: uv run ruff check sleap_nn/
+        run: uv run --frozen --extra torch-cpu ruff check sleap_nn/
 
   tests:
     timeout-minutes: 30
+    env:
+      CUDA_VISIBLE_DEVICES: ""
+      USE_CUDA: "0"
+      UV_FROZEN: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -78,12 +85,12 @@ jobs:
       - name: Print environment info
         run: |
           echo "=== UV Environment ==="
-          uv run python --version
-          uv run python -c "import sys; print('Python executable:', sys.executable)"
+          uv run --frozen --extra torch-cpu python --version
+          uv run --frozen --extra torch-cpu python -c "import sys; print('Python executable:', sys.executable)"
           echo "=== UV Environment NumPy Check ==="
-          uv run python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
+          uv run --frozen --extra torch-cpu python -c "import numpy; print('NumPy version:', numpy.__version__); print('NumPy location:', numpy.__file__)" || echo "NumPy import failed in uv environment"
           echo "=== CUDA Availability Check ==="
-          uv run python -c "
+          uv run --frozen --extra torch-cpu python -c "
           import torch
           print(f'PyTorch version: {torch.__version__}')
           print(f'CUDA available: {torch.cuda.is_available()}')
@@ -95,24 +102,14 @@ jobs:
           else:
               print('CUDA is not available')
           " || echo "CUDA check failed"
-          echo "=== PIP EXECUTABLE COMPARISON ==="
-          uv run python -c "import subprocess; print('pip from uv run python:', subprocess.check_output(['pip', '--version']).decode().strip())" || echo "pip not found from python"
-          uv run pip --version || echo "uv run pip failed"
-          echo "=== UV pip list vs python -m pip list ==="
-          echo "--- uv run pip list ---"
-          uv run pip list | head -20
-          echo "--- uv run python -m pip list ---"
-          uv run python -m pip list | head -20
-          echo "=== UV ENVIRONMENT CHECK ==="
-          uv run python -c "import os; print('VIRTUAL_ENV:', os.environ.get('VIRTUAL_ENV', 'Not set'))"
           echo "=== Import Test ==="
-          uv run python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
+          uv run --frozen --extra torch-cpu python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
 
       - name: Check MPS backend (macOS only)
         if: runner.os == 'macOS'
         run: |
           echo "=== macOS MPS Backend Check ==="
-          uv run python -c "
+          uv run --frozen --extra torch-cpu python -c "
           import torch
           print(f'PyTorch version: {torch.__version__}')
           print(f'MPS available: {torch.backends.mps.is_available()}')
@@ -129,9 +126,9 @@ jobs:
       - name: Run pytest
         run: |
           echo "=== Final environment check before tests ==="
-          uv run python -c "import numpy, torch, lightning, kornia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
+          uv run --frozen --extra torch-cpu python -c "import numpy, torch, lightning, kornia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
           echo "=== Running pytest ==="
-          uv run pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
+          uv run --frozen --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
