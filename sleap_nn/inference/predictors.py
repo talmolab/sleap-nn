@@ -178,6 +178,17 @@ class Predictor(ABC):
         init=False, default=None, repr=False
     )
 
+    @property
+    def async_staging(self) -> bool:
+        """Use async GPU→CPU staging (PR 342 optimization).
+
+        Controlled by SLEAP_NN_ASYNC_STAGING env var. Default: True.
+        Set to '0' or 'false' to disable.
+        """
+        import os
+        val = os.environ.get("SLEAP_NN_ASYNC_STAGING", "1").lower()
+        return val not in ("0", "false", "no", "off")
+
     @classmethod
     def from_model_paths(
         cls,
@@ -515,7 +526,7 @@ class Predictor(ABC):
             ) as progress:
                 task = progress.add_task("Predicting...", total=total_frames)
                 last_report = time()
-                pending_outputs: List[_StagedOutput] = []
+                pending_outputs: List[_StagedOutput] = [] if self.async_staging else None
 
                 done = False
                 while not done:
@@ -590,11 +601,17 @@ class Predictor(ABC):
                             )
                         outputs_list = self.inference_model(ex)
                         if outputs_list is not None:
-                            for output in outputs_list:
-                                pending_outputs.append(
-                                    self._stage_output_for_numpy(output)
-                                )
-                            del outputs_list
+                            if self.async_staging:
+                                # Async path: stage outputs for pipelined transfer
+                                for output in outputs_list:
+                                    pending_outputs.append(
+                                        self._stage_output_for_numpy(output)
+                                    )
+                                del outputs_list
+                            else:
+                                # Sync path: convert directly
+                                for output in outputs_list:
+                                    yield self._convert_tensors_to_numpy(output)
 
                         # Advance progress
                         num_frames = (
@@ -604,24 +621,28 @@ class Predictor(ABC):
                         )
                         progress.update(task, advance=num_frames)
 
-                    while pending_outputs and pending_outputs[0].ready():
-                        staged_output = pending_outputs.pop(0)
-                        staged_output.wait()
-                        result = self._convert_tensors_to_numpy(staged_output.payload)
-                        staged_output.payload = None
-                        yield result
+                    # Drain ready async outputs
+                    if self.async_staging:
+                        while pending_outputs and pending_outputs[0].ready():
+                            staged_output = pending_outputs.pop(0)
+                            staged_output.wait()
+                            result = self._convert_tensors_to_numpy(staged_output.payload)
+                            staged_output.payload = None
+                            yield result
 
                     # Manually refresh progress bar
                     if time() - last_report > 0.25:
                         progress.refresh()
                         last_report = time()
 
-                while pending_outputs:
-                    staged_output = pending_outputs.pop(0)
-                    staged_output.wait()
-                    result = self._convert_tensors_to_numpy(staged_output.payload)
-                    staged_output.payload = None
-                    yield result
+                # Drain remaining async outputs
+                if self.async_staging:
+                    while pending_outputs:
+                        staged_output = pending_outputs.pop(0)
+                        staged_output.wait()
+                        result = self._convert_tensors_to_numpy(staged_output.payload)
+                        staged_output.payload = None
+                        yield result
 
         except KeyboardInterrupt:
             logger.info("Inference interrupted by user")
