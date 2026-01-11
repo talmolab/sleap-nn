@@ -1995,6 +1995,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../inference/provenance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    provenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../inference/single_instance/" class="md-nav__link">
         
   
@@ -3253,7 +3281,7 @@ If not provided, the labels will be loaded from paths in the config.</p>
 </span><span id="__span-0-106"><a id="__codelineno-0-106" name="__codelineno-0-106"></a>                    <span class="p">],</span>
 </span><span id="__span-0-107"><a id="__codelineno-0-107" name="__codelineno-0-107"></a>                    <span class="n">peak_threshold</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span>
 </span><span id="__span-0-108"><a id="__codelineno-0-108" name="__codelineno-0-108"></a>                    <span class="n">make_labels</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
-</span><span id="__span-0-109"><a id="__codelineno-0-109" name="__codelineno-0-109"></a>                    <span class="n">device</span><span class="o">=</span><span class="n">trainer</span><span class="o">.</span><span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">root_device</span><span class="p">,</span>
+</span><span id="__span-0-109"><a id="__codelineno-0-109" name="__codelineno-0-109"></a>                    <span class="n">device</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">trainer</span><span class="o">.</span><span class="n">trainer</span><span class="o">.</span><span class="n">strategy</span><span class="o">.</span><span class="n">root_device</span><span class="p">),</span>
 </span><span id="__span-0-110"><a id="__codelineno-0-110" name="__codelineno-0-110"></a>                    <span class="n">output_path</span><span class="o">=</span><span class="n">pred_path</span><span class="p">,</span>
 </span><span id="__span-0-111"><a id="__codelineno-0-111" name="__codelineno-0-111"></a>                    <span class="n">ensure_rgb</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">data_config</span><span class="o">.</span><span class="n">preprocessing</span><span class="o">.</span><span class="n">ensure_rgb</span><span class="p">,</span>
 </span><span id="__span-0-112"><a id="__codelineno-0-112" name="__codelineno-0-112"></a>                    <span class="n">ensure_grayscale</span><span class="o">=</span><span class="n">config</span><span class="o">.</span><span class="n">data_config</span><span class="o">.</span><span class="n">preprocessing</span><span class="o">.</span><span class="n">ensure_grayscale</span><span class="p">,</span>

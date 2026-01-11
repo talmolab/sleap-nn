@@ -213,6 +213,10 @@
          <lastmod>2026-01-11</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/provenance/</loc>
+         <lastmod>2026-01-11</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/inference/single_instance/</loc>
          <lastmod>2026-01-11</lastmod>
     </url>
