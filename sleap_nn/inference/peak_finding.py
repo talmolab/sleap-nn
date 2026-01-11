@@ -47,15 +47,23 @@ def crop_bboxes(
     width = abs(bboxes[0, 1, 0] - bboxes[0, 0, 0])
     box_size = tuple(torch.round(torch.Tensor((height + 1, width + 1))).to(torch.int32))
 
+    # Store original dtype for conversion back after cropping.
+    original_dtype = images.dtype
+
+    # Kornia's crop_and_resize requires float32 input.
+    images_to_crop = images[sample_inds]
+    if not torch.is_floating_point(images_to_crop):
+        images_to_crop = images_to_crop.float()
+
     # Crop.
     crops = crop_and_resize(
-        images[sample_inds],  # (n_boxes, channels, height, width)
+        images_to_crop,  # (n_boxes, channels, height, width)
         boxes=bboxes,
         size=box_size,
     )
 
     # Cast back to original dtype and return.
-    crops = crops.to(images.dtype)
+    crops = crops.to(original_dtype)
     return crops
 
 
