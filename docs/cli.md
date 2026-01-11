@@ -9,6 +9,18 @@ This page provides a quick reference for all `sleap-nn` command-line interface (
 | [`sleap-nn train`](#sleap-nn-train) | Train pose estimation models | [Training Guide](training.md) |
 | [`sleap-nn track`](#sleap-nn-track) | Run inference and/or tracking | [Inference Guide](inference.md) |
 | [`sleap-nn eval`](#sleap-nn-eval) | Evaluate predictions against ground truth | [Inference Guide](inference.md#evaluation-metrics) |
+| [`sleap-nn system`](#sleap-nn-system) | Display system info and GPU diagnostics | - |
+
+## Global Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--version` | `-v` | Show sleap-nn version and exit |
+
+```bash
+sleap-nn --version
+# Output: sleap-nn 0.1.0a0
+```
 
 ---
 
@@ -146,6 +158,8 @@ sleap-nn track -i labels.slp -t
 | `--video_input_format` | Input format for HDF5 videos | `channels_last` |
 | `--only_labeled_frames` | Only run on labeled frames | `False` |
 | `--only_suggested_frames` | Only run on suggested frames | `False` |
+| `--exclude_user_labeled` | Skip frames with user-labeled instances | `False` |
+| `--only_predicted_frames` | Only run on frames with existing predictions | `False` |
 | `--no_empty_frames` | Remove empty frames from output | `False` |
 
 #### Peak Detection
@@ -239,6 +253,47 @@ sleap-nn eval \
 ```
 
 See [Evaluation Metrics](inference.md#evaluation-metrics) for more details.
+
+---
+
+## `sleap-nn system`
+
+Display system information and GPU diagnostics. Useful for troubleshooting GPU issues and verifying your installation.
+
+```bash
+sleap-nn system
+```
+
+### Output Includes
+
+- Python version and platform
+- PyTorch version and build info
+- CUDA/cuDNN versions with driver compatibility check
+- GPU details (name, compute capability, memory)
+- Functional GPU tests (tensor operations, convolution)
+- Installed package versions (sleap-nn, sleap-io, torch, etc.)
+
+### Example Output
+
+```
+System Information
+==================
+Python: 3.12.8
+Platform: Linux-6.14.0-27-generic-x86_64-with-glibc2.39
+PyTorch: 2.7.0+cu130
+
+CUDA Available: Yes
+CUDA Version: 13.0
+cuDNN Version: 90800
+Driver Version: 570.133.20
+...
+```
+
+This command is particularly helpful when:
+
+- Debugging GPU detection issues
+- Verifying CUDA/cuDNN compatibility
+- Reporting issues or asking for help
 
 ---
 

@@ -97,8 +97,15 @@ sleap-nn track \
 | `--input_scale` | Scale factor to apply to the input image. If not provided, the values from the training config are used. Default: None. | `None` |
 | `--ensure_rgb` | True if the input image should have 3 channels (RGB image). If input has only one channel when this is set to `True`, then the images from single-channel is replicated along the channel axis. If the image has three channels and this is set to False, then we retain the three channels. If not provided, the values from the training config are used. Default: `None`. | `False` |
 | `--ensure_grayscale` | True if the input image should only have a single channel. If input has three channels (RGB) and this is set to True, then we convert the image to grayscale (single-channel) image. If the source image has only one channel and this is set to False, then we retain the single channel input. If not provided, the values from the training config are used. Default: `None`. | `False` |
-| `--crop_size` | Crop size. If not provided, the crop size from training_config.yaml is used. If `input_scale` is provided, then the cropped image will be resized according to `input_scale`. | `None` |
+| `--crop_size` | Crop size in **original image coordinates**. The crop is extracted first at this size, then resized by `input_scale` if provided. If not provided, the crop size from training_config.yaml is used. | `None` |
 | `--anchor_part` | The node name to use as the anchor for the centroid. If not provided, the anchor part in the `training_config.yaml` is used. Default: `None`. | `None` |
+
+!!! warning "Breaking Change in v0.1.0: crop_size semantics"
+    Prior to v0.1.0, `crop_size` referred to the crop region size after scaling (resize-then-crop).
+
+    **New behavior**: `crop_size` now represents the size in **original image coordinates**—the image is cropped first at this size, then resized by `input_scale`.
+
+    **Migration**: If you were using `crop_size=128` with `input_scale=0.5`, you may need to use `crop_size=256` to maintain the same effective crop region.
 
 #### Data Selection
 
@@ -152,6 +159,39 @@ labels = run_inference(
 ```
 
 For a detailed explanation of all available parameters for `run_inference`, see the API docs for [run_inference()](../api/predict/#sleap_nn.predict.run_inference).
+
+## Provenance Metadata
+
+Output prediction files (`.slp`) now include comprehensive provenance metadata that records how predictions were generated. This is useful for reproducibility and debugging.
+
+### Accessing Provenance
+
+```python linenums="1"
+import sleap_io as sio
+
+labels = sio.load_slp("predictions.slp")
+provenance = labels.provenance
+
+print(f"sleap-nn version: {provenance.get('sleap_nn_version')}")
+print(f"Model type: {provenance.get('model_type')}")
+print(f"Runtime: {provenance.get('runtime_sec')}s")
+```
+
+### Recorded Information
+
+| Category | Fields |
+|----------|--------|
+| **Timestamps** | `timestamp_start`, `timestamp_end`, `runtime_sec` |
+| **Versions** | `sleap_nn_version`, `sleap_io_version`, `torch_version` |
+| **Model** | `model_paths`, `model_type`, `head_type` |
+| **Input** | `source_path`, `source_video_paths`, `input_provenance` |
+| **Frames** | `frame_selection_method`, `frames_predicted`, `total_frames` |
+| **Config** | `peak_threshold`, `batch_size`, `integral_refinement`, `max_instances` |
+| **System** | `device`, `python_version`, `cuda_version`, `gpu_names` |
+| **Tracking** | `tracker_method`, `tracker_window`, etc. (when tracking enabled) |
+
+!!! note "Input Provenance Preservation"
+    If the input was an SLP file with existing provenance, that information is preserved in the `input_provenance` field, maintaining the full chain of processing history.
 
 ## Tracking
 

@@ -29,6 +29,7 @@ Python 3.11 (or) 3.12 (or) 3.13 (required for all installation methods)
     - **[Installation with uv add](#installation-with-uv-add)**: Use `uv add` to install sleap-nn as a dependency in a uv virtual env. (useful for project-specific workspaces)
     - **[Installation with pip](#installation-with-pip)**: Use `pip` to install from pypi in a conda env. (Recommended to use with a conda env)
     - **[Installation from source](#installation-from-source)**: Use `uv sync` to install from source (for developmental purposes)
+    - **[Installing Pre-release Versions](#installing-pre-release-versions)**: For testing alpha/beta releases
 
 ---
 
@@ -458,6 +459,67 @@ uv run sleap-nn track ...
 
 ---
 
+## Installing Pre-release Versions
+
+Pre-release versions (alpha, beta, release candidates) require explicit opt-in since they are excluded by default per [PEP 440](https://peps.python.org/pep-0440/#handling-of-pre-releases).
+
+### Why Pre-releases?
+
+Pre-release versions like `0.1.0a0` let us test new features and breaking changes with a smaller group before a stable release. Users won't accidentally get pre-releases unless they explicitly opt in.
+
+### Installation Commands
+
+=== "uv tool install"
+    ```bash
+    # With GPU auto-detection
+    uv tool install sleap-nn[torch] --torch-backend auto --prerelease=allow
+
+    # With specific CUDA version
+    uv tool install sleap-nn[torch] --torch-backend cu130 --prerelease=allow
+    ```
+
+=== "uvx"
+    ```bash
+    # Run commands with pre-release version
+    uvx --from "sleap-nn[torch]" --torch-backend auto --prerelease=allow sleap-nn --help
+    uvx --from "sleap-nn[torch]" --torch-backend auto --prerelease=allow sleap-nn track -i video.mp4 -m models/
+    ```
+
+=== "uv add"
+    ```bash
+    # Add pre-release to project
+    uv add sleap-nn[torch] --prerelease=allow --index https://download.pytorch.org/whl/cu128 --index https://pypi.org/simple
+    ```
+
+=== "pip"
+    ```bash
+    # Install pre-release with pip
+    pip install --pre sleap-nn[torch] --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
+    ```
+
+### Pin to Specific Version
+
+To install a specific pre-release version:
+
+```bash
+# uv tool install
+uv tool install "sleap-nn[torch]==0.1.0a0" --torch-backend auto
+
+# pip
+pip install "sleap-nn[torch]==0.1.0a0" --index-url https://pypi.org/simple --extra-index-url https://download.pytorch.org/whl/cu128
+```
+
+### Environment Variable
+
+For repeated use, you can set the environment variable:
+
+```bash
+export UV_PRERELEASE=allow
+```
+
+This makes all `uv` commands default to allowing pre-releases.
+
+---
 
 ## Troubleshooting
 
