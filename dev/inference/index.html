@@ -527,6 +527,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#provenance-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance Metadata
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provenance Metadata">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#accessing-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accessing Provenance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recorded-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recorded Information
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tracking" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3017,6 +3056,45 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#provenance-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provenance Metadata
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Provenance Metadata">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#accessing-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accessing Provenance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recorded-information" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recorded Information
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#tracking" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3311,7 +3389,7 @@
 </tr>
 <tr>
 <td><code>--crop_size</code></td>
-<td>Crop size. If not provided, the crop size from training_config.yaml is used. If <code>input_scale</code> is provided, then the cropped image will be resized according to <code>input_scale</code>.</td>
+<td>Crop size in <strong>original image coordinates</strong>. The crop is extracted first at this size, then resized by <code>input_scale</code> if provided. If not provided, the crop size from training_config.yaml is used.</td>
 <td><code>None</code></td>
 </tr>
 <tr>
@@ -3321,6 +3399,12 @@
 </tr>
 </tbody>
 </table>
+<div class="admonition warning">
+<p class="admonition-title">Breaking Change in v0.1.0: crop_size semantics</p>
+<p>Prior to v0.1.0, <code>crop_size</code> referred to the crop region size after scaling (resize-then-crop).</p>
+<p><strong>New behavior</strong>: <code>crop_size</code> now represents the size in <strong>original image coordinates</strong>—the image is cropped first at this size, then resized by <code>input_scale</code>.</p>
+<p><strong>Migration</strong>: If you were using <code>crop_size=128</code> with <code>input_scale=0.5</code>, you may need to use <code>crop_size=256</code> to maintain the same effective crop region.</p>
+</div>
 <h4 id="data-selection">Data Selection<a class="headerlink" href="#data-selection" title="Permanent link">&para;</a></h4>
 <table>
 <thead>
@@ -3426,6 +3510,72 @@ Setting <code>return_confmaps=True</code> will also return the raw confidence ma
 </span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9"></a><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div>
 <p>For a detailed explanation of all available parameters for <code>run_inference</code>, see the API docs for <a href="../api/predict/#sleap_nn.predict.run_inference">run_inference()</a>.</p>
+<h2 id="provenance-metadata">Provenance Metadata<a class="headerlink" href="#provenance-metadata" title="Permanent link">&para;</a></h2>
+<p>Output prediction files (<code>.slp</code>) now include comprehensive provenance metadata that records how predictions were generated. This is useful for reproducibility and debugging.</p>
+<h3 id="accessing-provenance">Accessing Provenance<a class="headerlink" href="#accessing-provenance" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<span class="normal"><a href="#__codelineno-7-2">2</a></span>
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span>
+<span class="normal"><a href="#__codelineno-7-5">5</a></span>
+<span class="normal"><a href="#__codelineno-7-6">6</a></span>
+<span class="normal"><a href="#__codelineno-7-7">7</a></span>
+<span class="normal"><a href="#__codelineno-7-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2"></a>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="n">labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;predictions.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="n">provenance</span> <span class="o">=</span> <span class="n">labels</span><span class="o">.</span><span class="n">provenance</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5"></a>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;sleap-nn version: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;sleap_nn_version&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Model type: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;model_type&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Runtime: </span><span class="si">{</span><span class="n">provenance</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;runtime_sec&#39;</span><span class="p">)</span><span class="si">}</span><span class="s2">s&quot;</span><span class="p">)</span>
+</span></code></pre></div></td></tr></table></div>
+<h3 id="recorded-information">Recorded Information<a class="headerlink" href="#recorded-information" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Category</th>
+<th>Fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Timestamps</strong></td>
+<td><code>timestamp_start</code>, <code>timestamp_end</code>, <code>runtime_sec</code></td>
+</tr>
+<tr>
+<td><strong>Versions</strong></td>
+<td><code>sleap_nn_version</code>, <code>sleap_io_version</code>, <code>torch_version</code></td>
+</tr>
+<tr>
+<td><strong>Model</strong></td>
+<td><code>model_paths</code>, <code>model_type</code>, <code>head_type</code></td>
+</tr>
+<tr>
+<td><strong>Input</strong></td>
+<td><code>source_path</code>, <code>source_video_paths</code>, <code>input_provenance</code></td>
+</tr>
+<tr>
+<td><strong>Frames</strong></td>
+<td><code>frame_selection_method</code>, <code>frames_predicted</code>, <code>total_frames</code></td>
+</tr>
+<tr>
+<td><strong>Config</strong></td>
+<td><code>peak_threshold</code>, <code>batch_size</code>, <code>integral_refinement</code>, <code>max_instances</code></td>
+</tr>
+<tr>
+<td><strong>System</strong></td>
+<td><code>device</code>, <code>python_version</code>, <code>cuda_version</code>, <code>gpu_names</code></td>
+</tr>
+<tr>
+<td><strong>Tracking</strong></td>
+<td><code>tracker_method</code>, <code>tracker_window</code>, etc. (when tracking enabled)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition note">
+<p class="admonition-title">Input Provenance Preservation</p>
+<p>If the input was an SLP file with existing provenance, that information is preserved in the <code>input_provenance</code> field, maintaining the full chain of processing history.</p>
+</div>
 <h2 id="tracking">Tracking<a class="headerlink" href="#tracking" title="Permanent link">&para;</a></h2>
 <p>SLEAP-NN provides advanced tracking capabilities for multi-instance pose estimation. When running inference, the output labels object (or <code>.slp</code> file) will include track IDs assigned to the predicted instances (or user-labeled instances). </p>
 <p>When using the <code>sleap-nn track</code> CLI command with both <code>--model_paths</code> and <code>--tracking</code> specified, the tool will perform both pose prediction and track assignment in a single step—automatically generating pose predictions and associating them into tracks.</p>
@@ -3532,42 +3682,42 @@ Setting <code>return_confmaps=True</code> will also return the raw confidence ma
 </div>
 <h4 id="fixed-window-tracking">Fixed Window Tracking<a class="headerlink" href="#fixed-window-tracking" title="Permanent link">&para;</a></h4>
 <p>This method maintains a fixed-size queue with the last N frames and uses all instances from those frames as candidates for matching.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">    </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">    </span>-m<span class="w"> </span>models/bottomup_unet/<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span>--candidates_method<span class="w"> </span>fixed_window<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span>
-</span></code></pre></div>
-<h4 id="local-queues-tracking">Local Queues Tracking<a class="headerlink" href="#local-queues-tracking" title="Permanent link">&para;</a></h4>
-<p>This method maintains separate queues for each track ID, keeping the last N instances per track. It's more robust to track breaks but requires more memory and computation.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">    </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span>-m<span class="w"> </span>models/bottomup_unet/<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">5</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">    </span>--candidates_method<span class="w"> </span>fixed_window<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">10</span>
 </span></code></pre></div>
-<h4 id="optical-flow-tracking">Optical Flow Tracking<a class="headerlink" href="#optical-flow-tracking" title="Permanent link">&para;</a></h4>
-<p>This method uses optical flow to shift the candidates onto the frame to be tracked and then associates the untracked instances to the shifted instances.</p>
+<h4 id="local-queues-tracking">Local Queues Tracking<a class="headerlink" href="#local-queues-tracking" title="Permanent link">&para;</a></h4>
+<p>This method maintains separate queues for each track ID, keeping the last N instances per track. It's more robust to track breaks but requires more memory and computation.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">    </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span>-m<span class="w"> </span>models/bottomup_unet/<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--use_flow
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">    </span>--candidates_method<span class="w"> </span>local_queues<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">    </span>--tracking_window_size<span class="w"> </span><span class="m">5</span>
+</span></code></pre></div>
+<h4 id="optical-flow-tracking">Optical Flow Tracking<a class="headerlink" href="#optical-flow-tracking" title="Permanent link">&para;</a></h4>
+<p>This method uses optical flow to shift the candidates onto the frame to be tracked and then associates the untracked instances to the shifted instances.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span>-i<span class="w"> </span>video.mp4<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>-m<span class="w"> </span>models/bottomup_unet/<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="w">    </span>--use_flow
 </span></code></pre></div>
 <h3 id="track-only-workflow">Track-only workflow<a class="headerlink" href="#track-only-workflow" title="Permanent link">&para;</a></h3>
 <p>You can perform tracking on existing user-labeled instances—without running inference to get new predictions—by enabling tracking (<code>--tracking</code>) and omitting the <code>--model-paths</code> argument.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">    </span>-i<span class="w"> </span>labels.slp<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span></code></pre></div>
-<p>To run track-only workflow on select frame indices and video index in a slp file:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">    </span>-i<span class="w"> </span>labels.slp<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">    </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">    </span>--video_index<span class="w"> </span><span class="m">0</span>
+</span></code></pre></div>
+<p>To run track-only workflow on select frame indices and video index in a slp file:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span>track<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span>-i<span class="w"> </span>labels.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span>-t<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span>--frames<span class="w"> </span><span class="m">0</span>-100<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span>--video_index<span class="w"> </span><span class="m">0</span>
 </span></code></pre></div>
 <h2 id="legacy-sleap-model-support">Legacy SLEAP Model Support<a class="headerlink" href="#legacy-sleap-model-support" title="Permanent link">&para;</a></h2>
 <p>SLEAP-NN supporting running inference with models trained using the original SLEAP TensorFlow/Keras backend (sleap &lt;= 1.4), <strong>but only for UNet backbone models</strong>.
@@ -3579,10 +3729,10 @@ To run inference with legacy SLEAP models (trained with TensorFlow/Keras, sleap 
 <h2 id="evaluation-metrics">Evaluation Metrics<a class="headerlink" href="#evaluation-metrics" title="Permanent link">&para;</a></h2>
 <p>SLEAP-NN provides comprehensive evaluation capabilities to assess model performance against ground truth labels.</p>
 <p>Using CLI:
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">    </span>--ground_truth_path<span class="w"> </span>gt_labels.slp<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span>--predicted_path<span class="w"> </span>pred_labels.slp<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span>--save_metrics<span class="w"> </span>pred_metrics.npz<span class="w"> </span><span class="se">\</span>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a>sleap-nn<span class="w"> </span><span class="nb">eval</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">    </span>--ground_truth_path<span class="w"> </span>gt_labels.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span>--predicted_path<span class="w"> </span>pred_labels.slp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span>--save_metrics<span class="w"> </span>pred_metrics.npz<span class="w"> </span><span class="se">\</span>
 </span></code></pre></div></p>
 <table>
 <thead>
@@ -3631,35 +3781,35 @@ To run inference with legacy SLEAP models (trained with TensorFlow/Keras, sleap 
 </tbody>
 </table>
 <p>Using <code>Evaluator</code> API:
-<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-13-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-13-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-13-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-13-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-13-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-13-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-13-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-13-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-13-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-13-10">10</a></span>
-<span class="normal"><a href="#__codelineno-13-11">11</a></span>
-<span class="normal"><a href="#__codelineno-13-12">12</a></span>
-<span class="normal"><a href="#__codelineno-13-13">13</a></span>
-<span class="normal"><a href="#__codelineno-13-14">14</a></span>
-<span class="normal"><a href="#__codelineno-13-15">15</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
-</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">Evaluator</span>
-</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3"></a>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4"></a><span class="c1"># Load ground truth and predictions</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5"></a><span class="n">gt_labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;gt_labels.slp&quot;</span><span class="p">)</span>
-</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6"></a><span class="n">pred_labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;pred_labels.slp&quot;</span><span class="p">)</span>
-</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7"></a>
-</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8"></a><span class="c1"># Create evaluator and compute metrics</span>
-</span><span id="__span-13-9"><a id="__codelineno-13-9" name="__codelineno-13-9"></a><span class="n">evaluator</span> <span class="o">=</span> <span class="n">Evaluator</span><span class="p">(</span><span class="n">gt_labels</span><span class="p">,</span> <span class="n">pred_labels</span><span class="p">)</span>
-</span><span id="__span-13-10"><a id="__codelineno-13-10" name="__codelineno-13-10"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
-</span><span id="__span-13-11"><a id="__codelineno-13-11" name="__codelineno-13-11"></a>
-</span><span id="__span-13-12"><a id="__codelineno-13-12" name="__codelineno-13-12"></a><span class="c1"># Print results</span>
-</span><span id="__span-13-13"><a id="__codelineno-13-13" name="__codelineno-13-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OKS mAP: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAP&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-13-14"><a id="__codelineno-13-14" name="__codelineno-13-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mOKS: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;mOKS&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-</span><span id="__span-13-15"><a id="__codelineno-13-15" name="__codelineno-13-15"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dist. error @90th percentile: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;p90&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<div class="language-python highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-14-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-14-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-14-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-14-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-14-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-14-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-14-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-14-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-14-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-14-10">10</a></span>
+<span class="normal"><a href="#__codelineno-14-11">11</a></span>
+<span class="normal"><a href="#__codelineno-14-12">12</a></span>
+<span class="normal"><a href="#__codelineno-14-13">13</a></span>
+<span class="normal"><a href="#__codelineno-14-14">14</a></span>
+<span class="normal"><a href="#__codelineno-14-15">15</a></span></pre></div></td><td class="code"><div><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">sleap_io</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sio</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">sleap_nn.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">Evaluator</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3"></a>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4"></a><span class="c1"># Load ground truth and predictions</span>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5"></a><span class="n">gt_labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;gt_labels.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6"></a><span class="n">pred_labels</span> <span class="o">=</span> <span class="n">sio</span><span class="o">.</span><span class="n">load_slp</span><span class="p">(</span><span class="s2">&quot;pred_labels.slp&quot;</span><span class="p">)</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7"></a>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8"></a><span class="c1"># Create evaluator and compute metrics</span>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9"></a><span class="n">evaluator</span> <span class="o">=</span> <span class="n">Evaluator</span><span class="p">(</span><span class="n">gt_labels</span><span class="p">,</span> <span class="n">pred_labels</span><span class="p">)</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10"></a><span class="n">metrics</span> <span class="o">=</span> <span class="n">evaluator</span><span class="o">.</span><span class="n">evaluate</span><span class="p">()</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11"></a>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12"></a><span class="c1"># Print results</span>
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;OKS mAP: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;voc_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;oks_voc.mAP&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;mOKS: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;mOKS&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Dist. error @90th percentile: </span><span class="si">{</span><span class="n">metrics</span><span class="p">[</span><span class="s1">&#39;distance_metrics&#39;</span><span class="p">][</span><span class="s1">&#39;p90&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </span></code></pre></div></td></tr></table></div></p>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="common-issues">Common Issues<a class="headerlink" href="#common-issues" title="Permanent link">&para;</a></h3>

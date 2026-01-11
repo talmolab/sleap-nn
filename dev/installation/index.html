@@ -568,6 +568,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#installing-pre-release-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing Pre-release Versions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installing Pre-release Versions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-pre-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Pre-releases?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installation-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pin-to-specific-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pin to Specific Version
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variable
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3321,6 +3382,67 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#installing-pre-release-versions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing Pre-release Versions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Installing Pre-release Versions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-pre-releases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Pre-releases?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installation-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation Commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pin-to-specific-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pin to Specific Version
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-variable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment Variable
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#troubleshooting" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3419,6 +3541,7 @@ Replace <code>...</code> with the rest of your install command as needed.</p>
 <li><strong><a href="#installation-with-uv-add">Installation with uv add</a></strong>: Use <code>uv add</code> to install sleap-nn as a dependency in a uv virtual env. (useful for project-specific workspaces)</li>
 <li><strong><a href="#installation-with-pip">Installation with pip</a></strong>: Use <code>pip</code> to install from pypi in a conda env. (Recommended to use with a conda env)</li>
 <li><strong><a href="#installation-from-source">Installation from source</a></strong>: Use <code>uv sync</code> to install from source (for developmental purposes)</li>
+<li><strong><a href="#installing-pre-release-versions">Installing Pre-release Versions</a></strong>: For testing alpha/beta releases</li>
 </ul>
 </div>
 <hr />
@@ -3818,6 +3941,53 @@ Before running <code>uv add "sleap-nn[torch]" ...</code> on Windows, manually in
 </span><span id="__span-47-9"><a id="__codelineno-47-9" name="__codelineno-47-9" href="#__codelineno-47-9"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>train<span class="w"> </span>...
 </span><span id="__span-47-10"><a id="__codelineno-47-10" name="__codelineno-47-10" href="#__codelineno-47-10"></a>uv<span class="w"> </span>run<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>...
 </span></code></pre></div>
+<hr />
+<h2 id="installing-pre-release-versions">Installing Pre-release Versions<a class="headerlink" href="#installing-pre-release-versions" title="Permanent link">&para;</a></h2>
+<p>Pre-release versions (alpha, beta, release candidates) require explicit opt-in since they are excluded by default per <a href="https://peps.python.org/pep-0440/#handling-of-pre-releases">PEP 440</a>.</p>
+<h3 id="why-pre-releases">Why Pre-releases?<a class="headerlink" href="#why-pre-releases" title="Permanent link">&para;</a></h3>
+<p>Pre-release versions like <code>0.1.0a0</code> let us test new features and breaking changes with a smaller group before a stable release. Users won't accidentally get pre-releases unless they explicitly opt in.</p>
+<h3 id="installation-commands">Installation Commands<a class="headerlink" href="#installation-commands" title="Permanent link">&para;</a></h3>
+<div class="tabbed-set tabbed-alternate" data-tabs="10:4"><input checked="checked" id="__tabbed_10_1" name="__tabbed_10" type="radio" /><input id="__tabbed_10_2" name="__tabbed_10" type="radio" /><input id="__tabbed_10_3" name="__tabbed_10" type="radio" /><input id="__tabbed_10_4" name="__tabbed_10" type="radio" /><div class="tabbed-labels"><label for="__tabbed_10_1">uv tool install</label><label for="__tabbed_10_2">uvx</label><label for="__tabbed_10_3">uv add</label><label for="__tabbed_10_4">pip</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="c1"># With GPU auto-detection</span>
+</span><span id="__span-48-2"><a id="__codelineno-48-2" name="__codelineno-48-2" href="#__codelineno-48-2"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto<span class="w"> </span>--prerelease<span class="o">=</span>allow
+</span><span id="__span-48-3"><a id="__codelineno-48-3" name="__codelineno-48-3" href="#__codelineno-48-3"></a>
+</span><span id="__span-48-4"><a id="__codelineno-48-4" name="__codelineno-48-4" href="#__codelineno-48-4"></a><span class="c1"># With specific CUDA version</span>
+</span><span id="__span-48-5"><a id="__codelineno-48-5" name="__codelineno-48-5" href="#__codelineno-48-5"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--torch-backend<span class="w"> </span>cu130<span class="w"> </span>--prerelease<span class="o">=</span>allow
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="c1"># Run commands with pre-release version</span>
+</span><span id="__span-49-2"><a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto<span class="w"> </span>--prerelease<span class="o">=</span>allow<span class="w"> </span>sleap-nn<span class="w"> </span>--help
+</span><span id="__span-49-3"><a id="__codelineno-49-3" name="__codelineno-49-3" href="#__codelineno-49-3"></a>uvx<span class="w"> </span>--from<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto<span class="w"> </span>--prerelease<span class="o">=</span>allow<span class="w"> </span>sleap-nn<span class="w"> </span>track<span class="w"> </span>-i<span class="w"> </span>video.mp4<span class="w"> </span>-m<span class="w"> </span>models/
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="c1"># Add pre-release to project</span>
+</span><span id="__span-50-2"><a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a>uv<span class="w"> </span>add<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--prerelease<span class="o">=</span>allow<span class="w"> </span>--index<span class="w"> </span>https://download.pytorch.org/whl/cu128<span class="w"> </span>--index<span class="w"> </span>https://pypi.org/simple
+</span></code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="c1"># Install pre-release with pip</span>
+</span><span id="__span-51-2"><a id="__codelineno-51-2" name="__codelineno-51-2" href="#__codelineno-51-2"></a>pip<span class="w"> </span>install<span class="w"> </span>--pre<span class="w"> </span>sleap-nn<span class="o">[</span>torch<span class="o">]</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128
+</span></code></pre></div>
+</div>
+</div>
+</div>
+<h3 id="pin-to-specific-version">Pin to Specific Version<a class="headerlink" href="#pin-to-specific-version" title="Permanent link">&para;</a></h3>
+<p>To install a specific pre-release version:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="c1"># uv tool install</span>
+</span><span id="__span-52-2"><a id="__codelineno-52-2" name="__codelineno-52-2" href="#__codelineno-52-2"></a>uv<span class="w"> </span>tool<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]==0.1.0a0&quot;</span><span class="w"> </span>--torch-backend<span class="w"> </span>auto
+</span><span id="__span-52-3"><a id="__codelineno-52-3" name="__codelineno-52-3" href="#__codelineno-52-3"></a>
+</span><span id="__span-52-4"><a id="__codelineno-52-4" name="__codelineno-52-4" href="#__codelineno-52-4"></a><span class="c1"># pip</span>
+</span><span id="__span-52-5"><a id="__codelineno-52-5" name="__codelineno-52-5" href="#__codelineno-52-5"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;sleap-nn[torch]==0.1.0a0&quot;</span><span class="w"> </span>--index-url<span class="w"> </span>https://pypi.org/simple<span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cu128
+</span></code></pre></div>
+<h3 id="environment-variable">Environment Variable<a class="headerlink" href="#environment-variable" title="Permanent link">&para;</a></h3>
+<p>For repeated use, you can set the environment variable:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">UV_PRERELEASE</span><span class="o">=</span>allow
+</span></code></pre></div>
+<p>This makes all <code>uv</code> commands default to allowing pre-releases.</p>
 <hr />
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <h3 id="import-errors">Import Errors<a class="headerlink" href="#import-errors" title="Permanent link">&para;</a></h3>
