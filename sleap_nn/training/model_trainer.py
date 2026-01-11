@@ -702,7 +702,7 @@ class ModelTrainer:
         self._verify_model_input_channels()
 
     def _setup_model_ckpt_dir(self):
-        """Create the model ckpt folder."""
+        """Create the model ckpt folder and save ground truth labels."""
         ckpt_path = (
             Path(self.config.trainer_config.ckpt_dir)
             / self.config.trainer_config.run_name
@@ -723,6 +723,7 @@ class ModelTrainer:
                 self.config, "data_config.user_instances_only", default=True
             )
 
+            # Save train and val ground truth labels
             for idx, (train, val) in enumerate(zip(self.train_labels, self.val_labels)):
                 # Filter to user-labeled frames if needed (for evaluation)
                 if user_instances_only:
@@ -733,13 +734,44 @@ class ModelTrainer:
                     val_filtered = val
 
                 train_filtered.save(
-                    Path(ckpt_path) / f"labels_train_gt_{idx}.slp",
+                    Path(ckpt_path) / f"labels_gt.train.{idx}.slp",
                     restore_original_videos=False,
                 )
                 val_filtered.save(
-                    Path(ckpt_path) / f"labels_val_gt_{idx}.slp",
+                    Path(ckpt_path) / f"labels_gt.val.{idx}.slp",
                     restore_original_videos=False,
                 )
+
+            # Save test ground truth labels if test paths are provided
+            test_file_path = OmegaConf.select(
+                self.config, "data_config.test_file_path", default=None
+            )
+            if test_file_path is not None:
+                # Normalize to list of strings
+                if isinstance(test_file_path, str):
+                    test_paths = [test_file_path]
+                else:
+                    test_paths = list(test_file_path)
+
+                for idx, test_path in enumerate(test_paths):
+                    # Only save if it's a .slp file (not a video file)
+                    if test_path.endswith(".slp") or test_path.endswith(".pkg.slp"):
+                        try:
+                            test_labels = sio.load_slp(test_path)
+                            if user_instances_only:
+                                test_filtered = self._filter_to_user_labeled(
+                                    test_labels
+                                )
+                            else:
+                                test_filtered = test_labels
+                            test_filtered.save(
+                                Path(ckpt_path) / f"labels_gt.test.{idx}.slp",
+                                restore_original_videos=False,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Could not save test ground truth for {test_path}: {e}"
+                            )
 
     def _setup_viz_datasets(self):
         """Setup dataloaders."""

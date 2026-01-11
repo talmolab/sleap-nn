@@ -172,8 +172,12 @@ def test_train_method(minimal_instance, tmp_path: str):
         (Path(tmp_path) / "test_train_method").joinpath("training_config.yaml").exists()
     )
     assert (Path(tmp_path) / "test_train_method").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_train_method").joinpath("pred_val_0.slp").exists()
-    assert (Path(tmp_path) / "test_train_method").joinpath("pred_test.slp").exists()
+    assert (
+        (Path(tmp_path) / "test_train_method").joinpath("labels_pr.val.0.slp").exists()
+    )
+    assert (
+        (Path(tmp_path) / "test_train_method").joinpath("labels_pr.test.0.slp").exists()
+    )
 
     # with no val labels path
     train(
@@ -199,9 +203,15 @@ def test_train_method(minimal_instance, tmp_path: str):
     )
     assert (Path(tmp_path) / "test_train_method-1").joinpath("best.ckpt").exists()
     assert (
-        (Path(tmp_path) / "test_train_method-1").joinpath("pred_train_0.slp").exists()
+        (Path(tmp_path) / "test_train_method-1")
+        .joinpath("labels_pr.train.0.slp")
+        .exists()
     )
-    assert (Path(tmp_path) / "test_train_method-1").joinpath("pred_test.slp").exists()
+    assert (
+        (Path(tmp_path) / "test_train_method-1")
+        .joinpath("labels_pr.test.0.slp")
+        .exists()
+    )
 
     # convnext
     train(
@@ -222,8 +232,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert folder_created
     assert (Path(tmp_path) / "test_convnext").joinpath("training_config.yaml").exists()
     assert (Path(tmp_path) / "test_convnext").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_convnext").joinpath("pred_val_0.slp").exists()
-    assert (Path(tmp_path) / "test_convnext").joinpath("pred_test.slp").exists()
+    assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.val.0.slp").exists()
+    assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.test.0.slp").exists()
 
     # swint
     train(
@@ -244,8 +254,8 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert folder_created
     assert (Path(tmp_path) / "test_swint").joinpath("training_config.yaml").exists()
     assert (Path(tmp_path) / "test_swint").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_val_0.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("pred_test.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("labels_pr.val.0.slp").exists()
+    assert (Path(tmp_path) / "test_swint").joinpath("labels_pr.test.0.slp").exists()
 
     # test for multiple slp files
     train(
@@ -266,13 +276,13 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert folder_created
     assert (Path(tmp_path) / "test_swint-1").joinpath("training_config.yaml").exists()
     assert (Path(tmp_path) / "test_swint-1").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_val_0.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_val_1.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_val_2.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_train_0.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_train_1.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_train_2.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("pred_test.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.val.0.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.val.1.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.val.2.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.train.0.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.train.1.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.train.2.slp").exists()
+    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.test.0.slp").exists()
 
     # with augmentations
     with pytest.raises(ValueError):
@@ -649,12 +659,12 @@ def test_main(sample_cfg, minimal_instance):
     )
     assert (
         (Path(sample_cfg.trainer_config.ckpt_dir) / sample_cfg.trainer_config.run_name)
-        .joinpath("pred_train_0.slp")
+        .joinpath("labels_pr.train.0.slp")
         .exists()
     )
     assert (
         (Path(sample_cfg.trainer_config.ckpt_dir) / sample_cfg.trainer_config.run_name)
-        .joinpath("pred_val_0.slp")
+        .joinpath("labels_pr.val.0.slp")
         .exists()
     )
     assert (
@@ -662,7 +672,7 @@ def test_main(sample_cfg, minimal_instance):
             Path(sample_cfg.trainer_config.ckpt_dir)
             / sample_cfg.trainer_config.run_name
         )
-        .joinpath("pred_test.slp")
+        .joinpath("labels_pr.test.0.slp")
         .exists()
     )
 
@@ -680,6 +690,6 @@ def test_main(sample_cfg, minimal_instance):
         Path(
             f"{sample_cfg.trainer_config.ckpt_dir}/{sample_cfg.trainer_config.run_name}-1"
         )
-        .joinpath("pred_test.slp")
+        .joinpath("labels_pr.test.0.slp")
         .exists()
     )
