@@ -56,19 +56,17 @@ def run_training(
         # run inference on val dataset
         if trainer.config.trainer_config.save_ckpt:
             data_paths = {}
+            run_path = (
+                Path(trainer.config.trainer_config.ckpt_dir)
+                / trainer.config.trainer_config.run_name
+            )
             for index, _ in enumerate(trainer.train_labels):
-                logger.info(
-                    f"Training labels path for index {index}: {(Path(trainer.config.trainer_config.ckpt_dir) / trainer.config.trainer_config.run_name).as_posix()}"
-                )
-                data_paths[f"train_{index}"] = (
-                    Path(trainer.config.trainer_config.ckpt_dir)
-                    / trainer.config.trainer_config.run_name
-                    / f"labels_train_gt_{index}.slp"
+                logger.info(f"Run path for index {index}: {run_path.as_posix()}")
+                data_paths[f"train.{index}"] = (
+                    run_path / f"labels_gt.train.{index}.slp"
                 ).as_posix()
-                data_paths[f"val_{index}"] = (
-                    Path(trainer.config.trainer_config.ckpt_dir)
-                    / trainer.config.trainer_config.run_name
-                    / f"labels_val_gt_{index}.slp"
+                data_paths[f"val.{index}"] = (
+                    run_path / f"labels_gt.val.{index}.slp"
                 ).as_posix()
 
             # Handle test_file_path as either a string or list of strings
@@ -81,29 +79,18 @@ def run_training(
                     test_paths = [test_file_path]
                 else:
                     test_paths = list(test_file_path)
-                # Add each test path to data_paths
+                # Add each test path to data_paths (always use index for consistency)
                 for idx, test_path in enumerate(test_paths):
-                    key = "test" if len(test_paths) == 1 else f"test_{idx}"
-                    data_paths[key] = test_path
+                    data_paths[f"test.{idx}"] = test_path
 
             for d_name, path in data_paths.items():
-                pred_path = (
-                    Path(trainer.config.trainer_config.ckpt_dir)
-                    / trainer.config.trainer_config.run_name
-                    / f"pred_{d_name}.slp"
-                )
-                metrics_path = (
-                    Path(trainer.config.trainer_config.ckpt_dir)
-                    / trainer.config.trainer_config.run_name
-                    / f"{d_name}_pred_metrics.npz"
-                )
+                # d_name is now in format: "train.0", "val.0", "test.0", etc.
+                pred_path = run_path / f"labels_pr.{d_name}.slp"
+                metrics_path = run_path / f"metrics.{d_name}.npz"
 
                 pred_labels = predict(
                     data_path=path,
-                    model_paths=[
-                        Path(trainer.config.trainer_config.ckpt_dir)
-                        / trainer.config.trainer_config.run_name
-                    ],
+                    model_paths=[run_path],
                     peak_threshold=0.2,
                     make_labels=True,
                     device=str(trainer.trainer.strategy.root_device),

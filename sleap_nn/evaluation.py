@@ -682,7 +682,11 @@ def load_metrics(model_path: str, split="val"):
     if Path(model_path).suffix == ".npz":
         metrics_path = Path(model_path)
     else:
-        metrics_path = Path(model_path) / f"{split}_0_pred_metrics.npz"
+        # Try new naming format first: metrics.{split}.0.npz
+        metrics_path = Path(model_path) / f"metrics.{split}.0.npz"
+        if not metrics_path.exists():
+            # Fall back to old naming format: {split}_0_pred_metrics.npz
+            metrics_path = Path(model_path) / f"{split}_0_pred_metrics.npz"
     if not metrics_path.exists():
         raise FileNotFoundError(f"Metrics file not found at {metrics_path}")
     with np.load(metrics_path, allow_pickle=True) as data:
