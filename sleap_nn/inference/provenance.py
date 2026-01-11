@@ -91,9 +91,9 @@ def build_inference_provenance(
 
     # Model information
     if model_paths is not None:
-        # Store as POSIX paths for cross-platform compatibility
+        # Store as absolute POSIX paths for cross-platform compatibility
         provenance["model_paths"] = [
-            Path(p).as_posix() if isinstance(p, (str, Path)) else str(p)
+            Path(p).resolve().as_posix() if isinstance(p, (str, Path)) else str(p)
             for p in model_paths
         ]
     if model_type is not None:
@@ -102,7 +102,7 @@ def build_inference_provenance(
     # Input data lineage
     if input_path is not None:
         provenance["source_file"] = (
-            Path(input_path).as_posix()
+            Path(input_path).resolve().as_posix()
             if isinstance(input_path, (str, Path))
             else str(input_path)
         )
@@ -230,7 +230,7 @@ def build_tracking_only_provenance(
     # Input data lineage
     if input_path is not None:
         provenance["source_file"] = (
-            Path(input_path).as_posix()
+            Path(input_path).resolve().as_posix()
             if isinstance(input_path, (str, Path))
             else str(input_path)
         )

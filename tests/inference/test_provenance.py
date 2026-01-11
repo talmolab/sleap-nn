@@ -41,7 +41,7 @@ class TestBuildInferenceProvenance:
         assert provenance["inference_runtime_seconds"] == 330.0
 
     def test_model_paths(self):
-        """Test model path handling."""
+        """Test model path handling - paths are resolved to absolute."""
         model_paths = ["/path/to/model1.ckpt", Path("/path/to/model2.ckpt")]
 
         provenance = build_inference_provenance(
@@ -50,29 +50,28 @@ class TestBuildInferenceProvenance:
             include_system_info=False,
         )
 
-        assert provenance["model_paths"] == [
-            "/path/to/model1.ckpt",
-            "/path/to/model2.ckpt",
-        ]
+        # Paths are resolved to absolute
+        assert "/path/to/model1.ckpt" in provenance["model_paths"][0]
+        assert "/path/to/model2.ckpt" in provenance["model_paths"][1]
         assert provenance["model_type"] == "top_down"
 
     def test_input_path(self):
-        """Test input path handling."""
+        """Test input path handling - paths are resolved to absolute."""
         provenance = build_inference_provenance(
             input_path="/path/to/input.slp",
             include_system_info=False,
         )
 
-        assert provenance["source_file"] == "/path/to/input.slp"
+        assert "/path/to/input.slp" in provenance["source_file"]
 
     def test_input_path_as_path_object(self):
-        """Test input path as Path object."""
+        """Test input path as Path object - resolved to absolute."""
         provenance = build_inference_provenance(
             input_path=Path("/path/to/input.slp"),
             include_system_info=False,
         )
 
-        assert provenance["source_file"] == "/path/to/input.slp"
+        assert "/path/to/input.slp" in provenance["source_file"]
 
     def test_input_labels_provenance_preservation(self):
         """Test that input labels provenance is preserved."""
