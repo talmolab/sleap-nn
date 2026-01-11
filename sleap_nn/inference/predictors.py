@@ -21,9 +21,6 @@ from sleap_nn.data.resizing import (
     apply_sizematcher,
     apply_resizer,
 )
-from sleap_nn.data.normalization import (
-    apply_normalization,
-)
 from sleap_nn.config.utils import get_model_type_from_cfg
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.training.lightning_modules import (
@@ -436,7 +433,6 @@ class Predictor(ABC):
                         if frame["image"] is None:
                             done = True
                             break
-                        frame["image"] = apply_normalization(frame["image"])
                         frame["image"], eff_scale = apply_sizematcher(
                             frame["image"],
                             self.preprocess_config["max_height"],

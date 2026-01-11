@@ -33,6 +33,7 @@ from sleap_nn.inference.bottomup import (
 )
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.architectures.model import Model
+from sleap_nn.data.normalization import normalize_on_gpu
 from sleap_nn.training.losses import compute_ohkm_loss
 from loguru import logger
 from sleap_nn.training.utils import (
@@ -558,6 +559,7 @@ class SingleInstanceLightningModule(LightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
         return self.model(img)["SingleInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
@@ -773,6 +775,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
         return self.model(img)["CenteredInstanceConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
@@ -989,6 +992,7 @@ class CentroidLightningModule(LightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
         return self.model(img)["CentroidConfmapsHead"]
 
     def training_step(self, batch, batch_idx):
@@ -1200,6 +1204,7 @@ class BottomUpLightningModule(LightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
         output = self.model(img)
         return {
             "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
@@ -1501,6 +1506,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
         output = self.model(img)
         return {
             "MultiInstanceConfmapsHead": output["MultiInstanceConfmapsHead"],
@@ -1754,6 +1760,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
     def forward(self, img):
         """Forward pass of the model."""
         img = torch.squeeze(img, dim=1).to(self.device)
+        img = normalize_on_gpu(img)
         output = self.model(img)
         return {
             "CenteredInstanceConfmapsHead": output["CenteredInstanceConfmapsHead"],
