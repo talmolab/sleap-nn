@@ -49,3 +49,8 @@ logger.add(
 )
 
 __version__ = "0.1.0"
+
+# Public API
+from sleap_nn.evaluation import load_metrics
+
+__all__ = ["load_metrics", "__version__"]

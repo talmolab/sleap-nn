@@ -669,28 +669,109 @@ class Evaluator:
         return metrics
 
 
-def load_metrics(model_path: str, split="val"):
-    """Load the metrics for a given model and split.
+def _find_metrics_file(model_dir: Path, split: str, dataset_idx: int) -> Path:
+    """Find the metrics file in a model directory.
+
+    Tries new naming format first, then falls back to old format.
+    If split is "test" and not found, falls back to "val".
+    """
+    # Try new naming format first: metrics.{split}.{idx}.npz
+    metrics_path = model_dir / f"metrics.{split}.{dataset_idx}.npz"
+    if metrics_path.exists():
+        return metrics_path
+
+    # Fall back to old naming format: {split}_{idx}_pred_metrics.npz
+    metrics_path = model_dir / f"{split}_{dataset_idx}_pred_metrics.npz"
+    if metrics_path.exists():
+        return metrics_path
+
+    # If split is "test" and not found, try "val" fallback
+    if split == "test":
+        return _find_metrics_file(model_dir, "val", dataset_idx)
+
+    # Return the new format path (will raise FileNotFoundError later)
+    return model_dir / f"metrics.{split}.{dataset_idx}.npz"
+
+
+def _load_npz_metrics(metrics_path: Path) -> dict:
+    """Load metrics from an npz file, supporting both old and new formats.
+
+    New format: single "metrics" key containing a dict with all metrics.
+    Old format: individual metric keys at top level (voc_metrics, mOKS, etc.).
+    """
+    with np.load(metrics_path, allow_pickle=True) as data:
+        keys = list(data.keys())
+
+        # New format: single "metrics" key containing dict
+        if "metrics" in keys:
+            return data["metrics"].item()
+
+        # Old format: individual metric keys at top level
+        expected_keys = {
+            "voc_metrics",
+            "mOKS",
+            "distance_metrics",
+            "pck_metrics",
+            "visibility_metrics",
+        }
+        if expected_keys.issubset(set(keys)):
+            return {
+                k: data[k].item() if data[k].ndim == 0 else data[k]
+                for k in expected_keys
+            }
+
+        # Unknown format - return all keys as dict
+        return {k: data[k].item() if data[k].ndim == 0 else data[k] for k in keys}
+
+
+def load_metrics(
+    path: str,
+    split: str = "test",
+    dataset_idx: int = 0,
+) -> dict:
+    """Load metrics from a model folder or metrics file.
+
+    This function supports both the new format (single "metrics" key) and the old
+    format (individual metric keys at top level). It also handles both old and new
+    file naming conventions in model folders.
 
     Args:
-        model_path: Path to a model folder or metrics file (.npz).
-        split: Name of the split to load the metrics for. Must be `"train"`, `"val"` or
-            `"test"` (default: `"val"`). Ignored if a path to a metrics NPZ file is
-            provided.
+        path: Path to a model folder or metrics file (.npz).
+        split: Name of the split to load. Must be "train", "val", or "test".
+            Default: "test". If "test" is not found, falls back to "val".
+            Ignored if path points directly to a .npz file.
+        dataset_idx: Index of the dataset (for multi-dataset training).
+            Default: 0. Ignored if path points directly to a .npz file.
 
+    Returns:
+        Dictionary containing metrics with keys: voc_metrics, mOKS,
+        distance_metrics, pck_metrics, visibility_metrics.
+
+    Raises:
+        FileNotFoundError: If no metrics file is found.
+
+    Examples:
+        >>> # Load from model folder (tries test, falls back to val)
+        >>> metrics = load_metrics("/path/to/model")
+        >>> print(metrics["mOKS"]["mOKS"])
+
+        >>> # Load specific split and dataset
+        >>> metrics = load_metrics("/path/to/model", split="val", dataset_idx=1)
+
+        >>> # Load directly from npz file
+        >>> metrics = load_metrics("/path/to/metrics.val.0.npz")
     """
-    if Path(model_path).suffix == ".npz":
-        metrics_path = Path(model_path)
+    path = Path(path)
+
+    if path.suffix == ".npz":
+        metrics_path = path
     else:
-        # Try new naming format first: metrics.{split}.0.npz
-        metrics_path = Path(model_path) / f"metrics.{split}.0.npz"
-        if not metrics_path.exists():
-            # Fall back to old naming format: {split}_0_pred_metrics.npz
-            metrics_path = Path(model_path) / f"{split}_0_pred_metrics.npz"
+        metrics_path = _find_metrics_file(path, split, dataset_idx)
+
     if not metrics_path.exists():
         raise FileNotFoundError(f"Metrics file not found at {metrics_path}")
-    with np.load(metrics_path, allow_pickle=True) as data:
-        return data["metrics"].item()
+
+    return _load_npz_metrics(metrics_path)
 
 
 def run_evaluation(

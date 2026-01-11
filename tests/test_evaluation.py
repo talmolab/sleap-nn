@@ -587,23 +587,75 @@ def test_evaluator_logging_empty_frame_pairs(caplog, minimal_instance):
 
 def test_load_metrics(single_instance_with_metrics_ckpt, tmp_path):
     """Test load_metrics function."""
-    metrics = load_metrics(single_instance_with_metrics_ckpt, "val")
+    # Test top-level import
+    from sleap_nn import load_metrics as load_metrics_top
+
+    assert load_metrics_top is load_metrics
+
+    # Test with model folder (old naming format: {split}_{idx}_pred_metrics.npz)
+    metrics = load_metrics(single_instance_with_metrics_ckpt, split="train")
     assert "voc_metrics" in metrics
     assert "mOKS" in metrics
     assert "distance_metrics" in metrics
     assert "pck_metrics" in metrics
     assert "visibility_metrics" in metrics
 
-    # test with .npz file
+    # Test with direct .npz file path
     metrics = load_metrics(
         single_instance_with_metrics_ckpt / "train_0_pred_metrics.npz"
     )
     assert "voc_metrics" in metrics
     assert "mOKS" in metrics
-    assert "distance_metrics" in metrics
-    assert "pck_metrics" in metrics
-    assert "visibility_metrics" in metrics
 
-    # test with invalid path
+    # Test with invalid path
     with pytest.raises(FileNotFoundError):
-        metrics = load_metrics(Path(tmp_path) / "test_load_metrics" / "invalid.npz")
+        load_metrics(Path(tmp_path) / "test_load_metrics" / "invalid.npz")
+
+    # Test new format (single "metrics" key)
+    new_format_dir = tmp_path / "new_format_model"
+    new_format_dir.mkdir()
+    test_metrics = {
+        "voc_metrics": {"oks_voc.mAP": 0.5},
+        "mOKS": {"mOKS": 0.8},
+        "distance_metrics": {"avg": 2.5},
+        "pck_metrics": {"mPCK": 0.9},
+        "visibility_metrics": {"precision": 0.95, "recall": 0.92},
+    }
+    np.savez_compressed(
+        new_format_dir / "metrics.val.0.npz", **{"metrics": test_metrics}
+    )
+    loaded = load_metrics(new_format_dir, split="val")
+    assert loaded["mOKS"]["mOKS"] == 0.8
+    assert loaded["voc_metrics"]["oks_voc.mAP"] == 0.5
+
+    # Test test->val fallback (no test metrics, should fall back to val)
+    loaded_fallback = load_metrics(new_format_dir, split="test")
+    assert loaded_fallback["mOKS"]["mOKS"] == 0.8
+
+    # Test dataset_idx parameter
+    np.savez_compressed(
+        new_format_dir / "metrics.val.1.npz",
+        **{
+            "metrics": {
+                "mOKS": {"mOKS": 0.7},
+                **{k: {} for k in test_metrics if k != "mOKS"},
+            }
+        },
+    )
+    loaded_idx1 = load_metrics(new_format_dir, split="val", dataset_idx=1)
+    assert loaded_idx1["mOKS"]["mOKS"] == 0.7
+
+    # Test old format (individual keys at top level)
+    old_format_dir = tmp_path / "old_format_model"
+    old_format_dir.mkdir()
+    np.savez_compressed(
+        old_format_dir / "val_0_pred_metrics.npz",
+        voc_metrics={"oks_voc.mAP": 0.6},
+        mOKS={"mOKS": 0.75},
+        distance_metrics={"avg": 3.0},
+        pck_metrics={"mPCK": 0.85},
+        visibility_metrics={"precision": 0.9},
+    )
+    loaded_old = load_metrics(old_format_dir, split="val")
+    assert loaded_old["mOKS"]["mOKS"] == 0.75
+    assert loaded_old["voc_metrics"]["oks_voc.mAP"] == 0.6
