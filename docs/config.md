@@ -197,6 +197,7 @@ The data configuration section controls how training and validation data is load
 - `validation_fraction`: (float) Float between 0 and 1 specifying the fraction of the training set to sample for generating the validation set. The remaining labeled frames will be left in the training set. If the `validation_labels` are already specified, this has no effect. **Default**: `0.1`
 - `test_file_path`: (str or list) Path or list of paths to test dataset(s) (`.slp` file(s) or `.mp4` file(s)). **Note**: This is used only with CLI to get evaluation on test set once training is completed. **Default**: `None`
 - `user_instances_only`: (bool) `True` if only user labeled instances should be used for training. If `False`, both user labeled and predicted instances would be used. **Default**: `True`
+- `use_same_data_for_val`: (bool) If `True`, use the same data for both training and validation (train = val). Useful for intentional overfitting on very small datasets (<10 images). When enabled, `val_labels_path` and `validation_fraction` are ignored. **Default**: `False`
 
 #### Example:
 
@@ -236,6 +237,7 @@ data_config:
     - `scale`: (float) Factor to resize the image dimensions by, specified as a float. **Default**: `1.0`
     - `crop_size`: (int) Crop size of each instance for centered-instance model. If `None`, this would be automatically computed based on the largest instance in the `sio.Labels` file. If `scale` is provided, then the cropped image will be resized according to `scale`. **Default**: `None`
     - `min_crop_size`: (int) Minimum crop size to be used if `crop_size` is `None`. **Default**: `100`
+    - `crop_padding`: (int, optional) Padding in pixels to add around the instance bounding box when auto-computing crop size. If `None`, padding is computed automatically based on augmentation settings (rotation range, scale range). Only used when `crop_size` is `None`. **Default**: `None`
 
 #### Example: Common Preprocessing Configurations
 
@@ -286,7 +288,7 @@ data_config:
 ```
 
 ### Data Augmentation
-- `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. **Default**: `False`
+- `use_augmentations_train`: (bool) True if the data augmentation should be applied to the training data, else False. **Default**: `True`
 - `augmentation_config`: (only if `use_augmentations` is `True`)
   - `intensity`: (Optional)
     - `uniform_noise_min`: (float) Minimum value for uniform noise (uniform_noise_min >=0). **Default**: `0.0`
@@ -308,7 +310,10 @@ data_config:
     - `scale_max`: (float) Maximum scaling factor. If scale_min and scale_max are provided, the scale is randomly sampled from the range scale_min <= scale <= scale_max for isotropic scaling. **Default**: `1.1`.
     - `translate_width`: (float) Maximum absolute fraction for horizontal translation. For example, if translate_width=a, then horizontal shift is randomly sampled in the range -img_width * a < dx < img_width * a. Will not translate by default. **Default**: `0.0`
     - `translate_height`: (float) Maximum absolute fraction for vertical translation. For example, if translate_height=a, then vertical shift is randomly sampled in the range -img_height * a < dy < img_height * a. Will not translate by default. **Default**: `0.0`
-    - `affine_p`: (float) Probability of applying random affine transformations. **Default**: `0.0`
+    - `affine_p`: (float) Probability of applying random affine transformations (rotation, scale, and translation bundled together). **Default**: `0.0`
+    - `rotation_p`: (float, optional) Probability of applying rotation independently. If set, rotation is applied separately from scale/translate. If `None`, rotation is bundled with `affine_p`. **Default**: `None`
+    - `scale_p`: (float, optional) Probability of applying scale independently. If set, scaling is applied separately from rotation/translate. If `None`, scaling is bundled with `affine_p`. **Default**: `None`
+    - `translate_p`: (float, optional) Probability of applying translation independently. If set, translation is applied separately from rotation/scale. If `None`, translation is bundled with `affine_p`. **Default**: `None`
     - `erase_scale_min`: (float) Minimum value of range of proportion of erased area against input image. **Default**: `0.0001`
     - `erase_scale_max`: (float) Maximum value of range of proportion of erased area against input image. **Default**: `0.01`
     - `erase_ratio_min`: (float) Minimum value of range of aspect ratio of erased area. **Default**: `1.0`
@@ -348,7 +353,7 @@ data_config:
     intensity: null  # No intensity augmentations
     geometric:
       rotation_min: -15.0
-      roration_max: 15.0
+      rotation_max: 15.0
       scale_min: 0.9
       scale_max: 1.1
       translate_width: 0.1
@@ -375,6 +380,27 @@ data_config:
       translate_height: 0.1
       affine_p: 0.5
       erase_p: 0.1
+```
+
+**Independent augmentation probabilities (new in v0.1.0):**
+
+Instead of bundling rotation, scale, and translation together with `affine_p`, you can apply them independently with different probabilities:
+
+```yaml
+data_config:
+  use_augmentations_train: true
+  augmentation_config:
+    geometric:
+      rotation_min: -15.0
+      rotation_max: 15.0
+      rotation_p: 0.5        # 50% chance of rotation
+      scale_min: 0.9
+      scale_max: 1.1
+      scale_p: 0.3           # 30% chance of scaling
+      translate_width: 0.1
+      translate_height: 0.1
+      translate_p: 0.2       # 20% chance of translation
+      # Note: affine_p is ignored when individual *_p values are set
 ```
 
 ---

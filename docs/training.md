@@ -200,6 +200,42 @@ train(
 ### Weights & Biases (WandB) Integration
   If you set `trainer_config.use_wandb = True` and provide a valid `trainer_config.wandb_config`, all key training metrics—including losses, training/validation times, and visualizations (if `wandb_config.save_viz_imgs_wandb` is set to True)—are automatically logged to your WandB project. This makes it easy to monitor progress and compare runs.
 
+#### WandB Visualization Options
+
+Control how training visualizations appear in WandB with these options:
+
+```yaml
+trainer_config:
+  use_wandb: true
+  wandb_config:
+    # ... other wandb settings ...
+    viz_enabled: true         # Pre-rendered matplotlib images (default)
+    viz_boxes: false          # Interactive keypoint boxes with sliders
+    viz_masks: false          # Confidence map overlay masks
+    viz_box_size: 5.0         # Size of keypoint boxes in pixels
+    viz_confmap_threshold: 0.1  # Threshold for confidence map masks
+```
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `viz_enabled` | Log pre-rendered matplotlib images to WandB | `True` |
+| `viz_boxes` | Log interactive keypoint boxes (enables epoch slider) | `False` |
+| `viz_masks` | Log confidence map overlay masks | `False` |
+| `viz_box_size` | Size of keypoint boxes in pixels | `5.0` |
+| `viz_confmap_threshold` | Minimum value to display in confmap masks | `0.1` |
+
+!!! tip "Interactive Epoch Slider"
+    Enable `viz_boxes: true` to get an interactive slider in WandB that lets you scrub through epochs and see how predictions improve over training.
+
+#### Per-Head Loss Monitoring
+
+Multi-head models (BottomUp, MultiClassBottomUp, MultiClassTopDown) now log individual head losses in addition to the total loss:
+
+- `train_confmap_loss` / `val_confmap_loss` - Confidence map head loss
+- `train_paf_loss` / `val_paf_loss` - Part affinity field head loss (bottom-up only)
+
+This helps diagnose when individual heads aren't learning effectively—for example, if confidence maps converge but PAFs plateau.
+
 ### Checkpointing & Artifacts
   For every training run, a dedicated checkpoint directory is created. This directory contains:
 
