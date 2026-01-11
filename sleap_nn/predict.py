@@ -16,6 +16,10 @@ from sleap_nn.tracking.tracker import (
     cull_instances,
 )
 from sleap_nn.system_info import get_startup_info_string
+from sleap_nn.inference.provenance import (
+    build_inference_provenance,
+    build_tracking_only_provenance,
+)
 from omegaconf import OmegaConf
 import sleap_io as sio
 from pathlib import Path
@@ -299,7 +303,8 @@ def run_inference(
                 raise ValueError(message)
 
             start_inf_time = time()
-            start_timestamp = str(datetime.now())
+            start_datetime = datetime.now()
+            start_timestamp = str(start_datetime)
             logger.info(f"Started tracking at: {start_timestamp}")
 
             labels = sio.load_slp(data_path) if input_labels is None else input_labels
@@ -373,22 +378,53 @@ def run_inference(
                 tracking_clean_iou_threshold=tracking_clean_iou_threshold,
             )
 
-            finish_timestamp = str(datetime.now())
+            end_datetime = datetime.now()
+            finish_timestamp = str(end_datetime)
             total_elapsed = time() - start_inf_time
             logger.info(f"Finished tracking at: {finish_timestamp}")
             logger.info(f"Total runtime: {total_elapsed} secs")
+
+            # Build tracking-only provenance
+            tracking_params = {
+                "window_size": tracking_window_size,
+                "min_new_track_points": min_new_track_points,
+                "candidates_method": candidates_method,
+                "min_match_points": min_match_points,
+                "features": features,
+                "scoring_method": scoring_method,
+                "scoring_reduction": scoring_reduction,
+                "robust_best_instance": robust_best_instance,
+                "track_matching_method": track_matching_method,
+                "max_tracks": max_tracks,
+                "use_flow": use_flow,
+                "post_connect_single_breaks": post_connect_single_breaks,
+            }
+            provenance = build_tracking_only_provenance(
+                input_labels=labels,
+                input_path=data_path,
+                start_time=start_datetime,
+                end_time=end_datetime,
+                tracking_params=tracking_params,
+                frames_processed=len(tracked_frames),
+            )
 
             output = sio.Labels(
                 labeled_frames=tracked_frames,
                 videos=labels.videos,
                 skeletons=labels.skeletons,
+                provenance=provenance,
             )
 
     else:
         start_inf_time = time()
-        start_timestamp = str(datetime.now())
+        start_datetime = datetime.now()
+        start_timestamp = str(start_datetime)
         logger.info(f"Started inference at: {start_timestamp}")
         logger.info(get_startup_info_string())
+
+        # Convert device to string if it's a torch.device object
+        if hasattr(device, "type"):
+            device = str(device)
 
         if device == "auto":
             device = (
@@ -551,12 +587,94 @@ def run_inference(
                 skeletons=output.skeletons,
             )
 
-        finish_timestamp = str(datetime.now())
+        end_datetime = datetime.now()
+        finish_timestamp = str(end_datetime)
         total_elapsed = time() - start_inf_time
         logger.info(f"Finished inference at: {finish_timestamp}")
-        logger.info(
-            f"Total runtime: {total_elapsed} secs"
-        )  # TODO: add number of predicted frames
+        logger.info(f"Total runtime: {total_elapsed} secs")
+
+        # Determine input labels for provenance preservation
+        input_labels_for_prov = None
+        if input_labels is not None:
+            input_labels_for_prov = input_labels
+        elif data_path is not None and data_path.endswith(".slp"):
+            # Load input labels to preserve provenance (if not already loaded)
+            try:
+                input_labels_for_prov = sio.load_slp(data_path)
+            except Exception:
+                pass
+
+        # Build inference parameters for provenance
+        inference_params = {
+            "peak_threshold": peak_threshold,
+            "integral_refinement": integral_refinement,
+            "integral_patch_size": integral_patch_size,
+            "batch_size": batch_size,
+            "max_instances": max_instances,
+            "crop_size": crop_size,
+            "input_scale": input_scale,
+            "anchor_part": anchor_part,
+        }
+
+        # Build tracking parameters if tracking was enabled
+        tracking_params_prov = None
+        if tracking:
+            tracking_params_prov = {
+                "window_size": tracking_window_size,
+                "min_new_track_points": min_new_track_points,
+                "candidates_method": candidates_method,
+                "min_match_points": min_match_points,
+                "features": features,
+                "scoring_method": scoring_method,
+                "scoring_reduction": scoring_reduction,
+                "robust_best_instance": robust_best_instance,
+                "track_matching_method": track_matching_method,
+                "max_tracks": max_tracks,
+                "use_flow": use_flow,
+                "post_connect_single_breaks": post_connect_single_breaks,
+            }
+
+        # Determine frame selection method
+        frame_selection_method = "all"
+        if only_labeled_frames:
+            frame_selection_method = "labeled"
+        elif only_suggested_frames:
+            frame_selection_method = "suggested"
+        elif only_predicted_frames:
+            frame_selection_method = "predicted"
+        elif frames is not None:
+            frame_selection_method = "specified"
+
+        # Determine model type from predictor class
+        predictor_type_map = {
+            "TopDownPredictor": "top_down",
+            "SingleInstancePredictor": "single_instance",
+            "BottomUpPredictor": "bottom_up",
+            "BottomUpMultiClassPredictor": "bottom_up_multi_class",
+            "TopDownMultiClassPredictor": "top_down_multi_class",
+        }
+        model_type = predictor_type_map.get(type(predictor).__name__)
+
+        # Build and set provenance (only for Labels objects)
+        if make_labels and isinstance(output, sio.Labels):
+            provenance = build_inference_provenance(
+                model_paths=model_paths,
+                model_type=model_type,
+                start_time=start_datetime,
+                end_time=end_datetime,
+                input_labels=input_labels_for_prov,
+                input_path=data_path,
+                frames_processed=(
+                    len(output.labeled_frames)
+                    if hasattr(output, "labeled_frames")
+                    else None
+                ),
+                frame_selection_method=frame_selection_method,
+                inference_params=inference_params,
+                tracking_params=tracking_params_prov,
+                device=device,
+            )
+            output.provenance = provenance
 
     if no_empty_frames:
         output.clean(frames=True, skeletons=False)

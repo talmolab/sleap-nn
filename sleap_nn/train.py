@@ -106,7 +106,7 @@ def run_training(
                     ],
                     peak_threshold=0.2,
                     make_labels=True,
-                    device=trainer.trainer.strategy.root_device,
+                    device=str(trainer.trainer.strategy.root_device),
                     output_path=pred_path,
                     ensure_rgb=config.data_config.preprocessing.ensure_rgb,
                     ensure_grayscale=config.data_config.preprocessing.ensure_grayscale,
