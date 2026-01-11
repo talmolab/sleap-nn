@@ -48,7 +48,7 @@ logger.add(
     format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.0a0"
 
 # Public API
 from sleap_nn.evaluation import load_metrics
