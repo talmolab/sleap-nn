@@ -422,6 +422,10 @@ def run_inference(
         logger.info(f"Started inference at: {start_timestamp}")
         logger.info(get_startup_info_string())
 
+        # Convert device to string if it's a torch.device object
+        if hasattr(device, "type"):
+            device = str(device)
+
         if device == "auto":
             device = (
                 "cuda"
