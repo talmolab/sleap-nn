@@ -323,6 +323,22 @@ def sample_config(tmp_path, minimal_instance):
     return config_data
 
 
+def _strip_ansi_codes(text: str) -> str:
+    """Remove ANSI escape codes from text.
+
+    This is necessary because some libraries (PyTorch Lightning, Rich, tqdm)
+    emit ANSI codes even when NO_COLOR is set, which breaks YAML parsing.
+    """
+    import re
+
+    # Pattern matches ANSI escape sequences including:
+    # - CSI sequences: \x1b[...X (e.g., colors, cursor movement)
+    # - Private mode sequences: \x1b[?...X (e.g., cursor show/hide)
+    # - OSC sequences: \x1b]...X (e.g., window title)
+    ansi_pattern = re.compile(r"\x1b\[[?0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07")
+    return ansi_pattern.sub("", text)
+
+
 def test_main_cli(sample_config, tmp_path):
     cmd = [
         "uv",
@@ -380,7 +396,9 @@ def test_main_cli(sample_config, tmp_path):
     assert result.returncode == 0
     # Try to parse the output back into the yaml, truncate the beginning (starts with "data_config")
     # Only keep stdout starting from "data_config" and ending at the next log timestamp
-    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    # Strip ANSI codes first as some libraries emit them even with NO_COLOR
+    stdout_clean = _strip_ansi_codes(result.stdout)
+    stripped_out = stdout_clean[stdout_clean.find("data_config") :].strip()
     # Find the next log line (timestamp pattern: YYYY-MM-DD HH:MM:SS |)
     match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
     if match:
@@ -414,7 +432,8 @@ def test_main_cli(sample_config, tmp_path):
     )
     # Exit code should be 0
     assert result.returncode == 0
-    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    stdout_clean = _strip_ansi_codes(result.stdout)
+    stripped_out = stdout_clean[stdout_clean.find("data_config") :].strip()
     match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
     if match:
         stripped_out = stripped_out[: match.start()]
@@ -454,8 +473,12 @@ def test_main_cli(sample_config, tmp_path):
     # Exit code should be 0
     assert result.returncode == 0
     # Check that overrides are applied
-    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
-    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    stdout_clean = _strip_ansi_codes(result.stdout)
+    stripped_out = stdout_clean[stdout_clean.find("data_config") :].strip()
+    # Find the next log line (timestamp pattern: YYYY-MM-DD HH:MM:SS |)
+    match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
+    if match:
+        stripped_out = stripped_out[: match.start()]
     output = OmegaConf.create(stripped_out)
     assert output.trainer_config.max_epochs == 3
     assert output.data_config.preprocessing.scale == 1.5

@@ -223,11 +223,18 @@ class BaseDataset(Dataset):
     def _fill_cache(self, labels: List[sio.Labels]):
         """Load all samples to cache."""
         # TODO: Implement parallel processing (using threads might cause error with MediaVideo backend)
+        import os
         import sys
 
         total_samples = len(self.lf_idx_list)
         cache_type = "disk" if self.cache_img == "disk" else "memory"
-        use_progress = sys.stdout.isatty()
+
+        # Check for NO_COLOR env var or non-interactive terminal
+        no_color = (
+            os.environ.get("NO_COLOR") is not None
+            or os.environ.get("FORCE_COLOR") == "0"
+        )
+        use_progress = sys.stdout.isatty() and not no_color
 
         def process_samples(progress=None, task=None):
             for sample in self.lf_idx_list:
@@ -251,7 +258,7 @@ class BaseDataset(Dataset):
                 BarColumn(),
                 TextColumn("{task.completed}/{task.total}"),
                 TimeElapsedColumn(),
-                console=Console(),
+                console=Console(force_terminal=True),
                 transient=True,
             ) as progress:
                 task = progress.add_task(
