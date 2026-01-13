@@ -372,9 +372,14 @@ def test_main_cli(sample_config, tmp_path):
     # Exit code should be 0
     assert result.returncode == 0
     # Try to parse the output back into the yaml, truncate the beginning (starts with "data_config")
-    # Only keep stdout starting from "data_config"
+    # Only keep stdout starting from "data_config" and ending at the next log timestamp
+    import re
+
     stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
-    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    # Find the next log line (timestamp pattern: YYYY-MM-DD HH:MM:SS |)
+    match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
+    if match:
+        stripped_out = stripped_out[: match.start()]
     output = OmegaConf.create(stripped_out)
     assert output == sample_config
 
@@ -404,7 +409,9 @@ def test_main_cli(sample_config, tmp_path):
     # Exit code should be 0
     assert result.returncode == 0
     stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
-    stripped_out = stripped_out[: stripped_out.find(" | INFO") - 19]
+    match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
+    if match:
+        stripped_out = stripped_out[: match.start()]
     output = OmegaConf.create(stripped_out)
     assert output == sample_config
 
