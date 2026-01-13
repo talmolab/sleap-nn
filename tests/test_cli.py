@@ -351,6 +351,12 @@ def test_main_cli(sample_config, tmp_path):
     )
     OmegaConf.save(sample_config, (Path(tmp_path) / "test_config.yaml").as_posix())
 
+    import os
+    import re
+
+    # Environment to disable color output from rich/loguru/lightning
+    no_color_env = {**os.environ, "NO_COLOR": "1", "FORCE_COLOR": "0"}
+
     cmd = [
         "uv",
         "run",
@@ -368,18 +374,13 @@ def test_main_cli(sample_config, tmp_path):
         cmd,
         capture_output=True,
         text=True,
+        env=no_color_env,
     )
     # Exit code should be 0
     assert result.returncode == 0
     # Try to parse the output back into the yaml, truncate the beginning (starts with "data_config")
     # Only keep stdout starting from "data_config" and ending at the next log timestamp
-    import re
-
-    # Strip ANSI escape codes from output (comprehensive pattern for all sequences)
-    ansi_escape = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[PX^_].*?\x1b\\")
-    clean_stdout = ansi_escape.sub("", result.stdout)
-
-    stripped_out = clean_stdout[clean_stdout.find("data_config") :].strip()
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
     # Find the next log line (timestamp pattern: YYYY-MM-DD HH:MM:SS |)
     match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
     if match:
@@ -409,11 +410,11 @@ def test_main_cli(sample_config, tmp_path):
         cmd,
         capture_output=True,
         text=True,
+        env=no_color_env,
     )
     # Exit code should be 0
     assert result.returncode == 0
-    clean_stdout = ansi_escape.sub("", result.stdout)
-    stripped_out = clean_stdout[clean_stdout.find("data_config") :].strip()
+    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
     match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
     if match:
         stripped_out = stripped_out[: match.start()]
@@ -441,6 +442,7 @@ def test_main_cli(sample_config, tmp_path):
         cmd,
         capture_output=True,
         text=True,
+        env=no_color_env,
     )
     assert (
         Path(f"{sample_config.trainer_config.ckpt_dir}")
