@@ -41,11 +41,13 @@ def _safe_print(msg):
 
 
 # Add logger with the custom filter
+# Only colorize if stdout is a TTY to avoid ANSI codes in captured output
 logger.add(
     _safe_print,
     level="DEBUG",
     filter=_should_log,
     format="{time:YYYY-MM-DD HH:mm:ss} | {message}",
+    colorize=sys.stdout.isatty(),
 )
 
 __version__ = "0.1.0a0"
