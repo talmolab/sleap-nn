@@ -223,22 +223,13 @@ class BaseDataset(Dataset):
     def _fill_cache(self, labels: List[sio.Labels]):
         """Load all samples to cache."""
         # TODO: Implement parallel processing (using threads might cause error with MediaVideo backend)
+        import sys
+
         total_samples = len(self.lf_idx_list)
         cache_type = "disk" if self.cache_img == "disk" else "memory"
+        use_progress = sys.stdout.isatty()
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("{task.completed}/{task.total}"),
-            TimeElapsedColumn(),
-            console=Console(),
-            transient=True,
-        ) as progress:
-            task = progress.add_task(
-                f"Caching images to {cache_type}", total=total_samples
-            )
-
+        def process_samples(progress=None, task=None):
             for sample in self.lf_idx_list:
                 labels_idx = sample["labels_idx"]
                 lf_idx = sample["lf_idx"]
@@ -250,8 +241,26 @@ class BaseDataset(Dataset):
                     Image.fromarray(img).save(f_name, format="JPEG")
                 if self.cache_img == "memory":
                     self.cache[(labels_idx, lf_idx)] = img
+                if progress is not None:
+                    progress.update(task, advance=1)
 
-                progress.update(task, advance=1)
+        if use_progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                TimeElapsedColumn(),
+                console=Console(),
+                transient=True,
+            ) as progress:
+                task = progress.add_task(
+                    f"Caching images to {cache_type}", total=total_samples
+                )
+                process_samples(progress, task)
+        else:
+            logger.info(f"Caching {total_samples} images to {cache_type}...")
+            process_samples()
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
