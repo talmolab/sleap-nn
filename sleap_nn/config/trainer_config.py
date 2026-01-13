@@ -90,6 +90,10 @@ class WandBConfig:
         viz_box_size: (float) Size of keypoint boxes in pixels (for viz_boxes). *Default*: `5.0`.
         viz_confmap_threshold: (float) Threshold for confidence map masks (for viz_masks). *Default*: `0.1`.
         log_viz_table: (bool) If True, also log images to a wandb.Table for backwards compatibility. *Default*: `False`.
+        delete_local_logs: (bool, optional) If True, delete local wandb logs folder after
+            training. If False, keep the folder. If None (default), automatically delete
+            if logging online (wandb_mode != "offline") and keep if logging offline.
+            *Default*: `None`.
     """
 
     entity: Optional[str] = None
@@ -107,6 +111,7 @@ class WandBConfig:
     viz_box_size: float = 5.0
     viz_confmap_threshold: float = 0.1
     log_viz_table: bool = False
+    delete_local_logs: Optional[bool] = None
 
 
 @define

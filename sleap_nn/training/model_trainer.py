@@ -898,6 +898,17 @@ class ModelTrainer:
             )
             loggers.append(wandb_logger)
 
+            # Log message about wandb local logs cleanup
+            should_delete_wandb_logs = wandb_config.delete_local_logs is True or (
+                wandb_config.delete_local_logs is None
+                and wandb_config.wandb_mode != "offline"
+            )
+            if should_delete_wandb_logs:
+                logger.info(
+                    "WandB local logs will be deleted after training completes. "
+                    "To keep logs, set trainer_config.wandb.delete_local_logs=false"
+                )
+
             # Learning rate monitor callback - logs LR at each step for dynamic schedulers
             # Only added when wandb is enabled since it requires a logger
             callbacks.append(LearningRateMonitor(logging_interval="step"))
@@ -1313,6 +1324,25 @@ class ModelTrainer:
             )
             if self.trainer.global_rank == 0 and self.config.trainer_config.use_wandb:
                 wandb.finish()
+
+                # Delete local wandb logs if configured
+                wandb_config = self.config.trainer_config.wandb
+                should_delete_wandb_logs = wandb_config.delete_local_logs is True or (
+                    wandb_config.delete_local_logs is None
+                    and wandb_config.wandb_mode != "offline"
+                )
+                if should_delete_wandb_logs:
+                    wandb_dir = (
+                        Path(self.config.trainer_config.ckpt_dir)
+                        / self.config.trainer_config.run_name
+                        / "wandb"
+                    )
+                    if wandb_dir.exists():
+                        logger.info(
+                            f"Deleting local wandb logs at {wandb_dir}... "
+                            "(set trainer_config.wandb.delete_local_logs=false to disable)"
+                        )
+                        shutil.rmtree(wandb_dir, ignore_errors=True)
 
             # delete image disk caching
             if (

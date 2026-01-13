@@ -123,6 +123,52 @@ def test_wandb_config():
     assert custom_conf.project == "test_project"
 
 
+def test_wandb_config_delete_local_logs():
+    """Test delete_local_logs field in WandBConfig.
+
+    Verifies default value and auto-detection logic.
+    """
+    # Check default value is None
+    conf = OmegaConf.structured(WandBConfig)
+    assert conf.delete_local_logs is None
+
+    # Test explicit True
+    custom_conf = OmegaConf.structured(WandBConfig(delete_local_logs=True))
+    assert custom_conf.delete_local_logs is True
+
+    # Test explicit False
+    custom_conf = OmegaConf.structured(WandBConfig(delete_local_logs=False))
+    assert custom_conf.delete_local_logs is False
+
+    # Test auto-detection logic: online mode (wandb_mode=None) should delete
+    config = WandBConfig(wandb_mode=None)
+    should_delete = config.delete_local_logs is True or (
+        config.delete_local_logs is None and config.wandb_mode != "offline"
+    )
+    assert should_delete is True
+
+    # Test auto-detection logic: offline mode should keep
+    config = WandBConfig(wandb_mode="offline")
+    should_delete = config.delete_local_logs is True or (
+        config.delete_local_logs is None and config.wandb_mode != "offline"
+    )
+    assert should_delete is False
+
+    # Test explicit True overrides offline mode
+    config = WandBConfig(wandb_mode="offline", delete_local_logs=True)
+    should_delete = config.delete_local_logs is True or (
+        config.delete_local_logs is None and config.wandb_mode != "offline"
+    )
+    assert should_delete is True
+
+    # Test explicit False overrides online mode
+    config = WandBConfig(wandb_mode=None, delete_local_logs=False)
+    should_delete = config.delete_local_logs is True or (
+        config.delete_local_logs is None and config.wandb_mode != "offline"
+    )
+    assert should_delete is False
+
+
 def test_optimizer_config(caplog):
     """optimizer_config tests.
 

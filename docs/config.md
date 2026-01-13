@@ -845,6 +845,7 @@ trainer_config:
     - `wandb_mode`: (str) "offline" if only local logging is required. **Default**: `"None"`
     - `prv_runid`: (str) Previous run ID if training should be resumed from a previous ckpt. **Default**: `None`
     - `group`: (str) Group name for the run.
+    - `delete_local_logs`: (bool, optional) If `True`, delete local wandb logs folder (`wandb/`) after training completes. If `False`, keep the folder. If `None` (default), automatically delete if logging online (`wandb_mode` != "offline") and keep if logging offline. This can save significant disk space since wandb local logs can be several GB. **Default**: `None`
 
 **Example WandB configurations:**
 
@@ -874,6 +875,18 @@ trainer_config:
     wandb_mode: "online"
     prv_runid: "abc123def456"
     group: "continued_experiments"
+```
+
+**Keep local wandb logs (override auto-delete):**
+```yaml
+trainer_config:
+  use_wandb: true
+  wandb:
+    entity: "your_username"
+    project: "sleap_nn_experiments"
+    name: "training_run"
+    wandb_mode: "online"
+    delete_local_logs: false  # Keep local logs even when syncing online
 ```
 
 **No WandB logging:**
