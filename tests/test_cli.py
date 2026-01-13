@@ -375,8 +375,8 @@ def test_main_cli(sample_config, tmp_path):
     # Only keep stdout starting from "data_config" and ending at the next log timestamp
     import re
 
-    # Strip ANSI escape codes from output
-    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+    # Strip ANSI escape codes from output (comprehensive pattern for all sequences)
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[PX^_].*?\x1b\\")
     clean_stdout = ansi_escape.sub("", result.stdout)
 
     stripped_out = clean_stdout[clean_stdout.find("data_config") :].strip()
