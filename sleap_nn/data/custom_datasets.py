@@ -13,6 +13,14 @@ from omegaconf import DictConfig, OmegaConf
 import numpy as np
 from PIL import Image
 from loguru import logger
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TimeElapsedColumn,
+)
+from rich.console import Console
 import torch
 import torchvision.transforms as T
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
@@ -215,17 +223,51 @@ class BaseDataset(Dataset):
     def _fill_cache(self, labels: List[sio.Labels]):
         """Load all samples to cache."""
         # TODO: Implement parallel processing (using threads might cause error with MediaVideo backend)
-        for sample in self.lf_idx_list:
-            labels_idx = sample["labels_idx"]
-            lf_idx = sample["lf_idx"]
-            img = labels[labels_idx][lf_idx].image
-            if img.shape[-1] == 1:
-                img = np.squeeze(img)
-            if self.cache_img == "disk":
-                f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
-                Image.fromarray(img).save(f_name, format="JPEG")
-            if self.cache_img == "memory":
-                self.cache[(labels_idx, lf_idx)] = img
+        import os
+        import sys
+
+        total_samples = len(self.lf_idx_list)
+        cache_type = "disk" if self.cache_img == "disk" else "memory"
+
+        # Check for NO_COLOR env var or non-interactive terminal
+        no_color = (
+            os.environ.get("NO_COLOR") is not None
+            or os.environ.get("FORCE_COLOR") == "0"
+        )
+        use_progress = sys.stdout.isatty() and not no_color
+
+        def process_samples(progress=None, task=None):
+            for sample in self.lf_idx_list:
+                labels_idx = sample["labels_idx"]
+                lf_idx = sample["lf_idx"]
+                img = labels[labels_idx][lf_idx].image
+                if img.shape[-1] == 1:
+                    img = np.squeeze(img)
+                if self.cache_img == "disk":
+                    f_name = f"{self.cache_img_path}/sample_{labels_idx}_{lf_idx}.jpg"
+                    Image.fromarray(img).save(f_name, format="JPEG")
+                if self.cache_img == "memory":
+                    self.cache[(labels_idx, lf_idx)] = img
+                if progress is not None:
+                    progress.update(task, advance=1)
+
+        if use_progress:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                TimeElapsedColumn(),
+                console=Console(force_terminal=True),
+                transient=True,
+            ) as progress:
+                task = progress.add_task(
+                    f"Caching images to {cache_type}", total=total_samples
+                )
+                process_samples(progress, task)
+        else:
+            logger.info(f"Caching {total_samples} images to {cache_type}...")
+            process_samples()
 
     def __len__(self) -> int:
         """Return the number of samples in the dataset."""
