@@ -375,7 +375,11 @@ def test_main_cli(sample_config, tmp_path):
     # Only keep stdout starting from "data_config" and ending at the next log timestamp
     import re
 
-    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    # Strip ANSI escape codes from output
+    ansi_escape = re.compile(r"\x1b\[[0-9;]*m")
+    clean_stdout = ansi_escape.sub("", result.stdout)
+
+    stripped_out = clean_stdout[clean_stdout.find("data_config") :].strip()
     # Find the next log line (timestamp pattern: YYYY-MM-DD HH:MM:SS |)
     match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
     if match:
@@ -408,7 +412,8 @@ def test_main_cli(sample_config, tmp_path):
     )
     # Exit code should be 0
     assert result.returncode == 0
-    stripped_out = result.stdout[result.stdout.find("data_config") :].strip()
+    clean_stdout = ansi_escape.sub("", result.stdout)
+    stripped_out = clean_stdout[clean_stdout.find("data_config") :].strip()
     match = re.search(r"\n\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \|", stripped_out)
     if match:
         stripped_out = stripped_out[: match.start()]
