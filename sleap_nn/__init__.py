@@ -45,7 +45,7 @@ logger.add(
     _safe_print,
     level="DEBUG",
     filter=_should_log,
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
+    format="{time:YYYY-MM-DD HH:mm:ss} | {message}",
 )
 
 __version__ = "0.1.0a0"
