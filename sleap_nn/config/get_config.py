@@ -677,6 +677,7 @@ def get_trainer_config(
     wandb_save_viz_imgs_wandb: bool = False,
     wandb_resume_prv_runid: Optional[str] = None,
     wandb_group_name: Optional[str] = None,
+    wandb_delete_local_logs: Optional[bool] = None,
     optimizer: str = "Adam",
     learning_rate: float = 1e-3,
     amsgrad: bool = False,
@@ -746,6 +747,9 @@ def get_trainer_config(
         wandb_resume_prv_runid: Previous run ID if training should be resumed from a previous
             ckpt. Default: None
         wandb_group_name: Group name for the wandb run. Default: None.
+        wandb_delete_local_logs: If True, delete local wandb logs folder after training.
+            If False, keep the folder. If None (default), automatically delete if logging
+            online (wandb_mode != "offline") and keep if logging offline. Default: None.
         optimizer: Optimizer to be used. One of ["Adam", "AdamW"]. Default: "Adam".
         learning_rate: Learning rate of type float. Default: 1e-3.
         amsgrad: Enable AMSGrad with the optimizer. Default: False.
@@ -846,6 +850,7 @@ def get_trainer_config(
             save_viz_imgs_wandb=wandb_save_viz_imgs_wandb,
             prv_runid=wandb_resume_prv_runid,
             group=wandb_group_name,
+            delete_local_logs=wandb_delete_local_logs,
         ),
         save_ckpt=save_ckpt,
         ckpt_dir=ckpt_dir,
