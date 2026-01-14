@@ -662,3 +662,261 @@ class ProgressReporterZMQ(Callback):
         return {
             k: float(v.item()) if hasattr(v, "item") else v for k, v in logs.items()
         }
+
+
+class EpochEndEvaluationCallback(Callback):
+    """Callback to run full evaluation metrics at end of validation epochs.
+
+    This callback collects predictions and ground truth during validation,
+    then runs the full evaluation pipeline (OKS, mAP, PCK, etc.) and logs
+    metrics to WandB.
+
+    Attributes:
+        skeleton: sio.Skeleton for creating instances.
+        videos: List of sio.Video objects.
+        eval_frequency: Run evaluation every N epochs (default: 1).
+        oks_stddev: OKS standard deviation (default: 0.025).
+        oks_scale: Optional OKS scale override.
+        metrics_to_log: List of metric keys to log.
+    """
+
+    def __init__(
+        self,
+        skeleton: "sio.Skeleton",
+        videos: list,
+        eval_frequency: int = 1,
+        oks_stddev: float = 0.025,
+        oks_scale: Optional[float] = None,
+        metrics_to_log: Optional[list] = None,
+    ):
+        """Initialize the callback.
+
+        Args:
+            skeleton: sio.Skeleton for creating instances.
+            videos: List of sio.Video objects.
+            eval_frequency: Run evaluation every N epochs (default: 1).
+            oks_stddev: OKS standard deviation (default: 0.025).
+            oks_scale: Optional OKS scale override.
+            metrics_to_log: List of metric keys to log. If None, logs all available.
+        """
+        super().__init__()
+        self.skeleton = skeleton
+        self.videos = videos
+        self.eval_frequency = eval_frequency
+        self.oks_stddev = oks_stddev
+        self.oks_scale = oks_scale
+        self.metrics_to_log = metrics_to_log or [
+            "mOKS",
+            "oks_voc.mAP",
+            "oks_voc.mAR",
+            "avg_distance",
+            "p50_distance",
+            "mPCK",
+            "visibility_precision",
+            "visibility_recall",
+        ]
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        """Enable prediction collection at the start of validation."""
+        pl_module._collect_val_predictions = True
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        """Run evaluation and log metrics at end of validation epoch."""
+        import sleap_io as sio
+        import numpy as np
+        from lightning.pytorch.loggers import WandbLogger
+        from sleap_nn.evaluation import Evaluator
+
+        # Check frequency (epoch is 0-indexed, so add 1)
+        if (trainer.current_epoch + 1) % self.eval_frequency != 0:
+            pl_module._collect_val_predictions = False
+            return
+
+        # Only run on rank 0 for distributed training
+        if not trainer.is_global_zero:
+            pl_module._collect_val_predictions = False
+            return
+
+        # Check if we have predictions
+        if not pl_module.val_predictions or not pl_module.val_ground_truth:
+            logger.warning("No predictions collected for epoch-end evaluation")
+            pl_module._collect_val_predictions = False
+            return
+
+        try:
+            # Build sio.Labels from accumulated predictions and ground truth
+            pred_labels = self._build_pred_labels(pl_module.val_predictions, sio, np)
+            gt_labels = self._build_gt_labels(pl_module.val_ground_truth, sio, np)
+
+            # Run evaluation
+            evaluator = Evaluator(
+                ground_truth_instances=gt_labels,
+                predicted_instances=pred_labels,
+                oks_stddev=self.oks_stddev,
+                oks_scale=self.oks_scale,
+                user_labels_only=False,  # All validation frames are "user" frames
+            )
+            metrics = evaluator.evaluate()
+
+            # Log to WandB
+            self._log_metrics(trainer, metrics, trainer.current_epoch)
+
+            logger.info(
+                f"Epoch {trainer.current_epoch} evaluation: "
+                f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
+                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
+            )
+
+        except Exception as e:
+            logger.warning(f"Epoch-end evaluation failed: {e}")
+
+        # Cleanup
+        pl_module._collect_val_predictions = False
+        pl_module.val_predictions = []
+        pl_module.val_ground_truth = []
+
+    def _build_pred_labels(self, predictions: list, sio, np) -> "sio.Labels":
+        """Convert prediction dicts to sio.Labels."""
+        labeled_frames = []
+        for pred in predictions:
+            pred_peaks = pred["pred_peaks"]
+            pred_scores = pred["pred_scores"]
+
+            # Handle NaN/missing predictions
+            if pred_peaks is None or (
+                isinstance(pred_peaks, np.ndarray) and np.isnan(pred_peaks).all()
+            ):
+                continue
+
+            # Handle multi-instance predictions (bottomup)
+            if len(pred_peaks.shape) == 2:
+                # Single instance: (n_nodes, 2) -> (1, n_nodes, 2)
+                pred_peaks = pred_peaks.reshape(1, -1, 2)
+                pred_scores = pred_scores.reshape(1, -1)
+
+            instances = []
+            for inst_idx in range(len(pred_peaks)):
+                inst_points = pred_peaks[inst_idx]
+                inst_scores = pred_scores[inst_idx] if pred_scores is not None else None
+
+                # Skip if all NaN
+                if np.isnan(inst_points).all():
+                    continue
+
+                inst = sio.PredictedInstance.from_numpy(
+                    points_data=inst_points,
+                    skeleton=self.skeleton,
+                    point_scores=(
+                        inst_scores
+                        if inst_scores is not None
+                        else np.ones(len(inst_points))
+                    ),
+                    score=(
+                        float(np.nanmean(inst_scores))
+                        if inst_scores is not None
+                        else 1.0
+                    ),
+                )
+                instances.append(inst)
+
+            if instances:
+                lf = sio.LabeledFrame(
+                    video=self.videos[pred["video_idx"]],
+                    frame_idx=pred["frame_idx"],
+                    instances=instances,
+                )
+                labeled_frames.append(lf)
+
+        return sio.Labels(
+            videos=self.videos,
+            skeletons=[self.skeleton],
+            labeled_frames=labeled_frames,
+        )
+
+    def _build_gt_labels(self, ground_truth: list, sio, np) -> "sio.Labels":
+        """Convert ground truth dicts to sio.Labels."""
+        labeled_frames = []
+        for gt in ground_truth:
+            instances = []
+            gt_instances = gt["gt_instances"]
+
+            # Handle shape variations
+            if len(gt_instances.shape) == 2:
+                # (n_nodes, 2) -> (1, n_nodes, 2)
+                gt_instances = gt_instances.reshape(1, -1, 2)
+
+            for i in range(min(gt["num_instances"], len(gt_instances))):
+                inst_data = gt_instances[i]
+                if np.isnan(inst_data).all():
+                    continue
+                inst = sio.Instance.from_numpy(
+                    points_data=inst_data,
+                    skeleton=self.skeleton,
+                )
+                instances.append(inst)
+
+            if instances:
+                lf = sio.LabeledFrame(
+                    video=self.videos[gt["video_idx"]],
+                    frame_idx=gt["frame_idx"],
+                    instances=instances,
+                )
+                labeled_frames.append(lf)
+
+        return sio.Labels(
+            videos=self.videos,
+            skeletons=[self.skeleton],
+            labeled_frames=labeled_frames,
+        )
+
+    def _log_metrics(self, trainer, metrics: dict, epoch: int):
+        """Log evaluation metrics to WandB."""
+        import numpy as np
+        from lightning.pytorch.loggers import WandbLogger
+
+        # Get WandB logger
+        wandb_logger = None
+        for log in trainer.loggers:
+            if isinstance(log, WandbLogger):
+                wandb_logger = log
+                break
+
+        if wandb_logger is None:
+            return
+
+        log_dict = {"epoch": epoch}
+
+        # Extract key metrics with consistent naming
+        if "mOKS" in self.metrics_to_log:
+            log_dict["val_mOKS"] = metrics["mOKS"]["mOKS"]
+
+        if "oks_voc.mAP" in self.metrics_to_log:
+            log_dict["val_oks_voc_mAP"] = metrics["voc_metrics"]["oks_voc.mAP"]
+
+        if "oks_voc.mAR" in self.metrics_to_log:
+            log_dict["val_oks_voc_mAR"] = metrics["voc_metrics"]["oks_voc.mAR"]
+
+        if "avg_distance" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["avg"]
+            if not np.isnan(val):
+                log_dict["val_avg_distance"] = val
+
+        if "p50_distance" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["p50"]
+            if not np.isnan(val):
+                log_dict["val_p50_distance"] = val
+
+        if "mPCK" in self.metrics_to_log:
+            log_dict["val_mPCK"] = metrics["pck_metrics"]["mPCK"]
+
+        if "visibility_precision" in self.metrics_to_log:
+            val = metrics["visibility_metrics"]["precision"]
+            if not np.isnan(val):
+                log_dict["val_visibility_precision"] = val
+
+        if "visibility_recall" in self.metrics_to_log:
+            val = metrics["visibility_metrics"]["recall"]
+            if not np.isnan(val):
+                log_dict["val_visibility_recall"] = val
+
+        wandb_logger.experiment.log(log_dict, commit=False)

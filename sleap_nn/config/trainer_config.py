@@ -209,6 +209,23 @@ class EarlyStoppingConfig:
 
 
 @define
+class EvalConfig:
+    """Configuration for epoch-end evaluation.
+
+    Attributes:
+        enabled: (bool) Enable epoch-end evaluation metrics. *Default*: `False`.
+        frequency: (int) Evaluate every N epochs. *Default*: `1`.
+        oks_stddev: (float) OKS standard deviation for evaluation. *Default*: `0.025`.
+        oks_scale: (float) OKS scale override. If None, uses default. *Default*: `None`.
+    """
+
+    enabled: bool = False
+    frequency: int = field(default=1, validator=validators.ge(1))
+    oks_stddev: float = field(default=0.025, validator=validators.gt(0))
+    oks_scale: Optional[float] = None
+
+
+@define
 class HardKeypointMiningConfig:
     """Configuration for online hard keypoint mining.
 
@@ -310,6 +327,7 @@ class TrainerConfig:
         factory=HardKeypointMiningConfig
     )
     zmq: Optional[ZMQConfig] = field(factory=ZMQConfig)  # Required for SLEAP GUI
+    eval: EvalConfig = field(factory=EvalConfig)  # Epoch-end evaluation config
 
     @staticmethod
     def validate_optimizer_name(value):

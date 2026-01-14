@@ -1,6 +1,6 @@
 """This module has the LightningModule classes for all model types."""
 
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union, Dict, Any, List
 import time
 from torch import nn
 import numpy as np
@@ -184,6 +184,11 @@ class LightningModel(L.LightningModule):
         self.val_loss = {}
         self.learning_rate = {}
 
+        # For epoch-end evaluation
+        self.val_predictions: List[Dict] = []
+        self.val_ground_truth: List[Dict] = []
+        self._collect_val_predictions: bool = False
+
         # Initialization for encoder and decoder stacks.
         if self.init_weights == "xavier":
             self.model.apply(xavier_init_weights)
@@ -331,6 +336,9 @@ class LightningModel(L.LightningModule):
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
         self.val_start_time = time.time()
+        # Clear accumulated predictions for new epoch
+        self.val_predictions = []
+        self.val_ground_truth = []
 
     def on_validation_epoch_end(self):
         """Configure the val timer at the end of every epoch."""
@@ -639,6 +647,44 @@ class SingleInstanceLightningModule(LightningModel):
             sync_dist=True,
         )
 
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            with torch.no_grad():
+                inference_output = self.single_instance_inf_layer(batch)
+                if isinstance(inference_output, list):
+                    inference_output = inference_output[0]
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions are already in original image space (inference divides by eff_scale)
+                pred_peaks = inference_output["pred_instance_peaks"][i].cpu().numpy()
+                pred_scores = inference_output["pred_peak_values"][i].cpu().numpy()
+
+                # Transform GT from preprocessed to original image space
+                gt_prep = batch["instances"][i].cpu().numpy()  # (max_inst, n_nodes, 2)
+                gt_orig = gt_prep / eff
+                num_inst = batch["num_instances"][i].item()
+                gt_orig = gt_orig[:num_inst]  # Only valid instances
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_peaks,
+                        "pred_scores": pred_scores,
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_orig,
+                        "num_instances": num_inst,
+                    }
+                )
+
 
 class TopDownCenteredInstanceLightningModule(LightningModel):
     """Lightning Module for TopDownCenteredInstance Model.
@@ -856,6 +902,62 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             sync_dist=True,
         )
 
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            # SAVE bbox BEFORE inference (it modifies in-place!)
+            bbox_prep_saved = batch["instance_bbox"].clone()
+
+            with torch.no_grad():
+                inference_output = self.instance_peaks_inf_layer(batch)
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions from inference (crop-relative, original scale)
+                pred_peaks_crop = (
+                    inference_output["pred_instance_peaks"][i].cpu().numpy()
+                )
+                pred_scores = inference_output["pred_peak_values"][i].cpu().numpy()
+
+                # Compute bbox offset in original space from SAVED prep bbox
+                # bbox has shape (n_samples=1, 4, 2) where 4 corners
+                bbox_prep = bbox_prep_saved[i].squeeze(0).cpu().numpy()  # (4, 2)
+                bbox_top_left_orig = (
+                    bbox_prep[0] / eff
+                )  # Top-left corner in original space
+
+                # Full image coordinates (original space)
+                pred_peaks_full = pred_peaks_crop + bbox_top_left_orig
+
+                # GT transform: crop-relative preprocessed -> full image original
+                gt_crop_prep = (
+                    batch["instance"][i].squeeze(0).cpu().numpy()
+                )  # (n_nodes, 2)
+                gt_crop_orig = gt_crop_prep / eff
+                gt_full_orig = gt_crop_orig + bbox_top_left_orig
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_peaks_full.reshape(
+                            1, -1, 2
+                        ),  # (1, n_nodes, 2)
+                        "pred_scores": pred_scores.reshape(1, -1),  # (1, n_nodes)
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_full_orig.reshape(
+                            1, -1, 2
+                        ),  # (1, n_nodes, 2)
+                        "num_instances": 1,
+                    }
+                )
+
 
 class CentroidLightningModule(LightningModel):
     """Lightning Module for Centroid Model.
@@ -1033,6 +1135,57 @@ class CentroidLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            with torch.no_grad():
+                inference_output = self.centroid_inf_layer(batch)
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions are in original image space (inference divides by eff_scale)
+                # centroids shape: (batch, 1, max_instances, 2) - squeeze to (max_instances, 2)
+                pred_centroids = (
+                    inference_output["centroids"][i].squeeze(0).cpu().numpy()
+                )
+                pred_vals = inference_output["centroid_vals"][i].cpu().numpy()
+
+                # Transform GT centroids from preprocessed to original image space
+                gt_centroids_prep = (
+                    batch["centroids"][i].cpu().numpy()
+                )  # (n_samples=1, max_inst, 2)
+                gt_centroids_orig = gt_centroids_prep.squeeze(0) / eff  # (max_inst, 2)
+                num_inst = batch["num_instances"][i].item()
+
+                # Filter to valid instances (non-NaN)
+                valid_pred_mask = ~np.isnan(pred_centroids).any(axis=1)
+                pred_centroids = pred_centroids[valid_pred_mask]
+                pred_vals = pred_vals[valid_pred_mask]
+
+                gt_centroids_valid = gt_centroids_orig[:num_inst]
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_centroids.reshape(
+                            -1, 1, 2
+                        ),  # (n_inst, 1, 2)
+                        "pred_scores": pred_vals.reshape(-1, 1),  # (n_inst, 1)
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_centroids_valid.reshape(
+                            -1, 1, 2
+                        ),  # (n_inst, 1, 2)
+                        "num_instances": num_inst,
+                    }
+                )
 
 
 class BottomUpLightningModule(LightningModel):
@@ -1339,6 +1492,48 @@ class BottomUpLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            with torch.no_grad():
+                inference_output = self.bottomup_inf_layer(batch)
+                if isinstance(inference_output, list):
+                    inference_output = inference_output[0]
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions are already in original space (variable number of instances)
+                pred_peaks = inference_output["pred_instance_peaks"][i]
+                pred_scores = inference_output["pred_peak_values"][i]
+                if torch.is_tensor(pred_peaks):
+                    pred_peaks = pred_peaks.cpu().numpy()
+                if torch.is_tensor(pred_scores):
+                    pred_scores = pred_scores.cpu().numpy()
+
+                # Transform GT to original space
+                gt_prep = batch["instances"][i].cpu().numpy()  # (max_inst, n_nodes, 2)
+                gt_orig = gt_prep / eff
+                num_inst = batch["num_instances"][i].item()
+                gt_orig = gt_orig[:num_inst]  # Only valid instances
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_peaks,  # Original space, variable instances
+                        "pred_scores": pred_scores,
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_orig,  # Original space
+                        "num_instances": num_inst,
+                    }
+                )
 
 
 class BottomUpMultiClassLightningModule(LightningModel):
