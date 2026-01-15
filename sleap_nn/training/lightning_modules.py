@@ -650,7 +650,11 @@ class SingleInstanceLightningModule(LightningModel):
         # Collect predictions for epoch-end evaluation if enabled
         if self._collect_val_predictions:
             with torch.no_grad():
-                inference_output = self.single_instance_inf_layer(batch)
+                # Squeeze n_samples dim from image for inference (batch, 1, C, H, W) -> (batch, C, H, W)
+                inference_batch = {k: v for k, v in batch.items()}
+                if inference_batch["image"].ndim == 5:
+                    inference_batch["image"] = inference_batch["image"].squeeze(1)
+                inference_output = self.single_instance_inf_layer(inference_batch)
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
 
@@ -663,7 +667,10 @@ class SingleInstanceLightningModule(LightningModel):
                 pred_scores = inference_output["pred_peak_values"][i].cpu().numpy()
 
                 # Transform GT from preprocessed to original image space
-                gt_prep = batch["instances"][i].cpu().numpy()  # (max_inst, n_nodes, 2)
+                # Note: instances have shape (1, max_inst, n_nodes, 2) - squeeze n_samples dim
+                gt_prep = batch["instances"][i].cpu().numpy()
+                if gt_prep.ndim == 4:
+                    gt_prep = gt_prep.squeeze(0)  # (max_inst, n_nodes, 2)
                 gt_orig = gt_prep / eff
                 num_inst = batch["num_instances"][i].item()
                 gt_orig = gt_orig[:num_inst]  # Only valid instances
@@ -1144,71 +1151,45 @@ class CentroidLightningModule(LightningModel):
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
                 eff = batch["eff_scale"][i].cpu().numpy()
-                num_inst = batch["num_instances"][i].item()
 
-                # Get predicted centroids (in original image space)
-                # centroids shape: (batch, 1, max_instances, 2) -> (max_instances, 2)
+                # Predictions are in original image space (inference divides by eff_scale)
+                # centroids shape: (batch, 1, max_instances, 2) - squeeze to (max_instances, 2)
                 pred_centroids = (
                     inference_output["centroids"][i].squeeze(0).cpu().numpy()
                 )
                 pred_vals = inference_output["centroid_vals"][i].cpu().numpy()
 
-                # Get GT full keypoints (in preprocessed space)
-                # instances shape: (n_samples=1, max_instances, n_nodes, 2)
-                gt_instances_prep = batch["instances"][
-                    i
-                ].cpu()  # (1, max_inst, n_nodes, 2)
-                n_nodes = gt_instances_prep.shape[2]
+                # Transform GT centroids from preprocessed to original image space
+                gt_centroids_prep = (
+                    batch["centroids"][i].cpu().numpy()
+                )  # (n_samples=1, max_inst, 2)
+                gt_centroids_orig = gt_centroids_prep.squeeze(0) / eff  # (max_inst, 2)
+                num_inst = batch["num_instances"][i].item()
 
-                # Filter to valid predicted centroids (non-NaN)
+                # Filter to valid instances (non-NaN)
                 valid_pred_mask = ~np.isnan(pred_centroids).any(axis=1)
-                valid_pred_centroids = pred_centroids[valid_pred_mask]
-                valid_pred_vals = pred_vals[valid_pred_mask]
-                n_valid_pred = len(valid_pred_centroids)
+                pred_centroids = pred_centroids[valid_pred_mask]
+                pred_vals = pred_vals[valid_pred_mask]
 
-                if n_valid_pred == 0 or num_inst == 0:
-                    continue
-
-                # Match predicted centroids to GT instances (like FindInstancePeaksGroundTruth)
-                # Compute distances between predicted centroids and GT instance keypoints
-                # pred_centroids: (n_pred, 2) in original space
-                # gt_instances: (1, n_gt, n_nodes, 2) in preprocessed space
-                gt_valid = gt_instances_prep[0, :num_inst, :, :]  # (n_gt, n_nodes, 2)
-                gt_valid_orig = gt_valid.numpy() / eff  # Transform to original space
-
-                # Compute distance from each predicted centroid to each GT instance
-                # Use min distance across all nodes (like FindInstancePeaksGroundTruth)
-                # pred: (n_pred, 1, 1, 2), gt: (1, n_gt, n_nodes, 2)
-                pred_expanded = valid_pred_centroids[:, np.newaxis, np.newaxis, :]
-                gt_expanded = gt_valid_orig[np.newaxis, :, :, :]
-                dists = np.sqrt(np.sum((pred_expanded - gt_expanded) ** 2, axis=-1))
-                # dists shape: (n_pred, n_gt, n_nodes)
-                dists = np.where(np.isnan(dists), np.inf, dists)
-                dists_min = np.min(dists, axis=-1)  # (n_pred, n_gt)
-
-                # Match each predicted centroid to nearest GT instance
-                matches = np.argmin(dists_min, axis=-1)  # (n_pred,)
-
-                # Get matched GT keypoints as predictions
-                matched_gt_keypoints = gt_valid_orig[matches]  # (n_pred, n_nodes, 2)
-
-                # Create confidence scores for matched keypoints (1.0 for all visible)
-                matched_scores = np.ones((n_valid_pred, n_nodes))
-                matched_scores[np.isnan(matched_gt_keypoints).any(axis=-1)] = np.nan
+                gt_centroids_valid = gt_centroids_orig[:num_inst]
 
                 self.val_predictions.append(
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
-                        "pred_peaks": matched_gt_keypoints,  # (n_pred, n_nodes, 2)
-                        "pred_scores": matched_scores,  # (n_pred, n_nodes)
+                        "pred_peaks": pred_centroids.reshape(
+                            -1, 1, 2
+                        ),  # (n_inst, 1, 2)
+                        "pred_scores": pred_vals.reshape(-1, 1),  # (n_inst, 1)
                     }
                 )
                 self.val_ground_truth.append(
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
-                        "gt_instances": gt_valid_orig,  # (n_gt, n_nodes, 2)
+                        "gt_instances": gt_centroids_valid.reshape(
+                            -1, 1, 2
+                        ),  # (n_inst, 1, 2)
                         "num_instances": num_inst,
                     }
                 )
@@ -1522,6 +1503,8 @@ class BottomUpLightningModule(LightningModel):
         # Collect predictions for epoch-end evaluation if enabled
         if self._collect_val_predictions:
             with torch.no_grad():
+                # Note: Do NOT squeeze the image here - the forward() method expects
+                # (batch, n_samples, C, H, W) and handles the n_samples squeeze internally
                 inference_output = self.bottomup_inf_layer(batch)
                 if isinstance(inference_output, list):
                     inference_output = inference_output[0]
@@ -1539,7 +1522,10 @@ class BottomUpLightningModule(LightningModel):
                     pred_scores = pred_scores.cpu().numpy()
 
                 # Transform GT to original space
-                gt_prep = batch["instances"][i].cpu().numpy()  # (max_inst, n_nodes, 2)
+                # Note: instances have shape (1, max_inst, n_nodes, 2) - squeeze n_samples dim
+                gt_prep = batch["instances"][i].cpu().numpy()
+                if gt_prep.ndim == 4:
+                    gt_prep = gt_prep.squeeze(0)  # (max_inst, n_nodes, 2)
                 gt_orig = gt_prep / eff
                 num_inst = batch["num_instances"][i].item()
                 gt_orig = gt_orig[:num_inst]  # Only valid instances

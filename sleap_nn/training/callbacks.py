@@ -717,7 +717,12 @@ class EpochEndEvaluationCallback(Callback):
         ]
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        """Enable prediction collection at the start of validation."""
+        """Enable prediction collection at the start of validation.
+
+        Skip during sanity check to avoid inference issues.
+        """
+        if trainer.sanity_checking:
+            return
         pl_module._collect_val_predictions = True
 
     def on_validation_epoch_end(self, trainer, pl_module):
@@ -747,6 +752,17 @@ class EpochEndEvaluationCallback(Callback):
             # Build sio.Labels from accumulated predictions and ground truth
             pred_labels = self._build_pred_labels(pl_module.val_predictions, sio, np)
             gt_labels = self._build_gt_labels(pl_module.val_ground_truth, sio, np)
+
+            # Check if we have valid frames to evaluate
+            if len(pred_labels) == 0:
+                logger.warning(
+                    "No valid predictions for epoch-end evaluation "
+                    "(all predictions may be empty or NaN)"
+                )
+                pl_module._collect_val_predictions = False
+                pl_module.val_predictions = []
+                pl_module.val_ground_truth = []
+                return
 
             # Run evaluation
             evaluator = Evaluator(

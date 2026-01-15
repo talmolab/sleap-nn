@@ -1088,12 +1088,32 @@ class TestEpochEndEvaluationCallback:
         )
 
         mock_trainer = MagicMock()
+        mock_trainer.sanity_checking = False  # Not during sanity check
         mock_pl_module = MagicMock()
         mock_pl_module._collect_val_predictions = False
 
         callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
 
         assert mock_pl_module._collect_val_predictions is True
+
+    def test_on_validation_epoch_start_skips_during_sanity_check(
+        self, mock_skeleton, mock_videos
+    ):
+        """Skips enabling prediction collection during sanity check."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.sanity_checking = True  # During sanity check
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = False
+
+        callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
+
+        # Should remain False during sanity check
+        assert mock_pl_module._collect_val_predictions is False
 
     def test_on_validation_epoch_end_skips_by_frequency(
         self, mock_skeleton, mock_videos
