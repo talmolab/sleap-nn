@@ -1092,7 +1092,7 @@ class ModelTrainer:
             callbacks.append(
                 EpochEndEvaluationCallback(
                     skeleton=self.skeletons[0],
-                    videos=self.videos,
+                    videos=self.val_labels[0].videos,
                     eval_frequency=self.config.trainer_config.eval.frequency,
                     oks_stddev=self.config.trainer_config.eval.oks_stddev,
                     oks_scale=self.config.trainer_config.eval.oks_scale,

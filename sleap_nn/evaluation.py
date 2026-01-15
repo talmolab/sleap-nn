@@ -29,11 +29,27 @@ def get_instances(labeled_frame: sio.LabeledFrame) -> List[MatchInstance]:
     """
     instance_list = []
     frame_idx = labeled_frame.frame_idx
-    video_path = (
-        labeled_frame.video.backend.source_filename
-        if hasattr(labeled_frame.video.backend, "source_filename")
-        else labeled_frame.video.backend.filename
-    )
+
+    # Extract video path with fallbacks for embedded videos
+    video = labeled_frame.video
+    video_path = None
+    if video is not None:
+        backend = getattr(video, "backend", None)
+        if backend is not None:
+            # Try source_filename first (for embedded videos with provenance)
+            video_path = getattr(backend, "source_filename", None)
+            if video_path is None:
+                video_path = getattr(backend, "filename", None)
+        # Fallback to video.filename if backend doesn't have it
+        if video_path is None:
+            video_path = getattr(video, "filename", None)
+            # Handle list filenames (image sequences)
+            if isinstance(video_path, list) and video_path:
+                video_path = video_path[0]
+    # Final fallback: use a unique identifier
+    if video_path is None:
+        video_path = f"video_{id(video)}" if video is not None else "unknown"
+
     for instance in labeled_frame.instances:
         match_instance = MatchInstance(
             instance=instance, frame_idx=frame_idx, video_path=video_path

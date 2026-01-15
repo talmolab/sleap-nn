@@ -1144,45 +1144,71 @@ class CentroidLightningModule(LightningModel):
             batch_size = len(batch["frame_idx"])
             for i in range(batch_size):
                 eff = batch["eff_scale"][i].cpu().numpy()
+                num_inst = batch["num_instances"][i].item()
 
-                # Predictions are in original image space (inference divides by eff_scale)
-                # centroids shape: (batch, 1, max_instances, 2) - squeeze to (max_instances, 2)
+                # Get predicted centroids (in original image space)
+                # centroids shape: (batch, 1, max_instances, 2) -> (max_instances, 2)
                 pred_centroids = (
                     inference_output["centroids"][i].squeeze(0).cpu().numpy()
                 )
                 pred_vals = inference_output["centroid_vals"][i].cpu().numpy()
 
-                # Transform GT centroids from preprocessed to original image space
-                gt_centroids_prep = (
-                    batch["centroids"][i].cpu().numpy()
-                )  # (n_samples=1, max_inst, 2)
-                gt_centroids_orig = gt_centroids_prep.squeeze(0) / eff  # (max_inst, 2)
-                num_inst = batch["num_instances"][i].item()
+                # Get GT full keypoints (in preprocessed space)
+                # instances shape: (n_samples=1, max_instances, n_nodes, 2)
+                gt_instances_prep = batch["instances"][
+                    i
+                ].cpu()  # (1, max_inst, n_nodes, 2)
+                n_nodes = gt_instances_prep.shape[2]
 
-                # Filter to valid instances (non-NaN)
+                # Filter to valid predicted centroids (non-NaN)
                 valid_pred_mask = ~np.isnan(pred_centroids).any(axis=1)
-                pred_centroids = pred_centroids[valid_pred_mask]
-                pred_vals = pred_vals[valid_pred_mask]
+                valid_pred_centroids = pred_centroids[valid_pred_mask]
+                valid_pred_vals = pred_vals[valid_pred_mask]
+                n_valid_pred = len(valid_pred_centroids)
 
-                gt_centroids_valid = gt_centroids_orig[:num_inst]
+                if n_valid_pred == 0 or num_inst == 0:
+                    continue
+
+                # Match predicted centroids to GT instances (like FindInstancePeaksGroundTruth)
+                # Compute distances between predicted centroids and GT instance keypoints
+                # pred_centroids: (n_pred, 2) in original space
+                # gt_instances: (1, n_gt, n_nodes, 2) in preprocessed space
+                gt_valid = gt_instances_prep[0, :num_inst, :, :]  # (n_gt, n_nodes, 2)
+                gt_valid_orig = gt_valid.numpy() / eff  # Transform to original space
+
+                # Compute distance from each predicted centroid to each GT instance
+                # Use min distance across all nodes (like FindInstancePeaksGroundTruth)
+                # pred: (n_pred, 1, 1, 2), gt: (1, n_gt, n_nodes, 2)
+                pred_expanded = valid_pred_centroids[:, np.newaxis, np.newaxis, :]
+                gt_expanded = gt_valid_orig[np.newaxis, :, :, :]
+                dists = np.sqrt(np.sum((pred_expanded - gt_expanded) ** 2, axis=-1))
+                # dists shape: (n_pred, n_gt, n_nodes)
+                dists = np.where(np.isnan(dists), np.inf, dists)
+                dists_min = np.min(dists, axis=-1)  # (n_pred, n_gt)
+
+                # Match each predicted centroid to nearest GT instance
+                matches = np.argmin(dists_min, axis=-1)  # (n_pred,)
+
+                # Get matched GT keypoints as predictions
+                matched_gt_keypoints = gt_valid_orig[matches]  # (n_pred, n_nodes, 2)
+
+                # Create confidence scores for matched keypoints (1.0 for all visible)
+                matched_scores = np.ones((n_valid_pred, n_nodes))
+                matched_scores[np.isnan(matched_gt_keypoints).any(axis=-1)] = np.nan
 
                 self.val_predictions.append(
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
-                        "pred_peaks": pred_centroids.reshape(
-                            -1, 1, 2
-                        ),  # (n_inst, 1, 2)
-                        "pred_scores": pred_vals.reshape(-1, 1),  # (n_inst, 1)
+                        "pred_peaks": matched_gt_keypoints,  # (n_pred, n_nodes, 2)
+                        "pred_scores": matched_scores,  # (n_pred, n_nodes)
                     }
                 )
                 self.val_ground_truth.append(
                     {
                         "video_idx": batch["video_idx"][i].item(),
                         "frame_idx": batch["frame_idx"][i].item(),
-                        "gt_instances": gt_centroids_valid.reshape(
-                            -1, 1, 2
-                        ),  # (n_inst, 1, 2)
+                        "gt_instances": gt_valid_orig,  # (n_gt, n_nodes, 2)
                         "num_instances": num_inst,
                     }
                 )
