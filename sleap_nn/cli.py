@@ -7,6 +7,7 @@ from omegaconf import OmegaConf, DictConfig
 import sleap_io as sio
 from sleap_nn.predict import run_inference, frame_list
 from sleap_nn.evaluation import run_evaluation
+from sleap_nn.export.cli import export as export_command
 from sleap_nn.train import run_training
 from sleap_nn import __version__
 import hydra
@@ -611,6 +612,8 @@ def system():
     from sleap_nn.system_info import print_system_info
 
     print_system_info()
+
+cli.add_command(export_command)
 
 
 if __name__ == "__main__":
