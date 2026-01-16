@@ -222,8 +222,12 @@ def test_evaluator_two_match_one_missed_inst(minimal_instance):
 
 
 def create_labels_no_match_frame_pairs(minimal_instance):
-    # with no match frame pairs
+    """Create labels with no matching frame pairs.
 
+    The ground truth has frame_idx=0, but predictions have frame_idx=999,
+    so even though videos match (via sleap-io's robust matching), no frames
+    will overlap.
+    """
     # Create skeleton.
     skeleton = sio.Skeleton(
         nodes=["head", "thorax", "abdomen"],
@@ -233,12 +237,6 @@ def create_labels_no_match_frame_pairs(minimal_instance):
     # Get video.
     min_labels = sio.load_slp(minimal_instance)
     video = min_labels.videos[0]
-
-    video1 = copy.deepcopy(video)
-    video1.filename = "test.mp4"
-    # Also update backend source_filename for HDF5 videos (matches_path checks this)
-    if hasattr(video1.backend, "source_filename"):
-        video1.backend.source_filename = "test.mp4"
 
     # Create user labelled instance.
     user_inst_1 = sio.Instance.from_numpy(
@@ -266,6 +264,7 @@ def create_labels_no_match_frame_pairs(minimal_instance):
         score=0.7,
     )
 
+    # Ground truth at frame_idx=0
     user_lf = sio.LabeledFrame(
         video=video,
         frame_idx=0,
@@ -276,12 +275,13 @@ def create_labels_no_match_frame_pairs(minimal_instance):
         videos=[video], skeletons=[skeleton], labeled_frames=[user_lf]
     )
 
-    # use a different filename for the video to have 0 match frame pairs
-    pred_lf = sio.LabeledFrame(video=video1, frame_idx=0, instances=[pred_inst_1])
+    # Predictions at frame_idx=999 (no overlap with GT frames)
+    # This ensures no frame pairs can be matched even if videos match
+    pred_lf = sio.LabeledFrame(video=video, frame_idx=999, instances=[pred_inst_1])
 
     # create labels object for predicted labeled frames
     pred_labels = sio.Labels(
-        videos=[video1], skeletons=[skeleton], labeled_frames=[pred_lf]
+        videos=[video], skeletons=[skeleton], labeled_frames=[pred_lf]
     )
 
     return user_labels, pred_labels
