@@ -63,6 +63,10 @@ def find_frame_pairs(
 ) -> List[Tuple[sio.LabeledFrame, sio.LabeledFrame]]:
     """Find corresponding frames across two sets of labels.
 
+    This function uses sleap-io's robust video matching API to handle various
+    scenarios including embedded videos, cross-platform paths, and videos with
+    different metadata.
+
     Args:
         labels_gt: A `sio.Labels` instance with ground truth instances.
         labels_pr: A `sio.Labels` instance with predicted instances.
@@ -72,16 +76,15 @@ def find_frame_pairs(
     Returns:
         A list of pairs of `sio.LabeledFrame`s in the form `(frame_gt, frame_pr)`.
     """
-    frame_pairs = []
-    for video_gt in labels_gt.videos:
-        # Find matching video instance in predictions.
-        video_pr = None
-        for video in labels_pr.videos:
-            if video_gt.matches_content(video) and video_gt.matches_path(video):
-                video_pr = video
-                break
+    # Use sleap-io's robust video matching API (added in 0.6.2)
+    # The match() method returns a MatchResult with video_map: {pred_video: gt_video}
+    match_result = labels_gt.match(labels_pr)
 
-        if video_pr is None:
+    frame_pairs = []
+    # Iterate over matched video pairs (pred_video -> gt_video mapping)
+    for video_pr, video_gt in match_result.video_map.items():
+        if video_gt is None:
+            # No match found for this prediction video
             continue
 
         # Find labeled frames in this video.
@@ -802,11 +805,26 @@ def run_evaluation(
     """Evaluate SLEAP-NN model predictions against ground truth labels."""
     logger.info("Loading ground truth labels...")
     ground_truth_instances = sio.load_slp(ground_truth_path)
+    logger.info(
+        f"  Ground truth: {len(ground_truth_instances.videos)} videos, "
+        f"{len(ground_truth_instances.labeled_frames)} frames"
+    )
 
     logger.info("Loading predicted labels...")
     predicted_instances = sio.load_slp(predicted_path)
+    logger.info(
+        f"  Predictions: {len(predicted_instances.videos)} videos, "
+        f"{len(predicted_instances.labeled_frames)} frames"
+    )
 
-    logger.info("Creating evaluator...")
+    logger.info("Matching videos and frames...")
+    # Get match stats before creating evaluator
+    match_result = ground_truth_instances.match(predicted_instances)
+    logger.info(
+        f"  Videos matched: {match_result.n_videos_matched}/{len(match_result.video_map)}"
+    )
+
+    logger.info("Matching instances...")
     evaluator = Evaluator(
         ground_truth_instances=ground_truth_instances,
         predicted_instances=predicted_instances,
@@ -815,21 +833,38 @@ def run_evaluation(
         match_threshold=match_threshold,
         user_labels_only=user_labels_only,
     )
+    logger.info(
+        f"  Frame pairs: {len(evaluator.frame_pairs)}, "
+        f"Matched instances: {len(evaluator.positive_pairs)}, "
+        f"Unmatched GT: {len(evaluator.false_negatives)}"
+    )
 
     logger.info("Computing evaluation metrics...")
     metrics = evaluator.evaluate()
 
+    # Compute PCK at specific thresholds (5 and 10 pixels)
+    dists = metrics["distance_metrics"]["dists"]
+    dists_clean = np.copy(dists)
+    dists_clean[np.isnan(dists_clean)] = np.inf
+    pck_5 = (dists_clean < 5).mean()
+    pck_10 = (dists_clean < 10).mean()
+
     # Print key metrics
     logger.info("Evaluation Results:")
-    logger.info(f"mOKS: {metrics['mOKS']['mOKS']:.4f}")
-    logger.info(f"mAP (OKS VOC): {metrics['voc_metrics']['oks_voc.mAP']:.4f}")
-    logger.info(f"mAR (OKS VOC): {metrics['voc_metrics']['oks_voc.mAR']:.4f}")
-    logger.info(f"Average Distance: {metrics['distance_metrics']['avg']:.4f}")
-    logger.info(f"mPCK: {metrics['pck_metrics']['mPCK']:.4f}")
+    logger.info(f"  mOKS: {metrics['mOKS']['mOKS']:.4f}")
+    logger.info(f"  mAP (OKS VOC): {metrics['voc_metrics']['oks_voc.mAP']:.4f}")
+    logger.info(f"  mAR (OKS VOC): {metrics['voc_metrics']['oks_voc.mAR']:.4f}")
+    logger.info(f"  Average Distance: {metrics['distance_metrics']['avg']:.2f} px")
+    logger.info(f"  dist.p50: {metrics['distance_metrics']['p50']:.2f} px")
+    logger.info(f"  dist.p95: {metrics['distance_metrics']['p95']:.2f} px")
+    logger.info(f"  dist.p99: {metrics['distance_metrics']['p99']:.2f} px")
+    logger.info(f"  mPCK: {metrics['pck_metrics']['mPCK']:.4f}")
+    logger.info(f"  PCK@5px: {pck_5:.4f}")
+    logger.info(f"  PCK@10px: {pck_10:.4f}")
     logger.info(
-        f"Visibility Precision: {metrics['visibility_metrics']['precision']:.4f}"
+        f"  Visibility Precision: {metrics['visibility_metrics']['precision']:.4f}"
     )
-    logger.info(f"Visibility Recall: {metrics['visibility_metrics']['recall']:.4f}")
+    logger.info(f"  Visibility Recall: {metrics['visibility_metrics']['recall']:.4f}")
 
     # Save metrics if path provided
     if save_metrics:
