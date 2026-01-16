@@ -16,6 +16,7 @@ from sleap_nn.training.callbacks import (
     MatplotlibSaver,
     TrainingControllerZMQ,
     ProgressReporterZMQ,
+    EpochEndEvaluationCallback,
 )
 from sleap_nn.training.utils import VisualizationData
 
@@ -1022,3 +1023,357 @@ class TestProgressReporterZMQ:
             mock_socket.setsockopt.assert_called()
             mock_socket.close.assert_called_once()
             mock_context.term.assert_called_once()
+
+
+class TestEpochEndEvaluationCallback:
+    """Tests for EpochEndEvaluationCallback."""
+
+    @pytest.fixture
+    def mock_skeleton(self):
+        """Create a mock skeleton."""
+        import sleap_io as sio
+
+        skeleton = sio.Skeleton(name="test_skeleton")
+        skeleton.add_node("head")
+        skeleton.add_node("tail")
+        skeleton.add_node("center")
+        return skeleton
+
+    @pytest.fixture
+    def mock_videos(self):
+        """Create mock videos."""
+        video1 = MagicMock()
+        video1.backend = None
+        video2 = MagicMock()
+        video2.backend = None
+        return [video1, video2]
+
+    def test_init_default_params(self, mock_skeleton, mock_videos):
+        """Initializes with default parameters."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        assert callback.skeleton == mock_skeleton
+        assert callback.videos == mock_videos
+        assert callback.eval_frequency == 1
+        assert callback.oks_stddev == 0.025
+        assert callback.oks_scale is None
+        assert "mOKS" in callback.metrics_to_log
+
+    def test_init_custom_params(self, mock_skeleton, mock_videos):
+        """Initializes with custom parameters."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+            eval_frequency=5,
+            oks_stddev=0.05,
+            oks_scale=100.0,
+            metrics_to_log=["mOKS", "avg_distance"],
+        )
+
+        assert callback.eval_frequency == 5
+        assert callback.oks_stddev == 0.05
+        assert callback.oks_scale == 100.0
+        assert callback.metrics_to_log == ["mOKS", "avg_distance"]
+
+    def test_on_validation_epoch_start_enables_collection(
+        self, mock_skeleton, mock_videos
+    ):
+        """Enables prediction collection at validation start."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.sanity_checking = False  # Not during sanity check
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = False
+
+        callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is True
+
+    def test_on_validation_epoch_start_skips_during_sanity_check(
+        self, mock_skeleton, mock_videos
+    ):
+        """Skips enabling prediction collection during sanity check."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.sanity_checking = True  # During sanity check
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = False
+
+        callback.on_validation_epoch_start(mock_trainer, mock_pl_module)
+
+        # Should remain False during sanity check
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_on_validation_epoch_end_skips_by_frequency(
+        self, mock_skeleton, mock_videos
+    ):
+        """Skips evaluation if not at frequency interval."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+            eval_frequency=5,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.current_epoch = 2  # Epoch 3 (0-indexed), not divisible by 5
+        mock_trainer.is_global_zero = True
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = True
+
+        callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+
+        # Should have disabled collection
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_on_validation_epoch_end_skips_if_not_global_zero(
+        self, mock_skeleton, mock_videos
+    ):
+        """Skips evaluation if not global rank zero."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.current_epoch = 0
+        mock_trainer.is_global_zero = False
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = True
+
+        callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_on_validation_epoch_end_skips_if_no_predictions(
+        self, mock_skeleton, mock_videos
+    ):
+        """Skips evaluation if no predictions collected."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.current_epoch = 0
+        mock_trainer.is_global_zero = True
+        mock_trainer.loggers = []
+        mock_pl_module = MagicMock()
+        mock_pl_module._collect_val_predictions = True
+        mock_pl_module.val_predictions = []
+        mock_pl_module.val_ground_truth = []
+
+        callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+
+        assert mock_pl_module._collect_val_predictions is False
+
+    def test_build_pred_labels_single_instance(self, mock_skeleton, mock_videos):
+        """Builds prediction labels for single instance predictions."""
+        import sleap_io as sio
+
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 5,
+                "pred_peaks": np.array([[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]]),
+                "pred_scores": np.array([0.9, 0.8, 0.7]),
+            }
+        ]
+
+        labels = callback._build_pred_labels(predictions, sio, np)
+
+        assert len(labels.labeled_frames) == 1
+        assert labels.labeled_frames[0].frame_idx == 5
+        assert len(labels.labeled_frames[0].instances) == 1
+
+    def test_build_pred_labels_multi_instance(self, mock_skeleton, mock_videos):
+        """Builds prediction labels for multi-instance predictions."""
+        import sleap_io as sio
+
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 3,
+                "pred_peaks": np.array(
+                    [
+                        [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]],  # Instance 1
+                        [[15.0, 25.0], [35.0, 45.0], [55.0, 65.0]],  # Instance 2
+                    ]
+                ),
+                "pred_scores": np.array(
+                    [
+                        [0.9, 0.8, 0.7],
+                        [0.85, 0.75, 0.65],
+                    ]
+                ),
+            }
+        ]
+
+        labels = callback._build_pred_labels(predictions, sio, np)
+
+        assert len(labels.labeled_frames) == 1
+        assert len(labels.labeled_frames[0].instances) == 2
+
+    def test_build_pred_labels_skips_all_nan(self, mock_skeleton, mock_videos):
+        """Skips predictions that are all NaN."""
+        import sleap_io as sio
+
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        predictions = [
+            {
+                "video_idx": 0,
+                "frame_idx": 5,
+                "pred_peaks": np.array(
+                    [[np.nan, np.nan], [np.nan, np.nan], [np.nan, np.nan]]
+                ),
+                "pred_scores": np.array([np.nan, np.nan, np.nan]),
+            }
+        ]
+
+        labels = callback._build_pred_labels(predictions, sio, np)
+
+        assert len(labels.labeled_frames) == 0
+
+    def test_build_gt_labels(self, mock_skeleton, mock_videos):
+        """Builds ground truth labels."""
+        import sleap_io as sio
+
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        ground_truth = [
+            {
+                "video_idx": 0,
+                "frame_idx": 5,
+                "gt_instances": np.array([[[10.0, 20.0], [30.0, 40.0], [50.0, 60.0]]]),
+                "num_instances": 1,
+            }
+        ]
+
+        labels = callback._build_gt_labels(ground_truth, sio, np)
+
+        assert len(labels.labeled_frames) == 1
+        assert labels.labeled_frames[0].frame_idx == 5
+        assert len(labels.labeled_frames[0].instances) == 1
+
+    def test_log_metrics_no_wandb_logger(self, mock_skeleton, mock_videos):
+        """Does nothing if no wandb logger found."""
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = []  # No loggers
+
+        metrics = {
+            "mOKS": {"mOKS": 0.85},
+            "voc_metrics": {"oks_voc.mAP": 0.75, "oks_voc.mAR": 0.80},
+            "distance_metrics": {"avg": 5.0, "p50": 4.0},
+            "pck_metrics": {"mPCK": 0.90},
+            "visibility_metrics": {"precision": 0.95, "recall": 0.92},
+        }
+
+        # Should not raise
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+    def test_log_metrics_with_wandb_logger(self, mock_skeleton, mock_videos):
+        """Logs metrics to wandb when logger present."""
+        from lightning.pytorch.loggers import WandbLogger
+
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_wandb_logger = MagicMock(spec=WandbLogger)
+        mock_experiment = MagicMock()
+        mock_wandb_logger.experiment = mock_experiment
+
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = [mock_wandb_logger]
+
+        metrics = {
+            "mOKS": {"mOKS": 0.85},
+            "voc_metrics": {"oks_voc.mAP": 0.75, "oks_voc.mAR": 0.80},
+            "distance_metrics": {"avg": 5.0, "p50": 4.0},
+            "pck_metrics": {"mPCK": 0.90},
+            "visibility_metrics": {"precision": 0.95, "recall": 0.92},
+        }
+
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+        mock_experiment.log.assert_called_once()
+        log_call = mock_experiment.log.call_args
+        log_dict = log_call[0][0]
+
+        assert log_dict["epoch"] == 5
+        assert log_dict["val_mOKS"] == 0.85
+        assert log_dict["val_oks_voc_mAP"] == 0.75
+        assert log_dict["val_mPCK"] == 0.90
+        assert log_call[1]["commit"] is False
+
+    def test_log_metrics_skips_nan_values(self, mock_skeleton, mock_videos):
+        """Skips NaN values when logging."""
+        from lightning.pytorch.loggers import WandbLogger
+
+        callback = EpochEndEvaluationCallback(
+            skeleton=mock_skeleton,
+            videos=mock_videos,
+        )
+
+        mock_wandb_logger = MagicMock(spec=WandbLogger)
+        mock_experiment = MagicMock()
+        mock_wandb_logger.experiment = mock_experiment
+
+        mock_trainer = MagicMock()
+        mock_trainer.loggers = [mock_wandb_logger]
+
+        metrics = {
+            "mOKS": {"mOKS": 0.85},
+            "voc_metrics": {"oks_voc.mAP": 0.75, "oks_voc.mAR": 0.80},
+            "distance_metrics": {"avg": np.nan, "p50": np.nan},  # NaN values
+            "pck_metrics": {"mPCK": 0.90},
+            "visibility_metrics": {"precision": np.nan, "recall": np.nan},  # NaN values
+        }
+
+        callback._log_metrics(mock_trainer, metrics, epoch=5)
+
+        log_call = mock_experiment.log.call_args
+        log_dict = log_call[0][0]
+
+        # NaN values should not be in the log dict
+        assert "val_avg_distance" not in log_dict
+        assert "val_p50_distance" not in log_dict
+        assert "val_visibility_precision" not in log_dict
+        assert "val_visibility_recall" not in log_dict
+
+        # Non-NaN values should be present
+        assert log_dict["val_mOKS"] == 0.85
+        assert log_dict["val_mPCK"] == 0.90

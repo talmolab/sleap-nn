@@ -61,6 +61,7 @@ from sleap_nn.training.callbacks import (
     WandBVizCallbackWithPAFs,
     CSVLoggerCallback,
     SleapProgressBar,
+    EpochEndEvaluationCallback,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -1086,6 +1087,18 @@ class ModelTrainer:
         if self.config.trainer_config.enable_progress_bar:
             callbacks.append(SleapProgressBar())
 
+        # Add epoch-end evaluation callback if enabled
+        if self.config.trainer_config.eval.enabled:
+            callbacks.append(
+                EpochEndEvaluationCallback(
+                    skeleton=self.skeletons[0],
+                    videos=self.val_labels[0].videos,
+                    eval_frequency=self.config.trainer_config.eval.frequency,
+                    oks_stddev=self.config.trainer_config.eval.oks_stddev,
+                    oks_scale=self.config.trainer_config.eval.oks_scale,
+                )
+            )
+
         return loggers, callbacks
 
     def _delete_cache_imgs(self):
@@ -1280,6 +1293,16 @@ class ModelTrainer:
                 wandb.define_metric("val_predictions*", step_metric="epoch")
                 wandb.define_metric("train_pafs*", step_metric="epoch")
                 wandb.define_metric("val_pafs*", step_metric="epoch")
+
+                # Evaluation metrics use epoch as x-axis
+                wandb.define_metric("val_mOKS", step_metric="epoch")
+                wandb.define_metric("val_oks_voc_mAP", step_metric="epoch")
+                wandb.define_metric("val_oks_voc_mAR", step_metric="epoch")
+                wandb.define_metric("val_avg_distance", step_metric="epoch")
+                wandb.define_metric("val_p50_distance", step_metric="epoch")
+                wandb.define_metric("val_mPCK", step_metric="epoch")
+                wandb.define_metric("val_visibility_precision", step_metric="epoch")
+                wandb.define_metric("val_visibility_recall", step_metric="epoch")
 
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name

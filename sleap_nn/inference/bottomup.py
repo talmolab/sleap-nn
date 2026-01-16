@@ -1,11 +1,14 @@
 """Inference modules for BottomUp models."""
 
+import logging
 from typing import Dict, Optional
 import torch
 import lightning as L
 from sleap_nn.inference.peak_finding import find_local_peaks
 from sleap_nn.inference.paf_grouping import PAFScorer
 from sleap_nn.inference.identity import classify_peaks_from_maps
+
+logger = logging.getLogger(__name__)
 
 
 class BottomUpInferenceModel(L.LightningModule):
@@ -63,8 +66,28 @@ class BottomUpInferenceModel(L.LightningModule):
         return_pafs: Optional[bool] = False,
         return_paf_graph: Optional[bool] = False,
         input_scale: float = 1.0,
+        max_peaks_per_node: Optional[int] = None,
     ):
-        """Initialise the model attributes."""
+        """Initialise the model attributes.
+
+        Args:
+            torch_model: A `nn.Module` that accepts images and predicts confidence maps.
+            paf_scorer: A `PAFScorer` instance for grouping instances.
+            cms_output_stride: Output stride of confidence maps relative to images.
+            pafs_output_stride: Output stride of PAFs relative to images.
+            peak_threshold: Minimum confidence map value for valid peaks.
+            refinement: Peak refinement method: None, "integral", or "local".
+            integral_patch_size: Size of patches for integral refinement.
+            return_confmaps: If True, return confidence maps in output.
+            return_pafs: If True, return PAFs in output.
+            return_paf_graph: If True, return intermediate PAF graph in output.
+            input_scale: Scale factor applied to input images.
+            max_peaks_per_node: Maximum number of peaks allowed per node before
+                skipping PAF scoring. If any node has more peaks than this limit,
+                empty predictions are returned. This prevents combinatorial explosion
+                during early training when confidence maps are noisy. Set to None to
+                disable this check (default). Recommended value: 100.
+        """
         super().__init__()
         self.torch_model = torch_model
         self.paf_scorer = paf_scorer
@@ -77,6 +100,7 @@ class BottomUpInferenceModel(L.LightningModule):
         self.return_pafs = return_pafs
         self.return_paf_graph = return_paf_graph
         self.input_scale = input_scale
+        self.max_peaks_per_node = max_peaks_per_node
 
     def _generate_cms_peaks(self, cms):
         # TODO: append nans to batch them -> tensor (vectorize the initial paf grouping steps)
@@ -124,26 +148,68 @@ class BottomUpInferenceModel(L.LightningModule):
         )  # (batch, h, w, 2*edges)
         cms_peaks, cms_peak_vals, cms_peak_channel_inds = self._generate_cms_peaks(cms)
 
-        (
-            predicted_instances,
-            predicted_peak_scores,
-            predicted_instance_scores,
-            edge_inds,
-            edge_peak_inds,
-            line_scores,
-        ) = self.paf_scorer.predict(
-            pafs=pafs,
-            peaks=cms_peaks,
-            peak_vals=cms_peak_vals,
-            peak_channel_inds=cms_peak_channel_inds,
-        )
+        # Check if too many peaks per node (prevents combinatorial explosion)
+        skip_paf_scoring = False
+        if self.max_peaks_per_node is not None:
+            n_nodes = cms.shape[1]
+            for b in range(self.batch_size):
+                for node_idx in range(n_nodes):
+                    n_peaks = int((cms_peak_channel_inds[b] == node_idx).sum().item())
+                    if n_peaks > self.max_peaks_per_node:
+                        logger.warning(
+                            f"Skipping PAF scoring: node {node_idx} has {n_peaks} peaks "
+                            f"(max_peaks_per_node={self.max_peaks_per_node}). "
+                            f"Model may need more training."
+                        )
+                        skip_paf_scoring = True
+                        break
+                if skip_paf_scoring:
+                    break
 
-        predicted_instances = [p / self.input_scale for p in predicted_instances]
-        predicted_instances_adjusted = []
-        for idx, p in enumerate(predicted_instances):
-            predicted_instances_adjusted.append(
-                p / inputs["eff_scale"][idx].to(p.device)
+        if skip_paf_scoring:
+            # Return empty predictions for each sample
+            device = cms.device
+            n_nodes = cms.shape[1]
+            predicted_instances_adjusted = []
+            predicted_peak_scores = []
+            predicted_instance_scores = []
+            for _ in range(self.batch_size):
+                predicted_instances_adjusted.append(
+                    torch.full((0, n_nodes, 2), float("nan"), device=device)
+                )
+                predicted_peak_scores.append(
+                    torch.full((0, n_nodes), float("nan"), device=device)
+                )
+                predicted_instance_scores.append(torch.tensor([], device=device))
+            edge_inds = [
+                torch.tensor([], dtype=torch.int32, device=device)
+            ] * self.batch_size
+            edge_peak_inds = [
+                torch.tensor([], dtype=torch.int32, device=device).reshape(0, 2)
+            ] * self.batch_size
+            line_scores = [torch.tensor([], device=device)] * self.batch_size
+        else:
+            (
+                predicted_instances,
+                predicted_peak_scores,
+                predicted_instance_scores,
+                edge_inds,
+                edge_peak_inds,
+                line_scores,
+            ) = self.paf_scorer.predict(
+                pafs=pafs,
+                peaks=cms_peaks,
+                peak_vals=cms_peak_vals,
+                peak_channel_inds=cms_peak_channel_inds,
             )
+
+            predicted_instances = [p / self.input_scale for p in predicted_instances]
+            predicted_instances_adjusted = []
+            for idx, p in enumerate(predicted_instances):
+                predicted_instances_adjusted.append(
+                    p / inputs["eff_scale"][idx].to(p.device)
+                )
+
         out = {
             "pred_instance_peaks": predicted_instances_adjusted,
             "pred_peak_values": predicted_peak_scores,
