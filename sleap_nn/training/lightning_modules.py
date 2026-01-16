@@ -1286,12 +1286,13 @@ class BottomUpLightningModule(LightningModel):
         self.bottomup_inf_layer = BottomUpInferenceModel(
             torch_model=self.forward,
             paf_scorer=paf_scorer,
-            peak_threshold=0.2,
+            peak_threshold=0.1,  # Lower threshold for epoch-end eval during training
             input_scale=1.0,
             return_confmaps=True,
             return_pafs=True,
             cms_output_stride=self.head_configs.bottomup.confmaps.output_stride,
             pafs_output_stride=self.head_configs.bottomup.pafs.output_stride,
+            max_peaks_per_node=100,  # Prevents combinatorial explosion in early training
         )
         self.node_names = list(self.head_configs.bottomup.confmaps.part_names)
 
