@@ -184,6 +184,10 @@ class LightningModel(L.LightningModule):
         self.val_loss = {}
         self.learning_rate = {}
 
+        # For epoch-averaged loss tracking
+        self._epoch_loss_sum = 0.0
+        self._epoch_loss_count = 0
+
         # For epoch-end evaluation
         self.val_predictions: List[Dict] = []
         self.val_ground_truth: List[Dict] = []
@@ -310,6 +314,14 @@ class LightningModel(L.LightningModule):
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
         self.train_start_time = time.time()
+        # Reset epoch loss tracking
+        self._epoch_loss_sum = 0.0
+        self._epoch_loss_count = 0
+
+    def _accumulate_loss(self, loss: torch.Tensor):
+        """Accumulate loss for epoch-averaged logging. Call this in training_step."""
+        self._epoch_loss_sum += loss.detach().item()
+        self._epoch_loss_count += 1
 
     def on_train_epoch_end(self):
         """Configure the train timer at the end of every epoch."""
@@ -332,6 +344,18 @@ class LightningModel(L.LightningModule):
             logger=True,
             sync_dist=True,
         )
+        # Log epoch-averaged training loss
+        if self._epoch_loss_count > 0:
+            avg_loss = self._epoch_loss_sum / self._epoch_loss_count
+            self.log(
+                "train/loss",
+                avg_loss,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
         # Log current learning rate (useful for monitoring LR schedulers)
         if self.trainer.optimizers:
             lr = self.trainer.optimizers[0].param_groups[0]["lr"]
@@ -629,16 +653,8 @@ class SingleInstanceLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
-        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
-        self.log(
-            "train/loss",
-            loss,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -902,16 +918,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
-        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
-        self.log(
-            "train/loss",
-            loss,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1157,16 +1165,8 @@ class CentroidLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
-        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
-        self.log(
-            "train/loss",
-            loss,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1464,16 +1464,8 @@ class BottomUpLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
-        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
-        self.log(
-            "train/loss",
-            loss,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         self.log(
             "train/confmaps_loss",
             confmap_loss,
@@ -1815,16 +1807,8 @@ class BottomUpMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
-        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
-        self.log(
-            "train/loss",
-            loss,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         self.log(
             "train/confmaps_loss",
             confmap_loss,
@@ -2251,16 +2235,8 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
-        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
-        self.log(
-            "train/loss",
-            loss,
-            prog_bar=False,
-            on_step=False,
-            on_epoch=True,
-            logger=True,
-            sync_dist=True,
-        )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         self.log(
             "train/confmaps_loss",
             confmap_loss,
