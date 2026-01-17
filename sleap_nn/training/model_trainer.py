@@ -23,7 +23,6 @@ from sleap_nn.data.utils import check_cache_memory
 from lightning.pytorch.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
-    LearningRateMonitor,
 )
 from lightning.pytorch.profilers import (
     SimpleProfiler,
@@ -494,13 +493,10 @@ class ModelTrainer:
         if run_name is None or run_name == "" or run_name == "None":
             sum_train_lfs = sum([len(train_label) for train_label in self.train_labels])
             sum_val_lfs = sum([len(val_label) for val_label in self.val_labels])
-            if self._get_trainer_devices() > 1:
-                run_name = f"{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
-            else:
-                run_name = (
-                    datetime.now().strftime("%y%m%d_%H%M%S")
-                    + f".{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
-                )
+            run_name = (
+                datetime.now().strftime("%y%m%d_%H%M%S")
+                + f".{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
+            )
 
         # If checkpoint path already exists, add suffix to prevent overwriting
         if (Path(ckpt_dir) / run_name).exists() and (
@@ -643,10 +639,6 @@ class ModelTrainer:
         if self.config.trainer_config.wandb.prv_runid == "":
             self.config.trainer_config.wandb.prv_runid = None
 
-        # Default wandb run name to trainer run_name if not specified
-        if self.config.trainer_config.wandb.name is None:
-            self.config.trainer_config.wandb.name = self.config.trainer_config.run_name
-
         # compute preprocessing parameters from the labels objects and fill in the config
         self._setup_preprocessing_config()
 
@@ -696,8 +688,13 @@ class ModelTrainer:
                 )
             )
 
-        # setup checkpoint path
+        # setup checkpoint path (generates run_name if not specified)
         self._setup_ckpt_path()
+
+        # Default wandb run name to trainer run_name if not specified
+        # Note: This must come after _setup_ckpt_path() which generates run_name
+        if self.config.trainer_config.wandb.name is None:
+            self.config.trainer_config.wandb.name = self.config.trainer_config.run_name
 
         # verify input_channels in model_config based on input image and pretrained model weights
         self._verify_model_input_channels()
@@ -838,7 +835,7 @@ class ModelTrainer:
                     / self.config.trainer_config.run_name
                 ).as_posix(),
                 filename="best",
-                monitor="val_loss",
+                monitor="val/loss",
                 mode="min",
             )
             callbacks.append(checkpoint_callback)
@@ -846,18 +843,20 @@ class ModelTrainer:
             # csv log callback
             csv_log_keys = [
                 "epoch",
-                "train_loss",
-                "val_loss",
+                "train/loss",
+                "val/loss",
                 "learning_rate",
-                "train_time",
-                "val_time",
+                "train/time",
+                "val/time",
             ]
             if self.model_type in [
                 "single_instance",
                 "centered_instance",
                 "multi_class_topdown",
             ]:
-                csv_log_keys.extend(self.skeletons[0].node_names)
+                csv_log_keys.extend(
+                    [f"train/confmaps/{name}" for name in self.skeletons[0].node_names]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -870,7 +869,7 @@ class ModelTrainer:
             # early stopping callback
             callbacks.append(
                 EarlyStopping(
-                    monitor="val_loss",
+                    monitor="val/loss",
                     mode="min",
                     verbose=False,
                     min_delta=self.config.trainer_config.early_stopping.min_delta,
@@ -909,10 +908,6 @@ class ModelTrainer:
                     "WandB local logs will be deleted after training completes. "
                     "To keep logs, set trainer_config.wandb.delete_local_logs=false"
                 )
-
-            # Learning rate monitor callback - logs LR at each step for dynamic schedulers
-            # Only added when wandb is enabled since it requires a logger
-            callbacks.append(LearningRateMonitor(logging_interval="step"))
 
             # save the configs as yaml in the checkpoint dir
             # Mask API key in both configs to prevent saving to disk
@@ -1281,28 +1276,21 @@ class ModelTrainer:
                 # Define custom x-axes for wandb metrics
                 # Epoch-level metrics use epoch as x-axis, step-level use default global_step
                 wandb.define_metric("epoch")
-                wandb.define_metric("val_loss", step_metric="epoch")
-                wandb.define_metric("val_time", step_metric="epoch")
-                wandb.define_metric("train_time", step_metric="epoch")
-                # Per-node losses use epoch as x-axis
-                for node_name in self.skeletons[0].node_names:
-                    wandb.define_metric(node_name, step_metric="epoch")
 
-                # Visualization images use epoch as x-axis
-                wandb.define_metric("train_predictions*", step_metric="epoch")
-                wandb.define_metric("val_predictions*", step_metric="epoch")
-                wandb.define_metric("train_pafs*", step_metric="epoch")
-                wandb.define_metric("val_pafs*", step_metric="epoch")
+                # Training metrics (train/ prefix for grouping) - all use epoch x-axis
+                wandb.define_metric("train/*", step_metric="epoch")
+                wandb.define_metric("train/confmaps/*", step_metric="epoch")
 
-                # Evaluation metrics use epoch as x-axis
-                wandb.define_metric("val_mOKS", step_metric="epoch")
-                wandb.define_metric("val_oks_voc_mAP", step_metric="epoch")
-                wandb.define_metric("val_oks_voc_mAR", step_metric="epoch")
-                wandb.define_metric("val_avg_distance", step_metric="epoch")
-                wandb.define_metric("val_p50_distance", step_metric="epoch")
-                wandb.define_metric("val_mPCK", step_metric="epoch")
-                wandb.define_metric("val_visibility_precision", step_metric="epoch")
-                wandb.define_metric("val_visibility_recall", step_metric="epoch")
+                # Validation metrics (val/ prefix for grouping)
+                wandb.define_metric("val/*", step_metric="epoch")
+
+                # Evaluation metrics (eval/ prefix for grouping)
+                wandb.define_metric("eval/*", step_metric="epoch")
+
+                # Visualization images (need explicit nested paths)
+                wandb.define_metric("viz/*", step_metric="epoch")
+                wandb.define_metric("viz/train/*", step_metric="epoch")
+                wandb.define_metric("viz/val/*", step_metric="epoch")
 
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name
@@ -1345,27 +1333,7 @@ class ModelTrainer:
             logger.info(
                 f"Finished training loop. [{(time.time() - start_train_time) / 60:.1f} min]"
             )
-            if self.trainer.global_rank == 0 and self.config.trainer_config.use_wandb:
-                wandb.finish()
-
-                # Delete local wandb logs if configured
-                wandb_config = self.config.trainer_config.wandb
-                should_delete_wandb_logs = wandb_config.delete_local_logs is True or (
-                    wandb_config.delete_local_logs is None
-                    and wandb_config.wandb_mode != "offline"
-                )
-                if should_delete_wandb_logs:
-                    wandb_dir = (
-                        Path(self.config.trainer_config.ckpt_dir)
-                        / self.config.trainer_config.run_name
-                        / "wandb"
-                    )
-                    if wandb_dir.exists():
-                        logger.info(
-                            f"Deleting local wandb logs at {wandb_dir}... "
-                            "(set trainer_config.wandb.delete_local_logs=false to disable)"
-                        )
-                        shutil.rmtree(wandb_dir, ignore_errors=True)
+            # Note: wandb.finish() is called in train.py after post-training evaluation
 
             # delete image disk caching
             if (

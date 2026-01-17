@@ -295,8 +295,8 @@ class WandBVizCallback(Callback):
                 suffix = "" if mode_name == "direct" else f"_{mode_name}"
                 train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
                 val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
-                log_dict[f"train_predictions{suffix}"] = train_img
-                log_dict[f"val_predictions{suffix}"] = val_img
+                log_dict[f"viz/train/predictions{suffix}"] = train_img
+                log_dict[f"viz/val/predictions{suffix}"] = val_img
 
             if log_dict:
                 # Include epoch so wandb can use it as x-axis (via define_metric)
@@ -394,8 +394,8 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
                 suffix = "" if mode_name == "direct" else f"_{mode_name}"
                 train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
                 val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
-                log_dict[f"train_predictions{suffix}"] = train_img
-                log_dict[f"val_predictions{suffix}"] = val_img
+                log_dict[f"viz/train/predictions{suffix}"] = train_img
+                log_dict[f"viz/val/predictions{suffix}"] = val_img
 
             # Render PAFs (always use matplotlib/direct for PAFs)
             from io import BytesIO
@@ -408,7 +408,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             buf.seek(0)
             plt.close(train_pafs_fig)
             train_pafs_pil = Image.open(buf)
-            log_dict["train_pafs"] = wandb.Image(
+            log_dict["viz/train/pafs"] = wandb.Image(
                 train_pafs_pil, caption=f"Train PAFs Epoch {epoch}"
             )
 
@@ -418,7 +418,7 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
             buf.seek(0)
             plt.close(val_pafs_fig)
             val_pafs_pil = Image.open(buf)
-            log_dict["val_pafs"] = wandb.Image(
+            log_dict["viz/val/pafs"] = wandb.Image(
                 val_pafs_pil, caption=f"Val PAFs Epoch {epoch}"
             )
 
@@ -444,8 +444,8 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
                             epoch,
                             train_img,
                             val_img,
-                            log_dict["train_pafs"],
-                            log_dict["val_pafs"],
+                            log_dict["viz/train/pafs"],
+                            log_dict["viz/val/pafs"],
                         ]
                     ],
                 )
@@ -709,9 +709,13 @@ class EpochEndEvaluationCallback(Callback):
             "mOKS",
             "oks_voc.mAP",
             "oks_voc.mAR",
-            "avg_distance",
-            "p50_distance",
+            "distance/avg",
+            "distance/p50",
+            "distance/p95",
+            "distance/p99",
             "mPCK",
+            "PCK@5",
+            "PCK@10",
             "visibility_precision",
             "visibility_recall",
         ]
@@ -779,6 +783,7 @@ class EpochEndEvaluationCallback(Callback):
 
             logger.info(
                 f"Epoch {trainer.current_epoch} evaluation: "
+                f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
                 f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
                 f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
             )
@@ -903,36 +908,73 @@ class EpochEndEvaluationCallback(Callback):
         log_dict = {"epoch": epoch}
 
         # Extract key metrics with consistent naming
+        # All eval metrics use eval/val/ prefix since they're computed on validation data
         if "mOKS" in self.metrics_to_log:
-            log_dict["val_mOKS"] = metrics["mOKS"]["mOKS"]
+            log_dict["eval/val/mOKS"] = metrics["mOKS"]["mOKS"]
 
         if "oks_voc.mAP" in self.metrics_to_log:
-            log_dict["val_oks_voc_mAP"] = metrics["voc_metrics"]["oks_voc.mAP"]
+            log_dict["eval/val/oks_voc_mAP"] = metrics["voc_metrics"]["oks_voc.mAP"]
 
         if "oks_voc.mAR" in self.metrics_to_log:
-            log_dict["val_oks_voc_mAR"] = metrics["voc_metrics"]["oks_voc.mAR"]
+            log_dict["eval/val/oks_voc_mAR"] = metrics["voc_metrics"]["oks_voc.mAR"]
 
-        if "avg_distance" in self.metrics_to_log:
+        # Distance metrics grouped under eval/val/distance/
+        if "distance/avg" in self.metrics_to_log:
             val = metrics["distance_metrics"]["avg"]
             if not np.isnan(val):
-                log_dict["val_avg_distance"] = val
+                log_dict["eval/val/distance/avg"] = val
 
-        if "p50_distance" in self.metrics_to_log:
+        if "distance/p50" in self.metrics_to_log:
             val = metrics["distance_metrics"]["p50"]
             if not np.isnan(val):
-                log_dict["val_p50_distance"] = val
+                log_dict["eval/val/distance/p50"] = val
 
+        if "distance/p95" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["p95"]
+            if not np.isnan(val):
+                log_dict["eval/val/distance/p95"] = val
+
+        if "distance/p99" in self.metrics_to_log:
+            val = metrics["distance_metrics"]["p99"]
+            if not np.isnan(val):
+                log_dict["eval/val/distance/p99"] = val
+
+        # PCK metrics
         if "mPCK" in self.metrics_to_log:
-            log_dict["val_mPCK"] = metrics["pck_metrics"]["mPCK"]
+            log_dict["eval/val/mPCK"] = metrics["pck_metrics"]["mPCK"]
 
+        # PCK at specific thresholds (precomputed in evaluation.py)
+        if "PCK@5" in self.metrics_to_log:
+            log_dict["eval/val/PCK_5"] = metrics["pck_metrics"]["PCK@5"]
+
+        if "PCK@10" in self.metrics_to_log:
+            log_dict["eval/val/PCK_10"] = metrics["pck_metrics"]["PCK@10"]
+
+        # Visibility metrics
         if "visibility_precision" in self.metrics_to_log:
             val = metrics["visibility_metrics"]["precision"]
             if not np.isnan(val):
-                log_dict["val_visibility_precision"] = val
+                log_dict["eval/val/visibility_precision"] = val
 
         if "visibility_recall" in self.metrics_to_log:
             val = metrics["visibility_metrics"]["recall"]
             if not np.isnan(val):
-                log_dict["val_visibility_recall"] = val
+                log_dict["eval/val/visibility_recall"] = val
 
         wandb_logger.experiment.log(log_dict, commit=False)
+
+        # Update best metrics in summary (excluding epoch)
+        for key, value in log_dict.items():
+            if key == "epoch":
+                continue
+            # Create summary key like "best/eval/val/mOKS"
+            summary_key = f"best/{key}"
+            current_best = wandb_logger.experiment.summary.get(summary_key)
+            # For distance metrics, lower is better; for others, higher is better
+            is_distance = "distance" in key
+            if current_best is None:
+                wandb_logger.experiment.summary[summary_key] = value
+            elif is_distance and value < current_best:
+                wandb_logger.experiment.summary[summary_key] = value
+            elif not is_distance and value > current_best:
+                wandb_logger.experiment.summary[summary_key] = value

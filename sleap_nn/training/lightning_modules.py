@@ -184,6 +184,10 @@ class LightningModel(L.LightningModule):
         self.val_loss = {}
         self.learning_rate = {}
 
+        # For epoch-averaged loss tracking
+        self._epoch_loss_sum = 0.0
+        self._epoch_loss_count = 0
+
         # For epoch-end evaluation
         self.val_predictions: List[Dict] = []
         self.val_ground_truth: List[Dict] = []
@@ -310,12 +314,20 @@ class LightningModel(L.LightningModule):
     def on_train_epoch_start(self):
         """Configure the train timer at the beginning of each epoch."""
         self.train_start_time = time.time()
+        # Reset epoch loss tracking
+        self._epoch_loss_sum = 0.0
+        self._epoch_loss_count = 0
+
+    def _accumulate_loss(self, loss: torch.Tensor):
+        """Accumulate loss for epoch-averaged logging. Call this in training_step."""
+        self._epoch_loss_sum += loss.detach().item()
+        self._epoch_loss_count += 1
 
     def on_train_epoch_end(self):
         """Configure the train timer at the end of every epoch."""
         train_time = time.time() - self.train_start_time
         self.log(
-            "train_time",
+            "train/time",
             train_time,
             prog_bar=False,
             on_step=False,
@@ -332,6 +344,30 @@ class LightningModel(L.LightningModule):
             logger=True,
             sync_dist=True,
         )
+        # Log epoch-averaged training loss
+        if self._epoch_loss_count > 0:
+            avg_loss = self._epoch_loss_sum / self._epoch_loss_count
+            self.log(
+                "train/loss",
+                avg_loss,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
+        # Log current learning rate (useful for monitoring LR schedulers)
+        if self.trainer.optimizers:
+            lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+            self.log(
+                "train/lr",
+                lr,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
 
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
@@ -344,9 +380,19 @@ class LightningModel(L.LightningModule):
         """Configure the val timer at the end of every epoch."""
         val_time = time.time() - self.val_start_time
         self.log(
-            "val_time",
+            "val/time",
             val_time,
             prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+        # Log epoch explicitly so val/* metrics can use it as x-axis in wandb
+        # (mirrors what on_train_epoch_end does for train/* metrics)
+        self.log(
+            "epoch",
+            float(self.current_epoch),
             on_step=False,
             on_epoch=True,
             logger=True,
@@ -420,7 +466,7 @@ class LightningModel(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "val_loss",
+                "monitor": "val/loss",
             },
         }
 
@@ -599,7 +645,7 @@ class SingleInstanceLightningModule(LightningModel):
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
             for node_idx, name in enumerate(self.node_names):
                 self.log(
-                    f"{name}",
+                    f"train/confmaps/{name}",
                     channel_wise_loss[node_idx],
                     prog_bar=False,
                     on_step=False,
@@ -607,8 +653,9 @@ class SingleInstanceLightningModule(LightningModel):
                     logger=True,
                     sync_dist=True,
                 )
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train_loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -616,6 +663,8 @@ class SingleInstanceLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -638,7 +687,7 @@ class SingleInstanceLightningModule(LightningModel):
             )
             val_loss = val_loss + ohkm_loss
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -860,7 +909,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
             for node_idx, name in enumerate(self.node_names):
                 self.log(
-                    f"{name}",
+                    f"train/confmaps/{name}",
                     channel_wise_loss[node_idx],
                     prog_bar=False,
                     on_step=False,
@@ -869,8 +918,9 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                     sync_dist=True,
                 )
 
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train_loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -878,6 +928,8 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -900,7 +952,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             )
             val_loss = val_loss + ohkm_loss
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1113,8 +1165,9 @@ class CentroidLightningModule(LightningModel):
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train_loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -1122,6 +1175,8 @@ class CentroidLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1134,7 +1189,7 @@ class CentroidLightningModule(LightningModel):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1409,8 +1464,9 @@ class BottomUpLightningModule(LightningModel):
             "PartAffinityFieldsHead": pafs_loss,
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train_loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -1418,8 +1474,10 @@ class BottomUpLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         self.log(
-            "train_confmap_loss",
+            "train/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1427,7 +1485,7 @@ class BottomUpLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_paf_loss",
+            "train/paf_loss",
             pafs_loss,
             on_step=False,
             on_epoch=True,
@@ -1476,7 +1534,7 @@ class BottomUpLightningModule(LightningModel):
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1485,7 +1543,7 @@ class BottomUpLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_confmap_loss",
+            "val/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1493,7 +1551,7 @@ class BottomUpLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_paf_loss",
+            "val/paf_loss",
             pafs_loss,
             on_step=False,
             on_epoch=True,
@@ -1749,8 +1807,9 @@ class BottomUpMultiClassLightningModule(LightningModel):
             "ClassMapsHead": classmaps_loss,
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train_loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -1758,8 +1817,10 @@ class BottomUpMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         self.log(
-            "train_confmap_loss",
+            "train/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1767,13 +1828,67 @@ class BottomUpMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_classmap_loss",
+            "train/classmap_loss",
             classmaps_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
         )
+
+        # Compute classification accuracy at GT keypoint locations
+        with torch.no_grad():
+            # Get output stride for class maps
+            cms_stride = self.head_configs.multi_class_bottomup.class_maps.output_stride
+
+            # Get GT instances and sample class maps at those locations
+            instances = batch["instances"]  # (batch, n_samples, max_inst, n_nodes, 2)
+            if instances.dim() == 5:
+                instances = instances.squeeze(1)  # (batch, max_inst, n_nodes, 2)
+            num_instances = batch["num_instances"]  # (batch,)
+
+            correct = 0
+            total = 0
+            for b in range(instances.shape[0]):
+                n_inst = num_instances[b].item()
+                for inst_idx in range(n_inst):
+                    for node_idx in range(instances.shape[2]):
+                        # Get keypoint location (in input image space)
+                        kp = instances[b, inst_idx, node_idx]  # (2,) = (x, y)
+                        if torch.isnan(kp).any():
+                            continue
+
+                        # Convert to class map space
+                        x_cm = (
+                            (kp[0] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-1] - 1)
+                        )
+                        y_cm = (
+                            (kp[1] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-2] - 1)
+                        )
+
+                        # Sample predicted and GT class at this location
+                        pred_class = classmaps[b, :, y_cm, x_cm].argmax()
+                        gt_class = y_classmap[b, :, y_cm, x_cm].argmax()
+
+                        if pred_class == gt_class:
+                            correct += 1
+                        total += 1
+
+            if total > 0:
+                class_accuracy = torch.tensor(correct / total, device=X.device)
+                self.log(
+                    "train/class_accuracy",
+                    class_accuracy,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                    sync_dist=True,
+                )
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1807,7 +1922,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1816,7 +1931,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_confmap_loss",
+            "val/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1824,13 +1939,113 @@ class BottomUpMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_classmap_loss",
+            "val/classmap_loss",
             classmaps_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
         )
+
+        # Compute classification accuracy at GT keypoint locations
+        with torch.no_grad():
+            # Get output stride for class maps
+            cms_stride = self.head_configs.multi_class_bottomup.class_maps.output_stride
+
+            # Get GT instances and sample class maps at those locations
+            instances = batch["instances"]  # (batch, n_samples, max_inst, n_nodes, 2)
+            if instances.dim() == 5:
+                instances = instances.squeeze(1)  # (batch, max_inst, n_nodes, 2)
+            num_instances = batch["num_instances"]  # (batch,)
+
+            correct = 0
+            total = 0
+            for b in range(instances.shape[0]):
+                n_inst = num_instances[b].item()
+                for inst_idx in range(n_inst):
+                    for node_idx in range(instances.shape[2]):
+                        # Get keypoint location (in input image space)
+                        kp = instances[b, inst_idx, node_idx]  # (2,) = (x, y)
+                        if torch.isnan(kp).any():
+                            continue
+
+                        # Convert to class map space
+                        x_cm = (
+                            (kp[0] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-1] - 1)
+                        )
+                        y_cm = (
+                            (kp[1] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-2] - 1)
+                        )
+
+                        # Sample predicted and GT class at this location
+                        pred_class = classmaps[b, :, y_cm, x_cm].argmax()
+                        gt_class = y_classmap[b, :, y_cm, x_cm].argmax()
+
+                        if pred_class == gt_class:
+                            correct += 1
+                        total += 1
+
+            if total > 0:
+                class_accuracy = torch.tensor(correct / total, device=X.device)
+                self.log(
+                    "val/class_accuracy",
+                    class_accuracy,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                    sync_dist=True,
+                )
+
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            with torch.no_grad():
+                # Note: Do NOT squeeze the image here - the forward() method expects
+                # (batch, n_samples, C, H, W) and handles the n_samples squeeze internally
+                inference_output = self.bottomup_inf_layer(batch)
+                if isinstance(inference_output, list):
+                    inference_output = inference_output[0]
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions are already in original space (variable number of instances)
+                pred_peaks = inference_output["pred_instance_peaks"][i]
+                pred_scores = inference_output["pred_peak_values"][i]
+                if torch.is_tensor(pred_peaks):
+                    pred_peaks = pred_peaks.cpu().numpy()
+                if torch.is_tensor(pred_scores):
+                    pred_scores = pred_scores.cpu().numpy()
+
+                # Transform GT to original space
+                # Note: instances have shape (1, max_inst, n_nodes, 2) - squeeze n_samples dim
+                gt_prep = batch["instances"][i].cpu().numpy()
+                if gt_prep.ndim == 4:
+                    gt_prep = gt_prep.squeeze(0)  # (max_inst, n_nodes, 2)
+                gt_orig = gt_prep / eff
+                num_inst = batch["num_instances"][i].item()
+                gt_orig = gt_orig[:num_inst]  # Only valid instances
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_peaks,  # Original space, variable instances
+                        "pred_scores": pred_scores,
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_orig,  # Original space
+                        "num_instances": num_inst,
+                    }
+                )
 
 
 class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
@@ -2011,7 +2226,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
             for node_idx, name in enumerate(self.node_names):
                 self.log(
-                    f"{name}",
+                    f"train/confmaps/{name}",
                     channel_wise_loss[node_idx],
                     prog_bar=False,
                     on_step=False,
@@ -2020,8 +2235,9 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                     sync_dist=True,
                 )
 
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train_loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -2029,8 +2245,10 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+        # Accumulate for epoch-averaged loss (logged in on_train_epoch_end)
+        self._accumulate_loss(loss)
         self.log(
-            "train_confmap_loss",
+            "train/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -2038,8 +2256,22 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_classvector_loss",
+            "train/classvector_loss",
             classvector_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+
+        # Compute classification accuracy
+        with torch.no_grad():
+            pred_classes = torch.argmax(classvector, dim=1)
+            gt_classes = torch.argmax(y_classvector, dim=1)
+            class_accuracy = (pred_classes == gt_classes).float().mean()
+        self.log(
+            "train/class_accuracy",
+            class_accuracy,
             on_step=False,
             on_epoch=True,
             logger=True,
@@ -2076,7 +2308,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         }
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -2085,7 +2317,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_confmap_loss",
+            "val/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -2093,10 +2325,80 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_classvector_loss",
+            "val/classvector_loss",
             classvector_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
         )
+
+        # Compute classification accuracy
+        with torch.no_grad():
+            pred_classes = torch.argmax(classvector, dim=1)
+            gt_classes = torch.argmax(y_classvector, dim=1)
+            class_accuracy = (pred_classes == gt_classes).float().mean()
+        self.log(
+            "val/class_accuracy",
+            class_accuracy,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            # SAVE bbox BEFORE inference (it modifies in-place!)
+            bbox_prep_saved = batch["instance_bbox"].clone()
+
+            with torch.no_grad():
+                inference_output = self.instance_peaks_inf_layer(batch)
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions from inference (crop-relative, original scale)
+                pred_peaks_crop = (
+                    inference_output["pred_instance_peaks"][i].cpu().numpy()
+                )
+                pred_scores = inference_output["pred_peak_values"][i].cpu().numpy()
+
+                # Compute bbox offset in original space from SAVED prep bbox
+                # bbox has shape (n_samples=1, 4, 2) where 4 corners
+                bbox_prep = bbox_prep_saved[i].squeeze(0).cpu().numpy()  # (4, 2)
+                bbox_top_left_orig = (
+                    bbox_prep[0] / eff
+                )  # Top-left corner in original space
+
+                # Full image coordinates (original space)
+                pred_peaks_full = pred_peaks_crop + bbox_top_left_orig
+
+                # GT transform: crop-relative preprocessed -> full image original
+                gt_crop_prep = (
+                    batch["instance"][i].squeeze(0).cpu().numpy()
+                )  # (n_nodes, 2)
+                gt_crop_orig = gt_crop_prep / eff
+                gt_full_orig = gt_crop_orig + bbox_top_left_orig
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_peaks_full.reshape(
+                            1, -1, 2
+                        ),  # (1, n_nodes, 2)
+                        "pred_scores": pred_scores.reshape(1, -1),  # (1, n_nodes)
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_full_orig.reshape(
+                            1, -1, 2
+                        ),  # (1, n_nodes, 2)
+                        "num_instances": 1,
+                    }
+                )
