@@ -388,17 +388,16 @@ class LightningModel(L.LightningModule):
             logger=True,
             sync_dist=True,
         )
-
-        # Log epoch explicitly to wandb so val/* metrics can use it as x-axis
-        # (required because we use define_metric("val/*", step_metric="epoch"))
-        if self.logger is not None and hasattr(self.logger, "experiment"):
-            try:
-                import wandb
-
-                if wandb.run is not None:
-                    wandb.log({"epoch": self.current_epoch}, commit=False)
-            except (ImportError, AttributeError):
-                pass
+        # Log epoch explicitly so val/* metrics can use it as x-axis in wandb
+        # (mirrors what on_train_epoch_end does for train/* metrics)
+        self.log(
+            "epoch",
+            float(self.current_epoch),
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
 
     def training_step(self, batch, batch_idx):
         """Training step."""
