@@ -1279,6 +1279,7 @@ class ModelTrainer:
 
                 # Training metrics (train/ prefix for grouping) - all use epoch x-axis
                 wandb.define_metric("train/*", step_metric="epoch")
+                wandb.define_metric("train/confmaps/*", step_metric="epoch")
 
                 # Validation metrics (val/ prefix for grouping)
                 wandb.define_metric("val/*", step_metric="epoch")
