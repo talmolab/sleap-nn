@@ -781,10 +781,17 @@ class EpochEndEvaluationCallback(Callback):
             # Log to WandB
             self._log_metrics(trainer, metrics, trainer.current_epoch)
 
+            # Compute PCK@5 for console output
+            pck_thresholds = metrics["pck_metrics"]["thresholds"]
+            pck_vals = metrics["pck_metrics"]["pcks"]
+            idx_5 = np.argmin(np.abs(pck_thresholds - 5))
+            pck5 = pck_vals[:, :, idx_5].mean()
+
             logger.info(
                 f"Epoch {trainer.current_epoch} evaluation: "
                 f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
-                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
+                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}, "
+                f"PCK@5={pck5:.4f}"
             )
 
         except Exception as e:
