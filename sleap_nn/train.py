@@ -118,6 +118,67 @@ def run_training(
                 logger.info(f"p90 dist: {metrics['distance_metrics']['p90']}")
                 logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
 
+                # Log test metrics to wandb summary
+                if d_name.startswith("test") and trainer.config.trainer_config.use_wandb:
+                    import wandb
+
+                    if wandb.run is not None:
+                        summary_metrics = {
+                            f"eval/{d_name}/mOKS": metrics["mOKS"]["mOKS"],
+                            f"eval/{d_name}/oks_voc_mAP": metrics["voc_metrics"][
+                                "oks_voc.mAP"
+                            ],
+                            f"eval/{d_name}/oks_voc_mAR": metrics["voc_metrics"][
+                                "oks_voc.mAR"
+                            ],
+                            f"eval/{d_name}/mPCK": metrics["pck_metrics"]["mPCK"],
+                            f"eval/{d_name}/PCK_5": metrics["pck_metrics"]["PCK@5"],
+                            f"eval/{d_name}/PCK_10": metrics["pck_metrics"]["PCK@10"],
+                            f"eval/{d_name}/distance_avg": metrics["distance_metrics"][
+                                "avg"
+                            ],
+                            f"eval/{d_name}/distance_p50": metrics["distance_metrics"][
+                                "p50"
+                            ],
+                            f"eval/{d_name}/distance_p95": metrics["distance_metrics"][
+                                "p95"
+                            ],
+                            f"eval/{d_name}/distance_p99": metrics["distance_metrics"][
+                                "p99"
+                            ],
+                            f"eval/{d_name}/visibility_precision": metrics[
+                                "visibility_metrics"
+                            ]["precision"],
+                            f"eval/{d_name}/visibility_recall": metrics[
+                                "visibility_metrics"
+                            ]["recall"],
+                        }
+                        for key, value in summary_metrics.items():
+                            wandb.run.summary[key] = value
+
+            # Finish wandb run and cleanup after all evaluation is complete
+            if trainer.config.trainer_config.use_wandb:
+                import wandb
+                import shutil
+
+                if wandb.run is not None:
+                    wandb.finish()
+
+                # Delete local wandb logs if configured
+                wandb_config = trainer.config.trainer_config.wandb
+                should_delete_wandb_logs = wandb_config.delete_local_logs is True or (
+                    wandb_config.delete_local_logs is None
+                    and wandb_config.wandb_mode != "offline"
+                )
+                if should_delete_wandb_logs:
+                    wandb_dir = run_path / "wandb"
+                    if wandb_dir.exists():
+                        logger.info(
+                            f"Deleting local wandb logs at {wandb_dir}... "
+                            "(set trainer_config.wandb.delete_local_logs=false to disable)"
+                        )
+                        shutil.rmtree(wandb_dir, ignore_errors=True)
+
 
 def train(
     train_labels_path: Optional[List[str]] = None,

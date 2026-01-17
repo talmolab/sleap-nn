@@ -836,7 +836,7 @@ class ModelTrainer:
                     / self.config.trainer_config.run_name
                 ).as_posix(),
                 filename="best",
-                monitor="val_loss",
+                monitor="val/loss",
                 mode="min",
             )
             callbacks.append(checkpoint_callback)
@@ -844,18 +844,20 @@ class ModelTrainer:
             # csv log callback
             csv_log_keys = [
                 "epoch",
-                "train_loss",
-                "val_loss",
+                "train/loss",
+                "val/loss",
                 "learning_rate",
-                "train_time",
-                "val_time",
+                "train/time",
+                "val/time",
             ]
             if self.model_type in [
                 "single_instance",
                 "centered_instance",
                 "multi_class_topdown",
             ]:
-                csv_log_keys.extend(self.skeletons[0].node_names)
+                csv_log_keys.extend(
+                    [f"train/confmaps/{name}" for name in self.skeletons[0].node_names]
+                )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -868,7 +870,7 @@ class ModelTrainer:
             # early stopping callback
             callbacks.append(
                 EarlyStopping(
-                    monitor="val_loss",
+                    monitor="val/loss",
                     mode="min",
                     verbose=False,
                     min_delta=self.config.trainer_config.early_stopping.min_delta,
@@ -1333,27 +1335,7 @@ class ModelTrainer:
             logger.info(
                 f"Finished training loop. [{(time.time() - start_train_time) / 60:.1f} min]"
             )
-            if self.trainer.global_rank == 0 and self.config.trainer_config.use_wandb:
-                wandb.finish()
-
-                # Delete local wandb logs if configured
-                wandb_config = self.config.trainer_config.wandb
-                should_delete_wandb_logs = wandb_config.delete_local_logs is True or (
-                    wandb_config.delete_local_logs is None
-                    and wandb_config.wandb_mode != "offline"
-                )
-                if should_delete_wandb_logs:
-                    wandb_dir = (
-                        Path(self.config.trainer_config.ckpt_dir)
-                        / self.config.trainer_config.run_name
-                        / "wandb"
-                    )
-                    if wandb_dir.exists():
-                        logger.info(
-                            f"Deleting local wandb logs at {wandb_dir}... "
-                            "(set trainer_config.wandb.delete_local_logs=false to disable)"
-                        )
-                        shutil.rmtree(wandb_dir, ignore_errors=True)
+            # Note: wandb.finish() is called in train.py after post-training evaluation
 
             # delete image disk caching
             if (
