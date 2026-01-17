@@ -8,6 +8,7 @@ import json
 import shutil
 
 import click
+from omegaconf import OmegaConf
 import torch
 
 from sleap_nn.export.exporters import export_to_onnx
@@ -29,6 +30,7 @@ from sleap_nn.export.wrappers import (
     BottomUpONNXWrapper,
     CenteredInstanceONNXWrapper,
     CentroidONNXWrapper,
+    SingleInstanceONNXWrapper,
     TopDownONNXWrapper,
 )
 from sleap_nn.training.lightning_modules import (
@@ -119,9 +121,6 @@ def export(
                 f"Model type '{model_type}' is not supported for export yet."
             )
 
-        if model_type == "single_instance":
-            raise click.ClickException("Single-instance export is not implemented yet.")
-
         ckpt_path = model_path / "best.ckpt"
         if not ckpt_path.exists():
             raise click.ClickException(f"Checkpoint not found: {ckpt_path}")
@@ -197,6 +196,15 @@ def export(
                 "pafs",
             ]
             metadata_max_peaks = max_peaks_per_node
+        elif model_type == "single_instance":
+            wrapper = SingleInstanceONNXWrapper(
+                torch_model,
+                output_stride=output_stride,
+                input_scale=resolved_scale,
+            )
+            output_names = ["peaks", "peak_vals"]
+            node_names = resolve_node_names(cfg, model_type)
+            edge_inds = resolve_edge_inds(cfg, node_names)
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -425,6 +433,549 @@ def export(
         "Provide one model path for centroid/centered-instance/bottom-up export, "
         "or two paths (centroid + centered_instance) for top-down export."
     )
+
+
+@click.command()
+@click.argument(
+    "export_dir",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+)
+@click.argument(
+    "video_path",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="Output SLP file path. Default: video_name.predictions.slp",
+)
+@click.option(
+    "--runtime",
+    type=click.Choice(["auto", "onnx", "tensorrt"], case_sensitive=False),
+    default="auto",
+    show_default=True,
+    help="Runtime to use for inference.",
+)
+@click.option("--device", type=str, default="auto", show_default=True)
+@click.option("--batch-size", type=int, default=4, show_default=True)
+@click.option("--n-frames", type=int, default=None, help="Limit to first N frames.")
+@click.option(
+    "--max-edge-length-ratio",
+    type=float,
+    default=0.25,
+    show_default=True,
+    help="Bottom-up: max edge length as ratio of PAF dimensions.",
+)
+@click.option(
+    "--dist-penalty-weight",
+    type=float,
+    default=1.0,
+    show_default=True,
+    help="Bottom-up: weight for distance penalty in PAF scoring.",
+)
+@click.option(
+    "--n-points",
+    type=int,
+    default=10,
+    show_default=True,
+    help="Bottom-up: number of points to sample along PAF.",
+)
+@click.option(
+    "--min-instance-peaks",
+    type=float,
+    default=0,
+    show_default=True,
+    help="Bottom-up: minimum peaks required per instance.",
+)
+@click.option(
+    "--min-line-scores",
+    type=float,
+    default=-0.5,
+    show_default=True,
+    help="Bottom-up: minimum line score threshold.",
+)
+@click.option(
+    "--peak-conf-threshold",
+    type=float,
+    default=0.1,
+    show_default=True,
+    help="Bottom-up: peak confidence threshold for filtering candidates.",
+)
+@click.option(
+    "--max-instances",
+    type=int,
+    default=None,
+    help="Maximum instances to output per frame.",
+)
+def predict(
+    export_dir: Path,
+    video_path: Path,
+    output: Optional[Path],
+    runtime: str,
+    device: str,
+    batch_size: int,
+    n_frames: Optional[int],
+    max_edge_length_ratio: float,
+    dist_penalty_weight: float,
+    n_points: int,
+    min_instance_peaks: float,
+    min_line_scores: float,
+    peak_conf_threshold: float,
+    max_instances: Optional[int],
+) -> None:
+    """Run inference on exported models and save predictions to SLP.
+
+    EXPORT_DIR is the directory containing the exported model (model.onnx or model.trt)
+    along with export_metadata.json and training_config.yaml.
+
+    VIDEO_PATH is the path to the video file to process.
+    """
+    import time
+    from datetime import datetime
+
+    import numpy as np
+    import sleap_io as sio
+
+    from sleap_nn.export.metadata import ExportMetadata
+    from sleap_nn.export.predictors import load_exported_model
+    from sleap_nn.export.utils import build_bottomup_candidate_template
+    from sleap_nn.inference.paf_grouping import PAFScorer
+    from sleap_nn.inference.utils import get_skeleton_from_config
+
+    # Load metadata
+    metadata_path = export_dir / "export_metadata.json"
+    if not metadata_path.exists():
+        raise click.ClickException(f"Metadata not found: {metadata_path}")
+    metadata = ExportMetadata.load(metadata_path)
+
+    # Find model file
+    onnx_path = export_dir / "model.onnx"
+    trt_path = export_dir / "model.trt"
+
+    if runtime == "auto":
+        if trt_path.exists():
+            model_path = trt_path
+            runtime = "tensorrt"
+        elif onnx_path.exists():
+            model_path = onnx_path
+            runtime = "onnx"
+        else:
+            raise click.ClickException(
+                f"No model found in {export_dir}. Expected model.onnx or model.trt."
+            )
+    elif runtime == "onnx":
+        if not onnx_path.exists():
+            raise click.ClickException(f"ONNX model not found: {onnx_path}")
+        model_path = onnx_path
+    elif runtime == "tensorrt":
+        if not trt_path.exists():
+            raise click.ClickException(f"TensorRT model not found: {trt_path}")
+        model_path = trt_path
+    else:
+        raise click.ClickException(f"Unknown runtime: {runtime}")
+
+    # Load training config for skeleton
+    cfg_path = _find_training_config_for_predict(export_dir, metadata.model_type)
+    if cfg_path.suffix in {".yaml", ".yml"}:
+        cfg = OmegaConf.load(cfg_path.as_posix())
+    else:
+        from sleap_nn.config.training_job_config import TrainingJobConfig
+        cfg = TrainingJobConfig.load_sleap_config(cfg_path.as_posix())
+    skeletons = get_skeleton_from_config(cfg.data_config.skeletons)
+    skeleton = skeletons[0]
+
+    # Load video
+    video = sio.Video.from_filename(video_path.as_posix())
+    total_frames = len(video) if n_frames is None else min(n_frames, len(video))
+    frame_indices = list(range(total_frames))
+
+    click.echo(f"Loading model from: {model_path}")
+    click.echo(f"  Model type: {metadata.model_type}")
+    click.echo(f"  Runtime: {runtime}")
+    click.echo(f"  Device: {device}")
+
+    predictor = load_exported_model(model_path.as_posix(), runtime=runtime, device=device)
+
+    click.echo(f"Processing video: {video_path}")
+    click.echo(f"  Total frames: {total_frames}")
+    click.echo(f"  Batch size: {batch_size}")
+
+    # Set up bottom-up post-processing if needed
+    paf_scorer = None
+    candidate_template = None
+    if metadata.model_type == "bottomup":
+        paf_scorer = PAFScorer.from_config(
+            cfg.model_config.head_configs.bottomup,
+            max_edge_length_ratio=max_edge_length_ratio,
+            dist_penalty_weight=dist_penalty_weight,
+            n_points=n_points,
+            min_instance_peaks=min_instance_peaks,
+            min_line_scores=min_line_scores,
+        )
+        max_peaks = metadata.max_peaks_per_node
+        if max_peaks is None:
+            raise click.ClickException(
+                "Bottom-up export metadata missing max_peaks_per_node."
+            )
+        edge_inds_tuples = [(int(e[0]), int(e[1])) for e in paf_scorer.edge_inds]
+        peak_channel_inds, edge_inds_tensor, edge_peak_inds = build_bottomup_candidate_template(
+            n_nodes=metadata.n_nodes,
+            max_peaks_per_node=max_peaks,
+            edge_inds=edge_inds_tuples,
+        )
+        candidate_template = {
+            "peak_channel_inds": peak_channel_inds,
+            "edge_inds": edge_inds_tensor,
+            "edge_peak_inds": edge_peak_inds,
+        }
+
+    labeled_frames = []
+    total_start = time.perf_counter()
+    infer_time = 0.0
+    post_time = 0.0
+
+    for start in range(0, len(frame_indices), batch_size):
+        batch_indices = frame_indices[start : start + batch_size]
+        batch = _load_video_batch(video, batch_indices)
+
+        infer_start = time.perf_counter()
+        outputs = predictor.predict(batch)
+        infer_time += time.perf_counter() - infer_start
+
+        post_start = time.perf_counter()
+        if metadata.model_type == "topdown":
+            labeled_frames.extend(
+                _predict_topdown_frames(
+                    outputs,
+                    batch_indices,
+                    video,
+                    skeleton,
+                    max_instances=max_instances,
+                )
+            )
+        elif metadata.model_type == "bottomup":
+            labeled_frames.extend(
+                _predict_bottomup_frames(
+                    outputs,
+                    batch_indices,
+                    video,
+                    skeleton,
+                    paf_scorer,
+                    candidate_template,
+                    input_scale=metadata.input_scale,
+                    peak_conf_threshold=peak_conf_threshold,
+                    max_instances=max_instances,
+                )
+            )
+        elif metadata.model_type == "single_instance":
+            labeled_frames.extend(
+                _predict_single_instance_frames(
+                    outputs,
+                    batch_indices,
+                    video,
+                    skeleton,
+                )
+            )
+        else:
+            raise click.ClickException(
+                f"Unsupported model_type for predict: {metadata.model_type}"
+            )
+        post_time += time.perf_counter() - post_start
+
+        # Progress update
+        processed = min(start + batch_size, len(frame_indices))
+        click.echo(
+            f"\r  Processed {processed}/{len(frame_indices)} frames...",
+            nl=False,
+        )
+
+    click.echo()  # Newline after progress
+
+    total_time = time.perf_counter() - total_start
+    fps = len(frame_indices) / total_time if total_time > 0 else 0
+
+    # Save predictions
+    output_path = output or video_path.with_suffix(".predictions.slp")
+    labels = sio.Labels(
+        videos=[video],
+        skeletons=[skeleton],
+        labeled_frames=labeled_frames,
+    )
+    labels.provenance = {
+        "sleap_nn_version": metadata.sleap_nn_version,
+        "export_format": runtime,
+        "model_type": metadata.model_type,
+        "inference_timestamp": datetime.now().isoformat(),
+    }
+    sio.save_file(labels, output_path.as_posix())
+
+    click.echo(f"\nInference complete:")
+    click.echo(f"  Total time: {total_time:.2f}s")
+    click.echo(f"  Inference time: {infer_time:.2f}s")
+    click.echo(f"  Post-processing time: {post_time:.2f}s")
+    click.echo(f"  FPS: {fps:.2f}")
+    click.echo(f"  Frames with predictions: {len(labeled_frames)}")
+    click.echo(f"  Output saved to: {output_path}")
+
+
+def _find_training_config_for_predict(export_dir: Path, model_type: str) -> Path:
+    """Find training config file in export directory."""
+    candidates = []
+    if model_type == "topdown":
+        candidates.extend([
+            export_dir / "training_config_centered_instance.yaml",
+            export_dir / "training_config_centered_instance.json",
+        ])
+    candidates.extend([
+        export_dir / "training_config.yaml",
+        export_dir / "training_config.json",
+        export_dir / f"training_config_{model_type}.yaml",
+        export_dir / f"training_config_{model_type}.json",
+    ])
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    raise click.ClickException(
+        f"No training_config found in {export_dir} for model_type={model_type}."
+    )
+
+
+def _load_video_batch(video, frame_indices):
+    """Load a batch of video frames as uint8 NCHW array."""
+    import numpy as np
+
+    frames = []
+    for idx in frame_indices:
+        frame = np.asarray(video[idx])
+        if frame.ndim == 2:
+            frame = frame[:, :, None]
+        if frame.dtype != np.uint8:
+            frame = frame.astype(np.uint8)
+        frame = np.transpose(frame, (2, 0, 1))  # HWC -> CHW
+        frames.append(frame)
+    return np.stack(frames, axis=0)
+
+
+def _predict_topdown_frames(
+    outputs,
+    frame_indices,
+    video,
+    skeleton,
+    max_instances=None,
+):
+    """Convert top-down model outputs to LabeledFrames."""
+    import sleap_io as sio
+
+    labeled_frames = []
+    centroids = outputs["centroids"]
+    centroid_vals = outputs["centroid_vals"]
+    peaks = outputs["peaks"]
+    peak_vals = outputs["peak_vals"]
+    instance_valid = outputs["instance_valid"]
+
+    for batch_idx, frame_idx in enumerate(frame_indices):
+        instances = []
+        valid_mask = instance_valid[batch_idx].astype(bool)
+        for inst_idx, is_valid in enumerate(valid_mask):
+            if not is_valid:
+                continue
+            pts = peaks[batch_idx, inst_idx]
+            scores = peak_vals[batch_idx, inst_idx]
+            score = float(centroid_vals[batch_idx, inst_idx])
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=pts,
+                    point_scores=scores,
+                    score=score,
+                    skeleton=skeleton,
+                )
+            )
+
+        if max_instances is not None and instances:
+            instances = sorted(instances, key=lambda inst: inst.score, reverse=True)
+            instances = instances[:max_instances]
+
+        if instances:
+            labeled_frames.append(
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=int(frame_idx),
+                    instances=instances,
+                )
+            )
+
+    return labeled_frames
+
+
+def _predict_bottomup_frames(
+    outputs,
+    frame_indices,
+    video,
+    skeleton,
+    paf_scorer,
+    candidate_template,
+    input_scale,
+    peak_conf_threshold=0.1,
+    max_instances=None,
+):
+    """Convert bottom-up model outputs to LabeledFrames."""
+    import numpy as np
+    import sleap_io as sio
+    import torch
+
+    labeled_frames = []
+
+    peaks = torch.from_numpy(outputs["peaks"]).to(torch.float32)
+    peak_vals = torch.from_numpy(outputs["peak_vals"]).to(torch.float32)
+    line_scores = torch.from_numpy(outputs["line_scores"]).to(torch.float32)
+    candidate_mask = torch.from_numpy(outputs["candidate_mask"]).to(torch.bool)
+
+    batch_size, n_nodes, k, _ = peaks.shape
+    peaks_flat = peaks.reshape(batch_size, n_nodes * k, 2)
+    peak_vals_flat = peak_vals.reshape(batch_size, n_nodes * k)
+
+    peak_channel_inds_base = candidate_template["peak_channel_inds"]
+    edge_inds_base = candidate_template["edge_inds"]
+    edge_peak_inds_base = candidate_template["edge_peak_inds"]
+
+    peaks_list = []
+    peak_vals_list = []
+    peak_channel_inds_list = []
+    edge_inds_list = []
+    edge_peak_inds_list = []
+    line_scores_list = []
+
+    for b in range(batch_size):
+        peaks_list.append(peaks_flat[b])
+        peak_vals_list.append(peak_vals_flat[b])
+        peak_channel_inds_list.append(peak_channel_inds_base)
+
+        candidate_mask_flat = candidate_mask[b].reshape(-1)
+        line_scores_flat = line_scores[b].reshape(-1)
+
+        if candidate_mask_flat.numel() == 0:
+            edge_inds_list.append(torch.empty((0,), dtype=torch.int32))
+            edge_peak_inds_list.append(torch.empty((0, 2), dtype=torch.int32))
+            line_scores_list.append(torch.empty((0,), dtype=torch.float32))
+            continue
+
+        # Filter candidates by peak confidence threshold
+        peak_vals_b = peak_vals_flat[b]
+        peak_conf_valid = peak_vals_b > peak_conf_threshold
+        src_valid = peak_conf_valid[edge_peak_inds_base[:, 0].long()]
+        dst_valid = peak_conf_valid[edge_peak_inds_base[:, 1].long()]
+        valid = candidate_mask_flat & src_valid & dst_valid
+
+        edge_inds_list.append(edge_inds_base[valid])
+        edge_peak_inds_list.append(edge_peak_inds_base[valid])
+        line_scores_list.append(line_scores_flat[valid])
+
+    (
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    ) = paf_scorer.match_candidates(
+        edge_inds_list,
+        edge_peak_inds_list,
+        line_scores_list,
+    )
+
+    (
+        predicted_instances,
+        predicted_peak_scores,
+        predicted_instance_scores,
+    ) = paf_scorer.group_instances(
+        peaks_list,
+        peak_vals_list,
+        peak_channel_inds_list,
+        match_edge_inds,
+        match_src_peak_inds,
+        match_dst_peak_inds,
+        match_line_scores,
+    )
+
+    predicted_instances = [p / input_scale for p in predicted_instances]
+
+    for batch_idx, frame_idx in enumerate(frame_indices):
+        instances = []
+        for pts, confs, score in zip(
+            predicted_instances[batch_idx],
+            predicted_peak_scores[batch_idx],
+            predicted_instance_scores[batch_idx],
+        ):
+            pts_np = pts.cpu().numpy()
+            if np.isnan(pts_np).all():
+                continue
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=pts_np,
+                    point_scores=confs.cpu().numpy(),
+                    score=float(score),
+                    skeleton=skeleton,
+                )
+            )
+
+        if max_instances is not None and instances:
+            instances = sorted(instances, key=lambda inst: inst.score, reverse=True)
+            instances = instances[:max_instances]
+
+        if instances:
+            labeled_frames.append(
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=int(frame_idx),
+                    instances=instances,
+                )
+            )
+
+    return labeled_frames
+
+
+def _predict_single_instance_frames(
+    outputs,
+    frame_indices,
+    video,
+    skeleton,
+):
+    """Convert single-instance model outputs to LabeledFrames."""
+    import numpy as np
+    import sleap_io as sio
+
+    labeled_frames = []
+    peaks = outputs["peaks"]  # (batch, n_nodes, 2)
+    peak_vals = outputs["peak_vals"]  # (batch, n_nodes)
+
+    for batch_idx, frame_idx in enumerate(frame_indices):
+        pts = peaks[batch_idx]
+        scores = peak_vals[batch_idx]
+
+        # Compute instance score as mean of valid peak values
+        valid_mask = ~np.isnan(pts[:, 0])
+        if valid_mask.any():
+            instance_score = float(np.mean(scores[valid_mask]))
+        else:
+            instance_score = 0.0
+
+        instance = sio.PredictedInstance.from_numpy(
+            points_data=pts,
+            point_scores=scores,
+            score=instance_score,
+            skeleton=skeleton,
+        )
+
+        labeled_frames.append(
+            sio.LabeledFrame(
+                video=video,
+                frame_idx=int(frame_idx),
+                instances=[instance],
+            )
+        )
+
+    return labeled_frames
 
 
 def _copy_training_config(

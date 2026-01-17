@@ -8,6 +8,7 @@ import sleap_io as sio
 from sleap_nn.predict import run_inference, frame_list
 from sleap_nn.evaluation import run_evaluation
 from sleap_nn.export.cli import export as export_command
+from sleap_nn.export.cli import predict as predict_command
 from sleap_nn.train import run_training
 from sleap_nn import __version__
 import hydra
@@ -614,6 +615,7 @@ def system():
     print_system_info()
 
 cli.add_command(export_command)
+cli.add_command(predict_command)
 
 
 if __name__ == "__main__":

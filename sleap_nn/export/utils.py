@@ -183,3 +183,76 @@ def _normalize_edges(edges: List, node_names: List[str]) -> List[Tuple[int, int]
         return normalized
 
     return [(int(src), int(dst)) for src, dst in edges]
+
+
+def build_bottomup_candidate_template(
+    n_nodes: int, max_peaks_per_node: int, edge_inds: List[Tuple[int, int]]
+) -> Tuple["torch.Tensor", "torch.Tensor", "torch.Tensor"]:
+    """Build candidate template matching ONNX wrapper's line_scores ordering.
+
+    The ONNX BottomUpONNXWrapper produces line_scores with shape (n_edges, k*k) where
+    for each edge connecting (src_node, dst_node), position i*k + j corresponds to:
+    - src peak flat index: src_node * k + i
+    - dst peak flat index: dst_node * k + j
+
+    This function builds edge_inds and edge_peak_inds tensors that match this exact
+    ordering, so that line_scores_flat[idx] corresponds to edge_peak_inds[idx].
+
+    Args:
+        n_nodes: Number of nodes in the skeleton.
+        max_peaks_per_node: Maximum peaks per node (k) used during export.
+        edge_inds: List of (src_node, dst_node) tuples defining skeleton edges.
+
+    Returns:
+        Tuple of (peak_channel_inds, edge_inds_tensor, edge_peak_inds_tensor):
+        - peak_channel_inds: (n_nodes * k,) tensor mapping flat peak index to node
+        - edge_inds_tensor: (n_edges * k * k,) tensor of edge indices for each candidate
+        - edge_peak_inds_tensor: (n_edges * k * k, 2) tensor of (src, dst) peak indices
+
+    Example:
+        >>> from sleap_nn.export.utils import build_bottomup_candidate_template
+        >>> peak_ch, edge_inds, edge_peaks = build_bottomup_candidate_template(
+        ...     n_nodes=15, max_peaks_per_node=20, edge_inds=[(1, 2), (1, 5)]
+        ... )
+        >>> # Use with ONNX output:
+        >>> line_scores_flat = line_scores.reshape(-1)
+        >>> valid_scores = line_scores_flat[valid_mask]
+        >>> valid_edge_peaks = edge_peaks[valid_mask]
+
+    Note:
+        This function is necessary because `get_connection_candidates()` in
+        `sleap_nn.inference.paf_grouping` uses unstable argsort, which shuffles
+        peak indices within each node and breaks alignment with ONNX output ordering.
+    """
+    import torch
+
+    k = max_peaks_per_node
+    n_edges = len(edge_inds)
+
+    # peak_channel_inds: [0,0,...0, 1,1,...1, ...] (k times each)
+    peak_channel_inds = torch.arange(n_nodes, dtype=torch.int32).repeat_interleave(k)
+
+    edge_inds_list = []
+    edge_peak_inds_list = []
+
+    for edge_idx, (src_node, dst_node) in enumerate(edge_inds):
+        # Build k*k candidate pairs in row-major order (i*k + j)
+        # src indices: [src_node*k + 0, src_node*k + 0, ..., src_node*k + 1, ...]
+        # dst indices: [dst_node*k + 0, dst_node*k + 1, ..., dst_node*k + 0, ...]
+        src_base = src_node * k
+        dst_base = dst_node * k
+
+        src_indices = torch.arange(k, dtype=torch.int32).repeat_interleave(k) + src_base
+        dst_indices = torch.arange(k, dtype=torch.int32).repeat(k) + dst_base
+
+        edge_inds_list.append(torch.full((k * k,), edge_idx, dtype=torch.int32))
+        edge_peak_inds_list.append(torch.stack([src_indices, dst_indices], dim=1))
+
+    if edge_inds_list:
+        edge_inds_tensor = torch.cat(edge_inds_list)
+        edge_peak_inds_tensor = torch.cat(edge_peak_inds_list)
+    else:
+        edge_inds_tensor = torch.empty((0,), dtype=torch.int32)
+        edge_peak_inds_tensor = torch.empty((0, 2), dtype=torch.int32)
+
+    return peak_channel_inds, edge_inds_tensor, edge_peak_inds_tensor
