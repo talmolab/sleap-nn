@@ -781,17 +781,11 @@ class EpochEndEvaluationCallback(Callback):
             # Log to WandB
             self._log_metrics(trainer, metrics, trainer.current_epoch)
 
-            # Compute PCK@5 for console output
-            pck_thresholds = metrics["pck_metrics"]["thresholds"]
-            pck_vals = metrics["pck_metrics"]["pcks"]
-            idx_5 = np.argmin(np.abs(pck_thresholds - 5))
-            pck5 = pck_vals[:, :, idx_5].mean()
-
             logger.info(
                 f"Epoch {trainer.current_epoch} evaluation: "
+                f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
                 f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
-                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}, "
-                f"PCK@5={pck5:.4f}"
+                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
             )
 
         except Exception as e:
@@ -949,22 +943,12 @@ class EpochEndEvaluationCallback(Callback):
         if "mPCK" in self.metrics_to_log:
             log_dict["eval/val/mPCK"] = metrics["pck_metrics"]["mPCK"]
 
-        # PCK at specific thresholds (thresholds are [1,2,3,4,5,6,7,8,9,10])
+        # PCK at specific thresholds (precomputed in evaluation.py)
         if "PCK@5" in self.metrics_to_log:
-            pck_metrics = metrics["pck_metrics"]
-            thresholds = pck_metrics["thresholds"]
-            pcks = pck_metrics["pcks"]  # shape: (n_frames, n_nodes, n_thresholds)
-            idx_5 = np.argmin(np.abs(thresholds - 5))
-            pck_at_5 = pcks[:, :, idx_5].mean()
-            log_dict["eval/val/PCK_5"] = pck_at_5
+            log_dict["eval/val/PCK_5"] = metrics["pck_metrics"]["PCK@5"]
 
         if "PCK@10" in self.metrics_to_log:
-            pck_metrics = metrics["pck_metrics"]
-            thresholds = pck_metrics["thresholds"]
-            pcks = pck_metrics["pcks"]
-            idx_10 = np.argmin(np.abs(thresholds - 10))
-            pck_at_10 = pcks[:, :, idx_10].mean()
-            log_dict["eval/val/PCK_10"] = pck_at_10
+            log_dict["eval/val/PCK_10"] = metrics["pck_metrics"]["PCK@10"]
 
         # Visibility metrics
         if "visibility_precision" in self.metrics_to_log:

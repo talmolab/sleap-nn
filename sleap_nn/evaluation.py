@@ -639,11 +639,19 @@ class Evaluator:
         mPCK_parts = pcks.mean(axis=0).mean(axis=-1)
         mPCK = mPCK_parts.mean()
 
+        # Precompute PCK at common thresholds
+        idx_5 = np.argmin(np.abs(thresholds - 5))
+        idx_10 = np.argmin(np.abs(thresholds - 10))
+        pck5 = pcks[:, :, idx_5].mean()
+        pck10 = pcks[:, :, idx_10].mean()
+
         return {
             "thresholds": thresholds,
             "pcks": pcks,
             "mPCK_parts": mPCK_parts,
             "mPCK": mPCK,
+            "PCK@5": pck5,
+            "PCK@10": pck10,
         }
 
     def visibility_metrics(self):
