@@ -1774,6 +1774,60 @@ class BottomUpMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+
+        # Compute classification accuracy at GT keypoint locations
+        with torch.no_grad():
+            # Get output stride for class maps
+            cms_stride = self.head_configs.multi_class_bottomup.class_maps.output_stride
+
+            # Get GT instances and sample class maps at those locations
+            instances = batch["instances"]  # (batch, n_samples, max_inst, n_nodes, 2)
+            if instances.dim() == 5:
+                instances = instances.squeeze(1)  # (batch, max_inst, n_nodes, 2)
+            num_instances = batch["num_instances"]  # (batch,)
+
+            correct = 0
+            total = 0
+            for b in range(instances.shape[0]):
+                n_inst = num_instances[b].item()
+                for inst_idx in range(n_inst):
+                    for node_idx in range(instances.shape[2]):
+                        # Get keypoint location (in input image space)
+                        kp = instances[b, inst_idx, node_idx]  # (2,) = (x, y)
+                        if torch.isnan(kp).any():
+                            continue
+
+                        # Convert to class map space
+                        x_cm = (
+                            (kp[0] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-1] - 1)
+                        )
+                        y_cm = (
+                            (kp[1] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-2] - 1)
+                        )
+
+                        # Sample predicted and GT class at this location
+                        pred_class = classmaps[b, :, y_cm, x_cm].argmax()
+                        gt_class = y_classmap[b, :, y_cm, x_cm].argmax()
+
+                        if pred_class == gt_class:
+                            correct += 1
+                        total += 1
+
+            if total > 0:
+                class_accuracy = torch.tensor(correct / total, device=X.device)
+                self.log(
+                    "train/class_accuracy",
+                    class_accuracy,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                    sync_dist=True,
+                )
+
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -1831,6 +1885,59 @@ class BottomUpMultiClassLightningModule(LightningModel):
             logger=True,
             sync_dist=True,
         )
+
+        # Compute classification accuracy at GT keypoint locations
+        with torch.no_grad():
+            # Get output stride for class maps
+            cms_stride = self.head_configs.multi_class_bottomup.class_maps.output_stride
+
+            # Get GT instances and sample class maps at those locations
+            instances = batch["instances"]  # (batch, n_samples, max_inst, n_nodes, 2)
+            if instances.dim() == 5:
+                instances = instances.squeeze(1)  # (batch, max_inst, n_nodes, 2)
+            num_instances = batch["num_instances"]  # (batch,)
+
+            correct = 0
+            total = 0
+            for b in range(instances.shape[0]):
+                n_inst = num_instances[b].item()
+                for inst_idx in range(n_inst):
+                    for node_idx in range(instances.shape[2]):
+                        # Get keypoint location (in input image space)
+                        kp = instances[b, inst_idx, node_idx]  # (2,) = (x, y)
+                        if torch.isnan(kp).any():
+                            continue
+
+                        # Convert to class map space
+                        x_cm = (
+                            (kp[0] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-1] - 1)
+                        )
+                        y_cm = (
+                            (kp[1] / cms_stride)
+                            .long()
+                            .clamp(0, classmaps.shape[-2] - 1)
+                        )
+
+                        # Sample predicted and GT class at this location
+                        pred_class = classmaps[b, :, y_cm, x_cm].argmax()
+                        gt_class = y_classmap[b, :, y_cm, x_cm].argmax()
+
+                        if pred_class == gt_class:
+                            correct += 1
+                        total += 1
+
+            if total > 0:
+                class_accuracy = torch.tensor(correct / total, device=X.device)
+                self.log(
+                    "val/class_accuracy",
+                    class_accuracy,
+                    on_step=False,
+                    on_epoch=True,
+                    logger=True,
+                    sync_dist=True,
+                )
 
         # Collect predictions for epoch-end evaluation if enabled
         if self._collect_val_predictions:
