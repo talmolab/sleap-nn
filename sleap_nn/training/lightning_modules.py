@@ -2257,7 +2257,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         # Compute classification accuracy
         with torch.no_grad():
             pred_classes = torch.argmax(classvector, dim=1)
-            gt_classes = y_classvector
+            gt_classes = torch.argmax(y_classvector, dim=1)
             class_accuracy = (pred_classes == gt_classes).float().mean()
         self.log(
             "train/class_accuracy",
@@ -2326,7 +2326,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         # Compute classification accuracy
         with torch.no_grad():
             pred_classes = torch.argmax(classvector, dim=1)
-            gt_classes = y_classvector
+            gt_classes = torch.argmax(y_classvector, dim=1)
             class_accuracy = (pred_classes == gt_classes).float().mean()
         self.log(
             "val/class_accuracy",
