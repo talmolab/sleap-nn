@@ -119,7 +119,10 @@ def run_training(
                 logger.info(f"p50 dist: {metrics['distance_metrics']['p50']}")
 
                 # Log test metrics to wandb summary
-                if d_name.startswith("test") and trainer.config.trainer_config.use_wandb:
+                if (
+                    d_name.startswith("test")
+                    and trainer.config.trainer_config.use_wandb
+                ):
                     import wandb
 
                     if wandb.run is not None:
