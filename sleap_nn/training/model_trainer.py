@@ -1279,28 +1279,18 @@ class ModelTrainer:
                 # Define custom x-axes for wandb metrics
                 # Epoch-level metrics use epoch as x-axis, step-level use default global_step
                 wandb.define_metric("epoch")
-                wandb.define_metric("val_loss", step_metric="epoch")
-                wandb.define_metric("val_time", step_metric="epoch")
-                wandb.define_metric("train_time", step_metric="epoch")
-                # Per-node losses use epoch as x-axis
-                for node_name in self.skeletons[0].node_names:
-                    wandb.define_metric(node_name, step_metric="epoch")
 
-                # Visualization images use epoch as x-axis
-                wandb.define_metric("train_predictions*", step_metric="epoch")
-                wandb.define_metric("val_predictions*", step_metric="epoch")
-                wandb.define_metric("train_pafs*", step_metric="epoch")
-                wandb.define_metric("val_pafs*", step_metric="epoch")
+                # Training metrics (train/ prefix for grouping)
+                wandb.define_metric("train/*", step_metric="epoch")
 
-                # Evaluation metrics use epoch as x-axis
-                wandb.define_metric("val_mOKS", step_metric="epoch")
-                wandb.define_metric("val_oks_voc_mAP", step_metric="epoch")
-                wandb.define_metric("val_oks_voc_mAR", step_metric="epoch")
-                wandb.define_metric("val_avg_distance", step_metric="epoch")
-                wandb.define_metric("val_p50_distance", step_metric="epoch")
-                wandb.define_metric("val_mPCK", step_metric="epoch")
-                wandb.define_metric("val_visibility_precision", step_metric="epoch")
-                wandb.define_metric("val_visibility_recall", step_metric="epoch")
+                # Validation metrics (val/ prefix for grouping)
+                wandb.define_metric("val/*", step_metric="epoch")
+
+                # Evaluation metrics (eval/ prefix for grouping)
+                wandb.define_metric("eval/*", step_metric="epoch")
+
+                # Visualization images
+                wandb.define_metric("viz/*", step_metric="epoch")
 
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name

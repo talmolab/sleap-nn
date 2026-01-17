@@ -315,7 +315,7 @@ class LightningModel(L.LightningModule):
         """Configure the train timer at the end of every epoch."""
         train_time = time.time() - self.train_start_time
         self.log(
-            "train_time",
+            "train/time",
             train_time,
             prog_bar=False,
             on_step=False,
@@ -344,7 +344,7 @@ class LightningModel(L.LightningModule):
         """Configure the val timer at the end of every epoch."""
         val_time = time.time() - self.val_start_time
         self.log(
-            "val_time",
+            "val/time",
             val_time,
             prog_bar=False,
             on_step=False,
@@ -420,7 +420,7 @@ class LightningModel(L.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": {
                 "scheduler": scheduler,
-                "monitor": "val_loss",
+                "monitor": "val/loss",
             },
         }
 
@@ -599,7 +599,7 @@ class SingleInstanceLightningModule(LightningModel):
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
             for node_idx, name in enumerate(self.node_names):
                 self.log(
-                    f"{name}",
+                    f"train/confmaps/{name}",
                     channel_wise_loss[node_idx],
                     prog_bar=False,
                     on_step=False,
@@ -608,7 +608,7 @@ class SingleInstanceLightningModule(LightningModel):
                     sync_dist=True,
                 )
         self.log(
-            "train_loss",
+            "train/loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -638,7 +638,7 @@ class SingleInstanceLightningModule(LightningModel):
             )
             val_loss = val_loss + ohkm_loss
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -860,7 +860,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
             for node_idx, name in enumerate(self.node_names):
                 self.log(
-                    f"{name}",
+                    f"train/confmaps/{name}",
                     channel_wise_loss[node_idx],
                     prog_bar=False,
                     on_step=False,
@@ -870,7 +870,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                 )
 
         self.log(
-            "train_loss",
+            "train/loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -900,7 +900,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             )
             val_loss = val_loss + ohkm_loss
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1114,7 +1114,7 @@ class CentroidLightningModule(LightningModel):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "train_loss",
+            "train/loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -1134,7 +1134,7 @@ class CentroidLightningModule(LightningModel):
         y_preds = self.model(X)["CentroidConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1410,7 +1410,7 @@ class BottomUpLightningModule(LightningModel):
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "train_loss",
+            "train/loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -1419,7 +1419,7 @@ class BottomUpLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_confmap_loss",
+            "train/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1427,7 +1427,7 @@ class BottomUpLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_paf_loss",
+            "train/paf_loss",
             pafs_loss,
             on_step=False,
             on_epoch=True,
@@ -1476,7 +1476,7 @@ class BottomUpLightningModule(LightningModel):
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1485,7 +1485,7 @@ class BottomUpLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_confmap_loss",
+            "val/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1493,7 +1493,7 @@ class BottomUpLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_paf_loss",
+            "val/paf_loss",
             pafs_loss,
             on_step=False,
             on_epoch=True,
@@ -1750,7 +1750,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "train_loss",
+            "train/loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -1759,7 +1759,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_confmap_loss",
+            "train/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1767,7 +1767,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_classmap_loss",
+            "train/classmap_loss",
             classmaps_loss,
             on_step=False,
             on_epoch=True,
@@ -1807,7 +1807,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
 
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -1816,7 +1816,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_confmap_loss",
+            "val/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -1824,13 +1824,60 @@ class BottomUpMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_classmap_loss",
+            "val/classmap_loss",
             classmaps_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
         )
+
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            with torch.no_grad():
+                # Note: Do NOT squeeze the image here - the forward() method expects
+                # (batch, n_samples, C, H, W) and handles the n_samples squeeze internally
+                inference_output = self.bottomup_inf_layer(batch)
+                if isinstance(inference_output, list):
+                    inference_output = inference_output[0]
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions are already in original space (variable number of instances)
+                pred_peaks = inference_output["pred_instance_peaks"][i]
+                pred_scores = inference_output["pred_peak_values"][i]
+                if torch.is_tensor(pred_peaks):
+                    pred_peaks = pred_peaks.cpu().numpy()
+                if torch.is_tensor(pred_scores):
+                    pred_scores = pred_scores.cpu().numpy()
+
+                # Transform GT to original space
+                # Note: instances have shape (1, max_inst, n_nodes, 2) - squeeze n_samples dim
+                gt_prep = batch["instances"][i].cpu().numpy()
+                if gt_prep.ndim == 4:
+                    gt_prep = gt_prep.squeeze(0)  # (max_inst, n_nodes, 2)
+                gt_orig = gt_prep / eff
+                num_inst = batch["num_instances"][i].item()
+                gt_orig = gt_orig[:num_inst]  # Only valid instances
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_peaks,  # Original space, variable instances
+                        "pred_scores": pred_scores,
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_orig,  # Original space
+                        "num_instances": num_inst,
+                    }
+                )
 
 
 class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
@@ -2011,7 +2058,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             channel_wise_loss = torch.sum(mse, dim=(0, 2, 3)) / (batch_size * h * w)
             for node_idx, name in enumerate(self.node_names):
                 self.log(
-                    f"{name}",
+                    f"train/confmaps/{name}",
                     channel_wise_loss[node_idx],
                     prog_bar=False,
                     on_step=False,
@@ -2021,7 +2068,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                 )
 
         self.log(
-            "train_loss",
+            "train/loss",
             loss,
             prog_bar=True,
             on_step=True,
@@ -2030,7 +2077,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_confmap_loss",
+            "train/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -2038,8 +2085,22 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "train_classvector_loss",
+            "train/classvector_loss",
             classvector_loss,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+
+        # Compute classification accuracy
+        with torch.no_grad():
+            pred_classes = torch.argmax(classvector, dim=1)
+            gt_classes = y_classvector
+            class_accuracy = (pred_classes == gt_classes).float().mean()
+        self.log(
+            "train/class_accuracy",
+            class_accuracy,
             on_step=False,
             on_epoch=True,
             logger=True,
@@ -2076,7 +2137,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         }
         val_loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
         self.log(
-            "val_loss",
+            "val/loss",
             val_loss,
             prog_bar=True,
             on_step=False,
@@ -2085,7 +2146,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_confmap_loss",
+            "val/confmaps_loss",
             confmap_loss,
             on_step=False,
             on_epoch=True,
@@ -2093,10 +2154,80 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
             sync_dist=True,
         )
         self.log(
-            "val_classvector_loss",
+            "val/classvector_loss",
             classvector_loss,
             on_step=False,
             on_epoch=True,
             logger=True,
             sync_dist=True,
         )
+
+        # Compute classification accuracy
+        with torch.no_grad():
+            pred_classes = torch.argmax(classvector, dim=1)
+            gt_classes = y_classvector
+            class_accuracy = (pred_classes == gt_classes).float().mean()
+        self.log(
+            "val/class_accuracy",
+            class_accuracy,
+            on_step=False,
+            on_epoch=True,
+            logger=True,
+            sync_dist=True,
+        )
+
+        # Collect predictions for epoch-end evaluation if enabled
+        if self._collect_val_predictions:
+            # SAVE bbox BEFORE inference (it modifies in-place!)
+            bbox_prep_saved = batch["instance_bbox"].clone()
+
+            with torch.no_grad():
+                inference_output = self.instance_peaks_inf_layer(batch)
+
+            batch_size = len(batch["frame_idx"])
+            for i in range(batch_size):
+                eff = batch["eff_scale"][i].cpu().numpy()
+
+                # Predictions from inference (crop-relative, original scale)
+                pred_peaks_crop = (
+                    inference_output["pred_instance_peaks"][i].cpu().numpy()
+                )
+                pred_scores = inference_output["pred_peak_values"][i].cpu().numpy()
+
+                # Compute bbox offset in original space from SAVED prep bbox
+                # bbox has shape (n_samples=1, 4, 2) where 4 corners
+                bbox_prep = bbox_prep_saved[i].squeeze(0).cpu().numpy()  # (4, 2)
+                bbox_top_left_orig = (
+                    bbox_prep[0] / eff
+                )  # Top-left corner in original space
+
+                # Full image coordinates (original space)
+                pred_peaks_full = pred_peaks_crop + bbox_top_left_orig
+
+                # GT transform: crop-relative preprocessed -> full image original
+                gt_crop_prep = (
+                    batch["instance"][i].squeeze(0).cpu().numpy()
+                )  # (n_nodes, 2)
+                gt_crop_orig = gt_crop_prep / eff
+                gt_full_orig = gt_crop_orig + bbox_top_left_orig
+
+                self.val_predictions.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "pred_peaks": pred_peaks_full.reshape(
+                            1, -1, 2
+                        ),  # (1, n_nodes, 2)
+                        "pred_scores": pred_scores.reshape(1, -1),  # (1, n_nodes)
+                    }
+                )
+                self.val_ground_truth.append(
+                    {
+                        "video_idx": batch["video_idx"][i].item(),
+                        "frame_idx": batch["frame_idx"][i].item(),
+                        "gt_instances": gt_full_orig.reshape(
+                            1, -1, 2
+                        ),  # (1, n_nodes, 2)
+                        "num_instances": 1,
+                    }
+                )
