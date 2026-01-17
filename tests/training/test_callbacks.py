@@ -327,8 +327,8 @@ class TestWandBVizCallback:
             mock_experiment.log.assert_called_once()
             call_args = mock_experiment.log.call_args
             log_dict = call_args[0][0]
-            assert "train_predictions" in log_dict
-            assert "val_predictions" in log_dict
+            assert "viz/train/predictions" in log_dict
+            assert "viz/val/predictions" in log_dict
             assert call_args[1]["commit"] is False
 
     def test_on_train_epoch_end_with_log_table(self, sample_viz_data):
@@ -456,8 +456,8 @@ class TestWandBVizCallbackWithPAFs:
                 mock_experiment.log.assert_called()
                 call_args = mock_experiment.log.call_args
                 log_dict = call_args[0][0]
-                assert "train_pafs" in log_dict
-                assert "val_pafs" in log_dict
+                assert "viz/train/pafs" in log_dict
+                assert "viz/val/pafs" in log_dict
 
     def test_on_train_epoch_end_skips_if_not_global_zero(
         self, sample_viz_data, sample_pafs_data
@@ -1314,6 +1314,7 @@ class TestEpochEndEvaluationCallback:
 
         mock_wandb_logger = MagicMock(spec=WandbLogger)
         mock_experiment = MagicMock()
+        mock_experiment.summary.get.return_value = None  # No prior best values
         mock_wandb_logger.experiment = mock_experiment
 
         mock_trainer = MagicMock()
@@ -1322,8 +1323,8 @@ class TestEpochEndEvaluationCallback:
         metrics = {
             "mOKS": {"mOKS": 0.85},
             "voc_metrics": {"oks_voc.mAP": 0.75, "oks_voc.mAR": 0.80},
-            "distance_metrics": {"avg": 5.0, "p50": 4.0},
-            "pck_metrics": {"mPCK": 0.90},
+            "distance_metrics": {"avg": 5.0, "p50": 4.0, "p95": 8.0, "p99": 10.0},
+            "pck_metrics": {"mPCK": 0.90, "PCK@5": 0.85, "PCK@10": 0.92},
             "visibility_metrics": {"precision": 0.95, "recall": 0.92},
         }
 
@@ -1334,9 +1335,9 @@ class TestEpochEndEvaluationCallback:
         log_dict = log_call[0][0]
 
         assert log_dict["epoch"] == 5
-        assert log_dict["val_mOKS"] == 0.85
-        assert log_dict["val_oks_voc_mAP"] == 0.75
-        assert log_dict["val_mPCK"] == 0.90
+        assert log_dict["eval/val/mOKS"] == 0.85
+        assert log_dict["eval/val/oks_voc_mAP"] == 0.75
+        assert log_dict["eval/val/mPCK"] == 0.90
         assert log_call[1]["commit"] is False
 
     def test_log_metrics_skips_nan_values(self, mock_skeleton, mock_videos):
@@ -1350,6 +1351,7 @@ class TestEpochEndEvaluationCallback:
 
         mock_wandb_logger = MagicMock(spec=WandbLogger)
         mock_experiment = MagicMock()
+        mock_experiment.summary.get.return_value = None  # No prior best values
         mock_wandb_logger.experiment = mock_experiment
 
         mock_trainer = MagicMock()
@@ -1358,8 +1360,13 @@ class TestEpochEndEvaluationCallback:
         metrics = {
             "mOKS": {"mOKS": 0.85},
             "voc_metrics": {"oks_voc.mAP": 0.75, "oks_voc.mAR": 0.80},
-            "distance_metrics": {"avg": np.nan, "p50": np.nan},  # NaN values
-            "pck_metrics": {"mPCK": 0.90},
+            "distance_metrics": {
+                "avg": np.nan,
+                "p50": np.nan,
+                "p95": np.nan,
+                "p99": np.nan,
+            },  # NaN values
+            "pck_metrics": {"mPCK": 0.90, "PCK@5": 0.85, "PCK@10": 0.92},
             "visibility_metrics": {"precision": np.nan, "recall": np.nan},  # NaN values
         }
 
@@ -1369,11 +1376,11 @@ class TestEpochEndEvaluationCallback:
         log_dict = log_call[0][0]
 
         # NaN values should not be in the log dict
-        assert "val_avg_distance" not in log_dict
-        assert "val_p50_distance" not in log_dict
-        assert "val_visibility_precision" not in log_dict
-        assert "val_visibility_recall" not in log_dict
+        assert "eval/val/distance/avg" not in log_dict
+        assert "eval/val/distance/p50" not in log_dict
+        assert "eval/val/visibility_precision" not in log_dict
+        assert "eval/val/visibility_recall" not in log_dict
 
         # Non-NaN values should be present
-        assert log_dict["val_mOKS"] == 0.85
-        assert log_dict["val_mPCK"] == 0.90
+        assert log_dict["eval/val/mOKS"] == 0.85
+        assert log_dict["eval/val/mPCK"] == 0.90
