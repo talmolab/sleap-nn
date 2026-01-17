@@ -1287,8 +1287,10 @@ class ModelTrainer:
                 # Evaluation metrics (eval/ prefix for grouping)
                 wandb.define_metric("eval/*", step_metric="epoch")
 
-                # Visualization images
+                # Visualization images (need explicit nested paths)
                 wandb.define_metric("viz/*", step_metric="epoch")
+                wandb.define_metric("viz/train/*", step_metric="epoch")
+                wandb.define_metric("viz/val/*", step_metric="epoch")
 
                 self.config.trainer_config.wandb.current_run_id = wandb.run.id
                 wandb.config["run_name"] = self.config.trainer_config.wandb.name
