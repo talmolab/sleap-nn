@@ -332,6 +332,18 @@ class LightningModel(L.LightningModule):
             logger=True,
             sync_dist=True,
         )
+        # Log current learning rate (useful for monitoring LR schedulers)
+        if self.trainer.optimizers:
+            lr = self.trainer.optimizers[0].param_groups[0]["lr"]
+            self.log(
+                "train/lr",
+                lr,
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
 
     def on_validation_epoch_start(self):
         """Configure the val timer at the beginning of each epoch."""
