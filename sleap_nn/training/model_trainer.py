@@ -494,13 +494,10 @@ class ModelTrainer:
         if run_name is None or run_name == "" or run_name == "None":
             sum_train_lfs = sum([len(train_label) for train_label in self.train_labels])
             sum_val_lfs = sum([len(val_label) for val_label in self.val_labels])
-            if self._get_trainer_devices() > 1:
-                run_name = f"{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
-            else:
-                run_name = (
-                    datetime.now().strftime("%y%m%d_%H%M%S")
-                    + f".{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
-                )
+            run_name = (
+                datetime.now().strftime("%y%m%d_%H%M%S")
+                + f".{self.model_type}.n={sum_train_lfs + sum_val_lfs}"
+            )
 
         # If checkpoint path already exists, add suffix to prevent overwriting
         if (Path(ckpt_dir) / run_name).exists() and (
@@ -643,10 +640,6 @@ class ModelTrainer:
         if self.config.trainer_config.wandb.prv_runid == "":
             self.config.trainer_config.wandb.prv_runid = None
 
-        # Default wandb run name to trainer run_name if not specified
-        if self.config.trainer_config.wandb.name is None:
-            self.config.trainer_config.wandb.name = self.config.trainer_config.run_name
-
         # compute preprocessing parameters from the labels objects and fill in the config
         self._setup_preprocessing_config()
 
@@ -696,8 +689,13 @@ class ModelTrainer:
                 )
             )
 
-        # setup checkpoint path
+        # setup checkpoint path (generates run_name if not specified)
         self._setup_ckpt_path()
+
+        # Default wandb run name to trainer run_name if not specified
+        # Note: This must come after _setup_ckpt_path() which generates run_name
+        if self.config.trainer_config.wandb.name is None:
+            self.config.trainer_config.wandb.name = self.config.trainer_config.run_name
 
         # verify input_channels in model_config based on input image and pretrained model weights
         self._verify_model_input_channels()
