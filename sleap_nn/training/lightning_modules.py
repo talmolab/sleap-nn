@@ -619,12 +619,23 @@ class SingleInstanceLightningModule(LightningModel):
                     logger=True,
                     sync_dist=True,
                 )
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train/loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
             on_epoch=False,
+            logger=True,
+            sync_dist=True,
+        )
+        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
+        self.log(
+            "train/loss",
+            loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             sync_dist=True,
         )
@@ -881,12 +892,23 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
                     sync_dist=True,
                 )
 
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train/loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
             on_epoch=False,
+            logger=True,
+            sync_dist=True,
+        )
+        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
+        self.log(
+            "train/loss",
+            loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             sync_dist=True,
         )
@@ -1125,12 +1147,23 @@ class CentroidLightningModule(LightningModel):
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train/loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
             on_epoch=False,
+            logger=True,
+            sync_dist=True,
+        )
+        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
+        self.log(
+            "train/loss",
+            loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             sync_dist=True,
         )
@@ -1421,12 +1454,23 @@ class BottomUpLightningModule(LightningModel):
             "PartAffinityFieldsHead": pafs_loss,
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train/loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
             on_epoch=False,
+            logger=True,
+            sync_dist=True,
+        )
+        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
+        self.log(
+            "train/loss",
+            loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             sync_dist=True,
         )
@@ -1761,12 +1805,23 @@ class BottomUpMultiClassLightningModule(LightningModel):
             "ClassMapsHead": classmaps_loss,
         }
         loss = sum([s * losses[t] for s, t in zip(self.loss_weights, losses)])
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train/loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
             on_epoch=False,
+            logger=True,
+            sync_dist=True,
+        )
+        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
+        self.log(
+            "train/loss",
+            loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             sync_dist=True,
         )
@@ -2186,12 +2241,23 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
                     sync_dist=True,
                 )
 
+        # Log step-level loss (every batch, uses global_step x-axis)
         self.log(
-            "train/loss",
+            "loss",
             loss,
             prog_bar=True,
             on_step=True,
             on_epoch=False,
+            logger=True,
+            sync_dist=True,
+        )
+        # Log epoch-averaged loss (uses epoch x-axis, grouped under train/)
+        self.log(
+            "train/loss",
+            loss,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
             logger=True,
             sync_dist=True,
         )

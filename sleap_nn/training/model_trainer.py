@@ -23,7 +23,6 @@ from sleap_nn.data.utils import check_cache_memory
 from lightning.pytorch.callbacks import (
     ModelCheckpoint,
     EarlyStopping,
-    LearningRateMonitor,
 )
 from lightning.pytorch.profilers import (
     SimpleProfiler,
@@ -910,10 +909,6 @@ class ModelTrainer:
                     "To keep logs, set trainer_config.wandb.delete_local_logs=false"
                 )
 
-            # Learning rate monitor callback - logs LR at each step for dynamic schedulers
-            # Only added when wandb is enabled since it requires a logger
-            callbacks.append(LearningRateMonitor(logging_interval="step"))
-
             # save the configs as yaml in the checkpoint dir
             # Mask API key in both configs to prevent saving to disk
             self.config.trainer_config.wandb.api_key = ""
@@ -1282,7 +1277,7 @@ class ModelTrainer:
                 # Epoch-level metrics use epoch as x-axis, step-level use default global_step
                 wandb.define_metric("epoch")
 
-                # Training metrics (train/ prefix for grouping)
+                # Training metrics (train/ prefix for grouping) - all use epoch x-axis
                 wandb.define_metric("train/*", step_metric="epoch")
 
                 # Validation metrics (val/ prefix for grouping)
