@@ -602,6 +602,18 @@ def predict(
     click.echo(f"  Total frames: {total_frames}")
     click.echo(f"  Batch size: {batch_size}")
 
+    # Set up centroid anchor node if needed
+    anchor_node_idx = None
+    if metadata.model_type == "centroid":
+        anchor_part = cfg.model_config.head_configs.centroid.confmaps.anchor_part
+        node_names = [n.name for n in skeleton.nodes]
+        if anchor_part in node_names:
+            anchor_node_idx = node_names.index(anchor_part)
+        else:
+            raise click.ClickException(
+                f"Anchor part '{anchor_part}' not found in skeleton nodes: {node_names}"
+            )
+
     # Set up bottom-up post-processing if needed
     paf_scorer = None
     candidate_template = None
@@ -676,6 +688,17 @@ def predict(
                     batch_indices,
                     video,
                     skeleton,
+                )
+            )
+        elif metadata.model_type == "centroid":
+            labeled_frames.extend(
+                _predict_centroid_frames(
+                    outputs,
+                    batch_indices,
+                    video,
+                    skeleton,
+                    anchor_node_idx=anchor_node_idx,
+                    max_instances=max_instances,
                 )
             )
         else:
@@ -974,6 +997,83 @@ def _predict_single_instance_frames(
                 instances=[instance],
             )
         )
+
+    return labeled_frames
+
+
+def _predict_centroid_frames(
+    outputs,
+    frame_indices,
+    video,
+    skeleton,
+    anchor_node_idx: int,
+    max_instances=None,
+):
+    """Convert centroid model outputs to LabeledFrames.
+    
+    For centroid-only models, creates instances with only the anchor node filled in.
+    All other nodes are set to NaN.
+    
+    Args:
+        outputs: Model outputs with centroids, centroid_vals, instance_valid.
+        frame_indices: Frame indices corresponding to batch.
+        video: sleap_io.Video object.
+        skeleton: sleap_io.Skeleton object.
+        anchor_node_idx: Index of the anchor node in the skeleton.
+        max_instances: Maximum instances to output per frame.
+    
+    Returns:
+        List of LabeledFrame objects.
+    """
+    import numpy as np
+    import sleap_io as sio
+
+    labeled_frames = []
+    centroids = outputs["centroids"]  # (batch, max_instances, 2)
+    centroid_vals = outputs["centroid_vals"]  # (batch, max_instances)
+    instance_valid = outputs["instance_valid"]  # (batch, max_instances)
+
+    n_nodes = len(skeleton.nodes)
+
+    for batch_idx, frame_idx in enumerate(frame_indices):
+        instances = []
+        valid_mask = instance_valid[batch_idx].astype(bool)
+        
+        for inst_idx, is_valid in enumerate(valid_mask):
+            if not is_valid:
+                continue
+            
+            # Create points array with NaN for all nodes except anchor
+            pts = np.full((n_nodes, 2), np.nan, dtype=np.float32)
+            pts[anchor_node_idx] = centroids[batch_idx, inst_idx]
+            
+            # Create scores array - anchor gets centroid score, others get NaN
+            scores = np.full((n_nodes,), np.nan, dtype=np.float32)
+            scores[anchor_node_idx] = centroid_vals[batch_idx, inst_idx]
+            
+            instance_score = float(centroid_vals[batch_idx, inst_idx])
+            
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=pts,
+                    point_scores=scores,
+                    score=instance_score,
+                    skeleton=skeleton,
+                )
+            )
+
+        if max_instances is not None and instances:
+            instances = sorted(instances, key=lambda inst: inst.score, reverse=True)
+            instances = instances[:max_instances]
+
+        if instances:
+            labeled_frames.append(
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=int(frame_idx),
+                    instances=instances,
+                )
+            )
 
     return labeled_frames
 
