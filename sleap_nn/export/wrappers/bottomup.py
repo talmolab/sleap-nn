@@ -74,14 +74,16 @@ class BottomUpONNXWrapper(BaseExportWrapper):
 
         peaks = peaks * self.cms_output_stride
 
-        img_diagonal = torch.sqrt(
-            torch.tensor(
-                height * height + width * width,
-                dtype=peaks.dtype,
-                device=peaks.device,
-            )
+        # Compute max_edge_length to match PyTorch implementation:
+        # max_edge_length = ratio * max(paf_dims) * pafs_stride
+        # PAFs shape is (batch, 2*edges, H, W)
+        _, n_paf_channels, paf_height, paf_width = pafs.shape
+        max_paf_dim = max(n_paf_channels, paf_height, paf_width)
+        max_edge_length = torch.tensor(
+            self.max_edge_length_ratio * max_paf_dim * self.pafs_output_stride,
+            dtype=peaks.dtype,
+            device=peaks.device,
         )
-        max_edge_length = img_diagonal * self.max_edge_length_ratio
 
         line_scores, candidate_mask = self._score_all_candidates(
             pafs, peaks, peak_mask, max_edge_length
@@ -211,7 +213,11 @@ class BottomUpONNXWrapper(BaseExportWrapper):
     def _compute_distance_penalty(
         self, distances: torch.Tensor, max_edge_length: torch.Tensor
     ) -> torch.Tensor:
-        """Compute distance penalty for edge candidates."""
-        excess = (distances - max_edge_length) / max_edge_length
-        penalty = -self.dist_penalty_weight * F.relu(excess)
-        return penalty
+        """Compute distance penalty for edge candidates.
+
+        Matches the PyTorch implementation in sleap_nn.inference.paf_grouping.
+        Penalty is 0 when distance <= max_edge_length, and negative when longer.
+        """
+        # Match PyTorch: penalty = clamp((max_edge_length / distance) - 1, max=0) * weight
+        penalty = torch.clamp((max_edge_length / distances) - 1, max=0)
+        return penalty * self.dist_penalty_weight
