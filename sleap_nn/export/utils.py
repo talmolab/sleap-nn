@@ -61,6 +61,41 @@ def resolve_pafs_output_stride(cfg: DictConfig) -> int:
     return 1
 
 
+def resolve_class_maps_output_stride(cfg: DictConfig) -> int:
+    """Resolve class maps output stride for multiclass bottom-up models."""
+    mc_bottomup_cfg = getattr(cfg.model_config.head_configs, "multi_class_bottomup", None)
+    if mc_bottomup_cfg is not None and mc_bottomup_cfg.class_maps is not None:
+        return int(mc_bottomup_cfg.class_maps.output_stride)
+    return 8
+
+
+def resolve_class_names(cfg: DictConfig, model_type: str) -> List[str]:
+    """Resolve class names for multiclass models."""
+    head_cfg = cfg.model_config.head_configs.get(model_type)
+    if head_cfg is None:
+        return []
+
+    # Top-down multiclass: class_vectors.classes
+    if hasattr(head_cfg, "class_vectors") and head_cfg.class_vectors is not None:
+        classes = getattr(head_cfg.class_vectors, "classes", None)
+        if classes:
+            return list(classes)
+
+    # Bottom-up multiclass: class_maps.classes
+    if hasattr(head_cfg, "class_maps") and head_cfg.class_maps is not None:
+        classes = getattr(head_cfg.class_maps, "classes", None)
+        if classes:
+            return list(classes)
+
+    return []
+
+
+def resolve_n_classes(cfg: DictConfig, model_type: str) -> int:
+    """Resolve number of classes for multiclass models."""
+    class_names = resolve_class_names(cfg, model_type)
+    return len(class_names) if class_names else 0
+
+
 def resolve_crop_size(cfg: DictConfig) -> Optional[Tuple[int, int]]:
     """Resolve crop size from preprocessing config."""
     crop_size = cfg.data_config.preprocessing.crop_size
@@ -80,7 +115,7 @@ def resolve_node_names(cfg: DictConfig, model_type: str) -> List[str]:
     if skeleton_nodes:
         return skeleton_nodes
 
-    head_cfg = cfg.model_config.head_configs[model_type]
+    head_cfg = cfg.model_config.head_configs.get(model_type)
     if head_cfg is None:
         return []
 

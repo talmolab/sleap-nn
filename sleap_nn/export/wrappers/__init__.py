@@ -6,6 +6,11 @@ from sleap_nn.export.wrappers.centered_instance import CenteredInstanceONNXWrapp
 from sleap_nn.export.wrappers.topdown import TopDownONNXWrapper
 from sleap_nn.export.wrappers.bottomup import BottomUpONNXWrapper
 from sleap_nn.export.wrappers.single_instance import SingleInstanceONNXWrapper
+from sleap_nn.export.wrappers.topdown_multiclass import (
+    TopDownMultiClassONNXWrapper,
+    TopDownMultiClassCombinedONNXWrapper,
+)
+from sleap_nn.export.wrappers.bottomup_multiclass import BottomUpMultiClassONNXWrapper
 
 __all__ = [
     "BaseExportWrapper",
@@ -14,4 +19,7 @@ __all__ = [
     "TopDownONNXWrapper",
     "BottomUpONNXWrapper",
     "SingleInstanceONNXWrapper",
+    "TopDownMultiClassONNXWrapper",
+    "TopDownMultiClassCombinedONNXWrapper",
+    "BottomUpMultiClassONNXWrapper",
 ]

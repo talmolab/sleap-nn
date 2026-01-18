@@ -20,28 +20,36 @@ from sleap_nn.export.metadata import (
 from sleap_nn.export.utils import (
     load_training_config,
     resolve_backbone_type,
+    resolve_class_maps_output_stride,
+    resolve_class_names,
     resolve_crop_size,
     resolve_edge_inds,
     resolve_input_channels,
     resolve_input_scale,
     resolve_input_shape,
     resolve_model_type,
+    resolve_n_classes,
     resolve_node_names,
     resolve_output_stride,
     resolve_pafs_output_stride,
 )
 from sleap_nn.export.wrappers import (
+    BottomUpMultiClassONNXWrapper,
     BottomUpONNXWrapper,
     CenteredInstanceONNXWrapper,
     CentroidONNXWrapper,
     SingleInstanceONNXWrapper,
+    TopDownMultiClassCombinedONNXWrapper,
+    TopDownMultiClassONNXWrapper,
     TopDownONNXWrapper,
 )
 from sleap_nn.training.lightning_modules import (
     BottomUpLightningModule,
+    BottomUpMultiClassLightningModule,
     CentroidLightningModule,
     SingleInstanceLightningModule,
     TopDownCenteredInstanceLightningModule,
+    TopDownCenteredInstanceMultiClassLightningModule,
 )
 
 
@@ -127,6 +135,8 @@ def export(
             "centered_instance",
             "bottomup",
             "single_instance",
+            "multi_class_topdown",
+            "multi_class_bottomup",
         ):
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -160,6 +170,8 @@ def export(
         )
         metadata_max_instances = None
         metadata_max_peaks = None
+        metadata_n_classes = None
+        metadata_class_names = None
 
         if model_type == "centroid":
             wrapper = CentroidONNXWrapper(
@@ -214,6 +226,39 @@ def export(
             output_names = ["peaks", "peak_vals"]
             node_names = resolve_node_names(cfg, model_type)
             edge_inds = resolve_edge_inds(cfg, node_names)
+        elif model_type == "multi_class_topdown":
+            n_classes = resolve_n_classes(cfg, model_type)
+            class_names = resolve_class_names(cfg, model_type)
+            wrapper = TopDownMultiClassONNXWrapper(
+                torch_model,
+                output_stride=output_stride,
+                input_scale=resolved_scale,
+                n_classes=n_classes,
+            )
+            output_names = ["peaks", "peak_vals", "class_logits"]
+            node_names = resolve_node_names(cfg, model_type)
+            edge_inds = resolve_edge_inds(cfg, node_names)
+            metadata_n_classes = n_classes
+            metadata_class_names = class_names
+        elif model_type == "multi_class_bottomup":
+            node_names = resolve_node_names(cfg, model_type)
+            edge_inds = resolve_edge_inds(cfg, node_names)
+            n_classes = resolve_n_classes(cfg, model_type)
+            class_names = resolve_class_names(cfg, model_type)
+            class_maps_output_stride = resolve_class_maps_output_stride(cfg)
+            wrapper = BottomUpMultiClassONNXWrapper(
+                torch_model,
+                n_nodes=len(node_names),
+                n_classes=n_classes,
+                max_peaks_per_node=max_peaks_per_node,
+                cms_output_stride=output_stride,
+                class_maps_output_stride=class_maps_output_stride,
+                input_scale=resolved_scale,
+            )
+            output_names = ["peaks", "peak_vals", "peak_mask", "class_probs"]
+            metadata_max_peaks = max_peaks_per_node
+            metadata_n_classes = n_classes
+            metadata_class_names = class_names
         else:
             raise click.ClickException(
                 f"Model type '{model_type}' is not supported for export yet."
@@ -267,6 +312,8 @@ def export(
             training_config_embedded=training_config_text is not None,
             input_dtype="uint8",
             normalization="0_to_1",
+            n_classes=metadata_n_classes,
+            class_names=metadata_class_names,
         )
 
         metadata.save(export_dir / "export_metadata.json")
@@ -313,6 +360,8 @@ def export(
                 training_config_embedded=training_config_text is not None,
                 input_dtype="uint8",
                 normalization="0_to_1",
+                n_classes=metadata_n_classes,
+                class_names=metadata_class_names,
             )
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
@@ -515,9 +564,210 @@ def export(
             trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
 
+    # Combined multiclass top-down export (centroid + multi_class_topdown)
+    if len(model_paths) == 2 and set(model_types) == {
+        "centroid",
+        "multi_class_topdown",
+    }:
+        centroid_idx = model_types.index("centroid")
+        instance_idx = model_types.index("multi_class_topdown")
+
+        centroid_path = model_paths[centroid_idx]
+        instance_path = model_paths[instance_idx]
+        centroid_cfg = cfgs[centroid_idx]
+        instance_cfg = cfgs[instance_idx]
+        centroid_backbone = backbone_types[centroid_idx]
+        instance_backbone = backbone_types[instance_idx]
+
+        centroid_ckpt = centroid_path / "best.ckpt"
+        instance_ckpt = instance_path / "best.ckpt"
+        if not centroid_ckpt.exists():
+            raise click.ClickException(f"Checkpoint not found: {centroid_ckpt}")
+        if not instance_ckpt.exists():
+            raise click.ClickException(f"Checkpoint not found: {instance_ckpt}")
+
+        centroid_model = _load_lightning_model(
+            model_type="centroid",
+            backbone_type=centroid_backbone,
+            cfg=centroid_cfg,
+            ckpt_path=centroid_ckpt,
+            device=device,
+        ).model
+        instance_model = _load_lightning_model(
+            model_type="multi_class_topdown",
+            backbone_type=instance_backbone,
+            cfg=instance_cfg,
+            ckpt_path=instance_ckpt,
+            device=device,
+        ).model
+
+        centroid_model.eval()
+        instance_model.eval()
+        centroid_model.to(device)
+        instance_model.to(device)
+
+        export_dir = output or (centroid_path / "exported_multi_class_topdown")
+        export_dir.mkdir(parents=True, exist_ok=True)
+
+        centroid_scale = (
+            input_scale
+            if input_scale is not None
+            else resolve_input_scale(centroid_cfg)
+        )
+        instance_scale = (
+            input_scale
+            if input_scale is not None
+            else resolve_input_scale(instance_cfg)
+        )
+        centroid_stride = resolve_output_stride(centroid_cfg, "centroid")
+        instance_stride = resolve_output_stride(instance_cfg, "multi_class_topdown")
+
+        resolved_crop = resolve_crop_size(instance_cfg)
+        if crop_size is not None:
+            resolved_crop = (crop_size, crop_size)
+        if resolved_crop is None:
+            raise click.ClickException(
+                "Multiclass top-down export requires crop_size. Provide --crop-size or "
+                "ensure data_config.preprocessing.crop_size is set."
+            )
+
+        node_names = resolve_node_names(instance_cfg, "multi_class_topdown")
+        edge_inds = resolve_edge_inds(instance_cfg, node_names)
+        n_classes = resolve_n_classes(instance_cfg, "multi_class_topdown")
+        class_names = resolve_class_names(instance_cfg, "multi_class_topdown")
+
+        wrapper = TopDownMultiClassCombinedONNXWrapper(
+            centroid_model=centroid_model,
+            instance_model=instance_model,
+            max_instances=max_instances,
+            crop_size=resolved_crop,
+            centroid_output_stride=centroid_stride,
+            instance_output_stride=instance_stride,
+            centroid_input_scale=centroid_scale,
+            instance_input_scale=instance_scale,
+            n_nodes=len(node_names),
+            n_classes=n_classes,
+        )
+        wrapper.eval()
+        wrapper.to(device)
+
+        input_shape = resolve_input_shape(
+            centroid_cfg, input_height=input_height, input_width=input_width
+        )
+        model_out_path = export_dir / "model.onnx"
+
+        export_to_onnx(
+            wrapper,
+            model_out_path,
+            input_shape=input_shape,
+            input_dtype=torch.uint8,
+            opset_version=opset_version,
+            output_names=[
+                "centroids",
+                "centroid_vals",
+                "peaks",
+                "peak_vals",
+                "class_logits",
+                "instance_valid",
+            ],
+            verify=verify,
+        )
+
+        centroid_cfg_path = _copy_training_config(centroid_path, export_dir, "centroid")
+        instance_cfg_path = _copy_training_config(
+            instance_path, export_dir, "multi_class_topdown"
+        )
+        config_payload = {}
+        config_hashes = []
+        if centroid_cfg_path is not None:
+            config_payload["centroid"] = centroid_cfg_path.read_text()
+            config_hashes.append(f"centroid:{hash_file(centroid_cfg_path)}")
+        if instance_cfg_path is not None:
+            config_payload["multi_class_topdown"] = instance_cfg_path.read_text()
+            config_hashes.append(f"multi_class_topdown:{hash_file(instance_cfg_path)}")
+
+        training_config_hash = ";".join(config_hashes) if config_hashes else ""
+        training_config_text = json.dumps(config_payload) if config_payload else None
+
+        metadata = build_base_metadata(
+            export_format="onnx",
+            model_type="multi_class_topdown_combined",
+            model_name=f"{centroid_path.name}+{instance_path.name}",
+            checkpoint_path=(
+                f"centroid:{centroid_ckpt};multi_class_topdown:{instance_ckpt}"
+            ),
+            backbone=(
+                f"centroid:{centroid_backbone};multi_class_topdown:{instance_backbone}"
+            ),
+            n_nodes=len(node_names),
+            n_edges=len(edge_inds),
+            node_names=node_names,
+            edge_inds=edge_inds,
+            input_scale=centroid_scale,
+            input_channels=resolve_input_channels(centroid_cfg),
+            output_stride=instance_stride,
+            crop_size=resolved_crop,
+            max_instances=max_instances,
+            max_batch_size=max_batch_size,
+            training_config_hash=training_config_hash,
+            training_config_embedded=training_config_text is not None,
+            input_dtype="uint8",
+            normalization="0_to_1",
+            n_classes=n_classes,
+            class_names=class_names,
+        )
+        metadata.save(export_dir / "export_metadata.json")
+        click.echo(f"ONNX model exported to: {model_out_path}")
+        click.echo(f"Metadata saved to: {export_dir / 'export_metadata.json'}")
+
+        # TensorRT export for combined multiclass top-down
+        if fmt in ("tensorrt", "both"):
+            trt_out_path = export_dir / "model.trt"
+            B, C, H, W = input_shape
+            export_to_tensorrt(
+                wrapper,
+                trt_out_path,
+                input_shape=input_shape,
+                input_dtype=torch.uint8,
+                precision=precision,
+                max_shape=(max_batch_size, C, H * 2, W * 2),
+                verbose=True,
+            )
+            trt_metadata = build_base_metadata(
+                export_format="tensorrt",
+                model_type="multi_class_topdown_combined",
+                model_name=f"{centroid_path.name}+{instance_path.name}",
+                checkpoint_path=(
+                    f"centroid:{centroid_ckpt};multi_class_topdown:{instance_ckpt}"
+                ),
+                backbone=(
+                    f"centroid:{centroid_backbone};multi_class_topdown:{instance_backbone}"
+                ),
+                n_nodes=len(node_names),
+                n_edges=len(edge_inds),
+                node_names=node_names,
+                edge_inds=edge_inds,
+                input_scale=centroid_scale,
+                input_channels=resolve_input_channels(centroid_cfg),
+                output_stride=instance_stride,
+                crop_size=resolved_crop,
+                max_instances=max_instances,
+                max_batch_size=max_batch_size,
+                precision=precision,
+                training_config_hash=training_config_hash,
+                training_config_embedded=training_config_text is not None,
+                input_dtype="uint8",
+                normalization="0_to_1",
+                n_classes=n_classes,
+                class_names=class_names,
+            )
+            trt_metadata.save(export_dir / "model.trt.metadata.json")
+        return
+
     raise click.ClickException(
         "Provide one model path for centroid/centered-instance/bottom-up export, "
-        "or two paths (centroid + centered_instance) for top-down export."
+        "or two paths (centroid + centered_instance or centroid + multi_class_topdown) "
+        "for combined top-down export."
     )
 
 
@@ -792,6 +1042,30 @@ def predict(
                     max_instances=max_instances,
                 )
             )
+        elif metadata.model_type == "multi_class_bottomup":
+            labeled_frames.extend(
+                _predict_multiclass_bottomup_frames(
+                    outputs,
+                    batch_indices,
+                    video,
+                    skeleton,
+                    class_names=metadata.class_names or [],
+                    input_scale=metadata.input_scale,
+                    peak_conf_threshold=peak_conf_threshold,
+                    max_instances=max_instances,
+                )
+            )
+        elif metadata.model_type == "multi_class_topdown_combined":
+            labeled_frames.extend(
+                _predict_multiclass_topdown_combined_frames(
+                    outputs,
+                    batch_indices,
+                    video,
+                    skeleton,
+                    class_names=metadata.class_names or [],
+                    max_instances=max_instances,
+                )
+            )
         else:
             raise click.ClickException(
                 f"Unsupported model_type for predict: {metadata.model_type}"
@@ -842,6 +1116,13 @@ def _find_training_config_for_predict(export_dir: Path, model_type: str) -> Path
             [
                 export_dir / "training_config_centered_instance.yaml",
                 export_dir / "training_config_centered_instance.json",
+            ]
+        )
+    elif model_type == "multi_class_topdown_combined":
+        candidates.extend(
+            [
+                export_dir / "training_config_multi_class_topdown.yaml",
+                export_dir / "training_config_multi_class_topdown.json",
             ]
         )
     candidates.extend(
@@ -909,6 +1190,105 @@ def _predict_topdown_frames(
                     point_scores=scores,
                     score=score,
                     skeleton=skeleton,
+                )
+            )
+
+        if max_instances is not None and instances:
+            instances = sorted(instances, key=lambda inst: inst.score, reverse=True)
+            instances = instances[:max_instances]
+
+        if instances:
+            labeled_frames.append(
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=int(frame_idx),
+                    instances=instances,
+                )
+            )
+
+    return labeled_frames
+
+
+def _predict_multiclass_topdown_combined_frames(
+    outputs,
+    frame_indices,
+    video,
+    skeleton,
+    class_names: list,
+    max_instances=None,
+):
+    """Convert combined multiclass top-down model outputs to LabeledFrames.
+
+    Args:
+        outputs: Model outputs with centroids, centroid_vals, peaks, peak_vals,
+                class_logits, instance_valid.
+        frame_indices: Frame indices corresponding to batch.
+        video: sleap_io.Video object.
+        skeleton: sleap_io.Skeleton object.
+        class_names: List of class names (e.g., ["female", "male"]).
+        max_instances: Maximum instances per frame (None = n_classes).
+
+    Returns:
+        List of LabeledFrame objects.
+    """
+    import numpy as np
+    import sleap_io as sio
+    from scipy.optimize import linear_sum_assignment
+
+    labeled_frames = []
+    centroids = outputs["centroids"]
+    centroid_vals = outputs["centroid_vals"]
+    peaks = outputs["peaks"]
+    peak_vals = outputs["peak_vals"]
+    class_logits = outputs["class_logits"]
+    instance_valid = outputs["instance_valid"]
+
+    n_classes = len(class_names)
+
+    for batch_idx, frame_idx in enumerate(frame_indices):
+        valid_mask = instance_valid[batch_idx].astype(bool)
+        n_valid = valid_mask.sum()
+
+        if n_valid == 0:
+            continue
+
+        # Gather valid instances
+        valid_peaks = peaks[batch_idx, valid_mask]  # (n_valid, n_nodes, 2)
+        valid_peak_vals = peak_vals[batch_idx, valid_mask]  # (n_valid, n_nodes)
+        valid_centroid_vals = centroid_vals[batch_idx, valid_mask]  # (n_valid,)
+        valid_class_logits = class_logits[batch_idx, valid_mask]  # (n_valid, n_classes)
+
+        # Compute softmax probabilities from logits
+        logits = valid_class_logits - np.max(valid_class_logits, axis=1, keepdims=True)
+        probs = np.exp(logits)
+        probs = probs / np.sum(probs, axis=1, keepdims=True)
+
+        # Use Hungarian matching to assign classes to instances
+        # Maximize total probability (minimize negative)
+        cost = -probs
+        row_inds, col_inds = linear_sum_assignment(cost)
+
+        # Create instances with class assignments
+        instances = []
+        for row_idx, class_idx in zip(row_inds, col_inds):
+            pts = valid_peaks[row_idx]
+            scores = valid_peak_vals[row_idx]
+            score = float(valid_centroid_vals[row_idx])
+
+            # Get track name from class names
+            track_name = (
+                class_names[class_idx]
+                if class_idx < len(class_names)
+                else f"class_{class_idx}"
+            )
+
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=pts,
+                    point_scores=scores,
+                    score=score,
+                    skeleton=skeleton,
+                    track=sio.Track(name=track_name),
                 )
             )
 
@@ -1173,6 +1553,125 @@ def _predict_centroid_frames(
     return labeled_frames
 
 
+def _predict_multiclass_bottomup_frames(
+    outputs,
+    frame_indices,
+    video,
+    skeleton,
+    class_names: list,
+    input_scale: float = 1.0,
+    peak_conf_threshold: float = 0.1,
+    max_instances: int = None,
+):
+    """Convert bottom-up multiclass model outputs to LabeledFrames.
+
+    Uses class probability maps to group peaks by identity rather than PAFs.
+
+    Args:
+        outputs: Model outputs with peaks, peak_vals, peak_mask, class_probs.
+        frame_indices: Frame indices corresponding to batch.
+        video: sleap_io.Video object.
+        skeleton: sleap_io.Skeleton object.
+        class_names: List of class names (e.g., ["female", "male"]).
+        input_scale: Scale factor applied to input.
+        peak_conf_threshold: Minimum peak confidence to include.
+        max_instances: Maximum instances per frame (None = n_classes).
+
+    Returns:
+        List of LabeledFrame objects.
+    """
+    import numpy as np
+    import sleap_io as sio
+    from scipy.optimize import linear_sum_assignment
+
+    labeled_frames = []
+    n_classes = len(class_names)
+
+    peaks = outputs["peaks"]  # (batch, n_nodes, max_peaks, 2)
+    peak_vals = outputs["peak_vals"]  # (batch, n_nodes, max_peaks)
+    peak_mask = outputs["peak_mask"]  # (batch, n_nodes, max_peaks)
+    class_probs = outputs["class_probs"]  # (batch, n_nodes, max_peaks, n_classes)
+
+    batch_size, n_nodes, max_peaks, _ = peaks.shape
+    n_nodes_skel = len(skeleton.nodes)
+
+    for batch_idx, frame_idx in enumerate(frame_indices):
+        # Initialize instances for each class
+        instance_points = np.full((n_classes, n_nodes_skel, 2), np.nan, dtype=np.float32)
+        instance_scores = np.full((n_classes, n_nodes_skel), np.nan, dtype=np.float32)
+        instance_class_probs = np.full((n_classes,), 0.0, dtype=np.float32)
+
+        # Process each node independently
+        for node_idx in range(min(n_nodes, n_nodes_skel)):
+            # Get valid peaks for this node
+            valid = peak_mask[batch_idx, node_idx].astype(bool)
+            valid = valid & (peak_vals[batch_idx, node_idx] > peak_conf_threshold)
+
+            if not valid.any():
+                continue
+
+            valid_peaks = peaks[batch_idx, node_idx][valid]  # (n_valid, 2)
+            valid_vals = peak_vals[batch_idx, node_idx][valid]  # (n_valid,)
+            valid_class_probs = class_probs[batch_idx, node_idx][valid]  # (n_valid, n_classes)
+
+            # Use Hungarian matching to assign peaks to classes
+            # Maximize class probabilities (minimize negative)
+            cost = -valid_class_probs
+            row_inds, col_inds = linear_sum_assignment(cost)
+
+            # Assign matched peaks to instances
+            for peak_idx, class_idx in zip(row_inds, col_inds):
+                if class_idx < n_classes:
+                    instance_points[class_idx, node_idx] = valid_peaks[peak_idx] / input_scale
+                    instance_scores[class_idx, node_idx] = valid_vals[peak_idx]
+                    instance_class_probs[class_idx] += valid_class_probs[peak_idx, class_idx]
+
+        # Create predicted instances
+        instances = []
+        for class_idx in range(n_classes):
+            pts = instance_points[class_idx]
+            scores = instance_scores[class_idx]
+
+            # Skip if no valid points
+            if np.isnan(pts).all():
+                continue
+
+            # Compute instance score as mean of valid peak values
+            valid_mask = ~np.isnan(pts[:, 0])
+            if valid_mask.any():
+                instance_score = float(np.mean(scores[valid_mask]))
+            else:
+                instance_score = 0.0
+
+            # Get track name from class names
+            track_name = class_names[class_idx] if class_idx < len(class_names) else f"class_{class_idx}"
+
+            instances.append(
+                sio.PredictedInstance.from_numpy(
+                    points_data=pts,
+                    point_scores=scores,
+                    score=instance_score,
+                    skeleton=skeleton,
+                    track=sio.Track(name=track_name),
+                )
+            )
+
+        if max_instances is not None and instances:
+            instances = sorted(instances, key=lambda inst: inst.score, reverse=True)
+            instances = instances[:max_instances]
+
+        if instances:
+            labeled_frames.append(
+                sio.LabeledFrame(
+                    video=video,
+                    frame_idx=int(frame_idx),
+                    instances=instances,
+                )
+            )
+
+    return labeled_frames
+
+
 def _copy_training_config(
     model_path: Path, export_dir: Path, label: Optional[str]
 ) -> Optional[Path]:
@@ -1213,6 +1712,8 @@ def _load_lightning_model(
         "centered_instance": TopDownCenteredInstanceLightningModule,
         "single_instance": SingleInstanceLightningModule,
         "bottomup": BottomUpLightningModule,
+        "multi_class_topdown": TopDownCenteredInstanceMultiClassLightningModule,
+        "multi_class_bottomup": BottomUpMultiClassLightningModule,
     }.get(model_type)
 
     if lightning_cls is None:

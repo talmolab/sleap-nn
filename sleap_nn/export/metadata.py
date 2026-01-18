@@ -49,6 +49,10 @@ class ExportMetadata:
     input_dtype: str = "uint8"
     normalization: str = "0_to_1"
 
+    # Multiclass model fields (optional)
+    n_classes: Optional[int] = None
+    class_names: Optional[List[str]] = None
+
     # Training config reference
     training_config_embedded: bool = False
     training_config_hash: str = ""
@@ -90,6 +94,8 @@ class ExportMetadata:
             precision=data.get("precision", "fp32"),
             input_dtype=data.get("input_dtype", "uint8"),
             normalization=data.get("normalization", "0_to_1"),
+            n_classes=data.get("n_classes"),
+            class_names=data.get("class_names"),
             training_config_embedded=bool(data.get("training_config_embedded", False)),
             training_config_hash=data.get("training_config_hash", ""),
         )
@@ -145,6 +151,8 @@ def build_base_metadata(
     training_config_embedded: bool = False,
     input_dtype: str = "uint8",
     normalization: str = "0_to_1",
+    n_classes: Optional[int] = None,
+    class_names: Optional[List[str]] = None,
 ) -> ExportMetadata:
     """Create an ExportMetadata instance with standard defaults."""
     return ExportMetadata(
@@ -169,6 +177,8 @@ def build_base_metadata(
         precision=precision,
         input_dtype=input_dtype,
         normalization=normalization,
+        n_classes=n_classes,
+        class_names=class_names,
         training_config_embedded=training_config_embedded,
         training_config_hash=training_config_hash,
     )
