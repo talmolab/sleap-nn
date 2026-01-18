@@ -166,3 +166,287 @@ class TestBuildBottomupCandidateTemplate:
         assert peak_ch.dtype == torch.int32
         assert edge_idx.dtype == torch.int32
         assert edge_peaks.dtype == torch.int32
+
+
+class TestLoadTrainingConfig:
+    """Tests for load_training_config function."""
+
+    def test_load_training_config(self, minimal_instance_single_instance_ckpt):
+        """Test loading training config from a checkpoint directory."""
+        from sleap_nn.export.utils import load_training_config
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+
+        # Should return an OmegaConf DictConfig
+        from omegaconf import DictConfig
+
+        assert isinstance(cfg, DictConfig)
+
+        # Should have expected top-level keys
+        assert hasattr(cfg, "data_config") or "data_config" in cfg
+        assert hasattr(cfg, "model_config") or "model_config" in cfg
+
+    def test_load_training_config_missing(self, tmp_path):
+        """Test that missing config raises FileNotFoundError."""
+        from sleap_nn.export.utils import load_training_config
+
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+
+        with pytest.raises(FileNotFoundError, match="No training_config"):
+            load_training_config(empty_dir)
+
+
+class TestResolveModelType:
+    """Tests for resolve_model_type function."""
+
+    def test_resolve_model_type_single_instance(self, minimal_instance_single_instance_ckpt):
+        """Test detecting single_instance model type."""
+        from sleap_nn.export.utils import load_training_config, resolve_model_type
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+        model_type = resolve_model_type(cfg)
+        assert model_type == "single_instance"
+
+    def test_resolve_model_type_centroid(self, minimal_instance_centroid_ckpt):
+        """Test detecting centroid model type."""
+        from sleap_nn.export.utils import load_training_config, resolve_model_type
+
+        cfg = load_training_config(minimal_instance_centroid_ckpt)
+        model_type = resolve_model_type(cfg)
+        assert model_type == "centroid"
+
+    def test_resolve_model_type_centered_instance(
+        self, minimal_instance_centered_instance_ckpt
+    ):
+        """Test detecting centered_instance model type."""
+        from sleap_nn.export.utils import load_training_config, resolve_model_type
+
+        cfg = load_training_config(minimal_instance_centered_instance_ckpt)
+        model_type = resolve_model_type(cfg)
+        assert model_type == "centered_instance"
+
+    def test_resolve_model_type_bottomup(self, minimal_instance_bottomup_ckpt):
+        """Test detecting bottomup model type."""
+        from sleap_nn.export.utils import load_training_config, resolve_model_type
+
+        cfg = load_training_config(minimal_instance_bottomup_ckpt)
+        model_type = resolve_model_type(cfg)
+        assert model_type == "bottomup"
+
+    def test_resolve_model_type_multiclass_bottomup(
+        self, minimal_instance_multi_class_bottomup_ckpt
+    ):
+        """Test detecting multi_class_bottomup model type."""
+        from sleap_nn.export.utils import load_training_config, resolve_model_type
+
+        cfg = load_training_config(minimal_instance_multi_class_bottomup_ckpt)
+        model_type = resolve_model_type(cfg)
+        assert model_type == "multi_class_bottomup"
+
+    def test_resolve_model_type_multiclass_topdown(
+        self, minimal_instance_multi_class_topdown_ckpt
+    ):
+        """Test detecting multi_class_topdown model type."""
+        from sleap_nn.export.utils import load_training_config, resolve_model_type
+
+        cfg = load_training_config(minimal_instance_multi_class_topdown_ckpt)
+        model_type = resolve_model_type(cfg)
+        assert model_type == "multi_class_topdown"
+
+
+class TestResolveInputChannels:
+    """Tests for resolve_input_channels function."""
+
+    def test_resolve_input_channels(self, minimal_instance_single_instance_ckpt):
+        """Test resolving channels from backbone config."""
+        from sleap_nn.export.utils import load_training_config, resolve_input_channels
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+        channels = resolve_input_channels(cfg)
+        # Should be a valid channel count (1 for grayscale or 3 for RGB)
+        assert channels in (1, 3)
+
+
+class TestResolveOutputStride:
+    """Tests for resolve_output_stride function."""
+
+    def test_resolve_output_stride(self, minimal_instance_single_instance_ckpt):
+        """Test extracting output_stride from confmaps head."""
+        from sleap_nn.export.utils import (
+            load_training_config,
+            resolve_output_stride,
+            resolve_model_type,
+        )
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+        model_type = resolve_model_type(cfg)
+        stride = resolve_output_stride(cfg, model_type)
+        # Should be a positive integer
+        assert isinstance(stride, int)
+        assert stride >= 1
+
+
+class TestResolveNodeNames:
+    """Tests for resolve_node_names function."""
+
+    def test_resolve_node_names(self, minimal_instance_single_instance_ckpt):
+        """Test extracting node names from skeleton config."""
+        from sleap_nn.export.utils import (
+            load_training_config,
+            resolve_node_names,
+            resolve_model_type,
+        )
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+        model_type = resolve_model_type(cfg)
+        node_names = resolve_node_names(cfg, model_type)
+
+        # Should return a list of strings
+        assert isinstance(node_names, list)
+        assert len(node_names) > 0
+        assert all(isinstance(name, str) for name in node_names)
+
+
+class TestResolveEdgeInds:
+    """Tests for resolve_edge_inds function."""
+
+    def test_resolve_edge_inds(self, minimal_instance_bottomup_ckpt):
+        """Test extracting edge indices from skeleton config."""
+        from sleap_nn.export.utils import (
+            load_training_config,
+            resolve_edge_inds,
+            resolve_node_names,
+            resolve_model_type,
+        )
+
+        cfg = load_training_config(minimal_instance_bottomup_ckpt)
+        model_type = resolve_model_type(cfg)
+        node_names = resolve_node_names(cfg, model_type)
+        edge_inds = resolve_edge_inds(cfg, node_names)
+
+        # Should return a list of tuples
+        assert isinstance(edge_inds, list)
+        if edge_inds:
+            assert all(isinstance(edge, tuple) for edge in edge_inds)
+            assert all(len(edge) == 2 for edge in edge_inds)
+            # Indices should be integers
+            assert all(isinstance(idx, int) for edge in edge_inds for idx in edge)
+
+
+class TestResolveCropSize:
+    """Tests for resolve_crop_size function."""
+
+    def test_resolve_crop_size(self, minimal_instance_centered_instance_ckpt):
+        """Test extracting crop_size for centered_instance models."""
+        from sleap_nn.export.utils import load_training_config, resolve_crop_size
+
+        cfg = load_training_config(minimal_instance_centered_instance_ckpt)
+        crop_size = resolve_crop_size(cfg)
+
+        # Should return a tuple of (height, width) or None
+        if crop_size is not None:
+            assert isinstance(crop_size, tuple)
+            assert len(crop_size) == 2
+            assert all(isinstance(dim, int) for dim in crop_size)
+            assert all(dim > 0 for dim in crop_size)
+
+
+class TestResolveClassInfo:
+    """Tests for resolve_n_classes and resolve_class_names functions."""
+
+    def test_resolve_n_classes(self, minimal_instance_multi_class_bottomup_ckpt):
+        """Test extracting class count for multiclass models."""
+        from sleap_nn.export.utils import (
+            load_training_config,
+            resolve_n_classes,
+            resolve_model_type,
+        )
+
+        cfg = load_training_config(minimal_instance_multi_class_bottomup_ckpt)
+        model_type = resolve_model_type(cfg)
+        n_classes = resolve_n_classes(cfg, model_type)
+
+        # Should be a non-negative integer
+        assert isinstance(n_classes, int)
+        assert n_classes >= 0
+
+    def test_resolve_class_names(self, minimal_instance_multi_class_bottomup_ckpt):
+        """Test extracting class names for multiclass models."""
+        from sleap_nn.export.utils import (
+            load_training_config,
+            resolve_class_names,
+            resolve_model_type,
+        )
+
+        cfg = load_training_config(minimal_instance_multi_class_bottomup_ckpt)
+        model_type = resolve_model_type(cfg)
+        class_names = resolve_class_names(cfg, model_type)
+
+        # Should be a list (possibly empty)
+        assert isinstance(class_names, list)
+        if class_names:
+            assert all(isinstance(name, str) for name in class_names)
+
+
+class TestResolveInputShape:
+    """Tests for resolve_input_shape function."""
+
+    def test_resolve_input_shape(self, minimal_instance_single_instance_ckpt):
+        """Test computing (B, C, H, W) input shape tuple."""
+        from sleap_nn.export.utils import load_training_config, resolve_input_shape
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+        shape = resolve_input_shape(cfg, input_height=256, input_width=256)
+
+        # Should return (batch, channels, height, width)
+        assert isinstance(shape, tuple)
+        assert len(shape) == 4
+        assert shape[0] == 1  # batch size
+        assert shape[1] >= 1  # channels
+        assert shape[2] == 256  # height
+        assert shape[3] == 256  # width
+
+    def test_resolve_input_shape_defaults(self, minimal_instance_single_instance_ckpt):
+        """Test that resolve_input_shape uses defaults when height/width not specified."""
+        from sleap_nn.export.utils import load_training_config, resolve_input_shape
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+        shape = resolve_input_shape(cfg)
+
+        # Should still return a valid shape tuple
+        assert isinstance(shape, tuple)
+        assert len(shape) == 4
+        assert all(isinstance(dim, int) for dim in shape)
+        assert all(dim > 0 for dim in shape)
+
+
+class TestNormalizeEdges:
+    """Tests for _normalize_edges helper function."""
+
+    def test_normalize_edges_with_indices(self):
+        """Test normalizing edges that are already integer indices."""
+        from sleap_nn.export.utils import _normalize_edges
+
+        edges = [(0, 1), (1, 2), (2, 3)]
+        node_names = ["n0", "n1", "n2", "n3"]
+        result = _normalize_edges(edges, node_names)
+
+        assert result == [(0, 1), (1, 2), (2, 3)]
+
+    def test_normalize_edges_with_names(self):
+        """Test normalizing edges that are node names."""
+        from sleap_nn.export.utils import _normalize_edges
+
+        edges = [("head", "thorax"), ("thorax", "abdomen")]
+        node_names = ["head", "thorax", "abdomen"]
+        result = _normalize_edges(edges, node_names)
+
+        assert result == [(0, 1), (1, 2)]
+
+    def test_normalize_edges_empty(self):
+        """Test normalizing empty edge list."""
+        from sleap_nn.export.utils import _normalize_edges
+
+        result = _normalize_edges([], ["n0", "n1"])
+        assert result == []
