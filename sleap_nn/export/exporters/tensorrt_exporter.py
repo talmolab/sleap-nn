@@ -118,35 +118,43 @@ def _export_tensorrt_onnx(
 ) -> Path:
     """Export via ONNX, then compile to TensorRT engine."""
     import tensorrt as trt
-    import tempfile
 
-    device = next(model.parameters()).device
-
-    if verbose:
-        print("  Exporting to ONNX first...")
-
-    # Create temporary ONNX file
+    # Check if ONNX file already exists (from prior export step)
     onnx_path = save_path.with_suffix(".onnx")
 
-    # Create example input with correct dtype
-    if input_dtype == torch.uint8:
-        example_input = torch.randint(0, 255, input_shape, dtype=torch.uint8, device=device)
+    if onnx_path.exists():
+        if verbose:
+            print(f"  Using existing ONNX file: {onnx_path}")
     else:
-        example_input = torch.randn(*input_shape, dtype=input_dtype, device=device)
+        # Need to export to ONNX first
+        device = next(model.parameters()).device
 
-    # Export to ONNX
-    torch.onnx.export(
-        model,
-        example_input,
-        onnx_path,
-        opset_version=17,
-        input_names=["images"],
-        dynamic_axes={"images": {0: "batch", 2: "height", 3: "width"}},
-        do_constant_folding=True,
-    )
+        if verbose:
+            print("  Exporting to ONNX first...")
+
+        # Create example input with correct dtype
+        if input_dtype == torch.uint8:
+            example_input = torch.randint(
+                0, 255, input_shape, dtype=torch.uint8, device=device
+            )
+        else:
+            example_input = torch.randn(*input_shape, dtype=input_dtype, device=device)
+
+        # Export to ONNX
+        torch.onnx.export(
+            model,
+            example_input,
+            onnx_path,
+            opset_version=17,
+            input_names=["images"],
+            dynamic_axes={"images": {0: "batch", 2: "height", 3: "width"}},
+            do_constant_folding=True,
+        )
+
+        if verbose:
+            print(f"  ONNX export complete: {onnx_path}")
 
     if verbose:
-        print(f"  ONNX export complete: {onnx_path}")
         print(f"  Building TensorRT engine (this may take a while)...")
 
     # Create TensorRT builder

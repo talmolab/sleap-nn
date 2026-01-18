@@ -50,7 +50,11 @@ class BottomUpONNXWrapper(BaseExportWrapper):
         self.register_buffer("line_samples", line_samples)
 
     def forward(self, image: torch.Tensor) -> Dict[str, torch.Tensor]:
-        """Run bottom-up inference and return fixed-size outputs."""
+        """Run bottom-up inference and return fixed-size outputs.
+
+        Note: confmaps and pafs are NOT returned to avoid D2H transfer bottleneck.
+        Peak detection and PAF scoring are performed on GPU within this wrapper.
+        """
         image = self._normalize_uint8(image)
         if self.input_scale != 1.0:
             height = int(image.shape[-2] * self.input_scale)
@@ -89,14 +93,16 @@ class BottomUpONNXWrapper(BaseExportWrapper):
             pafs, peaks, peak_mask, max_edge_length
         )
 
+        # Only return final outputs needed for CPU-side grouping.
+        # Do NOT return confmaps/pafs - they are large (~29 MB/batch) and
+        # cause D2H transfer bottleneck. Peak detection and PAF scoring
+        # are already done on GPU above.
         return {
             "peaks": peaks,
             "peak_vals": peak_vals,
             "peak_mask": peak_mask,
             "line_scores": line_scores,
             "candidate_mask": candidate_mask,
-            "confmaps": confmaps,
-            "pafs": pafs,
         }
 
     def _score_all_candidates(

@@ -27,6 +27,11 @@ class ONNXPredictor(ExportPredictor):
                 "`pip install onnxruntime` or `onnxruntime-gpu`."
             ) from exc
 
+        # Preload CUDA/cuDNN libraries from pip-installed nvidia packages
+        # This is required for onnxruntime-gpu to find the CUDA libraries
+        if hasattr(ort, "preload_dlls"):
+            ort.preload_dlls()
+
         self.ort = ort
         if providers is None:
             providers = _select_providers(device, ort.get_available_providers())
@@ -80,8 +85,10 @@ def _select_providers(device: str, available: Iterable[str]) -> Iterable[str]:
         return ["CPUExecutionProvider"]
 
     if device.startswith("cuda") or device == "auto":
+        # Note: We don't include TensorrtExecutionProvider here because:
+        # 1. We have a dedicated TensorRTPredictor for native TRT inference
+        # 2. ORT's TensorRT provider requires TRT libs in LD_LIBRARY_PATH
         preferred = [
-            "TensorrtExecutionProvider",
             "CUDAExecutionProvider",
             "CPUExecutionProvider",
         ]

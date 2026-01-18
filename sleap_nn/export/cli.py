@@ -11,8 +11,12 @@ import click
 from omegaconf import OmegaConf
 import torch
 
-from sleap_nn.export.exporters import export_to_onnx
-from sleap_nn.export.metadata import build_base_metadata, embed_metadata_in_onnx, hash_file
+from sleap_nn.export.exporters import export_to_onnx, export_to_tensorrt
+from sleap_nn.export.metadata import (
+    build_base_metadata,
+    embed_metadata_in_onnx,
+    hash_file,
+)
 from sleap_nn.export.utils import (
     load_training_config,
     resolve_backbone_type,
@@ -74,6 +78,13 @@ from sleap_nn.training.lightning_modules import (
 @click.option("--max-edge-length-ratio", type=float, default=0.25, show_default=True)
 @click.option("--dist-penalty-weight", type=float, default=1.0, show_default=True)
 @click.option("--device", type=str, default="cpu", show_default=True)
+@click.option(
+    "--precision",
+    type=click.Choice(["fp32", "fp16"], case_sensitive=False),
+    default="fp16",
+    show_default=True,
+    help="TensorRT precision mode.",
+)
 @click.option("--verify/--no-verify", default=True, show_default=True)
 def export(
     model_paths: tuple[Path, ...],
@@ -91,11 +102,11 @@ def export(
     max_edge_length_ratio: float,
     dist_penalty_weight: float,
     device: str,
+    precision: str,
     verify: bool,
 ) -> None:
     """Export trained models to ONNX/TensorRT formats."""
-    if fmt.lower() != "onnx":
-        raise click.ClickException("Only ONNX export is implemented for now.")
+    fmt = fmt.lower()
 
     if not model_paths:
         raise click.ClickException("Provide at least one model path to export.")
@@ -192,8 +203,6 @@ def export(
                 "peak_mask",
                 "line_scores",
                 "candidate_mask",
-                "confmaps",
-                "pafs",
             ]
             metadata_max_peaks = max_peaks_per_node
         elif model_type == "single_instance":
@@ -267,6 +276,45 @@ def export(
                 embed_metadata_in_onnx(model_out_path, metadata, training_config_text)
             except ImportError:
                 pass
+
+        # Export to TensorRT if requested
+        if fmt in ("tensorrt", "both"):
+            trt_out_path = export_dir / "model.trt"
+            B, C, H, W = input_shape
+            export_to_tensorrt(
+                wrapper,
+                trt_out_path,
+                input_shape=input_shape,
+                input_dtype=torch.uint8,
+                precision=precision,
+                max_shape=(max_batch_size, C, H * 2, W * 2),
+                verbose=True,
+            )
+            # Update metadata for TensorRT
+            trt_metadata = build_base_metadata(
+                export_format="tensorrt",
+                model_type=model_type,
+                model_name=model_path.name,
+                checkpoint_path=str(ckpt_path),
+                backbone=backbone_type,
+                n_nodes=len(node_names),
+                n_edges=len(edge_inds),
+                node_names=node_names,
+                edge_inds=edge_inds,
+                input_scale=resolved_scale,
+                input_channels=resolve_input_channels(cfg),
+                output_stride=output_stride,
+                crop_size=resolved_crop_size,
+                max_instances=metadata_max_instances,
+                max_peaks_per_node=metadata_max_peaks,
+                max_batch_size=max_batch_size,
+                precision=precision,
+                training_config_hash=training_config_hash,
+                training_config_embedded=training_config_text is not None,
+                input_dtype="uint8",
+                normalization="0_to_1",
+            )
+            trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
 
     if len(model_paths) == 2 and set(model_types) == {
@@ -373,9 +421,7 @@ def export(
             verify=verify,
         )
 
-        centroid_cfg_path = _copy_training_config(
-            centroid_path, export_dir, "centroid"
-        )
+        centroid_cfg_path = _copy_training_config(centroid_path, export_dir, "centroid")
         instance_cfg_path = _copy_training_config(
             instance_path, export_dir, "centered_instance"
         )
@@ -386,9 +432,7 @@ def export(
             config_hashes.append(f"centroid:{hash_file(centroid_cfg_path)}")
         if instance_cfg_path is not None:
             config_payload["centered_instance"] = instance_cfg_path.read_text()
-            config_hashes.append(
-                f"centered_instance:{hash_file(instance_cfg_path)}"
-            )
+            config_hashes.append(f"centered_instance:{hash_file(instance_cfg_path)}")
 
         training_config_hash = ";".join(config_hashes) if config_hashes else ""
         training_config_text = json.dumps(config_payload) if config_payload else None
@@ -427,6 +471,48 @@ def export(
                 embed_metadata_in_onnx(model_out_path, metadata, training_config_text)
             except ImportError:
                 pass
+
+        # Export to TensorRT if requested
+        if fmt in ("tensorrt", "both"):
+            trt_out_path = export_dir / "model.trt"
+            B, C, H, W = input_shape
+            export_to_tensorrt(
+                wrapper,
+                trt_out_path,
+                input_shape=input_shape,
+                input_dtype=torch.uint8,
+                precision=precision,
+                max_shape=(max_batch_size, C, H * 2, W * 2),
+                verbose=True,
+            )
+            # Update metadata for TensorRT
+            trt_metadata = build_base_metadata(
+                export_format="tensorrt",
+                model_type="topdown",
+                model_name=f"{centroid_path.name}+{instance_path.name}",
+                checkpoint_path=(
+                    f"centroid:{centroid_ckpt};centered_instance:{instance_ckpt}"
+                ),
+                backbone=(
+                    f"centroid:{centroid_backbone};centered_instance:{instance_backbone}"
+                ),
+                n_nodes=len(node_names),
+                n_edges=len(edge_inds),
+                node_names=node_names,
+                edge_inds=edge_inds,
+                input_scale=centroid_scale,
+                input_channels=resolve_input_channels(centroid_cfg),
+                output_stride=instance_stride,
+                crop_size=resolved_crop,
+                max_instances=max_instances,
+                max_batch_size=max_batch_size,
+                precision=precision,
+                training_config_hash=training_config_hash,
+                training_config_embedded=training_config_text is not None,
+                input_dtype="uint8",
+                normalization="0_to_1",
+            )
+            trt_metadata.save(export_dir / "model.trt.metadata.json")
         return
 
     raise click.ClickException(
@@ -582,6 +668,7 @@ def predict(
         cfg = OmegaConf.load(cfg_path.as_posix())
     else:
         from sleap_nn.config.training_job_config import TrainingJobConfig
+
         cfg = TrainingJobConfig.load_sleap_config(cfg_path.as_posix())
     skeletons = get_skeleton_from_config(cfg.data_config.skeletons)
     skeleton = skeletons[0]
@@ -596,7 +683,9 @@ def predict(
     click.echo(f"  Runtime: {runtime}")
     click.echo(f"  Device: {device}")
 
-    predictor = load_exported_model(model_path.as_posix(), runtime=runtime, device=device)
+    predictor = load_exported_model(
+        model_path.as_posix(), runtime=runtime, device=device
+    )
 
     click.echo(f"Processing video: {video_path}")
     click.echo(f"  Total frames: {total_frames}")
@@ -632,10 +721,12 @@ def predict(
                 "Bottom-up export metadata missing max_peaks_per_node."
             )
         edge_inds_tuples = [(int(e[0]), int(e[1])) for e in paf_scorer.edge_inds]
-        peak_channel_inds, edge_inds_tensor, edge_peak_inds = build_bottomup_candidate_template(
-            n_nodes=metadata.n_nodes,
-            max_peaks_per_node=max_peaks,
-            edge_inds=edge_inds_tuples,
+        peak_channel_inds, edge_inds_tensor, edge_peak_inds = (
+            build_bottomup_candidate_template(
+                n_nodes=metadata.n_nodes,
+                max_peaks_per_node=max_peaks,
+                edge_inds=edge_inds_tuples,
+            )
         )
         candidate_template = {
             "peak_channel_inds": peak_channel_inds,
@@ -747,16 +838,20 @@ def _find_training_config_for_predict(export_dir: Path, model_type: str) -> Path
     """Find training config file in export directory."""
     candidates = []
     if model_type == "topdown":
-        candidates.extend([
-            export_dir / "training_config_centered_instance.yaml",
-            export_dir / "training_config_centered_instance.json",
-        ])
-    candidates.extend([
-        export_dir / "training_config.yaml",
-        export_dir / "training_config.json",
-        export_dir / f"training_config_{model_type}.yaml",
-        export_dir / f"training_config_{model_type}.json",
-    ])
+        candidates.extend(
+            [
+                export_dir / "training_config_centered_instance.yaml",
+                export_dir / "training_config_centered_instance.json",
+            ]
+        )
+    candidates.extend(
+        [
+            export_dir / "training_config.yaml",
+            export_dir / "training_config.json",
+            export_dir / f"training_config_{model_type}.yaml",
+            export_dir / f"training_config_{model_type}.json",
+        ]
+    )
 
     for candidate in candidates:
         if candidate.exists():
@@ -1010,10 +1105,10 @@ def _predict_centroid_frames(
     max_instances=None,
 ):
     """Convert centroid model outputs to LabeledFrames.
-    
+
     For centroid-only models, creates instances with only the anchor node filled in.
     All other nodes are set to NaN.
-    
+
     Args:
         outputs: Model outputs with centroids, centroid_vals, instance_valid.
         frame_indices: Frame indices corresponding to batch.
@@ -1021,7 +1116,7 @@ def _predict_centroid_frames(
         skeleton: sleap_io.Skeleton object.
         anchor_node_idx: Index of the anchor node in the skeleton.
         max_instances: Maximum instances to output per frame.
-    
+
     Returns:
         List of LabeledFrame objects.
     """
@@ -1038,21 +1133,21 @@ def _predict_centroid_frames(
     for batch_idx, frame_idx in enumerate(frame_indices):
         instances = []
         valid_mask = instance_valid[batch_idx].astype(bool)
-        
+
         for inst_idx, is_valid in enumerate(valid_mask):
             if not is_valid:
                 continue
-            
+
             # Create points array with NaN for all nodes except anchor
             pts = np.full((n_nodes, 2), np.nan, dtype=np.float32)
             pts[anchor_node_idx] = centroids[batch_idx, inst_idx]
-            
+
             # Create scores array - anchor gets centroid score, others get NaN
             scores = np.full((n_nodes,), np.nan, dtype=np.float32)
             scores[anchor_node_idx] = centroid_vals[batch_idx, inst_idx]
-            
+
             instance_score = float(centroid_vals[batch_idx, inst_idx])
-            
+
             instances.append(
                 sio.PredictedInstance.from_numpy(
                     points_data=pts,
