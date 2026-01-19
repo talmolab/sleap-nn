@@ -450,3 +450,350 @@ class TestNormalizeEdges:
 
         result = _normalize_edges([], ["n0", "n1"])
         assert result == []
+
+
+class TestResolveInputScale:
+    """Tests for resolve_input_scale function."""
+
+    def test_resolve_input_scale_single_value(self, minimal_instance_single_instance_ckpt):
+        """Test resolving scale when it's a single value."""
+        from sleap_nn.export.utils import load_training_config, resolve_input_scale
+
+        cfg = load_training_config(minimal_instance_single_instance_ckpt)
+        scale = resolve_input_scale(cfg)
+
+        # Should return a float
+        assert isinstance(scale, float)
+        assert scale > 0
+
+    def test_resolve_input_scale_tuple(self):
+        """Test resolving scale when it's a tuple (native Python)."""
+        from omegaconf import DictConfig
+        from sleap_nn.export.utils import resolve_input_scale
+
+        # Create a DictConfig with a native Python tuple
+        cfg = DictConfig(
+            {"data_config": {"preprocessing": {"scale": (0.5, 0.5)}}}
+        )
+        scale = resolve_input_scale(cfg)
+        assert scale == 0.5
+
+    def test_resolve_input_scale_scalar(self):
+        """Test resolving scale when it's a scalar value."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_input_scale
+
+        cfg = OmegaConf.create({"data_config": {"preprocessing": {"scale": 0.75}}})
+        scale = resolve_input_scale(cfg)
+        assert scale == 0.75
+
+
+class TestResolvePafsOutputStride:
+    """Tests for resolve_pafs_output_stride function."""
+
+    def test_resolve_pafs_output_stride(self, minimal_instance_bottomup_ckpt):
+        """Test extracting PAFs output stride."""
+        from sleap_nn.export.utils import load_training_config, resolve_pafs_output_stride
+
+        cfg = load_training_config(minimal_instance_bottomup_ckpt)
+        stride = resolve_pafs_output_stride(cfg)
+
+        assert isinstance(stride, int)
+        assert stride >= 1
+
+    def test_resolve_pafs_output_stride_no_pafs(self):
+        """Test default when no PAFs config exists."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_pafs_output_stride
+
+        cfg = OmegaConf.create({"model_config": {"head_configs": {}}})
+        stride = resolve_pafs_output_stride(cfg)
+        assert stride == 1
+
+
+class TestResolveClassMapsOutputStride:
+    """Tests for resolve_class_maps_output_stride function."""
+
+    def test_resolve_class_maps_output_stride(
+        self, minimal_instance_multi_class_bottomup_ckpt
+    ):
+        """Test extracting class maps output stride."""
+        from sleap_nn.export.utils import (
+            load_training_config,
+            resolve_class_maps_output_stride,
+        )
+
+        cfg = load_training_config(minimal_instance_multi_class_bottomup_ckpt)
+        stride = resolve_class_maps_output_stride(cfg)
+
+        assert isinstance(stride, int)
+        assert stride >= 1
+
+    def test_resolve_class_maps_output_stride_no_config(self):
+        """Test default when no class maps config exists."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_class_maps_output_stride
+
+        cfg = OmegaConf.create({"model_config": {"head_configs": {}}})
+        stride = resolve_class_maps_output_stride(cfg)
+        assert stride == 8
+
+
+class TestSkeletonParsing:
+    """Tests for skeleton parsing helper functions."""
+
+    def test_node_names_from_dict_skeleton(self):
+        """Test extracting node names from dict-based skeleton."""
+        from sleap_nn.export.utils import _node_names_from_skeletons
+
+        skeletons = [{"nodes": ["head", "thorax", "abdomen"]}]
+        names = _node_names_from_skeletons(skeletons)
+        assert names == ["head", "thorax", "abdomen"]
+
+    def test_node_names_from_dict_skeleton_with_dicts(self):
+        """Test extracting node names from skeleton with node dicts."""
+        from sleap_nn.export.utils import _node_names_from_skeletons
+
+        skeletons = [{"nodes": [{"name": "head"}, {"name": "thorax"}]}]
+        names = _node_names_from_skeletons(skeletons)
+        assert names == ["head", "thorax"]
+
+    def test_node_names_from_dict_with_node_names_key(self):
+        """Test extracting node names from node_names key."""
+        from sleap_nn.export.utils import _node_names_from_skeletons
+
+        skeletons = [{"node_names": ["head", "thorax"]}]
+        names = _node_names_from_skeletons(skeletons)
+        assert names == ["head", "thorax"]
+
+    def test_node_names_from_empty_skeleton(self):
+        """Test empty skeleton returns empty list."""
+        from sleap_nn.export.utils import _node_names_from_skeletons
+
+        assert _node_names_from_skeletons([]) == []
+        assert _node_names_from_skeletons(None) == []
+
+    def test_edge_inds_from_dict_skeleton(self):
+        """Test extracting edge indices from dict-based skeleton."""
+        from sleap_nn.export.utils import _edge_inds_from_skeletons
+
+        skeletons = [{"edges": [(0, 1), (1, 2)]}]
+        edges = _edge_inds_from_skeletons(skeletons)
+        assert edges == [(0, 1), (1, 2)]
+
+    def test_edge_inds_from_dict_with_edge_inds_key(self):
+        """Test extracting edge indices from edge_inds key."""
+        from sleap_nn.export.utils import _edge_inds_from_skeletons
+
+        skeletons = [{"edge_inds": [(0, 1)]}]
+        edges = _edge_inds_from_skeletons(skeletons)
+        assert edges == [(0, 1)]
+
+    def test_edge_inds_from_empty_skeleton(self):
+        """Test empty skeleton returns empty list."""
+        from sleap_nn.export.utils import _edge_inds_from_skeletons
+
+        assert _edge_inds_from_skeletons([]) == []
+        assert _edge_inds_from_skeletons(None) == []
+
+
+class TestNormalizeEdgesNoNodeNames:
+    """Additional tests for _normalize_edges."""
+
+    def test_normalize_edges_no_node_names(self):
+        """Test normalizing edges when no node names provided."""
+        from sleap_nn.export.utils import _normalize_edges
+
+        edges = [(0, 1), (1, 2)]
+        result = _normalize_edges(edges, [])
+        assert result == [(0, 1), (1, 2)]
+
+
+class TestResolveOutputStrideEdgeCases:
+    """Edge case tests for resolve_output_stride."""
+
+    def test_resolve_output_stride_none_head_cfg(self):
+        """Test that None head_cfg returns 1."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_output_stride
+
+        cfg = OmegaConf.create(
+            {"model_config": {"head_configs": {"single_instance": None}}}
+        )
+        stride = resolve_output_stride(cfg, "single_instance")
+        assert stride == 1
+
+    def test_resolve_output_stride_pafs_fallback(self):
+        """Test fallback to PAFs output stride when no confmaps."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_output_stride
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "bottomup": {"confmaps": None, "pafs": {"output_stride": 8}}
+                    }
+                }
+            }
+        )
+        stride = resolve_output_stride(cfg, "bottomup")
+        assert stride == 8
+
+    def test_resolve_output_stride_no_confmaps_no_pafs(self):
+        """Test default when neither confmaps nor pafs."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_output_stride
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {"single_instance": {"other_key": "value"}}
+                }
+            }
+        )
+        stride = resolve_output_stride(cfg, "single_instance")
+        assert stride == 1
+
+
+class TestResolveClassNamesEdgeCases:
+    """Edge case tests for resolve_class_names."""
+
+    def test_resolve_class_names_none_head_cfg(self):
+        """Test that None head_cfg returns empty list."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_class_names
+
+        cfg = OmegaConf.create({"model_config": {"head_configs": {}}})
+        names = resolve_class_names(cfg, "nonexistent")
+        assert names == []
+
+    def test_resolve_class_names_from_class_vectors(self):
+        """Test extracting class names from class_vectors."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_class_names
+
+        cfg = OmegaConf.create(
+            {
+                "model_config": {
+                    "head_configs": {
+                        "multi_class_topdown": {
+                            "class_vectors": {"classes": ["female", "male"]}
+                        }
+                    }
+                }
+            }
+        )
+        names = resolve_class_names(cfg, "multi_class_topdown")
+        assert names == ["female", "male"]
+
+    def test_resolve_class_names_no_classes(self):
+        """Test when head config has no class info."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_class_names
+
+        cfg = OmegaConf.create(
+            {"model_config": {"head_configs": {"single_instance": {"confmaps": {}}}}}
+        )
+        names = resolve_class_names(cfg, "single_instance")
+        assert names == []
+
+
+class TestResolveCropSizeEdgeCases:
+    """Edge case tests for resolve_crop_size."""
+
+    def test_resolve_crop_size_single_value(self):
+        """Test crop_size when it's a single integer."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_crop_size
+
+        cfg = OmegaConf.create({"data_config": {"preprocessing": {"crop_size": 128}}})
+        result = resolve_crop_size(cfg)
+        assert result == (128, 128)
+
+    def test_resolve_crop_size_single_element_list(self):
+        """Test crop_size when it's a single-element list."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_crop_size
+
+        cfg = OmegaConf.create({"data_config": {"preprocessing": {"crop_size": [192]}}})
+        result = resolve_crop_size(cfg)
+        assert result == (192, 192)
+
+    def test_resolve_crop_size_none(self):
+        """Test crop_size when it's None."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_crop_size
+
+        cfg = OmegaConf.create({"data_config": {"preprocessing": {"crop_size": None}}})
+        result = resolve_crop_size(cfg)
+        assert result is None
+
+
+class TestResolveNodeNamesEdgeCases:
+    """Edge case tests for resolve_node_names."""
+
+    def test_resolve_node_names_from_part_names(self):
+        """Test extracting node names from confmaps.part_names."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_node_names
+
+        cfg = OmegaConf.create(
+            {
+                "data_config": {"skeletons": []},
+                "model_config": {
+                    "head_configs": {
+                        "single_instance": {
+                            "confmaps": {"part_names": ["head", "thorax", "abdomen"]}
+                        }
+                    }
+                },
+            }
+        )
+        names = resolve_node_names(cfg, "single_instance")
+        assert names == ["head", "thorax", "abdomen"]
+
+    def test_resolve_node_names_centroid_anchor(self):
+        """Test extracting anchor part name for centroid models."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_node_names
+
+        cfg = OmegaConf.create(
+            {
+                "data_config": {"skeletons": []},
+                "model_config": {
+                    "head_configs": {
+                        "centroid": {"confmaps": {"anchor_part": "thorax"}}
+                    }
+                },
+            }
+        )
+        names = resolve_node_names(cfg, "centroid")
+        assert names == ["thorax"]
+
+    def test_resolve_node_names_centroid_default(self):
+        """Test default 'centroid' name when no anchor_part."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_node_names
+
+        cfg = OmegaConf.create(
+            {
+                "data_config": {"skeletons": []},
+                "model_config": {
+                    "head_configs": {"centroid": {"confmaps": {"output_stride": 4}}}
+                },
+            }
+        )
+        names = resolve_node_names(cfg, "centroid")
+        assert names == ["centroid"]
+
+    def test_resolve_node_names_none_head(self):
+        """Test empty list when head config is None."""
+        from omegaconf import OmegaConf
+        from sleap_nn.export.utils import resolve_node_names
+
+        cfg = OmegaConf.create(
+            {"data_config": {"skeletons": []}, "model_config": {"head_configs": {}}}
+        )
+        names = resolve_node_names(cfg, "nonexistent")
+        assert names == []

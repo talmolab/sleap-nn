@@ -165,3 +165,36 @@ class TestInferOutputNames:
         names = _infer_output_names(output)
 
         assert names == ["output_0"]
+
+
+class TestExportModelFactory:
+    """Tests for export_model factory function."""
+
+    @requires_onnx
+    def test_export_model_onnx(self, mock_single_instance_wrapper, tmp_path):
+        """Test export_model with fmt='onnx'."""
+        from sleap_nn.export.exporters import export_model
+
+        onnx_path = tmp_path / "model.onnx"
+        result = export_model(
+            mock_single_instance_wrapper,
+            onnx_path,
+            fmt="onnx",
+            input_shape=(1, 1, 64, 64),
+            verify=False,
+        )
+
+        assert onnx_path.exists()
+        assert result == onnx_path
+
+    def test_export_model_unknown_format(self, mock_single_instance_wrapper, tmp_path):
+        """Test that unknown format raises ValueError."""
+        from sleap_nn.export.exporters import export_model
+
+        with pytest.raises(ValueError, match="Unknown export format"):
+            export_model(
+                mock_single_instance_wrapper,
+                tmp_path / "model.xyz",
+                fmt="unknown_format",
+                input_shape=(1, 1, 64, 64),
+            )

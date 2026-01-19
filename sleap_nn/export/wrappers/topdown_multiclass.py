@@ -226,12 +226,8 @@ class TopDownMultiClassCombinedONNXWrapper(BaseExportWrapper):
         )
 
         # Reshape to batch x instances x nodes x 2
-        crop_peaks = crop_peaks.reshape(
-            batch_size, self.max_instances, self.n_nodes, 2
-        )
-        peak_vals = crop_peak_vals.reshape(
-            batch_size, self.max_instances, self.n_nodes
-        )
+        crop_peaks = crop_peaks.reshape(batch_size, self.max_instances, self.n_nodes, 2)
+        peak_vals = crop_peak_vals.reshape(batch_size, self.max_instances, self.n_nodes)
 
         # Reshape class logits
         class_logits = instance_class.reshape(

@@ -1621,7 +1621,9 @@ def _predict_multiclass_bottomup_frames(
 
     for batch_idx, frame_idx in enumerate(frame_indices):
         # Initialize instances for each class
-        instance_points = np.full((n_classes, n_nodes_skel, 2), np.nan, dtype=np.float32)
+        instance_points = np.full(
+            (n_classes, n_nodes_skel, 2), np.nan, dtype=np.float32
+        )
         instance_scores = np.full((n_classes, n_nodes_skel), np.nan, dtype=np.float32)
         instance_class_probs = np.full((n_classes,), 0.0, dtype=np.float32)
 
@@ -1636,7 +1638,9 @@ def _predict_multiclass_bottomup_frames(
 
             valid_peaks = peaks[batch_idx, node_idx][valid]  # (n_valid, 2)
             valid_vals = peak_vals[batch_idx, node_idx][valid]  # (n_valid,)
-            valid_class_probs = class_probs[batch_idx, node_idx][valid]  # (n_valid, n_classes)
+            valid_class_probs = class_probs[batch_idx, node_idx][
+                valid
+            ]  # (n_valid, n_classes)
 
             # Use Hungarian matching to assign peaks to classes
             # Maximize class probabilities (minimize negative)
@@ -1646,9 +1650,13 @@ def _predict_multiclass_bottomup_frames(
             # Assign matched peaks to instances
             for peak_idx, class_idx in zip(row_inds, col_inds):
                 if class_idx < n_classes:
-                    instance_points[class_idx, node_idx] = valid_peaks[peak_idx] / input_scale
+                    instance_points[class_idx, node_idx] = (
+                        valid_peaks[peak_idx] / input_scale
+                    )
                     instance_scores[class_idx, node_idx] = valid_vals[peak_idx]
-                    instance_class_probs[class_idx] += valid_class_probs[peak_idx, class_idx]
+                    instance_class_probs[class_idx] += valid_class_probs[
+                        peak_idx, class_idx
+                    ]
 
         # Create predicted instances
         instances = []
@@ -1668,7 +1676,11 @@ def _predict_multiclass_bottomup_frames(
                 instance_score = 0.0
 
             # Get track name from class names
-            track_name = class_names[class_idx] if class_idx < len(class_names) else f"class_{class_idx}"
+            track_name = (
+                class_names[class_idx]
+                if class_idx < len(class_names)
+                else f"class_{class_idx}"
+            )
 
             instances.append(
                 sio.PredictedInstance.from_numpy(

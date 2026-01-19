@@ -30,6 +30,20 @@ class BottomUpONNXWrapper(BaseExportWrapper):
         dist_penalty_weight: float = 1.0,
         input_scale: float = 1.0,
     ) -> None:
+        """Initialize bottom-up ONNX wrapper.
+
+        Args:
+            model: Bottom-up model producing confidence maps and PAFs.
+            skeleton_edges: List of (src, dst) edge tuples defining skeleton.
+            n_nodes: Number of nodes in the skeleton.
+            max_peaks_per_node: Maximum peaks to detect per node type.
+            n_line_points: Points to sample along PAF edges.
+            cms_output_stride: Confidence map output stride.
+            pafs_output_stride: PAF output stride.
+            max_edge_length_ratio: Maximum edge length as ratio of image size.
+            dist_penalty_weight: Weight for distance penalty in scoring.
+            input_scale: Input scaling factor.
+        """
         super().__init__(model)
         self.n_nodes = n_nodes
         self.n_edges = len(skeleton_edges)

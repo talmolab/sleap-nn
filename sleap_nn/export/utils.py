@@ -30,8 +30,13 @@ def load_training_config(model_dir: str | Path) -> DictConfig:
 def resolve_input_scale(cfg: DictConfig) -> float:
     """Resolve preprocessing scale from config."""
     scale = cfg.data_config.preprocessing.scale
-    if isinstance(scale, (list, tuple)):
-        return float(scale[0]) if scale else 1.0
+    # Check for list/tuple or OmegaConf ListConfig
+    if isinstance(scale, (list, tuple)) or (
+        hasattr(scale, "__iter__")
+        and hasattr(scale, "__len__")
+        and not isinstance(scale, str)
+    ):
+        return float(scale[0]) if len(scale) > 0 else 1.0
     return float(scale)
 
 
@@ -63,7 +68,9 @@ def resolve_pafs_output_stride(cfg: DictConfig) -> int:
 
 def resolve_class_maps_output_stride(cfg: DictConfig) -> int:
     """Resolve class maps output stride for multiclass bottom-up models."""
-    mc_bottomup_cfg = getattr(cfg.model_config.head_configs, "multi_class_bottomup", None)
+    mc_bottomup_cfg = getattr(
+        cfg.model_config.head_configs, "multi_class_bottomup", None
+    )
     if mc_bottomup_cfg is not None and mc_bottomup_cfg.class_maps is not None:
         return int(mc_bottomup_cfg.class_maps.output_stride)
     return 8
@@ -101,7 +108,12 @@ def resolve_crop_size(cfg: DictConfig) -> Optional[Tuple[int, int]]:
     crop_size = cfg.data_config.preprocessing.crop_size
     if crop_size is None:
         return None
-    if isinstance(crop_size, (list, tuple)):
+    # Check for list/tuple or OmegaConf ListConfig
+    if isinstance(crop_size, (list, tuple)) or (
+        hasattr(crop_size, "__iter__")
+        and hasattr(crop_size, "__len__")
+        and not isinstance(crop_size, (str, int))
+    ):
         if len(crop_size) == 2:
             return int(crop_size[0]), int(crop_size[1])
         if len(crop_size) == 1:
@@ -157,7 +169,9 @@ def resolve_backbone_type(cfg: DictConfig) -> str:
 
 
 def resolve_input_shape(
-    cfg: DictConfig, input_height: Optional[int] = None, input_width: Optional[int] = None
+    cfg: DictConfig,
+    input_height: Optional[int] = None,
+    input_width: Optional[int] = None,
 ) -> Tuple[int, int, int, int]:
     """Resolve a dummy input shape for export."""
     channels = resolve_input_channels(cfg)

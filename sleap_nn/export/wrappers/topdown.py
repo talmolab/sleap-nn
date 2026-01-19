@@ -29,6 +29,19 @@ class TopDownONNXWrapper(BaseExportWrapper):
         instance_input_scale: float = 1.0,
         n_nodes: int = 1,
     ) -> None:
+        """Initialize top-down ONNX wrapper.
+
+        Args:
+            centroid_model: Centroid detection model.
+            instance_model: Instance pose estimation model.
+            max_instances: Maximum number of instances to detect.
+            crop_size: Size of instance crops (height, width).
+            centroid_output_stride: Centroid model output stride.
+            instance_output_stride: Instance model output stride.
+            centroid_input_scale: Centroid input scaling factor.
+            instance_input_scale: Instance input scaling factor.
+            n_nodes: Number of skeleton nodes.
+        """
         super().__init__(centroid_model)
         self.centroid_model = centroid_model
         self.instance_model = instance_model
@@ -64,9 +77,7 @@ class TopDownONNXWrapper(BaseExportWrapper):
             )
 
         centroid_out = self.centroid_model(scaled_image)
-        centroid_cms = self._extract_tensor(
-            centroid_out, ["centroid", "confmap"]
-        )
+        centroid_cms = self._extract_tensor(centroid_out, ["centroid", "confmap"])
 
         centroids, centroid_vals, instance_valid = self._find_topk_peaks(
             centroid_cms, self.max_instances
@@ -103,12 +114,8 @@ class TopDownONNXWrapper(BaseExportWrapper):
             self.instance_output_stride / self.instance_input_scale
         )
 
-        crop_peaks = crop_peaks.reshape(
-            batch_size, self.max_instances, self.n_nodes, 2
-        )
-        peak_vals = crop_peak_vals.reshape(
-            batch_size, self.max_instances, self.n_nodes
-        )
+        crop_peaks = crop_peaks.reshape(batch_size, self.max_instances, self.n_nodes, 2)
+        peak_vals = crop_peak_vals.reshape(batch_size, self.max_instances, self.n_nodes)
 
         crop_offset = centroids.unsqueeze(2) - image.new_tensor(
             [self.crop_size[1] / 2.0, self.crop_size[0] / 2.0]
@@ -156,7 +163,9 @@ class TopDownONNXWrapper(BaseExportWrapper):
         sample_grid = scaled_grid + offset
 
         image_expanded = image.unsqueeze(1).expand(-1, n_instances, -1, -1, -1)
-        image_flat = image_expanded.reshape(batch_size * n_instances, channels, height, width)
+        image_flat = image_expanded.reshape(
+            batch_size * n_instances, channels, height, width
+        )
         grid_flat = sample_grid.reshape(batch_size * n_instances, crop_h, crop_w, 2)
 
         crops_flat = F.grid_sample(

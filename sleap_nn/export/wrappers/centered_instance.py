@@ -23,6 +23,13 @@ class CenteredInstanceONNXWrapper(BaseExportWrapper):
         output_stride: int = 4,
         input_scale: float = 1.0,
     ):
+        """Initialize centered instance ONNX wrapper.
+
+        Args:
+            model: Centered instance model for pose estimation.
+            output_stride: Output stride for confidence maps.
+            input_scale: Input scaling factor.
+        """
         super().__init__(model)
         self.output_stride = output_stride
         self.input_scale = input_scale
@@ -33,7 +40,9 @@ class CenteredInstanceONNXWrapper(BaseExportWrapper):
         if self.input_scale != 1.0:
             height = int(image.shape[-2] * self.input_scale)
             width = int(image.shape[-1] * self.input_scale)
-            image = F.interpolate(image, size=(height, width), mode="bilinear", align_corners=False)
+            image = F.interpolate(
+                image, size=(height, width), mode="bilinear", align_corners=False
+            )
 
         confmaps = self._extract_tensor(
             self.model(image), ["centered", "instance", "confmap"]

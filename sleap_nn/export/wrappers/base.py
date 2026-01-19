@@ -13,6 +13,11 @@ class BaseExportWrapper(nn.Module):
     """Base class for ONNX-exportable wrappers."""
 
     def __init__(self, model: nn.Module):
+        """Initialize wrapper with the underlying model.
+
+        Args:
+            model: The PyTorch model to wrap for export.
+        """
         super().__init__()
         self.model = model
 

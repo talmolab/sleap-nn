@@ -19,6 +19,13 @@ class ONNXPredictor(ExportPredictor):
         device: str = "auto",
         providers: Optional[Iterable[str]] = None,
     ) -> None:
+        """Initialize ONNX predictor with execution providers.
+
+        Args:
+            model_path: Path to the ONNX model file.
+            device: Device for inference ("auto", "cpu", or "cuda").
+            providers: ONNX Runtime execution providers. Auto-selected if None.
+        """
         try:
             import onnxruntime as ort
         except ImportError as exc:

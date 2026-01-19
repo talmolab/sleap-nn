@@ -32,12 +32,16 @@ class TensorRTPredictor(ExportPredictor):
         engine_path: str | Path,
         device: str = "cuda",
     ) -> None:
+        """Initialize TensorRT predictor with a serialized engine.
+
+        Args:
+            engine_path: Path to the TensorRT engine file.
+            device: Device for inference ("cuda" or "auto"). TensorRT requires CUDA.
+        """
         import tensorrt as trt
 
         if device not in ("cuda", "auto"):
-            raise ValueError(
-                f"TensorRT only supports CUDA devices, got: {device}"
-            )
+            raise ValueError(f"TensorRT only supports CUDA devices, got: {device}")
 
         self.engine_path = Path(engine_path)
         if not self.engine_path.exists():
@@ -208,6 +212,11 @@ class TensorRTEngine:
     """
 
     def __init__(self, engine_path: str | Path) -> None:
+        """Initialize TensorRT engine wrapper.
+
+        Args:
+            engine_path: Path to the serialized TensorRT engine file.
+        """
         import tensorrt as trt
 
         self.engine_path = Path(engine_path)

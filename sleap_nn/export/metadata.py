@@ -204,7 +204,9 @@ def embed_metadata_in_onnx(
     )
     if training_config_text:
         model.metadata_props.append(
-            onnx.StringStringEntryProto(key="training_config", value=training_config_text)
+            onnx.StringStringEntryProto(
+                key="training_config", value=training_config_text
+            )
         )
     onnx.save(model, model_path.as_posix())
 
