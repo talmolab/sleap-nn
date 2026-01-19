@@ -849,6 +849,7 @@ class ModelTrainer:
                 "train/time",
                 "val/time",
             ]
+            # Add model-specific keys for wandb parity
             if self.model_type in [
                 "single_instance",
                 "centered_instance",
@@ -856,6 +857,37 @@ class ModelTrainer:
             ]:
                 csv_log_keys.extend(
                     [f"train/confmaps/{name}" for name in self.skeletons[0].node_names]
+                )
+            if self.model_type == "bottomup":
+                csv_log_keys.extend(
+                    [
+                        "train/confmaps_loss",
+                        "train/paf_loss",
+                        "val/confmaps_loss",
+                        "val/paf_loss",
+                    ]
+                )
+            if self.model_type == "multi_class_bottomup":
+                csv_log_keys.extend(
+                    [
+                        "train/confmaps_loss",
+                        "train/classmap_loss",
+                        "train/class_accuracy",
+                        "val/confmaps_loss",
+                        "val/classmap_loss",
+                        "val/class_accuracy",
+                    ]
+                )
+            if self.model_type == "multi_class_topdown":
+                csv_log_keys.extend(
+                    [
+                        "train/confmaps_loss",
+                        "train/classvector_loss",
+                        "train/class_accuracy",
+                        "val/confmaps_loss",
+                        "val/classvector_loss",
+                        "val/class_accuracy",
+                    ]
                 )
             csv_logger = CSVLoggerCallback(
                 filepath=Path(self.config.trainer_config.ckpt_dir)
