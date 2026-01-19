@@ -25,16 +25,18 @@ The export module provides:
 
 ### Performance Comparison
 
-Benchmarks on NVIDIA RTX A6000 at batch size 8:
+Benchmarks on **NVIDIA RTX A6000** (48 GB) at batch size 8:
 
-| Model Type | Resolution | PyTorch | TensorRT FP16 | Speedup |
-|------------|------------|---------|---------------|---------|
-| Single Instance | 192×192 | 3,111 FPS | 11,039 FPS | 3.5x |
-| Centroid | 1024×1024 | 453 FPS | 1,829 FPS | 4.0x |
-| Top-Down | 1024×1024 | 94 FPS | 525 FPS | 5.6x |
-| Bottom-Up | 1024×1280 | 113 FPS | 524 FPS | 4.6x |
-| Multiclass Top-Down | 1024×1024 | 127 FPS | 735 FPS | 5.8x |
-| Multiclass Bottom-Up | 1024×1024 | 116 FPS | 470 FPS | 4.1x |
+| Model Type | Resolution | PyTorch | ONNX-GPU | TensorRT FP16 | Speedup |
+|------------|------------|---------|----------|---------------|---------|
+| Single Instance | 192×192 | 3,111 FPS | 3,165 FPS | 11,039 FPS | 3.5x |
+| Centroid | 1024×1024 | 453 FPS | 474 FPS | 1,829 FPS | 4.0x |
+| Top-Down | 1024×1024 | 94 FPS | 122 FPS | 525 FPS | 5.6x |
+| Bottom-Up | 1024×1280 | 113 FPS | 121 FPS | 524 FPS | 4.6x |
+| Multiclass Top-Down | 1024×1024 | 127 FPS | 145 FPS | 735 FPS | 5.8x |
+| Multiclass Bottom-Up | 1024×1024 | 116 FPS | 120 FPS | 470 FPS | 4.1x |
+
+*Speedup is relative to PyTorch baseline.*
 
 ---
 
