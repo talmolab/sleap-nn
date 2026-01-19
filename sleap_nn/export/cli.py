@@ -328,13 +328,37 @@ def export(
         if fmt in ("tensorrt", "both"):
             trt_out_path = export_dir / "model.trt"
             B, C, H, W = input_shape
+
+            # For centered_instance and single_instance models, use crop size
+            # for TensorRT shape profiles since inference uses cropped inputs
+            if model_type in ("centered_instance", "single_instance"):
+                if resolved_crop_size is not None:
+                    crop_h, crop_w = resolved_crop_size
+                    trt_input_shape = (1, C, crop_h, crop_w)
+                    # Use crop size for min/opt, allow flexibility for max
+                    trt_min_shape = (1, C, crop_h, crop_w)
+                    trt_opt_shape = (1, C, crop_h, crop_w)
+                    trt_max_shape = (max_batch_size, C, crop_h * 2, crop_w * 2)
+                else:
+                    trt_input_shape = input_shape
+                    trt_min_shape = None
+                    trt_opt_shape = None
+                    trt_max_shape = (max_batch_size, C, H * 2, W * 2)
+            else:
+                trt_input_shape = input_shape
+                trt_min_shape = None
+                trt_opt_shape = None
+                trt_max_shape = (max_batch_size, C, H * 2, W * 2)
+
             export_to_tensorrt(
                 wrapper,
                 trt_out_path,
-                input_shape=input_shape,
+                input_shape=trt_input_shape,
                 input_dtype=torch.uint8,
                 precision=precision,
-                max_shape=(max_batch_size, C, H * 2, W * 2),
+                min_shape=trt_min_shape,
+                opt_shape=trt_opt_shape,
+                max_shape=trt_max_shape,
                 verbose=True,
             )
             # Update metadata for TensorRT
