@@ -200,7 +200,9 @@ class TestLoadTrainingConfig:
 class TestResolveModelType:
     """Tests for resolve_model_type function."""
 
-    def test_resolve_model_type_single_instance(self, minimal_instance_single_instance_ckpt):
+    def test_resolve_model_type_single_instance(
+        self, minimal_instance_single_instance_ckpt
+    ):
         """Test detecting single_instance model type."""
         from sleap_nn.export.utils import load_training_config, resolve_model_type
 
@@ -455,7 +457,9 @@ class TestNormalizeEdges:
 class TestResolveInputScale:
     """Tests for resolve_input_scale function."""
 
-    def test_resolve_input_scale_single_value(self, minimal_instance_single_instance_ckpt):
+    def test_resolve_input_scale_single_value(
+        self, minimal_instance_single_instance_ckpt
+    ):
         """Test resolving scale when it's a single value."""
         from sleap_nn.export.utils import load_training_config, resolve_input_scale
 
@@ -472,9 +476,7 @@ class TestResolveInputScale:
         from sleap_nn.export.utils import resolve_input_scale
 
         # Create a DictConfig with a native Python tuple
-        cfg = DictConfig(
-            {"data_config": {"preprocessing": {"scale": (0.5, 0.5)}}}
-        )
+        cfg = DictConfig({"data_config": {"preprocessing": {"scale": (0.5, 0.5)}}})
         scale = resolve_input_scale(cfg)
         assert scale == 0.5
 
@@ -493,7 +495,10 @@ class TestResolvePafsOutputStride:
 
     def test_resolve_pafs_output_stride(self, minimal_instance_bottomup_ckpt):
         """Test extracting PAFs output stride."""
-        from sleap_nn.export.utils import load_training_config, resolve_pafs_output_stride
+        from sleap_nn.export.utils import (
+            load_training_config,
+            resolve_pafs_output_stride,
+        )
 
         cfg = load_training_config(minimal_instance_bottomup_ckpt)
         stride = resolve_pafs_output_stride(cfg)

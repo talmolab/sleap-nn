@@ -22,7 +22,10 @@ class TestExportCommandHelp:
         result = runner.invoke(export, ["--help"])
 
         assert result.exit_code == 0
-        assert "Export a trained model" in result.output or "export" in result.output.lower()
+        assert (
+            "Export a trained model" in result.output
+            or "export" in result.output.lower()
+        )
 
 
 class TestPredictCommandHelp:
@@ -36,7 +39,9 @@ class TestPredictCommandHelp:
         result = runner.invoke(predict, ["--help"])
 
         assert result.exit_code == 0
-        assert "predict" in result.output.lower() or "inference" in result.output.lower()
+        assert (
+            "predict" in result.output.lower() or "inference" in result.output.lower()
+        )
 
 
 @requires_onnx
@@ -137,7 +142,9 @@ class TestExportCommand:
         if result.exit_code == 0:
             # Metadata might be model.onnx.metadata.json or metadata.json
             metadata_files = list(output_dir.glob("*.json"))
-            assert len(metadata_files) > 0, f"No metadata JSON file created in {output_dir}"
+            assert (
+                len(metadata_files) > 0
+            ), f"No metadata JSON file created in {output_dir}"
 
             # Verify metadata content
             with open(metadata_files[0]) as f:
@@ -146,7 +153,10 @@ class TestExportCommand:
             assert "n_nodes" in metadata
 
     def test_export_command_topdown_combined(
-        self, minimal_instance_centroid_ckpt, minimal_instance_centered_instance_ckpt, tmp_path
+        self,
+        minimal_instance_centroid_ckpt,
+        minimal_instance_centered_instance_ckpt,
+        tmp_path,
     ):
         """Test exporting combined top-down model (centroid + instance)."""
         from sleap_nn.export.cli import export
@@ -205,7 +215,11 @@ class TestExportCommand:
         )
 
         # Should fail
-        assert result.exit_code != 0 or "error" in result.output.lower() or "not found" in result.output.lower()
+        assert (
+            result.exit_code != 0
+            or "error" in result.output.lower()
+            or "not found" in result.output.lower()
+        )
 
 
 @requires_onnx
@@ -236,7 +250,9 @@ class TestPredictCommand:
 
         return output_dir
 
-    def test_predict_command_creates_slp(self, exported_model_dir, tiny_video, tmp_path):
+    def test_predict_command_creates_slp(
+        self, exported_model_dir, tiny_video, tmp_path
+    ):
         """Test that predict creates output .slp file."""
         from sleap_nn.export.cli import predict
 

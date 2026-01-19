@@ -8,7 +8,12 @@ import pytest
 import numpy as np
 import torch
 
-from .conftest import requires_gpu, requires_tensorrt, requires_onnx, requires_onnxruntime
+from .conftest import (
+    requires_gpu,
+    requires_tensorrt,
+    requires_onnx,
+    requires_onnxruntime,
+)
 
 
 @requires_gpu
@@ -213,6 +218,4 @@ class TestONNXvsPyTorchAccuracy:
 
         # Check values are close (within tolerance for numerical differences)
         # The deterministic backbone ensures both produce the same confmaps
-        np.testing.assert_allclose(
-            pytorch_peaks, onnx_peaks, rtol=1e-2, atol=1.0
-        )
+        np.testing.assert_allclose(pytorch_peaks, onnx_peaks, rtol=1e-2, atol=1.0)

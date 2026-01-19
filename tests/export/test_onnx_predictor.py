@@ -115,6 +115,85 @@ class TestSelectProviders:
 
         assert result[0] == "CUDAExecutionProvider"
 
+    def test_select_providers_directml(self):
+        """Test that 'directml' prefers DmlExecutionProvider."""
+        from sleap_nn.export.predictors.onnx import _select_providers
+
+        available = ["DmlExecutionProvider", "CPUExecutionProvider"]
+        result = list(_select_providers("directml", available))
+
+        assert result[0] == "DmlExecutionProvider"
+
+    def test_select_providers_dml_alias(self):
+        """Test that 'dml' is an alias for directml."""
+        from sleap_nn.export.predictors.onnx import _select_providers
+
+        available = ["DmlExecutionProvider", "CPUExecutionProvider"]
+        result = list(_select_providers("dml", available))
+
+        assert result[0] == "DmlExecutionProvider"
+
+    def test_select_providers_directml_fallback(self):
+        """Test directml falls back to CPU if DML not available."""
+        from sleap_nn.export.predictors.onnx import _select_providers
+
+        available = ["CPUExecutionProvider"]
+        result = list(_select_providers("directml", available))
+
+        assert result == ["CPUExecutionProvider"]
+
+    def test_select_providers_unknown_device(self):
+        """Test that unknown device returns all available providers."""
+        from sleap_nn.export.predictors.onnx import _select_providers
+
+        available = ["SomeProvider", "OtherProvider"]
+        result = list(_select_providers("unknown", available))
+
+        assert result == available
+
+
+class TestAsNumpy:
+    """Tests for _as_numpy helper function."""
+
+    def test_as_numpy_with_expected_dtype(self):
+        """Test dtype conversion when expected_dtype is specified."""
+        from sleap_nn.export.predictors.onnx import _as_numpy
+
+        data = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        result = _as_numpy(data, expected_dtype=np.float64)
+
+        assert result.dtype == np.float64
+
+    def test_as_numpy_with_matching_dtype(self):
+        """Test no conversion when dtype matches."""
+        from sleap_nn.export.predictors.onnx import _as_numpy
+
+        data = np.array([1.0, 2.0], dtype=np.float32)
+        result = _as_numpy(data, expected_dtype=np.float32)
+
+        assert result.dtype == np.float32
+        # Should be same array if no conversion needed
+        assert np.shares_memory(result, data)
+
+    def test_as_numpy_non_float32_default(self):
+        """Test conversion to float32 when no expected_dtype and input is not float32."""
+        from sleap_nn.export.predictors.onnx import _as_numpy
+
+        data = np.array([1, 2, 3], dtype=np.int32)
+        result = _as_numpy(data)
+
+        assert result.dtype == np.float32
+
+    def test_as_numpy_from_list(self):
+        """Test conversion from Python list."""
+        from sleap_nn.export.predictors.onnx import _as_numpy
+
+        data = [[1.0, 2.0], [3.0, 4.0]]
+        result = _as_numpy(data)
+
+        assert isinstance(result, np.ndarray)
+        assert result.dtype == np.float32
+
 
 @requires_onnx
 @requires_onnxruntime

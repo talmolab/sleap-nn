@@ -219,7 +219,9 @@ class TestCentroidONNXWrapper:
         assert isinstance(output, dict)
         assert "centroids" in output
         assert "centroid_vals" in output
-        assert "instance_valid" in output  # Note: uses instance_valid, not centroid_mask
+        assert (
+            "instance_valid" in output
+        )  # Note: uses instance_valid, not centroid_mask
 
         batch_size = image.shape[0]
         max_instances = mock_centroid_wrapper.max_instances
@@ -239,6 +241,20 @@ class TestCentroidONNXWrapper:
         output = wrapper(image)
 
         assert output["centroids"].shape[1] == 5
+
+    def test_centroid_wrapper_input_scale(self, mock_centroid_backbone):
+        """Test centroid wrapper with input_scale."""
+        wrapper = CentroidONNXWrapper(
+            mock_centroid_backbone,
+            output_stride=4,
+            max_instances=5,
+            input_scale=0.5,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        assert output["centroids"].shape == (1, 5, 2)
 
 
 class TestCenteredInstanceONNXWrapper:
@@ -263,6 +279,20 @@ class TestCenteredInstanceONNXWrapper:
 
         assert output["peaks"].shape == (batch_size, n_nodes, 2)
         assert output["peak_vals"].shape == (batch_size, n_nodes)
+
+    def test_centered_instance_wrapper_input_scale(self, mock_backbone):
+        """Test that input_scale correctly resizes input."""
+        wrapper = CenteredInstanceONNXWrapper(
+            mock_backbone,
+            output_stride=4,
+            input_scale=0.5,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        # Should still produce correct output shapes
+        assert output["peaks"].shape == (1, mock_backbone.n_nodes, 2)
 
 
 class TestTopDownONNXWrapper:
@@ -301,6 +331,27 @@ class TestTopDownONNXWrapper:
         assert output["peaks"].shape == (batch_size, max_instances, n_nodes, 2)
         assert output["peak_vals"].shape == (batch_size, max_instances, n_nodes)
         assert output["instance_valid"].shape == (batch_size, max_instances)
+
+    def test_topdown_wrapper_input_scale(self, mock_centroid_backbone, mock_backbone):
+        """Test TopDownONNXWrapper with centroid and instance input scaling."""
+        from sleap_nn.export.wrappers import TopDownONNXWrapper
+
+        wrapper = TopDownONNXWrapper(
+            centroid_model=mock_centroid_backbone,
+            instance_model=mock_backbone,
+            centroid_output_stride=4,
+            instance_output_stride=4,
+            crop_size=(32, 32),
+            max_instances=5,
+            n_nodes=mock_backbone.n_nodes,
+            centroid_input_scale=0.5,
+            instance_input_scale=0.5,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        assert output["peaks"].shape == (1, 5, mock_backbone.n_nodes, 2)
 
 
 class TestBottomUpONNXWrapper:
@@ -384,6 +435,25 @@ class TestBottomUpONNXWrapper:
         output = wrapper(image)
 
         assert output["line_scores"].shape == (3, n_edges, max_peaks * max_peaks)
+
+    def test_bottomup_wrapper_input_scale(self, mock_bottomup_backbone):
+        """Test BottomUpONNXWrapper with input_scale."""
+        from sleap_nn.export.wrappers import BottomUpONNXWrapper
+
+        wrapper = BottomUpONNXWrapper(
+            model=mock_bottomup_backbone,
+            cms_output_stride=4,
+            pafs_output_stride=8,
+            n_nodes=mock_bottomup_backbone.n_nodes,
+            skeleton_edges=[(i, i + 1) for i in range(mock_bottomup_backbone.n_edges)],
+            max_peaks_per_node=5,
+            input_scale=0.5,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        assert output["peaks"].shape[0] == 1
 
 
 class TestMultiClassBottomUpONNXWrapper:
@@ -476,3 +546,134 @@ class TestMultiClassTopDownONNXWrapper:
 
         assert output["peaks"].shape == (batch_size, n_nodes, 2)
         assert output["class_logits"].shape == (batch_size, n_classes)
+
+
+class TestTopDownMultiClassCombinedONNXWrapper:
+    """Tests for TopDownMultiClassCombinedONNXWrapper."""
+
+    def test_combined_multiclass_topdown_wrapper_forward_shapes(self):
+        """Test that combined multiclass top-down wrapper has correct output shapes."""
+        from sleap_nn.export.wrappers.topdown_multiclass import (
+            TopDownMultiClassCombinedONNXWrapper,
+        )
+
+        # Create mock centroid model
+        class MockCentroidModel(torch.nn.Module):
+            def __init__(self, output_stride=4):
+                super().__init__()
+                self.output_stride = output_stride
+                self.conv = torch.nn.Conv2d(1, 1, 1)
+
+            def forward(self, x):
+                b, c, h, w = x.shape
+                out_h, out_w = h // self.output_stride, w // self.output_stride
+                return {"CentroidConfmapsHead": torch.rand(b, 1, out_h, out_w)}
+
+        # Create mock instance model with class vectors
+        class MockInstanceModel(torch.nn.Module):
+            def __init__(self, n_nodes=5, n_classes=2, output_stride=2):
+                super().__init__()
+                self.n_nodes = n_nodes
+                self.n_classes = n_classes
+                self.output_stride = output_stride
+                self.conv = torch.nn.Conv2d(1, n_nodes, 1)
+
+            def forward(self, x):
+                b, c, h, w = x.shape
+                out_h, out_w = h // self.output_stride, w // self.output_stride
+                return {
+                    "CenteredInstanceConfmapsHead": torch.rand(
+                        b, self.n_nodes, out_h, out_w
+                    ),
+                    "ClassVectorsHead": torch.rand(b, self.n_classes),
+                }
+
+        centroid_model = MockCentroidModel(output_stride=4)
+        instance_model = MockInstanceModel(n_nodes=5, n_classes=2, output_stride=2)
+
+        wrapper = TopDownMultiClassCombinedONNXWrapper(
+            centroid_model=centroid_model,
+            instance_model=instance_model,
+            max_instances=10,
+            crop_size=(64, 64),
+            centroid_output_stride=4,
+            instance_output_stride=2,
+            n_nodes=5,
+            n_classes=2,
+        )
+
+        # Test forward pass
+        image = torch.randint(0, 256, (2, 1, 128, 128), dtype=torch.uint8)
+        output = wrapper(image)
+
+        assert isinstance(output, dict)
+        assert "centroids" in output
+        assert "centroid_vals" in output
+        assert "peaks" in output
+        assert "peak_vals" in output
+        assert "class_logits" in output
+        assert "instance_valid" in output
+
+        batch_size = 2
+        max_instances = 10
+        n_nodes = 5
+        n_classes = 2
+
+        assert output["centroids"].shape == (batch_size, max_instances, 2)
+        assert output["centroid_vals"].shape == (batch_size, max_instances)
+        assert output["peaks"].shape == (batch_size, max_instances, n_nodes, 2)
+        assert output["peak_vals"].shape == (batch_size, max_instances, n_nodes)
+        assert output["class_logits"].shape == (batch_size, max_instances, n_classes)
+        assert output["instance_valid"].shape == (batch_size, max_instances)
+
+    def test_combined_multiclass_topdown_wrapper_input_scaling(self):
+        """Test combined wrapper with input scaling."""
+        from sleap_nn.export.wrappers.topdown_multiclass import (
+            TopDownMultiClassCombinedONNXWrapper,
+        )
+
+        class MockCentroidModel(torch.nn.Module):
+            def __init__(self, output_stride=4):
+                super().__init__()
+                self.output_stride = output_stride
+                self.conv = torch.nn.Conv2d(1, 1, 1)
+
+            def forward(self, x):
+                b, c, h, w = x.shape
+                out_h, out_w = h // self.output_stride, w // self.output_stride
+                return {"CentroidConfmapsHead": torch.rand(b, 1, out_h, out_w)}
+
+        class MockInstanceModel(torch.nn.Module):
+            def __init__(self, n_nodes=3, n_classes=2, output_stride=2):
+                super().__init__()
+                self.n_nodes = n_nodes
+                self.n_classes = n_classes
+                self.output_stride = output_stride
+
+            def forward(self, x):
+                b, c, h, w = x.shape
+                out_h, out_w = h // self.output_stride, w // self.output_stride
+                return {
+                    "CenteredInstanceConfmapsHead": torch.rand(
+                        b, self.n_nodes, out_h, out_w
+                    ),
+                    "ClassVectorsHead": torch.rand(b, self.n_classes),
+                }
+
+        wrapper = TopDownMultiClassCombinedONNXWrapper(
+            centroid_model=MockCentroidModel(),
+            instance_model=MockInstanceModel(),
+            max_instances=5,
+            crop_size=(32, 32),
+            centroid_input_scale=0.5,
+            instance_input_scale=0.5,
+            n_nodes=3,
+            n_classes=2,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        # Just verify it runs and has correct output shapes
+        assert output["peaks"].shape == (1, 5, 3, 2)
+        assert output["class_logits"].shape == (1, 5, 2)

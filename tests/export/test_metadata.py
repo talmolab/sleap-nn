@@ -470,7 +470,9 @@ class TestONNXMetadataEmbedding:
         assert extracted.edge_inds == original_metadata.edge_inds
 
     @requires_onnx
-    def test_extract_metadata_missing_raises(self, tmp_path, mock_single_instance_wrapper):
+    def test_extract_metadata_missing_raises(
+        self, tmp_path, mock_single_instance_wrapper
+    ):
         """Test that extract raises ValueError if metadata is missing."""
         from sleap_nn.export.exporters import export_to_onnx
 

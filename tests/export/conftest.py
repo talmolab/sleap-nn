@@ -135,7 +135,9 @@ def mock_backbone():
             b, c, h, w = x.shape
             out_h, out_w = h // self.output_stride, w // self.output_stride
             # Return synthetic confmaps in expected format
-            return {"SingleInstanceConfmapsHead": torch.rand(b, self.n_nodes, out_h, out_w)}
+            return {
+                "SingleInstanceConfmapsHead": torch.rand(b, self.n_nodes, out_h, out_w)
+            }
 
     return MockBackbone()
 
@@ -177,7 +179,9 @@ def mock_bottomup_backbone():
             pafs_h, pafs_w = h // self.pafs_output_stride, w // self.pafs_output_stride
             return {
                 "MultiInstanceConfmapsHead": torch.rand(b, self.n_nodes, cms_h, cms_w),
-                "PartAffinityFieldsHead": torch.rand(b, self.n_edges * 2, pafs_h, pafs_w),
+                "PartAffinityFieldsHead": torch.rand(
+                    b, self.n_edges * 2, pafs_h, pafs_w
+                ),
             }
 
     return MockBottomUpBackbone()
@@ -188,7 +192,9 @@ def mock_multiclass_bottomup_backbone():
     """Mock backbone for multiclass bottom-up models."""
 
     class MockMultiClassBottomUpBackbone(torch.nn.Module):
-        def __init__(self, n_nodes=5, n_classes=2, output_stride=4, class_maps_stride=8):
+        def __init__(
+            self, n_nodes=5, n_classes=2, output_stride=4, class_maps_stride=8
+        ):
             super().__init__()
             self.n_nodes = n_nodes
             self.n_classes = n_classes
@@ -226,7 +232,9 @@ def mock_centroid_wrapper(mock_centroid_backbone):
     """CentroidONNXWrapper with mock backbone."""
     from sleap_nn.export.wrappers import CentroidONNXWrapper
 
-    return CentroidONNXWrapper(mock_centroid_backbone, output_stride=4, max_instances=10)
+    return CentroidONNXWrapper(
+        mock_centroid_backbone, output_stride=4, max_instances=10
+    )
 
 
 # =============================================================================
@@ -402,9 +410,7 @@ def multiclass_training_config():
             "model_config": {
                 "head_configs": {
                     "multi_class_bottomup": {
-                        "confmaps": {
-                            "MultiInstanceConfmapsHead": {"output_stride": 4}
-                        },
+                        "confmaps": {"MultiInstanceConfmapsHead": {"output_stride": 4}},
                         "class_maps": {"ClassMapsHead": {"output_stride": 8}},
                     }
                 }
