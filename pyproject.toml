@@ -64,6 +64,9 @@ torch-cpu = ["torch", "torchvision>=0.20.0"]
 torch-cuda118 = ["torch", "torchvision>=0.20.0"]
 torch-cuda128 = ["torch", "torchvision>=0.20.0"]
 torch-cuda130 = ["torch", "torchvision>=0.20.0"]
+export = ["onnx>=1.15.0", "onnxruntime>=1.16.0", "onnxscript>=0.1.0"]
+export-gpu = ["onnx>=1.15.0", "onnxruntime-gpu>=1.16.0", "onnxscript>=0.1.0"]
+tensorrt = ["tensorrt>=10.0.0", "torch-tensorrt>=2.0.0"]
 
 [dependency-groups]
 # PEP 735: Dev-only dependencies (`dev` is installed automatically by `uv sync`)

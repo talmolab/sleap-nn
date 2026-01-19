@@ -111,6 +111,7 @@ To run inference:
 - **[Configuration Guide](config.md)** - Detailed explanation of all configuration parameters and how to set up your config file for training
 - **[Training Guide](training.md)** - How to train models using the CLI or Python API and advanced training options
 - **[Inference Guide](inference.md)** - How to run inference and tracking with CLI/ APIs and evaluate the models
+- **[Export Guide](export.md)** - Export models to ONNX/TensorRT for high-performance inference
 - **[CLI Reference](cli.md)** - Quick reference for all command-line options
 
 #### **Tutorials**
@@ -157,4 +158,5 @@ Have questions about usage, feature requests, or want to share your experience?
 - [Configuration Guide](config.md)
 - [Training Models](training.md)
 - [Running Inference / Tracking](inference.md)
+- [Model Export](export.md)
 - [API Reference](api/index.md)

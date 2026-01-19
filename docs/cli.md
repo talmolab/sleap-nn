@@ -9,6 +9,8 @@ This page provides a quick reference for all `sleap-nn` command-line interface (
 | [`sleap-nn train`](#sleap-nn-train) | Train pose estimation models | [Training Guide](training.md) |
 | [`sleap-nn track`](#sleap-nn-track) | Run inference and/or tracking | [Inference Guide](inference.md) |
 | [`sleap-nn eval`](#sleap-nn-eval) | Evaluate predictions against ground truth | [Inference Guide](inference.md#evaluation-metrics) |
+| [`sleap-nn export`](#sleap-nn-export) | Export models to ONNX/TensorRT | [Export Guide](export.md) |
+| [`sleap-nn predict`](#sleap-nn-predict) | Run inference on exported models | [Export Guide](export.md#sleap-nn-predict) |
 | [`sleap-nn system`](#sleap-nn-system) | Display system info and GPU diagnostics | - |
 
 ## Global Options
@@ -256,6 +258,98 @@ See [Evaluation Metrics](inference.md#evaluation-metrics) for more details.
 
 ---
 
+## `sleap-nn export`
+
+!!! warning "Experimental"
+    This command is experimental. See the [Export Guide](export.md) for details.
+
+Export trained models to ONNX and/or TensorRT format for optimized inference.
+
+```bash
+sleap-nn export MODEL_PATH [MODEL_PATH_2] -o OUTPUT_DIR [options]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `MODEL_PATH` | Path to trained model checkpoint directory |
+| `MODEL_PATH_2` | Second model path for top-down (centroid + instance) |
+
+### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--output-dir` | `-o` | Output directory for exported models | Required |
+| `--format` | `-f` | Export format: `onnx`, `tensorrt`, or `both` | `onnx` |
+| `--precision` | | TensorRT precision: `fp32` or `fp16` | `fp16` |
+| `--max-instances` | `-n` | Maximum instances per frame | `20` |
+| `--max-batch-size` | `-b` | Maximum batch size for dynamic shapes | `8` |
+| `--input-scale` | | Input resolution scale factor | `1.0` |
+| `--device` | | Device for export: `cuda` or `cpu` | `cuda` |
+
+### Examples
+
+```bash
+# Export single model to ONNX
+sleap-nn export models/single_instance -o exports/model --format onnx
+
+# Export to both ONNX and TensorRT
+sleap-nn export models/bottomup -o exports/model --format both
+
+# Export top-down (combined centroid + instance)
+sleap-nn export models/centroid models/centered_instance -o exports/topdown
+```
+
+See [Export Guide](export.md) for detailed documentation.
+
+---
+
+## `sleap-nn predict`
+
+!!! warning "Experimental"
+    This command is experimental. See the [Export Guide](export.md) for details.
+
+Run inference on exported ONNX/TensorRT models.
+
+```bash
+sleap-nn predict EXPORT_DIR INPUT_PATH [options]
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `EXPORT_DIR` | Path to exported model directory |
+| `INPUT_PATH` | Path to video file |
+
+### Options
+
+| Option | Short | Description | Default |
+|--------|-------|-------------|---------|
+| `--output` | `-o` | Output path for predictions (`.slp`) | `<input>.predictions.slp` |
+| `--runtime` | `-r` | Runtime: `auto`, `onnx`, or `tensorrt` | `auto` |
+| `--batch-size` | `-b` | Inference batch size | `4` |
+| `--n-frames` | `-n` | Number of frames to process (0 = all) | `0` |
+| `--device` | | Device: `auto`, `cuda`, or `cpu` | `auto` |
+
+### Examples
+
+```bash
+# Basic inference with auto-detected runtime
+sleap-nn predict exports/model video.mp4 -o predictions.slp
+
+# Use TensorRT for maximum speed
+sleap-nn predict exports/model video.mp4 -o predictions.slp --runtime tensorrt
+
+# Process first 1000 frames with batch size 8
+sleap-nn predict exports/model video.mp4 -o predictions.slp -n 1000 -b 8
+```
+
+See [Export Guide](export.md#sleap-nn-predict) for detailed documentation.
+
+---
+
 ## `sleap-nn system`
 
 Display system information and GPU diagnostics. Useful for troubleshooting GPU issues and verifying your installation.
@@ -310,3 +404,4 @@ This command is particularly helpful when:
 - [Configuration Guide](config.md) - Full config reference
 - [Training Guide](training.md) - Detailed training documentation
 - [Inference Guide](inference.md) - Detailed inference documentation
+- [Export Guide](export.md) - Model export and fast inference
