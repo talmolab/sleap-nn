@@ -109,6 +109,7 @@ nav:
     - Configuration Setup: config.md
     - Training: training.md
     - Inference & Tracking: inference.md
+    - Exporting: export.md
     - CLI Reference: cli.md
   - Tutorials:
     - Example Notebooks: example_notebooks.md
