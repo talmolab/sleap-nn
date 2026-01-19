@@ -622,6 +622,38 @@ class TestCSVLoggerCallbackFileOps:
                 assert len(lines) == 2  # Header + data row
                 assert "5" in lines[1]  # Epoch
 
+    def test_on_validation_epoch_end_logs_train_lr_format(self):
+        """Logs learning rate from train/lr key (current format)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "metrics.csv"
+            callback = CSVLoggerCallback(filepath=filepath)
+
+            mock_trainer = MagicMock()
+            mock_trainer.is_global_zero = True
+            mock_trainer.current_epoch = 3
+            mock_trainer.callback_metrics = {
+                "train_loss": torch.tensor(0.4),
+                "val_loss": torch.tensor(0.2),
+                "train/lr": torch.tensor(
+                    0.0005
+                ),  # Current format from lightning modules
+            }
+            mock_pl_module = MagicMock()
+
+            with patch("sleap_nn.training.callbacks.RANK", 0):
+                callback.on_validation_epoch_end(mock_trainer, mock_pl_module)
+
+            assert filepath.exists()
+
+            # Read and verify contents
+            import csv
+
+            with open(filepath) as f:
+                reader = csv.DictReader(f)
+                row = next(reader)
+                assert row["epoch"] == "3"
+                assert row["learning_rate"].startswith("0.0005")
+
     def test_on_validation_epoch_end_skips_if_not_global_zero(self):
         """Skips logging if not global rank zero."""
         with tempfile.TemporaryDirectory() as tmpdir:

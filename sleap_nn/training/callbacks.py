@@ -85,10 +85,15 @@ class CSVLoggerCallback(Callback):
                 if key == "epoch":
                     log_data["epoch"] = trainer.current_epoch
                 elif key == "learning_rate":
-                    # Handle both direct logging and LearningRateMonitor format (lr-*)
+                    # Handle multiple formats:
+                    # 1. Direct "learning_rate" key
+                    # 2. "train/lr" key (current format from lightning modules)
+                    # 3. "lr-*" keys from LearningRateMonitor (legacy)
                     value = metrics.get(key, None)
                     if value is None:
-                        # Look for lr-* keys from LearningRateMonitor
+                        value = metrics.get("train/lr", None)
+                    if value is None:
+                        # Look for lr-* keys from LearningRateMonitor (legacy)
                         for metric_key in metrics.keys():
                             if metric_key.startswith("lr-"):
                                 value = metrics[metric_key]
