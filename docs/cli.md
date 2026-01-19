@@ -260,6 +260,9 @@ See [Evaluation Metrics](inference.md#evaluation-metrics) for more details.
 
 ## `sleap-nn export`
 
+!!! warning "Experimental"
+    This command is experimental. See the [Export Guide](export.md) for details.
+
 Export trained models to ONNX and/or TensorRT format for optimized inference.
 
 ```bash
@@ -303,6 +306,9 @@ See [Export Guide](export.md) for detailed documentation.
 ---
 
 ## `sleap-nn predict`
+
+!!! warning "Experimental"
+    This command is experimental. See the [Export Guide](export.md) for details.
 
 Run inference on exported ONNX/TensorRT models.
 

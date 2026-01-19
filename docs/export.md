@@ -1,5 +1,8 @@
 # Model Export and Fast Inference
 
+!!! warning "Experimental Feature"
+    The export module is **experimental** and under active development. APIs and behavior may change in future releases. Please report issues at [github.com/talmolab/sleap-nn/issues](https://github.com/talmolab/sleap-nn/issues).
+
 This guide covers exporting trained SLEAP models to optimized formats (ONNX and TensorRT) for high-performance inference without the full training environment.
 
 ## Overview
@@ -391,6 +394,16 @@ Bottom-up models require CPU-side Hungarian matching for instance grouping. This
 ### Model Metadata Missing
 
 If metadata files are missing, the model can still be loaded but node names and skeleton information won't be available. Re-export the model to generate metadata.
+
+---
+
+## Known Limitations
+
+!!! info "Current Limitations"
+    - **Standalone centroid/centered_instance prediction**: The `sleap-nn predict` command only supports combined models (top-down, bottom-up, single-instance). Standalone centroid or centered-instance models must be used via the Python API.
+    - **Bottom-up instance grouping**: PAF-based grouping runs on CPU and may be slower than GPU inference for models with many keypoints.
+    - **TensorRT engine portability**: TensorRT engines are GPU-specific and must be regenerated when moving to different GPU hardware.
+    - **Dynamic image sizes**: Height and width are fixed at export time. To support different resolutions, re-export with the desired input shape.
 
 ---
 
