@@ -103,6 +103,20 @@ class TestComputeOKS:
         oks = _compute_oks(points_a, points_b)
         assert oks == 0.0
 
+    def test_single_valid_point_returns_zero(self):
+        """Single valid point should return OKS = 0 (need at least 2 for bbox)."""
+        points_a = np.array([[5, 5], [np.nan, np.nan]])
+        points_b = np.array([[5, 5], [10, 10]])
+        oks = _compute_oks(points_a, points_b)
+        assert oks == 0.0
+
+    def test_zero_area_bbox_returns_zero(self):
+        """Points at same location (zero bbox area) should return OKS = 0."""
+        points_a = np.array([[5, 5], [5, 5]])  # same point, zero area
+        points_b = np.array([[5, 5], [5, 5]])
+        oks = _compute_oks(points_a, points_b)
+        assert oks == 0.0
+
 
 class TestNMSGreedyIOU:
     """Tests for greedy NMS with IOU."""
