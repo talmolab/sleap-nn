@@ -25,14 +25,16 @@ The export module provides:
 
 ### Performance Comparison
 
-Benchmarks on NVIDIA RTX A6000 at batch size 4:
+Benchmarks on NVIDIA RTX A6000 at batch size 8:
 
-| Model Type | ONNX CUDA | TensorRT FP16 | Speedup |
-|------------|-----------|---------------|---------|
-| Single Instance (192×192) | 500 FPS | 3,770 FPS | 7.5x |
-| Centroid (1024×1024) | 438 FPS | 1,689 FPS | 3.9x |
-| Top-Down (1024×1024) | 117 FPS | 485 FPS | 4.1x |
-| Bottom-Up (1024×1280) | 115 FPS | 496 FPS | 4.3x |
+| Model Type | Resolution | PyTorch | TensorRT FP16 | Speedup |
+|------------|------------|---------|---------------|---------|
+| Single Instance | 192×192 | 3,111 FPS | 11,039 FPS | 3.5x |
+| Centroid | 1024×1024 | 453 FPS | 1,829 FPS | 4.0x |
+| Top-Down | 1024×1024 | 94 FPS | 525 FPS | 5.6x |
+| Bottom-Up | 1024×1280 | 113 FPS | 524 FPS | 4.6x |
+| Multiclass Top-Down | 1024×1024 | 127 FPS | 735 FPS | 5.8x |
+| Multiclass Bottom-Up | 1024×1024 | 116 FPS | 470 FPS | 4.1x |
 
 ---
 
