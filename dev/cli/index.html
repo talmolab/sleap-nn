@@ -3064,6 +3064,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/inference/postprocessing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    postprocessing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/inference/predictors/" class="md-nav__link">
         
   
@@ -4606,6 +4634,33 @@
 <td><code>--integral_patch_size</code></td>
 <td>Patch size for integral refinement</td>
 <td><code>5</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="filtering-overlapping-instances">Filtering Overlapping Instances<a class="headerlink" href="#filtering-overlapping-instances" title="Permanent link">&para;</a></h4>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--filter_overlapping</code></td>
+<td>Enable filtering of overlapping instances</td>
+<td><code>False</code></td>
+</tr>
+<tr>
+<td><code>--filter_overlapping_method</code></td>
+<td>Similarity method: <code>iou</code> (bbox) or <code>oks</code> (keypoints)</td>
+<td><code>iou</code></td>
+</tr>
+<tr>
+<td><code>--filter_overlapping_threshold</code></td>
+<td>Similarity threshold (higher = less filtering)</td>
+<td><code>0.8</code></td>
 </tr>
 </tbody>
 </table>

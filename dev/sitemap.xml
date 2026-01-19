@@ -293,6 +293,10 @@
          <lastmod>2026-01-19</lastmod>
     </url>
     <url>
+         <loc>https://nn.sleap.ai/dev/api/inference/postprocessing/</loc>
+         <lastmod>2026-01-19</lastmod>
+    </url>
+    <url>
          <loc>https://nn.sleap.ai/dev/api/inference/predictors/</loc>
          <lastmod>2026-01-19</lastmod>
     </url>
