@@ -31,12 +31,12 @@ Benchmarks on **NVIDIA RTX A6000** (48 GB).
 
 | Model Type | Resolution | PyTorch | ONNX-GPU | TensorRT FP16 | Speedup |
 |------------|------------|---------|----------|---------------|---------|
-| Single Instance | 192×192 | 557 FPS | 774 FPS | 3,260 FPS | 5.9x |
-| Centroid | 1024×1024 | 404 FPS | 372 FPS | 1,299 FPS | 3.2x |
-| Top-Down | 1024×1024 | 88 FPS | 103 FPS | 433 FPS | 4.9x |
-| Bottom-Up | 1024×1280 | 81 FPS | 104 FPS | 397 FPS | 4.9x |
-| Multiclass Top-Down | 1024×1024 | 120 FPS | 110 FPS | 544 FPS | 4.5x |
-| Multiclass Bottom-Up | 1024×1024 | 107 FPS | 106 FPS | 379 FPS | 3.6x |
+| Single Instance | 192×192 | 1.8 ms | 1.3 ms | 0.31 ms | 5.9x |
+| Centroid | 1024×1024 | 2.5 ms | 2.7 ms | 0.77 ms | 3.2x |
+| Top-Down | 1024×1024 | 11.4 ms | 9.7 ms | 2.31 ms | 4.9x |
+| Bottom-Up | 1024×1280 | 12.3 ms | 9.6 ms | 2.52 ms | 4.9x |
+| Multiclass Top-Down | 1024×1024 | 8.3 ms | 9.1 ms | 1.84 ms | 4.5x |
+| Multiclass Bottom-Up | 1024×1024 | 9.4 ms | 9.4 ms | 2.64 ms | 3.6x |
 
 **Batch size 8** (throughput-optimized):
 
