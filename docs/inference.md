@@ -126,6 +126,45 @@ sleap-nn track \
 |-----------|-------------|---------|
 | `--queue_maxsize` | Maximum size of the frame buffer queue | `8` |
 
+#### Filtering Overlapping Instances
+
+SLEAP-NN can filter out duplicate/overlapping predictions after inference using greedy non-maximum suppression (NMS). This is useful for removing redundant detections without enabling full tracking.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--filter_overlapping` | Enable filtering of overlapping instances after inference | `False` |
+| `--filter_overlapping_method` | Similarity metric: `iou` (bounding box) or `oks` (keypoint-based) | `iou` |
+| `--filter_overlapping_threshold` | Similarity threshold above which instances are considered duplicates | `0.8` |
+
+**Methods:**
+
+- **`iou`**: Uses bounding box intersection-over-union. Fast and position-based.
+- **`oks`**: Uses Object Keypoint Similarity. Pose-aware, considers keypoint distances.
+
+**Example usage:**
+
+```bash
+# Enable filtering with default IOU method
+sleap-nn track -i video.mp4 -m model/ --filter_overlapping
+
+# Use OKS method with custom threshold
+sleap-nn track -i video.mp4 -m model/ \
+    --filter_overlapping \
+    --filter_overlapping_method oks \
+    --filter_overlapping_threshold 0.5
+```
+
+**Threshold guidelines:**
+
+| Value | Effect |
+|-------|--------|
+| 0.3 | Aggressive - removes instances with >30% similarity |
+| 0.5 | Moderate - balanced filtering |
+| 0.8 | Permissive (default) - only removes highly similar instances |
+
+!!! note "Filtering vs Tracking"
+    This filtering is independent of tracking and runs before the tracking step. You can use both together—filtering removes duplicates first, then tracking assigns IDs to remaining instances.
+
 
 ## Run inference with API
 

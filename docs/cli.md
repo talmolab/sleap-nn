@@ -172,6 +172,14 @@ sleap-nn track -i labels.slp -t
 | `--integral_refinement` | Refinement method (`integral` or `None`) | `integral` |
 | `--integral_patch_size` | Patch size for integral refinement | `5` |
 
+#### Filtering Overlapping Instances
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--filter_overlapping` | Enable filtering of overlapping instances | `False` |
+| `--filter_overlapping_method` | Similarity method: `iou` (bbox) or `oks` (keypoints) | `iou` |
+| `--filter_overlapping_threshold` | Similarity threshold (higher = less filtering) | `0.8` |
+
 #### Tracking Options
 
 | Option | Description | Default |

@@ -420,6 +420,36 @@ def train(config_name, config_dir, video_paths, video_path_map, prefix_map, over
     help="Minimum confidence map value to consider a peak as valid.",
 )
 @click.option(
+    "--filter_overlapping",
+    is_flag=True,
+    default=False,
+    help=(
+        "Enable filtering of overlapping instances after inference using greedy NMS. "
+        "Applied independently of tracking. (default: False)"
+    ),
+)
+@click.option(
+    "--filter_overlapping_method",
+    type=click.Choice(["iou", "oks"]),
+    default="iou",
+    help=(
+        "Similarity metric for filtering overlapping instances. "
+        "'iou': bounding box intersection-over-union. "
+        "'oks': Object Keypoint Similarity (pose-based). (default: iou)"
+    ),
+)
+@click.option(
+    "--filter_overlapping_threshold",
+    type=float,
+    default=0.8,
+    help=(
+        "Similarity threshold for filtering overlapping instances. "
+        "Instances with similarity above this threshold are removed, "
+        "keeping the higher-scoring instance. "
+        "Typical values: 0.3 (aggressive) to 0.8 (permissive). (default: 0.8)"
+    ),
+)
+@click.option(
     "--integral_refinement",
     type=str,
     default="integral",
@@ -613,6 +643,7 @@ def system():
     from sleap_nn.system_info import print_system_info
 
     print_system_info()
+
 
 cli.add_command(export_command)
 cli.add_command(predict_command)

@@ -74,6 +74,9 @@ def run_inference(
     frames: Optional[list] = None,
     crop_size: Optional[int] = None,
     peak_threshold: Union[float, List[float]] = 0.2,
+    filter_overlapping: bool = False,
+    filter_overlapping_method: str = "iou",
+    filter_overlapping_threshold: float = 0.8,
     integral_refinement: Optional[str] = "integral",
     integral_patch_size: int = 5,
     return_confmaps: bool = False,
@@ -160,6 +163,15 @@ def run_inference(
                 centroid and centered-instance model, where the first element corresponds
                 to centroid model peak finding threshold and the second element is for
                 centered-instance model peak finding.
+        filter_overlapping: (bool) If True, removes overlapping instances after
+                inference using greedy NMS. Applied independently of tracking.
+                Default: False.
+        filter_overlapping_method: (str) Similarity metric for filtering overlapping
+                instances. One of "iou" (bounding box) or "oks" (keypoint similarity).
+                Default: "iou".
+        filter_overlapping_threshold: (float) Similarity threshold for filtering.
+                Instances with similarity > threshold are removed (keeping higher-scoring).
+                Typical values: 0.3 (aggressive) to 0.8 (permissive). Default: 0.8.
         integral_refinement: (str) If `None`, returns the grid-aligned peaks with no refinement.
                 If `"integral"`, peaks will be refined with integral regression.
                 Default: `"integral"`.
@@ -553,6 +565,20 @@ def run_inference(
             make_labels=make_labels,
         )
 
+        # Filter overlapping instances (independent of tracking)
+        if filter_overlapping and make_labels:
+            from sleap_nn.inference.postprocessing import filter_overlapping_instances
+
+            output = filter_overlapping_instances(
+                output,
+                threshold=filter_overlapping_threshold,
+                method=filter_overlapping_method,
+            )
+            logger.info(
+                f"Filtered overlapping instances with {filter_overlapping_method.upper()} "
+                f"threshold: {filter_overlapping_threshold}"
+            )
+
         if tracking:
             lfs = [x for x in output]
             if tracking_clean_instance_count > 0:
@@ -607,6 +633,9 @@ def run_inference(
         # Build inference parameters for provenance
         inference_params = {
             "peak_threshold": peak_threshold,
+            "filter_overlapping": filter_overlapping,
+            "filter_overlapping_method": filter_overlapping_method,
+            "filter_overlapping_threshold": filter_overlapping_threshold,
             "integral_refinement": integral_refinement,
             "integral_patch_size": integral_patch_size,
             "batch_size": batch_size,
