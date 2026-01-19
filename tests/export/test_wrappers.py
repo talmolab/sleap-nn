@@ -455,6 +455,44 @@ class TestBottomUpONNXWrapper:
 
         assert output["peaks"].shape[0] == 1
 
+    def test_bottomup_wrapper_tuple_output(self):
+        """Test BottomUpONNXWrapper when model returns tuple instead of dict."""
+        from sleap_nn.export.wrappers import BottomUpONNXWrapper
+
+        # Create a model that returns tuple instead of dict
+        class TupleOutputBackbone(torch.nn.Module):
+            def __init__(self, n_nodes=5, n_edges=4, output_stride=4, pafs_stride=8):
+                super().__init__()
+                self.n_nodes = n_nodes
+                self.n_edges = n_edges
+                self.output_stride = output_stride
+                self.pafs_stride = pafs_stride
+
+            def forward(self, x):
+                b, c, h, w = x.shape
+                cms_h, cms_w = h // self.output_stride, w // self.output_stride
+                pafs_h, pafs_w = h // self.pafs_stride, w // self.pafs_stride
+                # Return as tuple instead of dict
+                confmaps = torch.rand(b, self.n_nodes, cms_h, cms_w)
+                pafs = torch.rand(b, self.n_edges * 2, pafs_h, pafs_w)
+                return (confmaps, pafs)
+
+        backbone = TupleOutputBackbone()
+        wrapper = BottomUpONNXWrapper(
+            model=backbone,
+            cms_output_stride=4,
+            pafs_output_stride=8,
+            n_nodes=backbone.n_nodes,
+            skeleton_edges=[(i, i + 1) for i in range(backbone.n_edges)],
+            max_peaks_per_node=5,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        assert "peaks" in output
+        assert "line_scores" in output
+
 
 class TestMultiClassBottomUpONNXWrapper:
     """Tests for BottomUpMultiClassONNXWrapper."""
@@ -496,6 +534,28 @@ class TestMultiClassBottomUpONNXWrapper:
             max_peaks,
             n_classes,
         )
+
+    def test_multiclass_bottomup_wrapper_input_scale(
+        self, mock_multiclass_bottomup_backbone
+    ):
+        """Test multiclass bottom-up wrapper with input_scale."""
+        from sleap_nn.export.wrappers import BottomUpMultiClassONNXWrapper
+
+        wrapper = BottomUpMultiClassONNXWrapper(
+            model=mock_multiclass_bottomup_backbone,
+            cms_output_stride=4,
+            class_maps_output_stride=8,
+            n_nodes=mock_multiclass_bottomup_backbone.n_nodes,
+            n_classes=mock_multiclass_bottomup_backbone.n_classes,
+            max_peaks_per_node=5,
+            input_scale=0.5,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        assert output["peaks"].shape[0] == 1
+        assert output["class_probs"].shape[0] == 1
 
 
 class TestMultiClassTopDownONNXWrapper:
@@ -546,6 +606,42 @@ class TestMultiClassTopDownONNXWrapper:
 
         assert output["peaks"].shape == (batch_size, n_nodes, 2)
         assert output["class_logits"].shape == (batch_size, n_classes)
+
+    def test_multiclass_topdown_wrapper_input_scale(self, mock_backbone):
+        """Test multiclass top-down wrapper with input_scale."""
+        from sleap_nn.export.wrappers import TopDownMultiClassONNXWrapper
+
+        class MockMultiClassTopDownModel(torch.nn.Module):
+            def __init__(self, n_nodes=5, n_classes=2, output_stride=4):
+                super().__init__()
+                self.n_nodes = n_nodes
+                self.n_classes = n_classes
+                self.output_stride = output_stride
+
+            def forward(self, x):
+                b, c, h, w = x.shape
+                out_h, out_w = h // self.output_stride, w // self.output_stride
+                return {
+                    "CenteredInstanceConfmapsHead": torch.rand(
+                        b, self.n_nodes, out_h, out_w
+                    ),
+                    "ClassVectorsHead": torch.rand(b, self.n_classes),
+                }
+
+        model = MockMultiClassTopDownModel(n_nodes=5, n_classes=2)
+
+        wrapper = TopDownMultiClassONNXWrapper(
+            model=model,
+            output_stride=4,
+            n_classes=2,
+            input_scale=0.5,
+        )
+
+        image = torch.randint(0, 256, (1, 1, 64, 64), dtype=torch.uint8)
+        output = wrapper(image)
+
+        assert output["peaks"].shape == (1, 5, 2)
+        assert output["class_logits"].shape == (1, 2)
 
 
 class TestTopDownMultiClassCombinedONNXWrapper:
