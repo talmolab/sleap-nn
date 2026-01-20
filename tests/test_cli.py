@@ -311,6 +311,7 @@ def sample_config(tmp_path, minimal_instance):
                 "trainer_device_indices": None,
                 "trainer_accelerator": "cpu",
                 "max_epochs": 1,
+                "min_train_steps_per_epoch": 1,
                 "seed": 42,
                 "use_wandb": False,
                 "save_ckpt": True,
@@ -454,7 +455,7 @@ def test_main_cli(sample_config, tmp_path):
         "--config-name",
         "test_config",
         "--",
-        "trainer_config.max_epochs=3",
+        "trainer_config.max_epochs=1",
         "data_config.preprocessing.scale=1.5",
     ]
     result = subprocess.run(
@@ -480,7 +481,7 @@ def test_main_cli(sample_config, tmp_path):
     if match:
         stripped_out = stripped_out[: match.start()]
     output = OmegaConf.create(stripped_out)
-    assert output.trainer_config.max_epochs == 3
+    assert output.trainer_config.max_epochs == 1
     assert output.data_config.preprocessing.scale == 1.5
 
 

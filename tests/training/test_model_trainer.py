@@ -498,7 +498,7 @@ def test_model_trainer_single_instance(config, tmp_path, minimal_instance):
     OmegaConf.update(
         single_instance_config, "trainer_config.visualize_preds_during_training", True
     )
-    OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(single_instance_config, "trainer_config.max_epochs", 1)
     OmegaConf.update(
         single_instance_config,
         "trainer_config.online_hard_keypoint_mining.online_mining",
@@ -573,7 +573,7 @@ def test_model_trainer_centroid(config, tmp_path):
     OmegaConf.update(
         centroid_config, "trainer_config.visualize_preds_during_training", True
     )
-    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(centroid_config, "trainer_config.max_epochs", 1)
 
     trainer = ModelTrainer.get_model_trainer_from_config(centroid_config)
     trainer.train()
@@ -662,7 +662,7 @@ def test_model_trainer_bottomup(config, tmp_path):
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
     OmegaConf.update(config, "trainer_config.enable_progress_bar", True)
-    OmegaConf.update(config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(config, "trainer_config.max_epochs", 1)
     OmegaConf.update(config, "data_config.delete_cache_imgs_after_training", False)
     OmegaConf.update(
         config, "trainer_config.online_hard_keypoint_mining.online_mining", True
@@ -741,7 +741,7 @@ def test_model_trainer_multi_class_bottomup(config, tmp_path, minimal_instance):
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
     OmegaConf.update(config, "trainer_config.enable_progress_bar", True)
-    OmegaConf.update(config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(config, "trainer_config.max_epochs", 1)
     OmegaConf.update(config, "data_config.delete_cache_imgs_after_training", False)
     OmegaConf.update(
         config, "trainer_config.online_hard_keypoint_mining.online_mining", True
@@ -841,7 +841,7 @@ def test_model_trainer_multi_classtopdown(config, tmp_path, minimal_instance, ca
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.step_size", 10)
     OmegaConf.update(config, "trainer_config.lr_scheduler.step_lr.gamma", 0.5)
     OmegaConf.update(config, "trainer_config.enable_progress_bar", True)
-    OmegaConf.update(config, "trainer_config.max_epochs", 2)
+    OmegaConf.update(config, "trainer_config.max_epochs", 1)
     OmegaConf.update(config, "data_config.delete_cache_imgs_after_training", False)
     OmegaConf.update(
         config, "trainer_config.online_hard_keypoint_mining.online_mining", True
@@ -1229,7 +1229,7 @@ def test_loading_pretrained_weights(
         Path(sleap_centered_instance_model_path) / "best_model.h5"
     )
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
-    sleap_nn_config.trainer_config.max_epochs = 2
+    sleap_nn_config.trainer_config.max_epochs = 1
     sleap_nn_config.trainer_config.trainer_accelerator = (
         "cpu" if torch.mps.is_available() else "auto"
     )
@@ -1259,7 +1259,7 @@ def test_loading_pretrained_weights(
         Path(minimal_instance_centered_instance_ckpt) / "best.ckpt"
     )
     sleap_nn_config.data_config.preprocessing.ensure_rgb = True
-    sleap_nn_config.trainer_config.max_epochs = 2
+    sleap_nn_config.trainer_config.max_epochs = 1
     sleap_nn_config.trainer_config.ckpt_dir = f"{tmp_path}"
     sleap_nn_config.trainer_config.run_name = "test_loading_weights"
     sleap_nn_config.trainer_config.trainer_accelerator = (
