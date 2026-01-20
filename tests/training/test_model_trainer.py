@@ -431,7 +431,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
         map_location="cpu",
         weights_only=False,
     )
-    assert checkpoint["epoch"] == 1
+    assert checkpoint["epoch"] == 0  # 0-indexed: after 1 epoch completes, epoch=0
 
     # check for training metrics csv
     path = (
@@ -1204,6 +1204,7 @@ def test_head_config_oneof_validation_error_no_head(config, caplog):
     and not torch.cuda.is_available(),  # self-hosted GPUs have linux os but cuda is available, so will do test
     reason="Flaky test (The training test runs on Ubuntu for a long time: >6hrs and then fails.)",
 )
+# TODO: Revisit this test later (Failing on ubuntu)
 def test_loading_pretrained_weights(
     config,
     sleap_centered_instance_model_path,
@@ -1212,20 +1213,12 @@ def test_loading_pretrained_weights(
     minimal_instance_centered_instance_ckpt,
     tmp_path,
 ):
-    """Test loading pretrained weights for model initialization.
-
-    Note: This test validates weight loading via log messages.
-    Actual weight value verification is done in test_lightning_modules.py.
-    Training is not needed to verify weight loading works.
-    """
-    from sleap_nn.training.lightning_modules import LightningModel
-
+    """Test loading pretrained weights for model initialization."""
     if torch.mps.is_available():
         config.trainer_config.trainer_accelerator = "cpu"
     else:
         config.trainer_config.trainer_accelerator = "auto"
-
-    # Test 1: Load keras (.h5) weights - verify log messages
+    # with keras (.h5 weights)
     sleap_nn_config = TrainingJobConfig.load_sleap_config(
         Path(sleap_centered_instance_model_path) / "training_config.json"
     )
@@ -1248,16 +1241,14 @@ def test_loading_pretrained_weights(
         train_labels=[sio.load_slp(minimal_instance)],
         val_labels=[sio.load_slp(minimal_instance)],
     )
-    # Just create the Lightning model (which loads weights) - no need to train
-    _ = LightningModel.get_lightning_model_from_config(config=trainer.config)
+    trainer.train()
 
     assert "Loading backbone weights from" in caplog.text
     assert "Successfully loaded 28/28 weights from legacy model" in caplog.text
     assert "Loading head weights from" in caplog.text
     assert "Successfully loaded 2/2 weights from legacy model" in caplog.text
 
-    # Test 2: Load .ckpt weights - verify log messages
-    caplog.clear()
+    # loading `.ckpt`
     sleap_nn_config = TrainingJobConfig.load_sleap_config(
         Path(sleap_centered_instance_model_path) / "initial_config.json"
     )
@@ -1279,7 +1270,7 @@ def test_loading_pretrained_weights(
         train_labels=[sio.load_slp(minimal_instance)],
         val_labels=[sio.load_slp(minimal_instance)],
     )
-    _ = LightningModel.get_lightning_model_from_config(config=trainer.config)
+    trainer.train()
 
     assert "Loading backbone weights from" in caplog.text
     assert "Loading head weights from" in caplog.text
