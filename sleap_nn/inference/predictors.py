@@ -56,6 +56,8 @@ from rich.progress import (
     MofNCompleteColumn,
 )
 from time import time
+import json
+import sys
 
 
 def _filter_user_labeled_frames(
@@ -133,6 +135,8 @@ class Predictor(ABC):
             `backbone_config`. This determines the downsampling factor applied by the backbone,
             and is used to ensure that input images are padded or resized to be compatible
             with the model's architecture. Default: 16.
+        gui: If True, outputs JSON progress lines for GUI integration instead of
+            Rich progress bars. Default: False.
     """
 
     preprocess: bool = True
@@ -152,6 +156,7 @@ class Predictor(ABC):
     ] = None
     instances_key: bool = False
     max_stride: int = 16
+    gui: bool = False
 
     @classmethod
     def from_model_paths(
@@ -381,6 +386,105 @@ class Predictor(ABC):
                     v[n] = v[n].cpu().numpy()
         return output
 
+    def _process_batch(self) -> tuple:
+        """Process a single batch of frames from the pipeline.
+
+        Returns:
+            Tuple of (imgs, fidxs, vidxs, org_szs, instances, eff_scales, done)
+            where done is True if the pipeline has finished.
+        """
+        imgs = []
+        fidxs = []
+        vidxs = []
+        org_szs = []
+        instances = []
+        eff_scales = []
+        done = False
+
+        for _ in range(self.batch_size):
+            frame = self.pipeline.frame_buffer.get()
+            if frame["image"] is None:
+                done = True
+                break
+            frame["image"], eff_scale = apply_sizematcher(
+                frame["image"],
+                self.preprocess_config["max_height"],
+                self.preprocess_config["max_width"],
+            )
+            if self.instances_key:
+                frame["instances"] = frame["instances"] * eff_scale
+            if (
+                self.preprocess_config["ensure_rgb"]
+                and frame["image"].shape[-3] != 3
+            ):
+                frame["image"] = frame["image"].repeat(1, 3, 1, 1)
+            elif (
+                self.preprocess_config["ensure_grayscale"]
+                and frame["image"].shape[-3] != 1
+            ):
+                frame["image"] = F.rgb_to_grayscale(
+                    frame["image"], num_output_channels=1
+                )
+
+            eff_scales.append(torch.tensor(eff_scale))
+            imgs.append(frame["image"].unsqueeze(dim=0))
+            fidxs.append(frame["frame_idx"])
+            vidxs.append(frame["video_idx"])
+            org_szs.append(frame["orig_size"].unsqueeze(dim=0))
+            if self.instances_key:
+                instances.append(frame["instances"].unsqueeze(dim=0))
+
+        return imgs, fidxs, vidxs, org_szs, instances, eff_scales, done
+
+    def _run_inference_on_batch(
+        self, imgs, fidxs, vidxs, org_szs, instances, eff_scales
+    ) -> Iterator[Dict[str, np.ndarray]]:
+        """Run inference on a prepared batch of frames.
+
+        Args:
+            imgs: List of image tensors.
+            fidxs: List of frame indices.
+            vidxs: List of video indices.
+            org_szs: List of original sizes.
+            instances: List of instance tensors.
+            eff_scales: List of effective scales.
+
+        Yields:
+            Dictionaries containing inference results for each frame.
+        """
+        # TODO: all preprocessing should be moved into InferenceModels to be exportable.
+        imgs = torch.concatenate(imgs, dim=0)
+        fidxs = torch.tensor(fidxs, dtype=torch.int32)
+        vidxs = torch.tensor(vidxs, dtype=torch.int32)
+        org_szs = torch.concatenate(org_szs, dim=0)
+        eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
+        if self.instances_key:
+            instances = torch.concatenate(instances, dim=0)
+        ex = {
+            "image": imgs,
+            "frame_idx": fidxs,
+            "video_idx": vidxs,
+            "orig_size": org_szs,
+            "eff_scale": eff_scales,
+        }
+        if self.instances_key:
+            ex["instances"] = instances
+        if self.preprocess:
+            scale = self.preprocess_config["scale"]
+            if scale != 1.0:
+                if self.instances_key:
+                    ex["image"], ex["instances"] = apply_resizer(
+                        ex["image"], ex["instances"]
+                    )
+                else:
+                    ex["image"] = resize_image(ex["image"], scale)
+            ex["image"] = apply_pad_to_stride(ex["image"], self.max_stride)
+        outputs_list = self.inference_model(ex)
+        if outputs_list is not None:
+            for output in outputs_list:
+                output = self._convert_tensors_to_numpy(output)
+                yield output
+
     def _predict_generator(self) -> Iterator[Dict[str, np.ndarray]]:
         """Create a generator that yields batches of inference results.
 
@@ -400,114 +504,14 @@ class Predictor(ABC):
         # Loop over data batches.
         self.pipeline.start()
         total_frames = self.pipeline.total_len()
-        done = False
 
         try:
-            with Progress(
-                "{task.description}",
-                BarColumn(),
-                "[progress.percentage]{task.percentage:>3.0f}%",
-                MofNCompleteColumn(),
-                "ETA:",
-                TimeRemainingColumn(),
-                "Elapsed:",
-                TimeElapsedColumn(),
-                RateColumn(),
-                auto_refresh=False,
-                refresh_per_second=4,  # Change to self.report_rate if needed
-                speed_estimate_period=5,
-            ) as progress:
-                task = progress.add_task("Predicting...", total=total_frames)
-                last_report = time()
-
-                done = False
-                while not done:
-                    imgs = []
-                    fidxs = []
-                    vidxs = []
-                    org_szs = []
-                    instances = []
-                    eff_scales = []
-                    for _ in range(self.batch_size):
-                        frame = self.pipeline.frame_buffer.get()
-                        if frame["image"] is None:
-                            done = True
-                            break
-                        frame["image"], eff_scale = apply_sizematcher(
-                            frame["image"],
-                            self.preprocess_config["max_height"],
-                            self.preprocess_config["max_width"],
-                        )
-                        if self.instances_key:
-                            frame["instances"] = frame["instances"] * eff_scale
-                        if (
-                            self.preprocess_config["ensure_rgb"]
-                            and frame["image"].shape[-3] != 3
-                        ):
-                            frame["image"] = frame["image"].repeat(1, 3, 1, 1)
-                        elif (
-                            self.preprocess_config["ensure_grayscale"]
-                            and frame["image"].shape[-3] != 1
-                        ):
-                            frame["image"] = F.rgb_to_grayscale(
-                                frame["image"], num_output_channels=1
-                            )
-
-                        eff_scales.append(torch.tensor(eff_scale))
-                        imgs.append(frame["image"].unsqueeze(dim=0))
-                        fidxs.append(frame["frame_idx"])
-                        vidxs.append(frame["video_idx"])
-                        org_szs.append(frame["orig_size"].unsqueeze(dim=0))
-                        if self.instances_key:
-                            instances.append(frame["instances"].unsqueeze(dim=0))
-                    if imgs:
-                        # TODO: all preprocessing should be moved into InferenceModels to be exportable.
-                        imgs = torch.concatenate(imgs, dim=0)
-                        fidxs = torch.tensor(fidxs, dtype=torch.int32)
-                        vidxs = torch.tensor(vidxs, dtype=torch.int32)
-                        org_szs = torch.concatenate(org_szs, dim=0)
-                        eff_scales = torch.tensor(eff_scales, dtype=torch.float32)
-                        if self.instances_key:
-                            instances = torch.concatenate(instances, dim=0)
-                        ex = {
-                            "image": imgs,
-                            "frame_idx": fidxs,
-                            "video_idx": vidxs,
-                            "orig_size": org_szs,
-                            "eff_scale": eff_scales,
-                        }
-                        if self.instances_key:
-                            ex["instances"] = instances
-                        if self.preprocess:
-                            scale = self.preprocess_config["scale"]
-                            if scale != 1.0:
-                                if self.instances_key:
-                                    ex["image"], ex["instances"] = apply_resizer(
-                                        ex["image"], ex["instances"]
-                                    )
-                                else:
-                                    ex["image"] = resize_image(ex["image"], scale)
-                            ex["image"] = apply_pad_to_stride(
-                                ex["image"], self.max_stride
-                            )
-                        outputs_list = self.inference_model(ex)
-                        if outputs_list is not None:
-                            for output in outputs_list:
-                                output = self._convert_tensors_to_numpy(output)
-                                yield output
-
-                        # Advance progress
-                        num_frames = (
-                            len(ex["frame_idx"])
-                            if "frame_idx" in ex
-                            else self.batch_size
-                        )
-                        progress.update(task, advance=num_frames)
-
-                    # Manually refresh progress bar
-                    if time() - last_report > 0.25:
-                        progress.refresh()
-                        last_report = time()
+            if self.gui:
+                # GUI mode: emit JSON progress lines
+                yield from self._predict_generator_gui(total_frames)
+            else:
+                # Normal mode: use Rich progress bar
+                yield from self._predict_generator_rich(total_frames)
 
         except KeyboardInterrupt:
             logger.info("Inference interrupted by user")
@@ -517,6 +521,102 @@ class Predictor(ABC):
             message = f"Error in _predict_generator: {e}"
             logger.error(message)
             raise Exception(message)
+
+        self.pipeline.join()
+
+    def _predict_generator_gui(
+        self, total_frames: int
+    ) -> Iterator[Dict[str, np.ndarray]]:
+        """Generator for GUI mode with JSON progress output.
+
+        Args:
+            total_frames: Total number of frames to process.
+
+        Yields:
+            Dictionaries containing inference results for each frame.
+        """
+        start_time = time()
+        frames_processed = 0
+        last_report = time()
+        done = False
+
+        while not done:
+            imgs, fidxs, vidxs, org_szs, instances, eff_scales, done = (
+                self._process_batch()
+            )
+
+            if imgs:
+                yield from self._run_inference_on_batch(
+                    imgs, fidxs, vidxs, org_szs, instances, eff_scales
+                )
+
+                # Update progress
+                num_frames = len(fidxs)
+                frames_processed += num_frames
+
+                # Emit JSON progress (throttled to ~4Hz)
+                if time() - last_report > 0.25:
+                    elapsed = time() - start_time
+                    rate = frames_processed / elapsed if elapsed > 0 else 0
+                    remaining = total_frames - frames_processed
+                    eta = remaining / rate if rate > 0 else 0
+
+                    progress_data = {
+                        "n_processed": frames_processed,
+                        "n_total": total_frames,
+                        "rate": round(rate, 1),
+                        "eta": round(eta, 1),
+                    }
+                    print(json.dumps(progress_data), flush=True)
+                    last_report = time()
+
+    def _predict_generator_rich(
+        self, total_frames: int
+    ) -> Iterator[Dict[str, np.ndarray]]:
+        """Generator for normal mode with Rich progress bar.
+
+        Args:
+            total_frames: Total number of frames to process.
+
+        Yields:
+            Dictionaries containing inference results for each frame.
+        """
+        with Progress(
+            "{task.description}",
+            BarColumn(),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            MofNCompleteColumn(),
+            "ETA:",
+            TimeRemainingColumn(),
+            "Elapsed:",
+            TimeElapsedColumn(),
+            RateColumn(),
+            auto_refresh=False,
+            refresh_per_second=4,
+            speed_estimate_period=5,
+        ) as progress:
+            task = progress.add_task("Predicting...", total=total_frames)
+            last_report = time()
+            done = False
+
+            while not done:
+                imgs, fidxs, vidxs, org_szs, instances, eff_scales, done = (
+                    self._process_batch()
+                )
+
+                if imgs:
+                    yield from self._run_inference_on_batch(
+                        imgs, fidxs, vidxs, org_szs, instances, eff_scales
+                    )
+
+                    # Advance progress
+                    num_frames = len(fidxs)
+                    progress.update(task, advance=num_frames)
+
+                # Manually refresh progress bar
+                if time() - last_report > 0.25:
+                    progress.refresh()
+                    last_report = time()
 
         self.pipeline.join()
 
