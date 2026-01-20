@@ -113,6 +113,7 @@ def run_inference(
     tracking_pre_cull_iou_threshold: float = 0,
     tracking_clean_instance_count: int = 0,
     tracking_clean_iou_threshold: float = 0,
+    gui: bool = False,
 ):
     """Entry point to run inference on trained SLEAP-NN models.
 
@@ -262,6 +263,8 @@ def run_inference(
         tracking_pre_cull_iou_threshold: If non-zero and pre_cull_to_target also set, then use IOU threshold to remove overlapping instances over count *before* tracking. (default: 0)
         tracking_clean_instance_count: Target number of instances to clean *after* tracking. (default: 0)
         tracking_clean_iou_threshold: IOU to use when culling instances *after* tracking. (default: 0)
+        gui: (bool) If True, outputs JSON progress lines for GUI integration instead
+                of Rich progress bars. Default: False.
 
     Returns:
         Returns `sio.Labels` object if `make_labels` is True. Else this function returns
@@ -469,6 +472,9 @@ def run_inference(
             preprocess_config=OmegaConf.create(preprocess_config),
             anchor_part=anchor_part,
         )
+
+        # Set GUI mode for progress output
+        predictor.gui = gui
 
         if (
             tracking

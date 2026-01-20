@@ -581,6 +581,12 @@ def train(config_name, config_dir, video_paths, video_path_map, prefix_map, over
     default=0,
     help="IOU to use when culling instances *after* tracking. (default: 0)",
 )
+@click.option(
+    "--gui",
+    is_flag=True,
+    default=False,
+    help="Output JSON progress for GUI integration instead of Rich progress bar.",
+)
 def track(**kwargs):
     """Run Inference and Tracking workflow."""
     # Convert model_paths from tuple to list
