@@ -25,7 +25,7 @@ classes.
 See the `EncoderDecoder` base class for requirements for creating new architectures.
 """
 
-from typing import List, Text, Tuple, Union
+from typing import List, Optional, Text, Tuple, Union
 from collections import OrderedDict
 import torch
 from torch import nn
@@ -391,9 +391,17 @@ class SimpleUpsamplingBlock(nn.Module):
         transpose_convs_activation: Text = "relu",
         feat_concat: bool = True,
         prefix: Text = "",
+        skip_channels: Optional[int] = None,
     ) -> None:
         """Initialize the class."""
         super().__init__()
+
+        # Determine skip connection channels
+        # If skip_channels is provided, use it; otherwise fall back to refine_convs_filters
+        # This allows ConvNext/SwinT to specify actual encoder channels
+        self.skip_channels = (
+            skip_channels if skip_channels is not None else refine_convs_filters
+        )
 
         self.x_in_shape = x_in_shape
         self.current_stride = current_stride
@@ -469,13 +477,13 @@ class SimpleUpsamplingBlock(nn.Module):
                     first_conv_in_channels = refine_convs_filters
                 else:
                     if self.up_interpolate:
-                        # With interpolation, input is x_in_shape + feature channels
-                        # The feature channels are the same as x_in_shape since they come from the same level
-                        first_conv_in_channels = x_in_shape + refine_convs_filters
+                        # With interpolation, input is x_in_shape + skip_channels
+                        # skip_channels may differ from refine_convs_filters for ConvNext/SwinT
+                        first_conv_in_channels = x_in_shape + self.skip_channels
                     else:
-                        # With transpose conv, input is transpose_conv_output + feature channels
+                        # With transpose conv, input is transpose_conv_output + skip_channels
                         first_conv_in_channels = (
-                            refine_convs_filters + transpose_convs_filters
+                            self.skip_channels + transpose_convs_filters
                         )
             else:
                 if not self.feat_concat:
@@ -582,6 +590,7 @@ class Decoder(nn.Module):
         block_contraction: bool = False,
         up_interpolate: bool = True,
         prefix: str = "dec",
+        encoder_channels: Optional[List[int]] = None,
     ) -> None:
         """Initialize the class."""
         super().__init__()
@@ -598,6 +607,7 @@ class Decoder(nn.Module):
         self.block_contraction = block_contraction
         self.prefix = prefix
         self.stride_to_filters = {}
+        self.encoder_channels = encoder_channels
 
         self.current_strides = []
         self.residuals = 0
@@ -624,6 +634,13 @@ class Decoder(nn.Module):
 
             next_stride = current_stride // 2
 
+            # Determine skip channels for this decoder block
+            # If encoder_channels provided, use actual encoder channels
+            # Otherwise fall back to computed filters (for UNet compatibility)
+            skip_channels = None
+            if encoder_channels is not None and block < len(encoder_channels):
+                skip_channels = encoder_channels[block]
+
             if self.stem_blocks > 0 and block >= down_blocks + self.stem_blocks:
                 # This accounts for the case where we dont have any more down block features to concatenate with.
                 # In this case, add a simple upsampling block with a conv layer and with no concatenation
@@ -642,6 +659,7 @@ class Decoder(nn.Module):
                         transpose_convs_batch_norm=False,
                         feat_concat=False,
                         prefix=f"{self.prefix}{block}_s{current_stride}_to_s{next_stride}",
+                        skip_channels=skip_channels,
                     )
                 )
             else:
@@ -659,6 +677,7 @@ class Decoder(nn.Module):
                         transpose_convs_filters=block_filters_out,
                         transpose_convs_batch_norm=False,
                         prefix=f"{self.prefix}{block}_s{current_stride}_to_s{next_stride}",
+                        skip_channels=skip_channels,
                     )
                 )
 

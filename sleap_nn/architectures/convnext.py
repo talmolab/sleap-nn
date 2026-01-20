@@ -281,6 +281,10 @@ class ConvNextWrapper(nn.Module):
             # Keep the block output filters the same
             x_in_shape = int(self.arch["channels"][-1] * filters_rate)
 
+        # Encoder channels for skip connections (reversed to match decoder order)
+        # The forward pass uses enc_output[::2][::-1] for skip features
+        encoder_channels = self.arch["channels"][::-1]
+
         self.dec = Decoder(
             x_in_shape=x_in_shape,
             current_stride=self.current_stride,
@@ -293,6 +297,7 @@ class ConvNextWrapper(nn.Module):
             block_contraction=self.block_contraction,
             output_stride=self.output_stride,
             up_interpolate=up_interpolate,
+            encoder_channels=encoder_channels,
         )
 
         if len(self.dec.decoder_stack):

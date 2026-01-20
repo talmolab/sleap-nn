@@ -309,6 +309,13 @@ class SwinTWrapper(nn.Module):
             self.stem_patch_stride * (2**3) * 2
         )  # stem_stride * down_blocks_stride * final_max_pool_stride
 
+        # Encoder channels for skip connections (reversed to match decoder order)
+        # SwinT channels: embed * 2^i for each stage i, then reversed
+        num_stages = len(self.arch["depths"])
+        encoder_channels = [
+            self.arch["embed"] * (2 ** (num_stages - 1 - i)) for i in range(num_stages)
+        ]
+
         self.dec = Decoder(
             x_in_shape=block_filters,
             current_stride=self.current_stride,
@@ -321,6 +328,7 @@ class SwinTWrapper(nn.Module):
             block_contraction=self.block_contraction,
             output_stride=output_stride,
             up_interpolate=up_interpolate,
+            encoder_channels=encoder_channels,
         )
 
         if len(self.dec.decoder_stack):
