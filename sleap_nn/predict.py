@@ -448,13 +448,6 @@ def run_inference(
                 else "mps" if torch.backends.mps.is_available() else "cpu"
             )
 
-        if integral_refinement is not None and device == "mps":  # TODO
-            # kornia/geometry/transform/imgwarp.py:382: in get_perspective_transform. NotImplementedError: The operator 'aten::_linalg_solve_ex.result' is not currently implemented for the MPS device. If you want this op to be added in priority during the prototype phase of this feature, please comment on https://github.com/pytorch/pytorch/issues/77764. As a temporary fix, you can set the environment variable `PYTORCH_ENABLE_MPS_FALLBACK=1` to use the CPU as a fallback for this op. WARNING: this will be slower than running natively on MPS.
-            logger.info(
-                "Integral refinement is not supported with MPS accelerator. Setting integral refinement to None."
-            )
-            integral_refinement = None
-
         logger.info(f"Using device: {device}")
 
         # initializes the inference model
