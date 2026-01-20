@@ -74,8 +74,10 @@ def crop_bboxes(
     # Get crop centers from bboxes.
     # The bbox top-left is at index 0, with (x, y) coordinates.
     # We need the center of the crop (peak location), which is top-left + half_size.
-    crop_x = (bboxes[:, 0, 0] + half_w).to(torch.long)
-    crop_y = (bboxes[:, 0, 1] + half_h).to(torch.long)
+    # Ensure bboxes are on the same device as images for index computation.
+    bboxes_on_device = bboxes.to(device)
+    crop_x = (bboxes_on_device[:, 0, 0] + half_w).to(torch.long)
+    crop_y = (bboxes_on_device[:, 0, 1] + half_h).to(torch.long)
 
     # Clamp indices to valid bounds to handle edge cases where centroids
     # might be at or beyond image boundaries.
@@ -86,7 +88,7 @@ def crop_bboxes(
     # Convert sample_inds to tensor if it's a list.
     if not isinstance(sample_inds, torch.Tensor):
         sample_inds = torch.tensor(sample_inds, device=device)
-    sample_inds_long = sample_inds.to(torch.long)
+    sample_inds_long = sample_inds.to(device=device, dtype=torch.long)
     crops = patches[sample_inds_long, :, crop_y, crop_x]
     # Shape: (n_crops, channels, height, width)
 
