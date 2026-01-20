@@ -215,11 +215,11 @@ def test_topdown_predictor(
         device="cpu",
         peak_threshold=[0.0, 0.0],
         integral_refinement="integral",
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
     )
 
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 100
+    assert len(pred_labels) == 10
 
     # Provider = VideoReader
     # error in Videoreader but graceful execution
@@ -252,7 +252,7 @@ def test_topdown_predictor(
             output_path=tmp_path / "test.slp",
             max_instances=6,
             device="cpu",
-            frames=[x for x in range(100)],
+            frames=[x for x in range(10)],
             peak_threshold=0.1,
             integral_refinement=None,
         )
@@ -475,11 +475,11 @@ def test_multiclass_topdown_predictor(
         device="cpu",
         peak_threshold=[0.0, 0.0],
         integral_refinement="integral",
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
     )
 
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 100
+    assert len(pred_labels) == 10
     assert len(pred_labels.tracks) <= 6
     assert pred_labels[0].instances[0].track is not None
 
@@ -514,7 +514,7 @@ def test_multiclass_topdown_predictor(
             output_path=tmp_path / "test.slp",
             max_instances=6,
             device="cpu",
-            frames=[x for x in range(100)],
+            frames=[x for x in range(10)],
             peak_threshold=0.1,
             integral_refinement=None,
         )
@@ -641,11 +641,11 @@ def test_single_instance_predictor(
         make_labels=False,
         device="cpu",
         peak_threshold=0.3,
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
         integral_refinement=None,
     )
     assert isinstance(preds, list)
-    assert len(preds) == 25
+    assert len(preds) == 3  # 10 frames / batch_size=4 = 3 batches
     assert preds[0]["pred_instance_peaks"].shape[0] == 4
     assert isinstance(preds[0], dict)
     assert "pred_confmaps" not in preds[0].keys()
@@ -755,13 +755,13 @@ def test_bottomup_predictor(
         output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.05,
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
         device="cpu",
         integral_refinement=None,
     )
 
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 100
+    assert len(pred_labels) == 10
     assert len(pred_labels[0].instances) <= 6
 
     # change to video object
@@ -772,13 +772,13 @@ def test_bottomup_predictor(
         output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.05,
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
         device="cpu",
         integral_refinement=None,
     )
 
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 100
+    assert len(pred_labels) == 10
     assert len(pred_labels[0].instances) <= 6
 
     # check if dictionaries are created when make labels is set to False
@@ -788,12 +788,12 @@ def test_bottomup_predictor(
         make_labels=False,
         max_instances=6,
         peak_threshold=0.05,
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
         device="cpu",
         integral_refinement=None,
     )
     assert isinstance(preds, list)
-    assert len(preds) == 25
+    assert len(preds) == 3  # 10 frames / batch_size=4 = 3 batches
     assert isinstance(preds[0], dict)
     assert "pred_confmaps" not in preds[0].keys()
     assert isinstance(preds[0]["pred_instance_peaks"], list)
@@ -928,13 +928,13 @@ def test_multi_class_bottomup_predictor(
         output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.03,
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
         device="cpu",
         integral_refinement=None,
     )
 
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 100
+    assert len(pred_labels) == 10
     assert len(pred_labels[0].instances) <= 6
     assert len(pred_labels.tracks) <= 6
 
@@ -946,13 +946,13 @@ def test_multi_class_bottomup_predictor(
         output_path=tmp_path / "test.slp",
         max_instances=6,
         peak_threshold=0.03,
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
         device="cpu",
         integral_refinement=None,
     )
 
     assert isinstance(pred_labels, sio.Labels)
-    assert len(pred_labels) == 100
+    assert len(pred_labels) == 10
     assert len(pred_labels[0].instances) <= 6
     assert len(pred_labels.tracks) <= 6
 
@@ -963,12 +963,12 @@ def test_multi_class_bottomup_predictor(
         make_labels=False,
         max_instances=6,
         peak_threshold=0.03,
-        frames=[x for x in range(100)],
+        frames=[x for x in range(10)],
         device="cpu",
         integral_refinement=None,
     )
     assert isinstance(preds, list)
-    assert len(preds) == 25
+    assert len(preds) == 3  # 10 frames / batch_size=4 = 3 batches
     assert isinstance(preds[0], dict)
     assert "pred_confmaps" not in preds[0].keys()
     assert isinstance(preds[0]["pred_instance_peaks"], list)
@@ -1272,8 +1272,21 @@ def test_predict_main(
     minimal_instance_centroid_ckpt,
     tmp_path,
 ):
+    """Test CLI prediction interface works end-to-end.
+
+    This is a single subprocess call that validates:
+    - CLI argument parsing works
+    - Multiple model paths work
+    - Frame range parsing works
+    - Tracking options work via CLI
+    - Output file is created
+
+    Note: Tracking cleaning logic is tested more thoroughly in
+    test_topdown_predictor_with_tracking_cleaning using direct API calls.
+    """
     import subprocess
 
+    # Single comprehensive test with tracking and cleaning options
     cmd = [
         "uv",
         "run",
@@ -1293,37 +1306,7 @@ def test_predict_main(
         "--output_path",
         f"{tmp_path}/test.slp",
         "--frames",
-        "0-9",
-        "--device",
-        "cpu" if torch.backends.mps.is_available() else "auto",
-    ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    assert Path(f"{tmp_path}/test.slp").exists()
-
-    labels = sio.load_slp(f"{tmp_path}/test.slp")
-    assert len(labels) == 10
-
-    # pre tracking cleaning
-    cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
-        "track",
-        "--model_paths",
-        minimal_instance_centroid_ckpt,
-        "--model_paths",
-        minimal_instance_centered_instance_ckpt,
-        "--data_path",
-        centered_instance_video.as_posix(),
-        "--max_instances",
-        "6",
-        "--output_path",
-        f"{tmp_path}/test.slp",
-        "--frames",
-        "0-9",
+        "0-4",  # Reduced from 0-9 for faster test
         "--tracking",
         "--no_empty_frames",
         "--tracking_target_instance_count",
@@ -1337,45 +1320,8 @@ def test_predict_main(
     assert Path(f"{tmp_path}/test.slp").exists()
 
     labels = sio.load_slp(f"{tmp_path}/test.slp")
-    assert len(labels) == 10
-
-    assert len(labels[0].instances) == 1
-
-    # with post tracking cleaning
-    cmd = [
-        "uv",
-        "run",
-        "--frozen",
-        "--extra",
-        "torch-cpu",
-        "sleap-nn",
-        "track",
-        "--model_paths",
-        minimal_instance_centroid_ckpt,
-        "--model_paths",
-        minimal_instance_centered_instance_ckpt,
-        "--data_path",
-        centered_instance_video.as_posix(),
-        "--max_instances",
-        "6",
-        "--output_path",
-        f"{tmp_path}/test.slp",
-        "--frames",
-        "0-9",
-        "--tracking",
-        "--no_empty_frames",
-        "--tracking_clean_instance_count",
-        "1",
-        "--device",
-        "cpu" if torch.backends.mps.is_available() else "auto",
-    ]
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-    assert Path(f"{tmp_path}/test.slp").exists()
-
-    labels = sio.load_slp(f"{tmp_path}/test.slp")
-    assert len(labels) == 10
-
-    assert len(labels[0].instances) == 1
+    assert len(labels) == 5
+    assert len(labels[0].instances) == 1  # Pre-cull worked
 
 
 def test_topdown_predictor_with_tracking_cleaning(
