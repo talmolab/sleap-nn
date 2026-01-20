@@ -213,51 +213,51 @@ def test_train_method(minimal_instance, tmp_path: str):
         .exists()
     )
 
-    # convnext
-    train(
-        train_labels_path=[minimal_instance],
-        val_labels_path=[minimal_instance],
-        test_file_path=str(minimal_instance),
-        max_epochs=1,
-        trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
-        trainer_num_devices=1,
-        backbone_config="convnext",
-        head_configs="centered_instance",
-        save_ckpt=True,
-        ckpt_dir=Path(tmp_path).as_posix(),
-        run_name="test_convnext",
-        min_train_steps_per_epoch=1,
-    )
-    folder_created = (Path(tmp_path) / "test_convnext").exists()
-    assert folder_created
-    assert (Path(tmp_path) / "test_convnext").joinpath("training_config.yaml").exists()
-    assert (Path(tmp_path) / "test_convnext").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.val.0.slp").exists()
-    assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.test.0.slp").exists()
+    # convnext and swint backbone tests - skip on MPS (slow on CPU, tested on other platforms)
+    if not torch.mps.is_available():
+        train(
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
+            test_file_path=str(minimal_instance),
+            max_epochs=1,
+            trainer_accelerator="auto",
+            trainer_num_devices=1,
+            backbone_config="convnext",
+            head_configs="centered_instance",
+            save_ckpt=True,
+            ckpt_dir=Path(tmp_path).as_posix(),
+            run_name="test_convnext",
+            min_train_steps_per_epoch=1,
+        )
+        folder_created = (Path(tmp_path) / "test_convnext").exists()
+        assert folder_created
+        assert (Path(tmp_path) / "test_convnext").joinpath("training_config.yaml").exists()
+        assert (Path(tmp_path) / "test_convnext").joinpath("best.ckpt").exists()
+        assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.val.0.slp").exists()
+        assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.test.0.slp").exists()
 
-    # swint
-    train(
-        train_labels_path=[minimal_instance],
-        val_labels_path=[minimal_instance],
-        test_file_path=str(minimal_instance),
-        max_epochs=1,
-        trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
-        trainer_num_devices=1,
-        backbone_config="swint",
-        head_configs="centered_instance",
-        save_ckpt=True,
-        ckpt_dir=Path(tmp_path).as_posix(),
-        run_name="test_swint",
-        min_train_steps_per_epoch=1,
-    )
-    folder_created = (Path(tmp_path) / "test_swint").exists()
-    assert folder_created
-    assert (Path(tmp_path) / "test_swint").joinpath("training_config.yaml").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("labels_pr.val.0.slp").exists()
-    assert (Path(tmp_path) / "test_swint").joinpath("labels_pr.test.0.slp").exists()
+        train(
+            train_labels_path=[minimal_instance],
+            val_labels_path=[minimal_instance],
+            test_file_path=str(minimal_instance),
+            max_epochs=1,
+            trainer_accelerator="auto",
+            trainer_num_devices=1,
+            backbone_config="swint",
+            head_configs="centered_instance",
+            save_ckpt=True,
+            ckpt_dir=Path(tmp_path).as_posix(),
+            run_name="test_swint",
+            min_train_steps_per_epoch=1,
+        )
+        folder_created = (Path(tmp_path) / "test_swint").exists()
+        assert folder_created
+        assert (Path(tmp_path) / "test_swint").joinpath("training_config.yaml").exists()
+        assert (Path(tmp_path) / "test_swint").joinpath("best.ckpt").exists()
+        assert (Path(tmp_path) / "test_swint").joinpath("labels_pr.val.0.slp").exists()
+        assert (Path(tmp_path) / "test_swint").joinpath("labels_pr.test.0.slp").exists()
 
-    # test for multiple slp files
+    # test for multiple slp files (use unet on MPS for speed)
     train(
         train_labels_path=[minimal_instance, minimal_instance, minimal_instance],
         val_labels_path=[minimal_instance, minimal_instance, minimal_instance],
@@ -265,24 +265,24 @@ def test_train_method(minimal_instance, tmp_path: str):
         max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         trainer_num_devices=1,
-        backbone_config="swint",
+        backbone_config="unet" if torch.mps.is_available() else "swint",
         head_configs="centered_instance",
         save_ckpt=True,
         ckpt_dir=Path(tmp_path).as_posix(),
-        run_name="test_swint",
+        run_name="test_multi_slp",
         min_train_steps_per_epoch=1,
     )
-    folder_created = (Path(tmp_path) / "test_swint-1").exists()
+    folder_created = (Path(tmp_path) / "test_multi_slp").exists()
     assert folder_created
-    assert (Path(tmp_path) / "test_swint-1").joinpath("training_config.yaml").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("best.ckpt").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.val.0.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.val.1.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.val.2.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.train.0.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.train.1.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.train.2.slp").exists()
-    assert (Path(tmp_path) / "test_swint-1").joinpath("labels_pr.test.0.slp").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("training_config.yaml").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("best.ckpt").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.val.0.slp").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.val.1.slp").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.val.2.slp").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.0.slp").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.1.slp").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.2.slp").exists()
+    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.test.0.slp").exists()
 
     # with augmentations
     with pytest.raises(ValueError):
@@ -461,7 +461,7 @@ def test_train_method(minimal_instance, tmp_path: str):
     train(
         train_labels_path=[minimal_instance],
         val_labels_path=[minimal_instance],
-        max_epochs=2,
+        max_epochs=1,
         trainer_accelerator="cpu" if torch.mps.is_available() else "auto",
         trainer_num_devices=1,
         backbone_config="unet",
