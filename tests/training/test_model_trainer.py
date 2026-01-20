@@ -53,11 +53,27 @@ def caplog(caplog: LogCaptureFixture):
 
 @pytest.fixture(autouse=True)
 def cleanup_wandb():
-    """Ensure wandb run is finished after each test to prevent state leakage."""
+    """Ensure wandb runs in offline mode and is cleaned up after each test.
+
+    This fixture:
+    1. Sets WANDB_MODE=offline to prevent network hangs on CI
+    2. Cleans up any active wandb run after the test to prevent state leakage
+    """
+    # Save original mode and force offline to prevent network hangs on CI
+    original_mode = os.environ.get("WANDB_MODE")
+    os.environ["WANDB_MODE"] = "offline"
+
     yield
+
     # Finish any active wandb run to prevent contamination between tests
     if wandb.run is not None:
         wandb.finish()
+
+    # Restore original WANDB_MODE
+    if original_mode is not None:
+        os.environ["WANDB_MODE"] = original_mode
+    else:
+        os.environ.pop("WANDB_MODE", None)
 
 
 def test_cfg_without_val_labels_path(config, tmp_path, minimal_instance):

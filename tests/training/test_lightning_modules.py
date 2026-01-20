@@ -1,8 +1,10 @@
 """Test TrainingModule classes."""
 
 import numpy as np
+import os
 from pathlib import Path
 from omegaconf import OmegaConf
+import wandb
 from sleap_nn.data.custom_datasets import (
     get_train_val_dataloaders,
     get_train_val_datasets,
@@ -37,6 +39,31 @@ def caplog(caplog: LogCaptureFixture):
     )
     yield caplog
     logger.remove(handler_id)
+
+
+@pytest.fixture(autouse=True)
+def cleanup_wandb():
+    """Ensure wandb runs in offline mode and is cleaned up after each test.
+
+    This fixture:
+    1. Sets WANDB_MODE=offline to prevent network hangs on CI
+    2. Cleans up any active wandb run after the test to prevent state leakage
+    """
+    # Save original mode and force offline to prevent network hangs on CI
+    original_mode = os.environ.get("WANDB_MODE")
+    os.environ["WANDB_MODE"] = "offline"
+
+    yield
+
+    # Finish any active wandb run to prevent contamination between tests
+    if wandb.run is not None:
+        wandb.finish()
+
+    # Restore original WANDB_MODE
+    if original_mode is not None:
+        os.environ["WANDB_MODE"] = original_mode
+    else:
+        os.environ.pop("WANDB_MODE", None)
 
 
 def test_topdown_centered_instance_model(
