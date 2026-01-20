@@ -413,10 +413,7 @@ class Predictor(ABC):
             )
             if self.instances_key:
                 frame["instances"] = frame["instances"] * eff_scale
-            if (
-                self.preprocess_config["ensure_rgb"]
-                and frame["image"].shape[-3] != 3
-            ):
+            if self.preprocess_config["ensure_rgb"] and frame["image"].shape[-3] != 3:
                 frame["image"] = frame["image"].repeat(1, 3, 1, 1)
             elif (
                 self.preprocess_config["ensure_grayscale"]
