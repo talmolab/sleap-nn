@@ -332,7 +332,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
     training_cfg = config.copy()
     OmegaConf.update(training_cfg, "trainer_config.save_ckpt", True)
     OmegaConf.update(training_cfg, "trainer_config.use_wandb", True)
-    OmegaConf.update(training_cfg, "trainer_config.max_epochs", 1)
+    OmegaConf.update(training_cfg, "trainer_config.max_epochs", 2)
     OmegaConf.update(
         training_cfg, "trainer_config.visualize_preds_during_training", True
     )
@@ -431,7 +431,7 @@ def test_model_trainer_centered_instance(caplog, config, tmp_path: str):
         map_location="cpu",
         weights_only=False,
     )
-    assert checkpoint["epoch"] == 0  # 0-indexed: after 1 epoch completes, epoch=0
+    assert checkpoint["epoch"] == 1
 
     # check for training metrics csv
     path = (
