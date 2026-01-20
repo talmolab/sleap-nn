@@ -231,10 +231,16 @@ def test_train_method(minimal_instance, tmp_path: str):
         )
         folder_created = (Path(tmp_path) / "test_convnext").exists()
         assert folder_created
-        assert (Path(tmp_path) / "test_convnext").joinpath("training_config.yaml").exists()
+        assert (
+            (Path(tmp_path) / "test_convnext").joinpath("training_config.yaml").exists()
+        )
         assert (Path(tmp_path) / "test_convnext").joinpath("best.ckpt").exists()
-        assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.val.0.slp").exists()
-        assert (Path(tmp_path) / "test_convnext").joinpath("labels_pr.test.0.slp").exists()
+        assert (
+            (Path(tmp_path) / "test_convnext").joinpath("labels_pr.val.0.slp").exists()
+        )
+        assert (
+            (Path(tmp_path) / "test_convnext").joinpath("labels_pr.test.0.slp").exists()
+        )
 
         train(
             train_labels_path=[minimal_instance],
@@ -279,9 +285,15 @@ def test_train_method(minimal_instance, tmp_path: str):
     assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.val.0.slp").exists()
     assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.val.1.slp").exists()
     assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.val.2.slp").exists()
-    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.0.slp").exists()
-    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.1.slp").exists()
-    assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.2.slp").exists()
+    assert (
+        (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.0.slp").exists()
+    )
+    assert (
+        (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.1.slp").exists()
+    )
+    assert (
+        (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.train.2.slp").exists()
+    )
     assert (Path(tmp_path) / "test_multi_slp").joinpath("labels_pr.test.0.slp").exists()
 
     # with augmentations
