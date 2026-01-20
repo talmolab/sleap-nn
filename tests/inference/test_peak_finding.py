@@ -8,6 +8,7 @@ from sleap_nn.inference.peak_finding import (
     find_local_peaks,
     find_local_peaks_rough,
 )
+from sleap_nn.data.instance_cropping import make_centered_bboxes
 
 
 def test_crop_bboxes(minimal_bboxes, minimal_cms):
@@ -26,6 +27,84 @@ def test_crop_bboxes(minimal_bboxes, minimal_cms):
 
     assert cm_crops.shape == (13, 1, 5, 5)
     assert cm_crops.dtype == torch.float32
+
+
+def test_crop_bboxes_edge_cases():
+    """Test crop_bboxes with edge cases like peaks near image boundaries."""
+    # Create a test image with peaks at various positions including edges
+    img = torch.zeros(1, 1, 20, 20)
+
+    # Peak at center
+    img[0, 0, 10, 10] = 1.0
+
+    # Peak at corner (0, 0)
+    img[0, 0, 0, 0] = 0.8
+
+    # Peak at edge
+    img[0, 0, 0, 10] = 0.9
+
+    # Create bboxes for these peaks
+    points = torch.tensor(
+        [
+            [10.0, 10.0],  # center
+            [0.0, 0.0],  # corner
+            [10.0, 0.0],  # edge
+        ]
+    )
+    bboxes = make_centered_bboxes(points, box_height=5, box_width=5)
+    sample_inds = torch.tensor([0, 0, 0])
+
+    crops = crop_bboxes(img, bboxes, sample_inds)
+
+    assert crops.shape == (3, 1, 5, 5)
+
+    # Center crop should have the peak at center
+    assert crops[0, 0, 2, 2] == 1.0
+
+    # Corner crop should have the peak at center (with zero padding)
+    assert crops[1, 0, 2, 2] == 0.8
+
+    # Edge crop should have the peak at center
+    assert crops[2, 0, 2, 2] == 0.9
+
+
+def test_crop_bboxes_empty():
+    """Test crop_bboxes with empty bboxes."""
+    img = torch.zeros(1, 1, 20, 20)
+    bboxes = torch.empty(0, 4, 2)
+    sample_inds = torch.empty(0, dtype=torch.long)
+
+    crops = crop_bboxes(img, bboxes, sample_inds)
+
+    # Should return empty tensor
+    assert crops.shape[0] == 0
+    assert crops.shape[1] == 1  # Preserves channel dimension
+
+
+def test_crop_bboxes_multiple_samples():
+    """Test crop_bboxes with multiple samples."""
+    # Create 3 samples with different peak locations
+    imgs = torch.zeros(3, 1, 20, 20)
+    imgs[0, 0, 5, 5] = 1.0
+    imgs[1, 0, 10, 10] = 2.0
+    imgs[2, 0, 15, 15] = 3.0
+
+    points = torch.tensor(
+        [
+            [5.0, 5.0],
+            [10.0, 10.0],
+            [15.0, 15.0],
+        ]
+    )
+    bboxes = make_centered_bboxes(points, box_height=5, box_width=5)
+    sample_inds = torch.tensor([0, 1, 2])
+
+    crops = crop_bboxes(imgs, bboxes, sample_inds)
+
+    assert crops.shape == (3, 1, 5, 5)
+    assert crops[0, 0, 2, 2] == 1.0
+    assert crops[1, 0, 2, 2] == 2.0
+    assert crops[2, 0, 2, 2] == 3.0
 
 
 def test_integral_regression(minimal_bboxes, minimal_cms):
