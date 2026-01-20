@@ -56,7 +56,7 @@ class TestCliHelp:
         result = runner.invoke(cli, ["train", "--help"])
         assert result.exit_code == 0
         assert "sleap-nn train" in result.output
-        assert "Usage:" in result.output
+        assert "Usage" in result.output  # Rich-click renders ## Usage as header
         assert "sleap.ai" in result.output
 
     def test_train_no_config_shows_help(self):
@@ -65,7 +65,7 @@ class TestCliHelp:
         result = runner.invoke(cli, ["train", "--config-dir", "."])
         assert result.exit_code == 0
         assert "sleap-nn train" in result.output
-        assert "Usage:" in result.output
+        assert "Usage" in result.output  # Rich-click renders ## Usage as header
 
 
 class TestSystemCommand:
@@ -138,9 +138,8 @@ class TestShowTrainingHelp:
         show_training_help()
         captured = capsys.readouterr()
         assert "sleap-nn train" in captured.out
-        assert "Usage:" in captured.out
-        assert "--config-dir" in captured.out
-        assert "--config-name" in captured.out
+        assert "Usage" in captured.out  # Rich-click renders ## Usage as header
+        assert "config.yaml" in captured.out  # New positional arg usage
         assert "sleap.ai" in captured.out
 
 

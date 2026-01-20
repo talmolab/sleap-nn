@@ -567,6 +567,16 @@ class Predictor(ABC):
                     print(json.dumps(progress_data), flush=True)
                     last_report = time()
 
+        # Final progress emit to ensure 100% is shown
+        elapsed = time() - start_time
+        progress_data = {
+            "n_processed": total_frames,
+            "n_total": total_frames,
+            "rate": round(frames_processed / elapsed, 1) if elapsed > 0 else 0,
+            "eta": 0,
+        }
+        print(json.dumps(progress_data), flush=True)
+
     def _predict_generator_rich(
         self, total_frames: int
     ) -> Iterator[Dict[str, np.ndarray]]:

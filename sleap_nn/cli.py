@@ -1,6 +1,7 @@
-"""Unified CLI for SLEAP-NN using Click."""
+"""Unified CLI for SLEAP-NN using rich-click for styled output."""
 
-import click
+import rich_click as click
+from click import Command
 from loguru import logger
 from pathlib import Path
 from omegaconf import OmegaConf, DictConfig
@@ -13,7 +14,36 @@ from sleap_nn.train import run_training
 from sleap_nn import __version__
 import hydra
 import sys
-from click import Command
+
+# Rich-click configuration for styled help
+click.rich_click.TEXT_MARKUP = "markdown"
+click.rich_click.SHOW_ARGUMENTS = True
+click.rich_click.GROUP_ARGUMENTS_OPTIONS = True
+click.rich_click.STYLE_ERRORS_SUGGESTION = "magenta italic"
+click.rich_click.ERRORS_EPILOGUE = (
+    "Try 'sleap-nn [COMMAND] --help' for more information."
+)
+
+
+def is_config_path(arg: str) -> bool:
+    """Check if an argument looks like a config file path.
+
+    Returns True if the arg ends with .yaml or .yml.
+    """
+    return arg.endswith(".yaml") or arg.endswith(".yml")
+
+
+def split_config_path(config_path: str) -> tuple:
+    """Split a full config path into (config_dir, config_name).
+
+    Args:
+        config_path: Full path to a config file.
+
+    Returns:
+        Tuple of (config_dir, config_name) where config_dir is an absolute path.
+    """
+    path = Path(config_path).resolve()
+    return path.parent.as_posix(), path.name
 
 
 def print_version(ctx, param, value):
@@ -66,38 +96,77 @@ def cli():
 
 
 def show_training_help():
-    """Display training help information."""
-    help_text = """
-sleap-nn train — Train SLEAP models from a config YAML file.
+    """Display training help information with rich formatting."""
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.markdown import Markdown
 
-Usage:
-  sleap-nn train --config-dir <dir> --config-name <name> [overrides]
+    console = Console()
 
-Common overrides:
-  trainer_config.max_epochs=100
-  trainer_config.batch_size=32
+    help_md = """
+## Usage
 
-Examples:
-  Start new run:
-    sleap-nn train --config-dir /path/to/config_dir/ --config-name myrun
-  Resume 20 more epochs:
-    sleap-nn train --config-dir /path/to/config_dir/ --config-name myrun \\
-      trainer_config.resume_ckpt_path=<path/to/ckpt> \\
-      trainer_config.max_epochs=20
+```
+sleap-nn train <config.yaml> [overrides]
+sleap-nn train --config <path/to/config.yaml> [overrides]
+```
 
-Tips:
-  - Use -m/--multirun for sweeps; outputs go under hydra.sweep.dir.
-  - For Hydra flags and completion, use --hydra-help.
+## Common Overrides
 
-For a detailed list of all available config options, please refer to https://nn.sleap.ai/config/.
+| Override | Description |
+|----------|-------------|
+| `trainer_config.max_epochs=100` | Set maximum training epochs |
+| `trainer_config.batch_size=32` | Set batch size |
+| `trainer_config.save_ckpt=true` | Enable checkpoint saving |
+
+## Examples
+
+**Start a new training run:**
+```bash
+sleap-nn train path/to/config.yaml
+sleap-nn train --config path/to/config.yaml
+```
+
+**With overrides:**
+```bash
+sleap-nn train config.yaml trainer_config.max_epochs=100
+```
+
+**Resume training:**
+```bash
+sleap-nn train config.yaml trainer_config.resume_ckpt_path=/path/to/ckpt
+```
+
+**Legacy usage (still supported):**
+```bash
+sleap-nn train --config-dir /path/to/dir --config-name myrun
+```
+
+## Tips
+
+- Use `-m/--multirun` for sweeps; outputs go under `hydra.sweep.dir`
+- For Hydra flags and completion, use `--hydra-help`
+- Config documentation: https://nn.sleap.ai/config/
 """
-    click.echo(help_text)
+    console.print(
+        Panel(
+            Markdown(help_md),
+            title="[bold cyan]sleap-nn train[/bold cyan]",
+            subtitle="Train SLEAP models from a config YAML file",
+            border_style="cyan",
+        )
+    )
 
 
 @cli.command(cls=TrainCommand)
-@click.option("--config-name", "-c", type=str, help="Configuration file name")
 @click.option(
-    "--config-dir", "-d", type=str, default=".", help="Configuration directory path"
+    "--config",
+    type=str,
+    help="Path to configuration file (e.g., path/to/config.yaml)",
+)
+@click.option("--config-name", "-c", type=str, help="Configuration file name (legacy)")
+@click.option(
+    "--config-dir", "-d", type=str, default=".", help="Configuration directory (legacy)"
 )
 @click.option(
     "--video-paths",
@@ -130,25 +199,43 @@ For a detailed list of all available config options, please refer to https://nn.
     'Example: --prefix-map "/old/server/path" "/new/local/path"',
 )
 @click.argument("overrides", nargs=-1, type=click.UNPROCESSED)
-def train(config_name, config_dir, video_paths, video_path_map, prefix_map, overrides):
+def train(
+    config, config_name, config_dir, video_paths, video_path_map, prefix_map, overrides
+):
     """Run training workflow with Hydra config overrides.
 
     Examples:
-        sleap-nn train --config-name myconfig --config-dir /path/to/config_dir/
+        sleap-nn train path/to/config.yaml
+        sleap-nn train --config path/to/config.yaml trainer_config.max_epochs=100
         sleap-nn train -c myconfig -d /path/to/config_dir/ trainer_config.max_epochs=100
-        sleap-nn train -c myconfig -d /path/to/config_dir/ +experiment=new_model
     """
-    # Show help if no config name provided
-    if not config_name:
+    # Convert overrides to a mutable list
+    overrides = list(overrides)
+
+    # Check if the first positional arg is a config path (not a Hydra override)
+    config_from_positional = None
+    if overrides and is_config_path(overrides[0]):
+        config_from_positional = overrides.pop(0)
+
+    # Resolve config path with priority:
+    # 1. Positional config path (e.g., sleap-nn train config.yaml)
+    # 2. --config flag (e.g., sleap-nn train --config config.yaml)
+    # 3. Legacy --config-dir/--config-name flags
+    if config_from_positional:
+        config_dir, config_name = split_config_path(config_from_positional)
+    elif config:
+        config_dir, config_name = split_config_path(config)
+    elif config_name:
+        config_dir = Path(config_dir).resolve().as_posix()
+    else:
+        # No config provided - show help
         show_training_help()
         return
 
-    # Initialize Hydra manually
-    # resolve the path to the config directory (hydra expects absolute path)
-    config_dir = Path(config_dir).resolve().as_posix()
+    # Initialize Hydra manually (config_dir is already an absolute path)
     with hydra.initialize_config_dir(config_dir=config_dir, version_base=None):
         # Compose config with overrides
-        cfg = hydra.compose(config_name=config_name, overrides=list(overrides))
+        cfg = hydra.compose(config_name=config_name, overrides=overrides)
 
         # Validate config
         if not hasattr(cfg, "model_config") or not cfg.model_config:
