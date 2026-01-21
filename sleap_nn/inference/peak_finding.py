@@ -2,11 +2,50 @@
 
 from typing import Optional, Tuple
 
-import kornia as K
 import torch
 import torch.nn.functional as F
 
 from sleap_nn.data.instance_cropping import make_centered_bboxes
+
+
+def morphological_dilation(image: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
+    """Apply morphological dilation using max pooling.
+
+    This is a pure PyTorch replacement for kornia.morphology.dilation.
+    For non-maximum suppression, it computes the maximum of 8 neighbors
+    (excluding the center pixel).
+
+    Args:
+        image: Input tensor of shape (B, 1, H, W).
+        kernel: Dilation kernel (3x3 expected for NMS).
+
+    Returns:
+        Dilated tensor of same shape as input.
+    """
+    # Pad the image to handle border pixels
+    padded = F.pad(image, (1, 1, 1, 1), mode="constant", value=float("-inf"))
+
+    # Extract 3x3 patches using unfold
+    # Shape: (B, 1, H, W, 3, 3)
+    patches = padded.unfold(2, 3, 1).unfold(3, 3, 1)
+
+    # Reshape to (B, 1, H, W, 9)
+    b, c, h, w, kh, kw = patches.shape
+    patches = patches.reshape(b, c, h, w, -1)
+
+    # Apply kernel mask (kernel has 0 at center, 1 elsewhere for NMS)
+    # Reshape kernel to (1, 1, 1, 1, 9)
+    kernel_flat = kernel.reshape(-1).to(patches.device)
+    kernel_mask = kernel_flat > 0
+
+    # Set non-kernel positions to -inf so they don't affect max
+    patches_masked = patches.clone()
+    patches_masked[..., ~kernel_mask] = float("-inf")
+
+    # Take max over the kernel neighborhood
+    max_vals = patches_masked.max(dim=-1)[0]
+
+    return max_vals
 
 
 def crop_bboxes(
@@ -274,7 +313,7 @@ def find_local_peaks_rough(
     flat_img = cms.reshape(-1, 1, height, width)
 
     # Perform dilation filtering to find local maxima per channel and reshape back.
-    max_img = K.morphology.dilation(flat_img, kernel.to(flat_img.device))
+    max_img = morphological_dilation(flat_img, kernel.to(flat_img.device))
     max_img = max_img.reshape(-1, channels, height, width)
 
     # Filter for maxima and threshold.

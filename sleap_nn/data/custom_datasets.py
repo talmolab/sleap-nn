@@ -1,6 +1,6 @@
 """Custom `torch.utils.data.Dataset`s for different model types."""
 
-from kornia.geometry.transform import crop_and_resize
+from sleap_nn.data.skia_augmentation import crop_and_resize_skia as crop_and_resize
 
 # from concurrent.futures import ThreadPoolExecutor # TODO: implement parallel processing
 # import concurrent.futures
