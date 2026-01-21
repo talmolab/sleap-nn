@@ -438,14 +438,14 @@ class BottomUpDataset(BaseDataset):
                     sample["image"],
                     sample["instances"],
                     **self.intensity_aug,
-                )
+                                    )
 
             if self.geometric_aug is not None:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
                     **self.geometric_aug,
-                )
+                                    )
 
         img_hw = sample["image"].shape[-2:]
 
@@ -651,14 +651,14 @@ class BottomUpMultiClassDataset(BaseDataset):
                     sample["image"],
                     sample["instances"],
                     **self.intensity_aug,
-                )
+                                    )
 
             if self.geometric_aug is not None:
                 sample["image"], sample["instances"] = apply_geometric_augmentation(
                     sample["image"],
                     sample["instances"],
                     **self.geometric_aug,
-                )
+                                    )
 
         img_hw = sample["image"].shape[-2:]
 
