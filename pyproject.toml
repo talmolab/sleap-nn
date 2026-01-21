@@ -33,6 +33,7 @@ dependencies = [
     "numpy",
     "lightning",
     "kornia",
+    "skia-python>=87.0",
     "jsonpickle",
     "scipy",
     "attrs",

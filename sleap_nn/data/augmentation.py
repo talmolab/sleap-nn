@@ -1,4 +1,11 @@
-"""This module implements data pipeline blocks for augmentation operations."""
+"""This module implements data pipeline blocks for augmentation operations.
+
+Supports two backends:
+- Kornia (default): Uses PyTorch-based Kornia library
+- Skia: Uses skia-python for ~1.5x faster augmentation
+
+To use Skia backend, set `use_skia=True` in augmentation functions.
+"""
 
 from typing import Any, Dict, Optional, Tuple, Union
 import kornia as K
@@ -7,6 +14,12 @@ from kornia.augmentation._2d.intensity.base import IntensityAugmentationBase2D
 from kornia.augmentation.container import AugmentationSequential
 from kornia.augmentation.utils.param_validation import _range_bound
 from kornia.core import Tensor
+
+# Import Skia augmentation functions
+from sleap_nn.data.skia_augmentation import (
+    apply_intensity_augmentation_skia,
+    apply_geometric_augmentation_skia,
+)
 
 
 def apply_intensity_augmentation(
@@ -24,8 +37,9 @@ def apply_intensity_augmentation(
     brightness_min: Optional[float] = 1.0,
     brightness_max: Optional[float] = 1.0,
     brightness_p: float = 0.0,
+    use_skia: bool = False,
 ) -> Tuple[torch.Tensor]:
-    """Apply kornia intensity augmentation on image and instances.
+    """Apply intensity augmentation on image and instances.
 
     Args:
         image: Input image. Shape: (n_samples, C, H, W)
@@ -42,10 +56,31 @@ def apply_intensity_augmentation(
         brightness_min: Minimum brightness factor to apply. Default: 1.0.
         brightness_max: Maximum brightness factor to apply. Default: 1.0.
         brightness_p: Probability of applying random brightness.
+        use_skia: If True, use Skia backend (~1.5x faster). Default: False.
 
     Returns:
         Returns tuple: (image, instances) with augmentation applied.
     """
+    # Use Skia backend if requested
+    if use_skia:
+        return apply_intensity_augmentation_skia(
+            image=image,
+            instances=instances,
+            uniform_noise_min=uniform_noise_min,
+            uniform_noise_max=uniform_noise_max,
+            uniform_noise_p=uniform_noise_p,
+            gaussian_noise_mean=gaussian_noise_mean,
+            gaussian_noise_std=gaussian_noise_std,
+            gaussian_noise_p=gaussian_noise_p,
+            contrast_min=contrast_min,
+            contrast_max=contrast_max,
+            contrast_p=contrast_p,
+            brightness_min=brightness_min,
+            brightness_max=brightness_max,
+            brightness_p=brightness_p,
+        )
+
+    # Kornia backend (default)
     aug_stack = []
     if uniform_noise_p > 0:
         aug_stack.append(
@@ -128,8 +163,9 @@ def apply_geometric_augmentation(
     mixup_lambda_min: Optional[float] = 0.01,
     mixup_lambda_max: Optional[float] = 0.05,
     mixup_p: float = 0.0,
+    use_skia: bool = False,
 ) -> Tuple[torch.Tensor]:
-    """Apply kornia geometric augmentation on image and instances.
+    """Apply geometric augmentation on image and instances.
 
     Args:
         image: Input image. Shape: (n_samples, C, H, W)
@@ -156,10 +192,37 @@ def apply_geometric_augmentation(
         mixup_lambda_min: Minimum mixup strength value. Default: 0.01.
         mixup_lambda_max: Maximum mixup strength value. Default: 0.05.
         mixup_p: Probability of applying random mixup v2. Default: 0.0.
+        use_skia: If True, use Skia backend (~1.5x faster). Default: False.
 
     Returns:
         Returns tuple: (image, instances) with augmentation applied.
     """
+    # Use Skia backend if requested
+    if use_skia:
+        return apply_geometric_augmentation_skia(
+            image=image,
+            instances=instances,
+            rotation_min=rotation_min,
+            rotation_max=rotation_max,
+            rotation_p=rotation_p,
+            scale_min=scale_min,
+            scale_max=scale_max,
+            scale_p=scale_p,
+            translate_width=translate_width,
+            translate_height=translate_height,
+            translate_p=translate_p,
+            affine_p=affine_p,
+            erase_scale_min=erase_scale_min,
+            erase_scale_max=erase_scale_max,
+            erase_ratio_min=erase_ratio_min,
+            erase_ratio_max=erase_ratio_max,
+            erase_p=erase_p,
+            mixup_lambda_min=mixup_lambda_min,
+            mixup_lambda_max=mixup_lambda_max,
+            mixup_p=mixup_p,
+        )
+
+    # Kornia backend (default)
     aug_stack = []
 
     # Check if any individual probability is set
