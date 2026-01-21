@@ -1755,6 +1755,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../api/data/skia_augmentation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    skia_augmentation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../api/data/utils/" class="md-nav__link">
         
   
@@ -3534,6 +3562,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v010a4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.0a4
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v010a3" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3694,6 +3733,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#v010a4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        v0.1.0a4
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#v010a3" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3810,6 +3860,216 @@
 
 
 <h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<h2 id="v010a4"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.1.0a4">v0.1.0a4</a><a class="headerlink" href="#v010a4" title="Permanent link">&para;</a></h2>
+<h1>v0.1.0a4 Release Notes</h1>
+<h2>Summary</h2>
+<p>This <strong>pre-release</strong> focuses on bug fixes, performance improvements, and CLI usability enhancements:</p>
+<ul>
+<li><strong>Simpler Train CLI</strong>: New <code>--config</code> flag and positional config support for <code>sleap-nn train</code></li>
+<li><strong>17-51x Faster Peak Refinement</strong>: Replaced kornia-based cropping with fast tensor indexing</li>
+<li><strong>ConvNext/SwinT Bug Fix</strong>: Fixed skip connection channel mismatch that broke training with these backbones</li>
+<li><strong>GUI Integration</strong>: New <code>--gui</code> flag for SLEAP frontend progress reporting</li>
+</ul>
+<p>For the full list of major features, breaking changes, and improvements introduced in the v0.1.0 series, see the <a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.1.0a0">v0.1.0a0 release notes</a>.</p>
+<hr>
+<h2>What's New in v0.1.0a4</h2>
+<h3>Features</h3>
+<h4>Simplified Train CLI (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3834114596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/429" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/429/hovercard" href="https://github.com/talmolab/sleap-nn/pull/429">#429</a>)</h4>
+<p>Training can now be started with a single config file path:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# NEW: Positional config path
+sleap-nn train path/to/config.yaml
+
+# NEW: --config flag
+sleap-nn train --config path/to/config.yaml
+
+# With Hydra overrides
+sleap-nn train config.yaml trainer_config.max_epochs=100
+
+# Legacy flags still work
+sleap-nn train --config-dir /path/to/dir --config-name myconfig"><pre><span class="pl-c"><span class="pl-c">#</span> NEW: Positional config path</span>
+sleap-nn train path/to/config.yaml
+
+<span class="pl-c"><span class="pl-c">#</span> NEW: --config flag</span>
+sleap-nn train --config path/to/config.yaml
+
+<span class="pl-c"><span class="pl-c">#</span> With Hydra overrides</span>
+sleap-nn train config.yaml trainer_config.max_epochs=100
+
+<span class="pl-c"><span class="pl-c">#</span> Legacy flags still work</span>
+sleap-nn train --config-dir /path/to/dir --config-name myconfig</pre></div>
+<p>The CLI now uses <code>rich-click</code> for styled help output with better formatting and readability.</p>
+<h4>GUI Progress Mode (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3831549796" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/424" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/424/hovercard" href="https://github.com/talmolab/sleap-nn/pull/424">#424</a>)</h4>
+<p>New <code>--gui</code> flag enables JSON progress output for SLEAP GUI integration:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="sleap-nn track --data_path video.mp4 --model_paths model/ --gui"><pre>sleap-nn track --data_path video.mp4 --model_paths model/ --gui</pre></div>
+<p>Output format:</p>
+<div class="highlight highlight-source-json notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="{&quot;n_processed&quot;: 100, &quot;n_total&quot;: 1410, &quot;rate&quot;: 38.4, &quot;eta&quot;: 34.1}
+{&quot;n_processed&quot;: 200, &quot;n_total&quot;: 1410, &quot;rate&quot;: 39.2, &quot;eta&quot;: 30.8}"><pre>{<span class="pl-ent">"n_processed"</span>: <span class="pl-c1">100</span>, <span class="pl-ent">"n_total"</span>: <span class="pl-c1">1410</span>, <span class="pl-ent">"rate"</span>: <span class="pl-c1">38.4</span>, <span class="pl-ent">"eta"</span>: <span class="pl-c1">34.1</span>}
+{<span class="pl-ent">"n_processed"</span>: <span class="pl-c1">200</span>, <span class="pl-ent">"n_total"</span>: <span class="pl-c1">1410</span>, <span class="pl-ent">"rate"</span>: <span class="pl-c1">39.2</span>, <span class="pl-ent">"eta"</span>: <span class="pl-c1">30.8</span>}</pre></div>
+<p>This enables real-time progress updates when running inference from the SLEAP GUI.</p>
+<h3>Performance</h3>
+<h4>17-51x Faster Peak Refinement (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832013146" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/426" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/426/hovercard" href="https://github.com/talmolab/sleap-nn/pull/426">#426</a>)</h4>
+<p>Replaced kornia's <code>crop_and_resize</code> with fast tensor indexing for peak refinement:</p>
+<table>
+<thead>
+<tr>
+<th>Platform</th>
+<th>Before</th>
+<th>After</th>
+<th>Speedup</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MPS (M-series Mac)</td>
+<td>21.45 ms</td>
+<td>0.42 ms</td>
+<td><strong>51x</strong></td>
+</tr>
+<tr>
+<td>CUDA (RTX A6000)</td>
+<td>2.64 ms</td>
+<td>0.15 ms</td>
+<td><strong>17x</strong></td>
+</tr>
+</tbody>
+</table>
+<p>This also <strong>enables integral refinement on Mac</strong> - the MPS workaround that disabled it has been removed.</p>
+<h3>Bug Fixes</h3>
+<h4>ConvNext/SwinT Skip Connection Fix (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832355298" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/428" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/428/hovercard" href="https://github.com/talmolab/sleap-nn/pull/428">#428</a>)</h4>
+<p>Fixed <code>RuntimeError: Given groups=1, weight of size [X, Y, 3, 3], expected input to have Y channels</code> when training with ConvNext or SwinT backbones.</p>
+<p><strong>What was broken:</strong> Training with ConvNext/SwinT backbones crashed during validation due to channel mismatch in skip connections. The decoder assumed skip channels matched computed decoder filters, but ConvNext/SwinT encoder stages have different channel counts.</p>
+<p><strong>Impact:</strong> Users can now successfully train models with ConvNext and SwinT backbones. All 24 architecture tests pass.</p>
+<h4>Crop Device Mismatch Fix (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3834114596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/429" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/429/hovercard" href="https://github.com/talmolab/sleap-nn/pull/429">#429</a>)</h4>
+<p>Fixed <code>RuntimeError: indices should be either on cpu or on the same device as the indexed tensor</code> during top-down inference when bboxes tensor was on GPU but images were on CPU.</p>
+<h4>CSV Learning Rate Logging Fix (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3830653204" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/423" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/423/hovercard" href="https://github.com/talmolab/sleap-nn/pull/423">#423</a>)</h4>
+<p>Fixed regression from v0.1.0a2 where <code>learning_rate</code> column in <code>training_log.csv</code> was always empty.</p>
+<p><strong>What was broken:</strong> PR <a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3824616282" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/417" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/417/hovercard" href="https://github.com/talmolab/sleap-nn/pull/417">#417</a> changed learning rate logging from <code>lr-Adam</code> to <code>train/lr</code>, but the CSV logger only checked for the old format.</p>
+<p><strong>Now:</strong> The CSV logger checks for <code>train/lr</code> (new format), <code>lr-*</code> (legacy), and <code>learning_rate</code> (direct) in that order. Also adds model-specific loss columns for better parity with wandb logging.</p>
+<h4>GUI Progress 99% Fix (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3834114596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/429" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/429/hovercard" href="https://github.com/talmolab/sleap-nn/pull/429">#429</a>)</h4>
+<p>Fixed inference progress ending at 99% instead of 100% in GUI mode. The throttled progress reporting was skipping the final update.</p>
+<h3>Documentation</h3>
+<h4>Prerelease Docs Alias (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3831655564" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/425" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/425/hovercard" href="https://github.com/talmolab/sleap-nn/pull/425">#425</a>)</h4>
+<p>Pre-release documentation is now accessible at both:</p>
+<ul>
+<li>Version-specific: <code>https://sleap.ai/sleap-nn/v0.1.0a4/</code></li>
+<li>Alias: <code>https://sleap.ai/sleap-nn/prerelease/</code></li>
+</ul>
+<h3>Internal</h3>
+<h4>Test Suite Optimization (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832180581" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/427" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/427/hovercard" href="https://github.com/talmolab/sleap-nn/pull/427">#427</a>)</h4>
+<p>Optimized the 10 slowest tests for faster CI runs:</p>
+<table>
+<thead>
+<tr>
+<th>Test</th>
+<th>Before</th>
+<th>After</th>
+<th>Improvement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>test_main_cli</td>
+<td>54.44s</td>
+<td>21.76s</td>
+<td><strong>60%</strong></td>
+</tr>
+<tr>
+<td>test_bottomup_predictor</td>
+<td>6.71s</td>
+<td>1.76s</td>
+<td><strong>74%</strong></td>
+</tr>
+<tr>
+<td>test_predict_main</td>
+<td>15.97s</td>
+<td>5.35s</td>
+<td><strong>67%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Total estimated savings: ~55% reduction for slowest tests.</p>
+<hr>
+<h2>Installation</h2>
+<p><strong>This is an alpha pre-release.</strong> Pre-releases are excluded by default per PEP 440 - you must explicitly opt in.</p>
+<h3>Install with uv (Recommended)</h3>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# With --prerelease flag (requires uv 0.9.20+)
+uv tool install sleap-nn[torch] --torch-backend auto --prerelease=allow
+
+# Or pin to exact version
+uv tool install &quot;sleap-nn[torch]==0.1.0a4&quot; --torch-backend auto"><pre><span class="pl-c"><span class="pl-c">#</span> With --prerelease flag (requires uv 0.9.20+)</span>
+uv tool install sleap-nn[torch] --torch-backend auto --prerelease=allow
+
+<span class="pl-c"><span class="pl-c">#</span> Or pin to exact version</span>
+uv tool install <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[torch]==0.1.0a4<span class="pl-pds">"</span></span> --torch-backend auto</pre></div>
+<h3>Run with uvx (One-off execution)</h3>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="uvx --from &quot;sleap-nn[torch]&quot; --prerelease=allow --torch-backend auto sleap-nn system"><pre>uvx --from <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[torch]<span class="pl-pds">"</span></span> --prerelease=allow --torch-backend auto sleap-nn system</pre></div>
+<h3>Verify Installation</h3>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="sleap-nn --version
+# Expected output: 0.1.0a4
+
+sleap-nn system
+# Shows full system diagnostics including GPU info"><pre>sleap-nn --version
+<span class="pl-c"><span class="pl-c">#</span> Expected output: 0.1.0a4</span>
+
+sleap-nn system
+<span class="pl-c"><span class="pl-c">#</span> Shows full system diagnostics including GPU info</span></pre></div>
+<hr>
+<h2>Upgrading from v0.1.0a3</h2>
+<p>If you already have v0.1.0a3 installed with <code>--prerelease=allow</code>:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="# Simple upgrade (retains original settings like --prerelease=allow)
+uv tool upgrade sleap-nn"><pre><span class="pl-c"><span class="pl-c">#</span> Simple upgrade (retains original settings like --prerelease=allow)</span>
+uv tool upgrade sleap-nn</pre></div>
+<p>To force a complete reinstall:</p>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="uv tool install sleap-nn[torch] --torch-backend auto --prerelease=allow --force"><pre>uv tool install sleap-nn[torch] --torch-backend auto --prerelease=allow --force</pre></div>
+<hr>
+<h2>Changelog</h2>
+<table>
+<thead>
+<tr>
+<th>PR</th>
+<th>Category</th>
+<th>Title</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3830653204" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/423" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/423/hovercard" href="https://github.com/talmolab/sleap-nn/pull/423">#423</a></td>
+<td>Bug Fix</td>
+<td>Fix CSV logger not capturing learning_rate</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3831549796" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/424" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/424/hovercard" href="https://github.com/talmolab/sleap-nn/pull/424">#424</a></td>
+<td>Feature</td>
+<td>Add --gui flag for JSON progress output in inference</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3831655564" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/425" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/425/hovercard" href="https://github.com/talmolab/sleap-nn/pull/425">#425</a></td>
+<td>Documentation</td>
+<td>Add prerelease alias to docs deployment</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832013146" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/426" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/426/hovercard" href="https://github.com/talmolab/sleap-nn/pull/426">#426</a></td>
+<td>Performance</td>
+<td>Replace kornia crop_and_resize with fast tensor indexing</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832180581" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/427" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/427/hovercard" href="https://github.com/talmolab/sleap-nn/pull/427">#427</a></td>
+<td>Internal</td>
+<td>Optimize slow tests for faster CI runs</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3832355298" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/428" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/428/hovercard" href="https://github.com/talmolab/sleap-nn/pull/428">#428</a></td>
+<td>Bug Fix</td>
+<td>Fix skip connection channel mismatch in ConvNext/SwinT decoders</td>
+</tr>
+<tr>
+<td><a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3834114596" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/429" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/429/hovercard" href="https://github.com/talmolab/sleap-nn/pull/429">#429</a></td>
+<td>Feature</td>
+<td>Add --config flag for simpler train CLI + fix crop device mismatch</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Full Changelog</strong>: <a class="commit-link" href="https://github.com/talmolab/sleap-nn/compare/v0.1.0a3...v0.1.0a4"><tt>v0.1.0a3...v0.1.0a4</tt></a></p>
 <h2 id="v010a3"><a href="https://github.com/talmolab/sleap-nn/releases/tag/v0.1.0a3">v0.1.0a3</a><a class="headerlink" href="#v010a3" title="Permanent link">&para;</a></h2>
 <h2>Summary</h2>
 <p>This <strong>pre-release</strong> adds powerful new capabilities for high-performance inference and post-processing:</p>
@@ -3980,11 +4240,11 @@ sleap-nn predict exports/my_model video.mp4 -o predictions.slp</pre></div>
 <li><code>sleap-nn predict</code> - Run inference on exported models</li>
 </ul>
 <p><strong>New optional dependencies:</strong></p>
-<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="pip install sleap-nn[export]      # ONNX CPU inference
-pip install sleap-nn[export-gpu]  # ONNX GPU inference
-pip install sleap-nn[tensorrt]    # TensorRT support"><pre>pip install sleap-nn[export]      <span class="pl-c"><span class="pl-c">#</span> ONNX CPU inference</span>
-pip install sleap-nn[export-gpu]  <span class="pl-c"><span class="pl-c">#</span> ONNX GPU inference</span>
-pip install sleap-nn[tensorrt]    <span class="pl-c"><span class="pl-c">#</span> TensorRT support</span></pre></div>
+<div class="highlight highlight-source-shell notranslate position-relative overflow-auto" data-snippet-clipboard-copy-content="uv pip install &quot;sleap-nn[export]&quot;      # ONNX CPU inference
+uv pip install &quot;sleap-nn[export-gpu]&quot;  # ONNX GPU inference
+uv pip install &quot;sleap-nn[tensorrt]&quot;    # TensorRT support"><pre>uv pip install <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[export]<span class="pl-pds">"</span></span>      <span class="pl-c"><span class="pl-c">#</span> ONNX CPU inference</span>
+uv pip install <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[export-gpu]<span class="pl-pds">"</span></span>  <span class="pl-c"><span class="pl-c">#</span> ONNX GPU inference</span>
+uv pip install <span class="pl-s"><span class="pl-pds">"</span>sleap-nn[tensorrt]<span class="pl-pds">"</span></span>    <span class="pl-c"><span class="pl-c">#</span> TensorRT support</span></pre></div>
 <p>See the <a href="https://sleap.ai/sleap-nn/export.html" rel="nofollow">Export Guide</a> for full documentation.</p>
 <h4>Post-Inference Filtering for Overlapping Instances (<a class="issue-link js-issue-link" data-error-text="Failed to load title" data-id="3827827268" data-permission-text="Title is private" data-url="https://github.com/talmolab/sleap-nn/issues/420" data-hovercard-type="pull_request" data-hovercard-url="/talmolab/sleap-nn/pull/420/hovercard" href="https://github.com/talmolab/sleap-nn/pull/420">#420</a>)</h4>
 <p>New capability to remove duplicate/overlapping pose predictions after model inference:</p>
