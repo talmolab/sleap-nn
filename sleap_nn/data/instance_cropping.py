@@ -5,7 +5,7 @@ import math
 import numpy as np
 import sleap_io as sio
 import torch
-from kornia.geometry.transform import crop_and_resize
+from sleap_nn.data.skia_augmentation import crop_and_resize_skia as crop_and_resize
 
 
 def compute_augmentation_padding(

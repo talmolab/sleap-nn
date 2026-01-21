@@ -622,6 +622,7 @@ class SingleInstanceLightningModule(LightningModel):
             torch.squeeze(batch["image"], dim=1),
             torch.squeeze(batch["confidence_maps"], dim=1),
         )
+        X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
 
@@ -673,6 +674,7 @@ class SingleInstanceLightningModule(LightningModel):
             torch.squeeze(batch["image"], dim=1),
             torch.squeeze(batch["confidence_maps"], dim=1),
         )
+        X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["SingleInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
@@ -886,6 +888,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             torch.squeeze(batch["instance_image"], dim=1),
             torch.squeeze(batch["confidence_maps"], dim=1),
         )
+        X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
 
@@ -938,6 +941,7 @@ class TopDownCenteredInstanceLightningModule(LightningModel):
             torch.squeeze(batch["instance_image"], dim=1),
             torch.squeeze(batch["confidence_maps"], dim=1),
         )
+        X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CenteredInstanceConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
@@ -1162,6 +1166,7 @@ class CentroidLightningModule(LightningModel):
             torch.squeeze(batch["image"], dim=1),
             torch.squeeze(batch["centroids_confidence_maps"], dim=1),
         )
+        X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         loss = nn.MSELoss()(y_preds, y)
@@ -1185,6 +1190,7 @@ class CentroidLightningModule(LightningModel):
             torch.squeeze(batch["image"], dim=1),
             torch.squeeze(batch["centroids_confidence_maps"], dim=1),
         )
+        X = normalize_on_gpu(X)
 
         y_preds = self.model(X)["CentroidConfmapsHead"]
         val_loss = nn.MSELoss()(y_preds, y)
@@ -1432,6 +1438,7 @@ class BottomUpLightningModule(LightningModel):
         X = torch.squeeze(batch["image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_paf = batch["part_affinity_fields"]
+        X = normalize_on_gpu(X)
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
@@ -1499,6 +1506,7 @@ class BottomUpLightningModule(LightningModel):
         X = torch.squeeze(batch["image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_paf = batch["part_affinity_fields"]
+        X = normalize_on_gpu(X)
 
         preds = self.model(X)
         pafs = preds["PartAffinityFieldsHead"]
@@ -1784,6 +1792,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         X = torch.squeeze(batch["image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_classmap = torch.squeeze(batch["class_maps"], dim=1)
+        X = normalize_on_gpu(X)
         preds = self.model(X)
         classmaps = preds["ClassMapsHead"]
         confmaps = preds["MultiInstanceConfmapsHead"]
@@ -1896,6 +1905,7 @@ class BottomUpMultiClassLightningModule(LightningModel):
         X = torch.squeeze(batch["image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_classmap = torch.squeeze(batch["class_maps"], dim=1)
+        X = normalize_on_gpu(X)
 
         preds = self.model(X)
         classmaps = preds["ClassMapsHead"]
@@ -2195,6 +2205,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         X = torch.squeeze(batch["instance_image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_classvector = batch["class_vectors"]
+        X = normalize_on_gpu(X)
         preds = self.model(X)
         classvector = preds["ClassVectorsHead"]
         confmaps = preds["CenteredInstanceConfmapsHead"]
@@ -2284,6 +2295,7 @@ class TopDownCenteredInstanceMultiClassLightningModule(LightningModel):
         X = torch.squeeze(batch["instance_image"], dim=1)
         y_confmap = torch.squeeze(batch["confidence_maps"], dim=1)
         y_classvector = batch["class_vectors"]
+        X = normalize_on_gpu(X)
         preds = self.model(X)
         classvector = preds["ClassVectorsHead"]
         confmaps = preds["CenteredInstanceConfmapsHead"]

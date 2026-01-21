@@ -82,6 +82,11 @@ jobs:
         if: matrix.os != 'self-hosted-gpu'
         run: uv sync --extra torch-cpu
 
+      - name: Install graphics dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu'
+        run: |
+          sudo apt-get update && sudo apt-get install -y libglapi-mesa libegl-mesa0 libegl1 libopengl0 libgl1 libglx-mesa0
+
       - name: Print environment info
         run: |
           echo "=== UV Environment ==="
@@ -103,7 +108,7 @@ jobs:
               print('CUDA is not available')
           " || echo "CUDA check failed"
           echo "=== Import Test ==="
-          uv run --frozen --extra torch-cpu python -c "import torch; import lightning; import kornia; print('All imports successful')" || echo "Import test failed"
+          uv run --frozen --extra torch-cpu python -c "import torch; import lightning; import skia; print('All imports successful')" || echo "Import test failed"
 
       - name: Check MPS backend (macOS only)
         if: runner.os == 'macOS'
@@ -126,7 +131,7 @@ jobs:
       - name: Run pytest
         run: |
           echo "=== Final environment check before tests ==="
-          uv run --frozen --extra torch-cpu python -c "import numpy, torch, lightning, kornia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
+          uv run --frozen --extra torch-cpu python -c "import numpy, torch, lightning, skia; print(f'All packages available: numpy={numpy.__version__}, torch={torch.__version__}')"
           echo "=== Running pytest ==="
           uv run --frozen --extra torch-cpu pytest --cov=sleap_nn --cov-report=xml --durations=-1 tests/
 
