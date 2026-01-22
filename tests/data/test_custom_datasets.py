@@ -1297,9 +1297,9 @@ def test_uint8_pipeline_bottomup(minimal_instance):
 
     sample = next(iter(dataset))
     # Image should be uint8 for GPU normalization (4x bandwidth savings)
-    assert sample["image"].dtype == torch.uint8, (
-        f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
-    )
+    assert (
+        sample["image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
 
 
 def test_uint8_pipeline_singleinstance(minimal_instance):
@@ -1319,9 +1319,9 @@ def test_uint8_pipeline_singleinstance(minimal_instance):
     )
 
     sample = next(iter(dataset))
-    assert sample["image"].dtype == torch.uint8, (
-        f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
-    )
+    assert (
+        sample["image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
 
 
 def test_uint8_pipeline_centroid(minimal_instance):
@@ -1337,9 +1337,9 @@ def test_uint8_pipeline_centroid(minimal_instance):
     )
 
     sample = next(iter(dataset))
-    assert sample["image"].dtype == torch.uint8, (
-        f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
-    )
+    assert (
+        sample["image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["image"].dtype}"
 
 
 def test_uint8_pipeline_centered_instance(minimal_instance):
@@ -1356,6 +1356,6 @@ def test_uint8_pipeline_centered_instance(minimal_instance):
     )
 
     sample = next(iter(dataset))
-    assert sample["instance_image"].dtype == torch.uint8, (
-        f"Expected uint8 image for GPU normalization, got {sample["instance_image"].dtype}"
-    )
+    assert (
+        sample["instance_image"].dtype == torch.uint8
+    ), f"Expected uint8 image for GPU normalization, got {sample["instance_image"].dtype}"
