@@ -988,7 +988,7 @@ class ModelTrainer:
             # Single unified callback handles all visualization outputs
             callbacks.append(
                 UnifiedVizCallback(
-                    lightning_module=self.lightning_module,
+                    model_trainer=self,
                     train_dataset=viz_train_dataset,
                     val_dataset=viz_val_dataset,
                     model_type=self.model_type,

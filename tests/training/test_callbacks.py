@@ -1461,11 +1461,14 @@ class TestUnifiedVizCallback:
         )
 
     @pytest.fixture
-    def mock_lightning_module(self, sample_viz_data):
-        """Create a mock lightning module."""
-        mock = MagicMock()
-        mock.get_visualization_data.return_value = sample_viz_data
-        return mock
+    def mock_model_trainer(self, sample_viz_data):
+        """Create a mock model trainer with a mock lightning_model."""
+        mock_trainer = MagicMock()
+        mock_trainer.lightning_model = MagicMock()
+        mock_trainer.lightning_model.get_visualization_data.return_value = (
+            sample_viz_data
+        )
+        return mock_trainer
 
     @pytest.fixture
     def mock_dataset(self, sample_viz_data):
@@ -1478,10 +1481,10 @@ class TestUnifiedVizCallback:
 
         return MockDataset()
 
-    def test_init_default_params(self, mock_lightning_module, mock_dataset):
+    def test_init_default_params(self, mock_model_trainer, mock_dataset):
         """Initializes with default parameters."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1493,10 +1496,10 @@ class TestUnifiedVizCallback:
         assert callback.viz_class_maps is False
         assert callback.model_type == "single_instance"
 
-    def test_init_bottomup_enables_pafs(self, mock_lightning_module, mock_dataset):
+    def test_init_bottomup_enables_pafs(self, mock_model_trainer, mock_dataset):
         """Bottom-up model type auto-enables PAF visualization."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="bottomup",
@@ -1506,11 +1509,11 @@ class TestUnifiedVizCallback:
         assert callback.viz_class_maps is False
 
     def test_init_multi_class_bottomup_enables_class_maps(
-        self, mock_lightning_module, mock_dataset
+        self, mock_model_trainer, mock_dataset
     ):
         """Multi-class bottom-up model type auto-enables class map visualization."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="multi_class_bottomup",
@@ -1519,12 +1522,10 @@ class TestUnifiedVizCallback:
         assert callback.viz_pafs is False
         assert callback.viz_class_maps is True
 
-    def test_init_with_wandb_creates_renderers(
-        self, mock_lightning_module, mock_dataset
-    ):
+    def test_init_with_wandb_creates_renderers(self, mock_model_trainer, mock_dataset):
         """Creates wandb renderers when log_wandb is True."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1537,10 +1538,10 @@ class TestUnifiedVizCallback:
         assert "masks" in callback._wandb_renderers
         assert len(callback._wandb_renderers) == 3
 
-    def test_init_custom_wandb_params(self, mock_lightning_module, mock_dataset):
+    def test_init_custom_wandb_params(self, mock_model_trainer, mock_dataset):
         """Applies custom wandb parameters to renderers."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1553,11 +1554,11 @@ class TestUnifiedVizCallback:
         assert callback.wandb_confmap_threshold == 0.25
 
     def test_get_viz_data_standard_model(
-        self, mock_lightning_module, mock_dataset, sample_viz_data
+        self, mock_model_trainer, mock_dataset, sample_viz_data
     ):
         """Gets visualization data for standard models."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1566,17 +1567,21 @@ class TestUnifiedVizCallback:
         sample = {"image": np.random.rand(64, 64, 3)}
         data = callback._get_viz_data(sample)
 
-        mock_lightning_module.get_visualization_data.assert_called_once_with(sample)
+        mock_model_trainer.lightning_model.get_visualization_data.assert_called_once_with(
+            sample
+        )
         assert data == sample_viz_data
 
     def test_get_viz_data_bottomup_includes_pafs(
-        self, mock_lightning_module, mock_dataset, sample_pafs_data
+        self, mock_model_trainer, mock_dataset, sample_pafs_data
     ):
         """Gets visualization data with PAFs for bottom-up models."""
-        mock_lightning_module.get_visualization_data.return_value = sample_pafs_data
+        mock_model_trainer.lightning_model.get_visualization_data.return_value = (
+            sample_pafs_data
+        )
 
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="bottomup",
@@ -1585,18 +1590,20 @@ class TestUnifiedVizCallback:
         sample = {"image": np.random.rand(64, 64, 3)}
         callback._get_viz_data(sample)
 
-        mock_lightning_module.get_visualization_data.assert_called_with(
+        mock_model_trainer.lightning_model.get_visualization_data.assert_called_with(
             sample, include_pafs=True
         )
 
     def test_get_viz_data_multi_class_includes_class_maps(
-        self, mock_lightning_module, mock_dataset, sample_class_maps_data
+        self, mock_model_trainer, mock_dataset, sample_class_maps_data
     ):
         """Gets visualization data with class maps for multi-class models."""
-        mock_lightning_module.get_visualization_data.return_value = sample_class_maps_data
+        mock_model_trainer.lightning_model.get_visualization_data.return_value = (
+            sample_class_maps_data
+        )
 
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="multi_class_bottomup",
@@ -1605,16 +1612,16 @@ class TestUnifiedVizCallback:
         sample = {"image": np.random.rand(64, 64, 3)}
         callback._get_viz_data(sample)
 
-        mock_lightning_module.get_visualization_data.assert_called_with(
+        mock_model_trainer.lightning_model.get_visualization_data.assert_called_with(
             sample, include_class_maps=True
         )
 
     def test_on_train_epoch_end_skips_if_not_global_zero(
-        self, mock_lightning_module, mock_dataset
+        self, mock_model_trainer, mock_dataset
     ):
         """Skips visualization if not global rank zero."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1630,12 +1637,12 @@ class TestUnifiedVizCallback:
             mock_get_viz.assert_not_called()
 
     def test_on_train_epoch_end_saves_local(
-        self, mock_lightning_module, mock_dataset, sample_viz_data
+        self, mock_model_trainer, mock_dataset, sample_viz_data
     ):
         """Saves local visualizations when save_local is True."""
         with tempfile.TemporaryDirectory() as tmpdir:
             callback = UnifiedVizCallback(
-                lightning_module=mock_lightning_module,
+                model_trainer=mock_model_trainer,
                 train_dataset=mock_dataset,
                 val_dataset=mock_dataset,
                 model_type="single_instance",
@@ -1658,14 +1665,16 @@ class TestUnifiedVizCallback:
             assert val_path.exists()
 
     def test_on_train_epoch_end_saves_pafs_for_bottomup(
-        self, mock_lightning_module, mock_dataset, sample_pafs_data
+        self, mock_model_trainer, mock_dataset, sample_pafs_data
     ):
         """Saves PAF visualizations for bottom-up models."""
-        mock_lightning_module.get_visualization_data.return_value = sample_pafs_data
+        mock_model_trainer.lightning_model.get_visualization_data.return_value = (
+            sample_pafs_data
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             callback = UnifiedVizCallback(
-                lightning_module=mock_lightning_module,
+                model_trainer=mock_model_trainer,
                 train_dataset=mock_dataset,
                 val_dataset=mock_dataset,
                 model_type="bottomup",
@@ -1688,11 +1697,11 @@ class TestUnifiedVizCallback:
             assert val_pafs_path.exists()
 
     def test_on_train_epoch_end_logs_to_wandb(
-        self, mock_lightning_module, mock_dataset, sample_viz_data
+        self, mock_model_trainer, mock_dataset, sample_viz_data
     ):
         """Logs visualizations to wandb when enabled."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1723,12 +1732,12 @@ class TestUnifiedVizCallback:
             assert mock_experiment.log.call_count >= 1
 
     def test_on_train_epoch_end_uses_same_sample_for_all_outputs(
-        self, mock_lightning_module, mock_dataset, sample_viz_data
+        self, mock_model_trainer, mock_dataset, sample_viz_data
     ):
         """Uses same sample for all visualization outputs (key efficiency gain)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             callback = UnifiedVizCallback(
-                lightning_module=mock_lightning_module,
+                model_trainer=mock_model_trainer,
                 train_dataset=mock_dataset,
                 val_dataset=mock_dataset,
                 model_type="single_instance",
@@ -1757,12 +1766,15 @@ class TestUnifiedVizCallback:
 
                 # get_visualization_data should be called exactly twice:
                 # once for train, once for val
-                assert mock_lightning_module.get_visualization_data.call_count == 2
+                assert (
+                    mock_model_trainer.lightning_model.get_visualization_data.call_count
+                    == 2
+                )
 
-    def test_no_deepcopy_of_datasets(self, mock_lightning_module, mock_dataset):
+    def test_no_deepcopy_of_datasets(self, mock_model_trainer, mock_dataset):
         """Verifies no deepcopy of datasets (key memory optimization)."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1775,10 +1787,10 @@ class TestUnifiedVizCallback:
         assert callback.train_pipeline is not None
         assert callback.val_pipeline is not None
 
-    def test_get_wandb_logger_found(self, mock_lightning_module, mock_dataset):
+    def test_get_wandb_logger_found(self, mock_model_trainer, mock_dataset):
         """Returns WandbLogger when present."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",
@@ -1796,10 +1808,10 @@ class TestUnifiedVizCallback:
             result = callback._get_wandb_logger(mock_trainer)
             assert result == mock_wandb_logger
 
-    def test_get_wandb_logger_not_found(self, mock_lightning_module, mock_dataset):
+    def test_get_wandb_logger_not_found(self, mock_model_trainer, mock_dataset):
         """Returns None when no WandbLogger present."""
         callback = UnifiedVizCallback(
-            lightning_module=mock_lightning_module,
+            model_trainer=mock_model_trainer,
             train_dataset=mock_dataset,
             val_dataset=mock_dataset,
             model_type="single_instance",

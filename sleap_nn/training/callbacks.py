@@ -476,7 +476,7 @@ class UnifiedVizCallback(Callback):
     - Simpler code with less duplication
 
     Attributes:
-        lightning_module: The Lightning module with get_visualization_data method.
+        model_trainer: Reference to the ModelTrainer (for lazy access to lightning_model).
         train_pipeline: Iterator over training visualization dataset.
         val_pipeline: Iterator over validation visualization dataset.
         model_type: Type of model (affects which visualizations are enabled).
@@ -491,7 +491,7 @@ class UnifiedVizCallback(Callback):
 
     def __init__(
         self,
-        lightning_module,
+        model_trainer,
         train_dataset,
         val_dataset,
         model_type: str,
@@ -506,7 +506,7 @@ class UnifiedVizCallback(Callback):
         """Initialize the unified visualization callback.
 
         Args:
-            lightning_module: Lightning module with get_visualization_data method.
+            model_trainer: ModelTrainer instance (lightning_model accessed lazily).
             train_dataset: Training visualization dataset (will be cycled).
             val_dataset: Validation visualization dataset (will be cycled).
             model_type: Model type string (e.g., "bottomup", "multi_class_bottomup").
@@ -521,7 +521,7 @@ class UnifiedVizCallback(Callback):
         super().__init__()
         from itertools import cycle
 
-        self.lightning_module = lightning_module
+        self.model_trainer = model_trainer
         self.train_pipeline = cycle(train_dataset)
         self.val_pipeline = cycle(val_dataset)
         self.model_type = model_type
@@ -581,7 +581,10 @@ class UnifiedVizCallback(Callback):
         if self.viz_class_maps:
             kwargs["include_class_maps"] = True
 
-        return self.lightning_module.get_visualization_data(sample, **kwargs)
+        # Access lightning_model lazily from model_trainer
+        return self.model_trainer.lightning_model.get_visualization_data(
+            sample, **kwargs
+        )
 
     def _save_local_viz(self, data, prefix: str, epoch: int):
         """Save visualization to local disk.
