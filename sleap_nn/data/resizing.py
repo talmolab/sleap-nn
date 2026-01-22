@@ -63,7 +63,7 @@ def apply_pad_to_stride(image: torch.Tensor, max_stride: int) -> torch.Tensor:
                 image,
                 (0, pad_width, 0, pad_height),
                 mode="constant",
-            ).to(torch.float32)
+            )
     return image
 
 
@@ -136,7 +136,7 @@ def apply_sizematcher(
             image,
             (0, pad_width, 0, pad_height),
             mode="constant",
-        ).to(torch.float32)
+        )
 
         return image, eff_scale_ratio
     else:
