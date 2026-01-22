@@ -2,7 +2,6 @@
 
 import os
 import shutil
-import copy
 import attrs
 import torch
 import random
@@ -16,7 +15,7 @@ import yaml
 from pathlib import Path
 from typing import List, Optional
 from datetime import datetime
-from itertools import cycle, count
+from itertools import count
 from omegaconf import DictConfig, OmegaConf
 from lightning.pytorch.loggers import WandbLogger
 from sleap_nn.data.utils import check_cache_memory
@@ -54,13 +53,10 @@ from sleap_nn.config.training_job_config import verify_training_cfg
 from sleap_nn.training.callbacks import (
     ProgressReporterZMQ,
     TrainingControllerZMQ,
-    MatplotlibSaver,
-    WandBPredImageLogger,
-    WandBVizCallback,
-    WandBVizCallbackWithPAFs,
     CSVLoggerCallback,
     SleapProgressBar,
     EpochEndEvaluationCallback,
+    UnifiedVizCallback,
 )
 from sleap_nn import RANK
 from sleap_nn.legacy_models import get_keras_first_layer_channels
@@ -959,11 +955,8 @@ class ModelTrainer:
             )
             callbacks.append(ProgressReporterZMQ(address=publish_address))
 
-        # viz callbacks
+        # viz callbacks - use unified callback for all visualization outputs
         if self.config.trainer_config.visualize_preds_during_training:
-            train_viz_pipeline = cycle(viz_train_dataset)
-            val_viz_pipeline = cycle(viz_val_dataset)
-
             viz_dir = (
                 Path(self.config.trainer_config.ckpt_dir)
                 / self.config.trainer_config.run_name
@@ -973,142 +966,49 @@ class ModelTrainer:
                 if RANK in [0, -1]:
                     Path(viz_dir).mkdir(parents=True, exist_ok=True)
 
-            callbacks.append(
-                MatplotlibSaver(
-                    save_folder=viz_dir,
-                    plot_fn=lambda: self.lightning_model.visualize_example(
-                        next(train_viz_pipeline)
-                    ),
-                    prefix="train",
-                )
-            )
-            callbacks.append(
-                MatplotlibSaver(
-                    save_folder=viz_dir,
-                    plot_fn=lambda: self.lightning_model.visualize_example(
-                        next(val_viz_pipeline)
-                    ),
-                    prefix="validation",
-                )
-            )
-
-            if self.model_type == "bottomup":
-                train_viz_pipeline1 = cycle(copy.deepcopy(viz_train_dataset))
-                val_viz_pipeline1 = cycle(copy.deepcopy(viz_val_dataset))
-                callbacks.append(
-                    MatplotlibSaver(
-                        save_folder=viz_dir,
-                        plot_fn=lambda: self.lightning_model.visualize_pafs_example(
-                            next(train_viz_pipeline1)
-                        ),
-                        prefix="train.pafs_magnitude",
-                    )
-                )
-                callbacks.append(
-                    MatplotlibSaver(
-                        save_folder=viz_dir,
-                        plot_fn=lambda: self.lightning_model.visualize_pafs_example(
-                            next(val_viz_pipeline1)
-                        ),
-                        prefix="validation.pafs_magnitude",
-                    )
-                )
-
-            if self.model_type == "multi_class_bottomup":
-                train_viz_pipeline1 = cycle(copy.deepcopy(viz_train_dataset))
-                val_viz_pipeline1 = cycle(copy.deepcopy(viz_val_dataset))
-                callbacks.append(
-                    MatplotlibSaver(
-                        save_folder=viz_dir,
-                        plot_fn=lambda: self.lightning_model.visualize_class_maps_example(
-                            next(train_viz_pipeline1)
-                        ),
-                        prefix="train.class_maps",
-                    )
-                )
-                callbacks.append(
-                    MatplotlibSaver(
-                        save_folder=viz_dir,
-                        plot_fn=lambda: self.lightning_model.visualize_class_maps_example(
-                            next(val_viz_pipeline1)
-                        ),
-                        prefix="validation.class_maps",
-                    )
-                )
-
-            if self.config.trainer_config.use_wandb and OmegaConf.select(
+            # Get wandb viz config options
+            log_wandb = self.config.trainer_config.use_wandb and OmegaConf.select(
                 self.config, "trainer_config.wandb.save_viz_imgs_wandb", default=False
-            ):
-                # Get wandb viz config options
-                viz_enabled = OmegaConf.select(
+            )
+            wandb_modes = []
+            if log_wandb:
+                if OmegaConf.select(
                     self.config, "trainer_config.wandb.viz_enabled", default=True
-                )
-                viz_boxes = OmegaConf.select(
+                ):
+                    wandb_modes.append("direct")
+                if OmegaConf.select(
                     self.config, "trainer_config.wandb.viz_boxes", default=False
-                )
-                viz_masks = OmegaConf.select(
+                ):
+                    wandb_modes.append("boxes")
+                if OmegaConf.select(
                     self.config, "trainer_config.wandb.viz_masks", default=False
-                )
-                viz_box_size = OmegaConf.select(
-                    self.config, "trainer_config.wandb.viz_box_size", default=5.0
-                )
-                viz_confmap_threshold = OmegaConf.select(
-                    self.config,
-                    "trainer_config.wandb.viz_confmap_threshold",
-                    default=0.1,
-                )
-                log_viz_table = OmegaConf.select(
-                    self.config, "trainer_config.wandb.log_viz_table", default=False
-                )
+                ):
+                    wandb_modes.append("masks")
 
-                # Create viz data pipelines for wandb callback
-                wandb_train_viz_pipeline = cycle(copy.deepcopy(viz_train_dataset))
-                wandb_val_viz_pipeline = cycle(copy.deepcopy(viz_val_dataset))
-
-                if self.model_type == "bottomup":
-                    # Bottom-up model needs PAF visualizations
-                    wandb_train_pafs_pipeline = cycle(copy.deepcopy(viz_train_dataset))
-                    wandb_val_pafs_pipeline = cycle(copy.deepcopy(viz_val_dataset))
-                    callbacks.append(
-                        WandBVizCallbackWithPAFs(
-                            train_viz_fn=lambda: self.lightning_model.get_visualization_data(
-                                next(wandb_train_viz_pipeline)
-                            ),
-                            val_viz_fn=lambda: self.lightning_model.get_visualization_data(
-                                next(wandb_val_viz_pipeline)
-                            ),
-                            train_pafs_viz_fn=lambda: self.lightning_model.get_visualization_data(
-                                next(wandb_train_pafs_pipeline), include_pafs=True
-                            ),
-                            val_pafs_viz_fn=lambda: self.lightning_model.get_visualization_data(
-                                next(wandb_val_pafs_pipeline), include_pafs=True
-                            ),
-                            viz_enabled=viz_enabled,
-                            viz_boxes=viz_boxes,
-                            viz_masks=viz_masks,
-                            box_size=viz_box_size,
-                            confmap_threshold=viz_confmap_threshold,
-                            log_table=log_viz_table,
-                        )
-                    )
-                else:
-                    # Standard models
-                    callbacks.append(
-                        WandBVizCallback(
-                            train_viz_fn=lambda: self.lightning_model.get_visualization_data(
-                                next(wandb_train_viz_pipeline)
-                            ),
-                            val_viz_fn=lambda: self.lightning_model.get_visualization_data(
-                                next(wandb_val_viz_pipeline)
-                            ),
-                            viz_enabled=viz_enabled,
-                            viz_boxes=viz_boxes,
-                            viz_masks=viz_masks,
-                            box_size=viz_box_size,
-                            confmap_threshold=viz_confmap_threshold,
-                            log_table=log_viz_table,
-                        )
-                    )
+            # Single unified callback handles all visualization outputs
+            callbacks.append(
+                UnifiedVizCallback(
+                    model_trainer=self,
+                    train_dataset=viz_train_dataset,
+                    val_dataset=viz_val_dataset,
+                    model_type=self.model_type,
+                    save_local=self.config.trainer_config.save_ckpt,
+                    local_save_dir=viz_dir,
+                    log_wandb=log_wandb,
+                    wandb_modes=wandb_modes if wandb_modes else ["direct"],
+                    wandb_box_size=OmegaConf.select(
+                        self.config, "trainer_config.wandb.viz_box_size", default=5.0
+                    ),
+                    wandb_confmap_threshold=OmegaConf.select(
+                        self.config,
+                        "trainer_config.wandb.viz_confmap_threshold",
+                        default=0.1,
+                    ),
+                    log_wandb_table=OmegaConf.select(
+                        self.config, "trainer_config.wandb.log_viz_table", default=False
+                    ),
+                )
+            )
 
         # Add custom progress bar with better metric formatting
         if self.config.trainer_config.enable_progress_bar:
