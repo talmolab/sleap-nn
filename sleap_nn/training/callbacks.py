@@ -1044,9 +1044,8 @@ class EpochEndEvaluationCallback(Callback):
 
         # Determine if we should run evaluation this epoch (only on rank 0)
         should_evaluate = (
-            (trainer.current_epoch + 1) % self.eval_frequency == 0
-            and trainer.is_global_zero
-        )
+            trainer.current_epoch + 1
+        ) % self.eval_frequency == 0 and trainer.is_global_zero
 
         if should_evaluate:
             # Check if we have predictions
