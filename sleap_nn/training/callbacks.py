@@ -286,45 +286,49 @@ class WandBVizCallback(Callback):
 
             # Get the wandb logger to use its experiment for logging
             wandb_logger = self._get_wandb_logger(trainer)
-            if wandb_logger is None:
-                return  # No wandb logger, skip visualization logging
 
-            # Get visualization data
-            train_data = self.train_viz_fn()
-            val_data = self.val_viz_fn()
+            # Only do visualization work if wandb logger is available
+            if wandb_logger is not None:
+                # Get visualization data
+                train_data = self.train_viz_fn()
+                val_data = self.val_viz_fn()
 
-            # Render and log for each enabled mode
-            # Use the logger's experiment to let Lightning manage step tracking
-            log_dict = {}
-            for mode_name, renderer in self.renderers.items():
-                suffix = "" if mode_name == "direct" else f"_{mode_name}"
-                train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
-                val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
-                log_dict[f"viz/train/predictions{suffix}"] = train_img
-                log_dict[f"viz/val/predictions{suffix}"] = val_img
+                # Render and log for each enabled mode
+                # Use the logger's experiment to let Lightning manage step tracking
+                log_dict = {}
+                for mode_name, renderer in self.renderers.items():
+                    suffix = "" if mode_name == "direct" else f"_{mode_name}"
+                    train_img = renderer.render(
+                        train_data, caption=f"Train Epoch {epoch}"
+                    )
+                    val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
+                    log_dict[f"viz/train/predictions{suffix}"] = train_img
+                    log_dict[f"viz/val/predictions{suffix}"] = val_img
 
-            if log_dict:
-                # Include epoch so wandb can use it as x-axis (via define_metric)
-                log_dict["epoch"] = epoch
-                # Use commit=False to accumulate with other metrics in this step
-                # Lightning will commit when it logs its own metrics
-                wandb_logger.experiment.log(log_dict, commit=False)
+                if log_dict:
+                    # Include epoch so wandb can use it as x-axis (via define_metric)
+                    log_dict["epoch"] = epoch
+                    # Use commit=False to accumulate with other metrics in this step
+                    # Lightning will commit when it logs its own metrics
+                    wandb_logger.experiment.log(log_dict, commit=False)
 
-            # Optionally also log to table for backwards compat
-            if self.log_table and "direct" in self.renderers:
-                train_img = self.renderers["direct"].render(
-                    train_data, caption=f"Train Epoch {epoch}"
-                )
-                val_img = self.renderers["direct"].render(
-                    val_data, caption=f"Val Epoch {epoch}"
-                )
-                table = wandb.Table(
-                    columns=["Epoch", "Train", "Validation"],
-                    data=[[epoch, train_img, val_img]],
-                )
-                wandb_logger.experiment.log({"predictions_table": table}, commit=False)
+                # Optionally also log to table for backwards compat
+                if self.log_table and "direct" in self.renderers:
+                    train_img = self.renderers["direct"].render(
+                        train_data, caption=f"Train Epoch {epoch}"
+                    )
+                    val_img = self.renderers["direct"].render(
+                        val_data, caption=f"Val Epoch {epoch}"
+                    )
+                    table = wandb.Table(
+                        columns=["Epoch", "Train", "Validation"],
+                        data=[[epoch, train_img, val_img]],
+                    )
+                    wandb_logger.experiment.log(
+                        {"predictions_table": table}, commit=False
+                    )
 
-        # Sync all processes
+        # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
 
 
@@ -383,80 +387,94 @@ class WandBVizCallbackWithPAFs(WandBVizCallback):
 
             # Get the wandb logger to use its experiment for logging
             wandb_logger = self._get_wandb_logger(trainer)
-            if wandb_logger is None:
-                return  # No wandb logger, skip visualization logging
 
-            # Get visualization data
-            train_data = self.train_viz_fn()
-            val_data = self.val_viz_fn()
-            train_pafs_data = self.train_pafs_viz_fn()
-            val_pafs_data = self.val_pafs_viz_fn()
+            # Only do visualization work if wandb logger is available
+            if wandb_logger is not None:
+                # Get visualization data
+                train_data = self.train_viz_fn()
+                val_data = self.val_viz_fn()
+                train_pafs_data = self.train_pafs_viz_fn()
+                val_pafs_data = self.val_pafs_viz_fn()
 
-            # Render and log for each enabled mode
-            # Use the logger's experiment to let Lightning manage step tracking
-            log_dict = {}
-            for mode_name, renderer in self.renderers.items():
-                suffix = "" if mode_name == "direct" else f"_{mode_name}"
-                train_img = renderer.render(train_data, caption=f"Train Epoch {epoch}")
-                val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
-                log_dict[f"viz/train/predictions{suffix}"] = train_img
-                log_dict[f"viz/val/predictions{suffix}"] = val_img
+                # Render and log for each enabled mode
+                # Use the logger's experiment to let Lightning manage step tracking
+                log_dict = {}
+                for mode_name, renderer in self.renderers.items():
+                    suffix = "" if mode_name == "direct" else f"_{mode_name}"
+                    train_img = renderer.render(
+                        train_data, caption=f"Train Epoch {epoch}"
+                    )
+                    val_img = renderer.render(val_data, caption=f"Val Epoch {epoch}")
+                    log_dict[f"viz/train/predictions{suffix}"] = train_img
+                    log_dict[f"viz/val/predictions{suffix}"] = val_img
 
-            # Render PAFs (always use matplotlib/direct for PAFs)
-            from io import BytesIO
-            import matplotlib.pyplot as plt
-            from PIL import Image
+                # Render PAFs (always use matplotlib/direct for PAFs)
+                from io import BytesIO
+                import matplotlib.pyplot as plt
+                from PIL import Image
 
-            train_pafs_fig = self._mpl_renderer.render_pafs(train_pafs_data)
-            buf = BytesIO()
-            train_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
-            buf.seek(0)
-            plt.close(train_pafs_fig)
-            train_pafs_pil = Image.open(buf)
-            log_dict["viz/train/pafs"] = wandb.Image(
-                train_pafs_pil, caption=f"Train PAFs Epoch {epoch}"
-            )
-
-            val_pafs_fig = self._mpl_renderer.render_pafs(val_pafs_data)
-            buf = BytesIO()
-            val_pafs_fig.savefig(buf, format="png", bbox_inches="tight", pad_inches=0)
-            buf.seek(0)
-            plt.close(val_pafs_fig)
-            val_pafs_pil = Image.open(buf)
-            log_dict["viz/val/pafs"] = wandb.Image(
-                val_pafs_pil, caption=f"Val PAFs Epoch {epoch}"
-            )
-
-            if log_dict:
-                # Include epoch so wandb can use it as x-axis (via define_metric)
-                log_dict["epoch"] = epoch
-                # Use commit=False to accumulate with other metrics in this step
-                # Lightning will commit when it logs its own metrics
-                wandb_logger.experiment.log(log_dict, commit=False)
-
-            # Optionally also log to table
-            if self.log_table and "direct" in self.renderers:
-                train_img = self.renderers["direct"].render(
-                    train_data, caption=f"Train Epoch {epoch}"
+                train_pafs_fig = self._mpl_renderer.render_pafs(train_pafs_data)
+                buf = BytesIO()
+                train_pafs_fig.savefig(
+                    buf, format="png", bbox_inches="tight", pad_inches=0
                 )
-                val_img = self.renderers["direct"].render(
-                    val_data, caption=f"Val Epoch {epoch}"
+                buf.seek(0)
+                plt.close(train_pafs_fig)
+                train_pafs_pil = Image.open(buf)
+                log_dict["viz/train/pafs"] = wandb.Image(
+                    train_pafs_pil, caption=f"Train PAFs Epoch {epoch}"
                 )
-                table = wandb.Table(
-                    columns=["Epoch", "Train", "Validation", "Train PAFs", "Val PAFs"],
-                    data=[
-                        [
-                            epoch,
-                            train_img,
-                            val_img,
-                            log_dict["viz/train/pafs"],
-                            log_dict["viz/val/pafs"],
-                        ]
-                    ],
-                )
-                wandb_logger.experiment.log({"predictions_table": table}, commit=False)
 
-        # Sync all processes
+                val_pafs_fig = self._mpl_renderer.render_pafs(val_pafs_data)
+                buf = BytesIO()
+                val_pafs_fig.savefig(
+                    buf, format="png", bbox_inches="tight", pad_inches=0
+                )
+                buf.seek(0)
+                plt.close(val_pafs_fig)
+                val_pafs_pil = Image.open(buf)
+                log_dict["viz/val/pafs"] = wandb.Image(
+                    val_pafs_pil, caption=f"Val PAFs Epoch {epoch}"
+                )
+
+                if log_dict:
+                    # Include epoch so wandb can use it as x-axis (via define_metric)
+                    log_dict["epoch"] = epoch
+                    # Use commit=False to accumulate with other metrics in this step
+                    # Lightning will commit when it logs its own metrics
+                    wandb_logger.experiment.log(log_dict, commit=False)
+
+                # Optionally also log to table
+                if self.log_table and "direct" in self.renderers:
+                    train_img = self.renderers["direct"].render(
+                        train_data, caption=f"Train Epoch {epoch}"
+                    )
+                    val_img = self.renderers["direct"].render(
+                        val_data, caption=f"Val Epoch {epoch}"
+                    )
+                    table = wandb.Table(
+                        columns=[
+                            "Epoch",
+                            "Train",
+                            "Validation",
+                            "Train PAFs",
+                            "Val PAFs",
+                        ],
+                        data=[
+                            [
+                                epoch,
+                                train_img,
+                                val_img,
+                                log_dict["viz/train/pafs"],
+                                log_dict["viz/val/pafs"],
+                            ]
+                        ],
+                    )
+                    wandb_logger.experiment.log(
+                        {"predictions_table": table}, commit=False
+                    )
+
+        # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
 
 
@@ -721,27 +739,25 @@ class UnifiedVizCallback(Callback):
             trainer: PyTorch Lightning trainer.
             pl_module: Lightning module (not used, we use self.lightning_module).
         """
-        if not trainer.is_global_zero:
-            return
+        if trainer.is_global_zero:
+            epoch = trainer.current_epoch
+            wandb_logger = self._get_wandb_logger(trainer) if self.log_wandb else None
 
-        epoch = trainer.current_epoch
-        wandb_logger = self._get_wandb_logger(trainer) if self.log_wandb else None
+            # Get ONE sample for train visualization
+            train_sample = next(self.train_pipeline)
+            # Run inference ONCE with all needed data
+            train_data = self._get_viz_data(train_sample)
+            # Output to all destinations
+            self._save_local_viz(train_data, "train", epoch)
+            self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
 
-        # Get ONE sample for train visualization
-        train_sample = next(self.train_pipeline)
-        # Run inference ONCE with all needed data
-        train_data = self._get_viz_data(train_sample)
-        # Output to all destinations
-        self._save_local_viz(train_data, "train", epoch)
-        self._log_wandb_viz(train_data, "train", epoch, wandb_logger)
+            # Same for validation
+            val_sample = next(self.val_pipeline)
+            val_data = self._get_viz_data(val_sample)
+            self._save_local_viz(val_data, "validation", epoch)
+            self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
 
-        # Same for validation
-        val_sample = next(self.val_pipeline)
-        val_data = self._get_viz_data(val_sample)
-        self._save_local_viz(val_data, "validation", epoch)
-        self._log_wandb_viz(val_data, "val", epoch, wandb_logger)
-
-        # Sync all processes
+        # Sync all processes - barrier must be reached by ALL ranks
         trainer.strategy.barrier()
 
 
@@ -1026,65 +1042,64 @@ class EpochEndEvaluationCallback(Callback):
         from lightning.pytorch.loggers import WandbLogger
         from sleap_nn.evaluation import Evaluator
 
-        # Check frequency (epoch is 0-indexed, so add 1)
-        if (trainer.current_epoch + 1) % self.eval_frequency != 0:
-            pl_module._collect_val_predictions = False
-            return
+        # Determine if we should run evaluation this epoch (only on rank 0)
+        should_evaluate = (
+            (trainer.current_epoch + 1) % self.eval_frequency == 0
+            and trainer.is_global_zero
+        )
 
-        # Only run on rank 0 for distributed training
-        if not trainer.is_global_zero:
-            pl_module._collect_val_predictions = False
-            return
+        if should_evaluate:
+            # Check if we have predictions
+            if not pl_module.val_predictions or not pl_module.val_ground_truth:
+                logger.warning("No predictions collected for epoch-end evaluation")
+            else:
+                try:
+                    # Build sio.Labels from accumulated predictions and ground truth
+                    pred_labels = self._build_pred_labels(
+                        pl_module.val_predictions, sio, np
+                    )
+                    gt_labels = self._build_gt_labels(
+                        pl_module.val_ground_truth, sio, np
+                    )
 
-        # Check if we have predictions
-        if not pl_module.val_predictions or not pl_module.val_ground_truth:
-            logger.warning("No predictions collected for epoch-end evaluation")
-            pl_module._collect_val_predictions = False
-            return
+                    # Check if we have valid frames to evaluate
+                    if len(pred_labels) == 0:
+                        logger.warning(
+                            "No valid predictions for epoch-end evaluation "
+                            "(all predictions may be empty or NaN)"
+                        )
+                    else:
+                        # Run evaluation
+                        evaluator = Evaluator(
+                            ground_truth_instances=gt_labels,
+                            predicted_instances=pred_labels,
+                            oks_stddev=self.oks_stddev,
+                            oks_scale=self.oks_scale,
+                            user_labels_only=False,  # All validation frames are "user" frames
+                        )
+                        metrics = evaluator.evaluate()
 
-        try:
-            # Build sio.Labels from accumulated predictions and ground truth
-            pred_labels = self._build_pred_labels(pl_module.val_predictions, sio, np)
-            gt_labels = self._build_gt_labels(pl_module.val_ground_truth, sio, np)
+                        # Log to WandB
+                        self._log_metrics(trainer, metrics, trainer.current_epoch)
 
-            # Check if we have valid frames to evaluate
-            if len(pred_labels) == 0:
-                logger.warning(
-                    "No valid predictions for epoch-end evaluation "
-                    "(all predictions may be empty or NaN)"
-                )
-                pl_module._collect_val_predictions = False
-                pl_module.val_predictions = []
-                pl_module.val_ground_truth = []
-                return
+                        logger.info(
+                            f"Epoch {trainer.current_epoch} evaluation: "
+                            f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
+                            f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
+                            f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
+                        )
 
-            # Run evaluation
-            evaluator = Evaluator(
-                ground_truth_instances=gt_labels,
-                predicted_instances=pred_labels,
-                oks_stddev=self.oks_stddev,
-                oks_scale=self.oks_scale,
-                user_labels_only=False,  # All validation frames are "user" frames
-            )
-            metrics = evaluator.evaluate()
+                except Exception as e:
+                    logger.warning(f"Epoch-end evaluation failed: {e}")
 
-            # Log to WandB
-            self._log_metrics(trainer, metrics, trainer.current_epoch)
-
-            logger.info(
-                f"Epoch {trainer.current_epoch} evaluation: "
-                f"PCK@5={metrics['pck_metrics']['PCK@5']:.4f}, "
-                f"mOKS={metrics['mOKS']['mOKS']:.4f}, "
-                f"mAP={metrics['voc_metrics']['oks_voc.mAP']:.4f}"
-            )
-
-        except Exception as e:
-            logger.warning(f"Epoch-end evaluation failed: {e}")
-
-        # Cleanup
+        # Cleanup - all ranks reset the flag, rank 0 clears the lists
         pl_module._collect_val_predictions = False
-        pl_module.val_predictions = []
-        pl_module.val_ground_truth = []
+        if trainer.is_global_zero:
+            pl_module.val_predictions = []
+            pl_module.val_ground_truth = []
+
+        # Sync all processes - barrier must be reached by ALL ranks
+        trainer.strategy.barrier()
 
     def _build_pred_labels(self, predictions: list, sio, np) -> "sio.Labels":
         """Convert prediction dicts to sio.Labels."""
