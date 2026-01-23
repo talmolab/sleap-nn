@@ -486,7 +486,30 @@ class ModelTrainer:
             ckpt_dir = "."
             self.config.trainer_config.ckpt_dir = ckpt_dir
         run_name = self.config.trainer_config.run_name
-        if run_name is None or run_name == "" or run_name == "None":
+        run_name_is_empty = run_name is None or run_name == "" or run_name == "None"
+
+        # Validate: multi-GPU + disk cache requires explicit run_name
+        if run_name_is_empty:
+            is_disk_caching = (
+                self.config.data_config.data_pipeline_fw
+                == "torch_dataset_cache_img_disk"
+            )
+            num_devices = self._get_trainer_devices()
+
+            if is_disk_caching and num_devices > 1:
+                raise ValueError(
+                    f"Multi-GPU training with disk caching requires an explicit `run_name`.\n\n"
+                    f"Detected {num_devices} device(s) with "
+                    f"`data_pipeline_fw='torch_dataset_cache_img_disk'`.\n"
+                    f"Without an explicit run_name, each GPU worker generates a different "
+                    f"timestamp-based directory, causing cache synchronization failures.\n\n"
+                    f"Please provide a run_name using one of these methods:\n"
+                    f"  - CLI: sleap-nn train config.yaml trainer_config.run_name=my_experiment\n"
+                    f"  - Config file: Set `trainer_config.run_name: my_experiment`\n"
+                    f"  - Python API: train(..., run_name='my_experiment')"
+                )
+
+            # Auto-generate timestamp-based run_name (safe for single GPU or non-disk-cache)
             sum_train_lfs = sum([len(train_label) for train_label in self.train_labels])
             sum_val_lfs = sum([len(val_label) for val_label in self.val_labels])
             run_name = (
@@ -703,15 +726,15 @@ class ModelTrainer:
         ).as_posix()
         logger.info(f"Setting up model ckpt dir: `{ckpt_path}`...")
 
-        if not Path(ckpt_path).exists():
-            try:
-                Path(ckpt_path).mkdir(parents=True, exist_ok=True)
-            except OSError as e:
-                message = f"Cannot create a new folder in {ckpt_path}.\n {e}"
-                logger.error(message)
-                raise OSError(message)
-
+        # Only rank 0 (or non-distributed) should create directories and save files
         if RANK in [0, -1]:
+            if not Path(ckpt_path).exists():
+                try:
+                    Path(ckpt_path).mkdir(parents=True, exist_ok=True)
+                except OSError as e:
+                    message = f"Cannot create a new folder in {ckpt_path}.\n {e}"
+                    logger.error(message)
+                    raise OSError(message)
             # Check if we should filter to user-labeled frames only
             user_instances_only = OmegaConf.select(
                 self.config, "data_config.user_instances_only", default=True
@@ -788,6 +811,28 @@ class ModelTrainer:
                 self.train_labels, self.val_labels, memory_buffer=MEMORY_BUFFER
             )
             if not mem_available:
+                # Validate: multi-GPU + auto-generated run_name + fallback to disk cache
+                original_run_name = self._initial_config.trainer_config.run_name
+                run_name_was_auto = (
+                    original_run_name is None
+                    or original_run_name == ""
+                    or original_run_name == "None"
+                )
+                if run_name_was_auto and self.trainer.num_devices > 1:
+                    raise ValueError(
+                        f"Memory caching failed and disk caching fallback requires an "
+                        f"explicit `run_name` for multi-GPU training.\n\n"
+                        f"Detected {self.trainer.num_devices} device(s) with insufficient "
+                        f"memory for in-memory caching.\n"
+                        f"Without an explicit run_name, each GPU worker generates a different "
+                        f"timestamp-based directory, causing cache synchronization failures.\n\n"
+                        f"Please provide a run_name using one of these methods:\n"
+                        f"  - CLI: sleap-nn train config.yaml trainer_config.run_name=my_experiment\n"
+                        f"  - Config file: Set `trainer_config.run_name: my_experiment`\n"
+                        f"  - Python API: train(..., run_name='my_experiment')\n\n"
+                        f"Alternatively, use `data_pipeline_fw='torch_dataset'` to disable caching."
+                    )
+
                 self.config.data_config.data_pipeline_fw = (
                     "torch_dataset_cache_img_disk"
                 )

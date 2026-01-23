@@ -1367,3 +1367,136 @@ def test_model_ckpt_path_duplication(config, caplog, tmp_path, minimal_instance)
     assert Path(
         f"{config_duplicate_ckpt_path.trainer_config.ckpt_dir}/{config_duplicate_ckpt_path.trainer_config.run_name}-2"
     ).exists()
+
+
+def test_multi_gpu_disk_cache_requires_run_name(config, tmp_path, minimal_instance):
+    """Test that multi-GPU + disk cache without explicit run_name raises an error."""
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", None)  # No run_name provided
+    OmegaConf.update(
+        cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 2)  # Multi-GPU
+
+    labels = sio.load_slp(minimal_instance)
+
+    # Mock _get_trainer_devices to return 2 (simulating multi-GPU)
+    with patch.object(ModelTrainer, "_get_trainer_devices", return_value=2):
+        with pytest.raises(ValueError) as exc_info:
+            ModelTrainer.get_model_trainer_from_config(
+                cfg, train_labels=[labels], val_labels=[labels]
+            )
+
+        # Verify error message is helpful
+        error_msg = str(exc_info.value)
+        assert "Multi-GPU training with disk caching requires" in error_msg
+        assert "run_name" in error_msg
+        assert "2 device(s)" in error_msg
+
+
+def test_multi_gpu_disk_cache_with_explicit_run_name_succeeds(
+    config, tmp_path, minimal_instance
+):
+    """Test that multi-GPU + disk cache WITH explicit run_name works."""
+    from unittest.mock import patch
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", "my_explicit_run")  # Explicit name
+    OmegaConf.update(
+        cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
+    OmegaConf.update(cfg, "data_config.cache_img_path", f"{tmp_path}/cache")
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 2)
+
+    labels = sio.load_slp(minimal_instance)
+
+    # Mock _get_trainer_devices to return 2 (simulating multi-GPU)
+    with patch.object(ModelTrainer, "_get_trainer_devices", return_value=2):
+        # Should NOT raise - explicit run_name provided
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels], val_labels=[labels]
+        )
+        assert trainer.config.trainer_config.run_name == "my_explicit_run"
+
+
+def test_single_gpu_disk_cache_auto_generates_run_name(
+    config, tmp_path, minimal_instance
+):
+    """Test that single GPU + disk cache auto-generates run_name (unchanged behavior)."""
+    import re
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", None)  # No run_name
+    OmegaConf.update(
+        cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_disk"
+    )
+    OmegaConf.update(cfg, "data_config.cache_img_path", f"{tmp_path}/cache")
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 1)  # Single GPU
+
+    labels = sio.load_slp(minimal_instance)
+
+    # Should NOT raise - single GPU doesn't have the sync issue
+    trainer = ModelTrainer.get_model_trainer_from_config(
+        cfg, train_labels=[labels], val_labels=[labels]
+    )
+
+    # run_name should be auto-generated with timestamp pattern: YYMMDD_HHMMSS.*
+    assert trainer.config.trainer_config.run_name is not None
+    assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
+
+
+def test_multi_gpu_memory_cache_auto_generates_run_name(
+    config, tmp_path, minimal_instance
+):
+    """Test that multi-GPU + memory cache auto-generates run_name (no sync issue)."""
+    from unittest.mock import patch
+    import re
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", None)  # No run_name
+    OmegaConf.update(
+        cfg, "data_config.data_pipeline_fw", "torch_dataset_cache_img_memory"
+    )
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 2)
+
+    labels = sio.load_slp(minimal_instance)
+
+    # Mock _get_trainer_devices to return 2
+    with patch.object(ModelTrainer, "_get_trainer_devices", return_value=2):
+        # Should NOT raise - memory caching doesn't have the path sync issue
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels], val_labels=[labels]
+        )
+
+        # run_name should be auto-generated
+        assert trainer.config.trainer_config.run_name is not None
+        assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
+
+
+def test_multi_gpu_no_cache_auto_generates_run_name(config, tmp_path, minimal_instance):
+    """Test that multi-GPU without caching auto-generates run_name."""
+    from unittest.mock import patch
+    import re
+
+    cfg = config.copy()
+    OmegaConf.update(cfg, "trainer_config.ckpt_dir", f"{tmp_path}")
+    OmegaConf.update(cfg, "trainer_config.run_name", None)
+    OmegaConf.update(cfg, "data_config.data_pipeline_fw", "torch_dataset")  # No caching
+    OmegaConf.update(cfg, "trainer_config.trainer_devices", 2)
+
+    labels = sio.load_slp(minimal_instance)
+
+    with patch.object(ModelTrainer, "_get_trainer_devices", return_value=2):
+        # Should NOT raise - no disk caching
+        trainer = ModelTrainer.get_model_trainer_from_config(
+            cfg, train_labels=[labels], val_labels=[labels]
+        )
+
+        assert trainer.config.trainer_config.run_name is not None
+        assert re.match(r"\d{6}_\d{6}\.", trainer.config.trainer_config.run_name)
