@@ -2,382 +2,382 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://nn.sleap.ai/dev/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/changelog/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/cli/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/config/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/core_components/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/example_notebooks/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/export/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/inference/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/installation/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/models/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/step_by_step_tutorial/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/training/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/SUMMARY/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/cli/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/evaluation/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/legacy_models/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/predict/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/system_info/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/train/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/common/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/convnext/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/encoder_decoder/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/heads/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/model/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/swint/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/unet/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/architectures/utils/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/config/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/config/data_config/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/config/get_config/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/config/model_config/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/config/trainer_config/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/config/training_job_config/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/config/utils/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/augmentation/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/confidence_maps/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/custom_datasets/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/edge_maps/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/identity/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/instance_centroids/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/instance_cropping/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/normalization/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/providers/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/resizing/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/skia_augmentation/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/data/utils/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/cli/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/metadata/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/utils/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/exporters/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/exporters/onnx_exporter/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/exporters/tensorrt_exporter/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/predictors/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/predictors/base/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/predictors/onnx/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/predictors/tensorrt/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/base/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/bottomup/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/bottomup_multiclass/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/centered_instance/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/centroid/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/single_instance/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/topdown/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/export/wrappers/topdown_multiclass/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/bottomup/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/identity/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/paf_grouping/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/peak_finding/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/postprocessing/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/predictors/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/provenance/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/single_instance/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/topdown/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/inference/utils/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/track_instance/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/tracker/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/utils/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/candidates/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/candidates/fixed_window/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/tracking/candidates/local_queues/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/training/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/training/callbacks/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/training/lightning_modules/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/training/losses/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/training/model_trainer/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/api/training/utils/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/colab_notebooks/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
     <url>
          <loc>https://nn.sleap.ai/dev/colab_notebooks/Training_with_sleap_nn_on_colab/</loc>
-         <lastmod>2026-01-22</lastmod>
+         <lastmod>2026-01-23</lastmod>
     </url>
 </urlset>
