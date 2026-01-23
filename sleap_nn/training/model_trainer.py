@@ -1159,6 +1159,11 @@ class ModelTrainer:
                     : self.config.trainer_config.trainer_devices
                 ]
             ]
+            # Sort device indices in ascending order for NCCL compatibility.
+            # NCCL expects devices in consistent ascending order across ranks
+            # to properly set up communication rings. Without sorting, DDP may
+            # assign multiple ranks to the same GPU, causing "Duplicate GPU detected" errors.
+            devices.sort()
             logger.info(f"Using GPUs with most available memory: {devices}")
 
         # create lightning.Trainer instance.
