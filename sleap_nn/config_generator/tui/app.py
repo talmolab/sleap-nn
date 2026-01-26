@@ -266,7 +266,9 @@ class ConfigGeneratorApp(App):
             with RadioSet(id="view-type"):
                 yield RadioButton("Side View (±15° rotation)", id="view-side")
                 yield RadioButton("Top View (±180° rotation)", id="view-top")
-                yield RadioButton("Unknown (conservative defaults)", id="view-unknown", value=True)
+                yield RadioButton(
+                    "Unknown (conservative defaults)", id="view-unknown", value=True
+                )
 
             yield Rule()
 
@@ -399,9 +401,9 @@ class ConfigGeneratorApp(App):
         self.query_one("#memory-gauge", MemoryGauge).update_estimate(mem)
 
         # Update recommendation panel
-        self.query_one("#recommendation-panel", RecommendationPanel).update_recommendation(
-            self._recommendation
-        )
+        self.query_one(
+            "#recommendation-panel", RecommendationPanel
+        ).update_recommendation(self._recommendation)
 
         # Initial YAML preview
         self._update_yaml_preview()
@@ -567,13 +569,19 @@ class ConfigGeneratorApp(App):
         self.query_one("#sigma-input", Input).value = str(self.generator._sigma)
 
         # Output stride
-        self.query_one("#output-stride-select", Select).value = self.generator._output_stride
+        self.query_one("#output-stride-select", Select).value = (
+            self.generator._output_stride
+        )
 
         # Batch size
-        self.query_one("#batch-size-input", Input).value = str(self.generator._batch_size)
+        self.query_one("#batch-size-input", Input).value = str(
+            self.generator._batch_size
+        )
 
         # Max epochs
-        self.query_one("#max-epochs-input", Input).value = str(self.generator._max_epochs)
+        self.query_one("#max-epochs-input", Input).value = str(
+            self.generator._max_epochs
+        )
 
         # Learning rate
         self.query_one("#learning-rate-input", Input).value = str(

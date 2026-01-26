@@ -763,13 +763,19 @@ def system():
 )
 @click.option("--backbone", type=str, help="Override backbone architecture")
 @click.option("--batch-size", type=int, help="Override batch size")
-@click.option(
-    "-i", "--interactive", is_flag=True, help="Launch interactive TUI mode"
-)
+@click.option("-i", "--interactive", is_flag=True, help="Launch interactive TUI mode")
 @click.option("--analyze-only", is_flag=True, help="Only show dataset analysis")
 @click.option("--show-yaml", is_flag=True, help="Print YAML to stdout")
 def config(
-    slp_path, output, view, pipeline, backbone, batch_size, interactive, analyze_only, show_yaml
+    slp_path,
+    output,
+    view,
+    pipeline,
+    backbone,
+    batch_size,
+    interactive,
+    analyze_only,
+    show_yaml,
 ):
     """Generate training configuration from SLP file.
 

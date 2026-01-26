@@ -163,9 +163,7 @@ def recommend_pipeline(stats: DatasetStats) -> PipelineRecommendation:
         )
     else:
         if stats.num_edges == 0:
-            warnings.append(
-                "No edges in skeleton - bottom-up requires edges for PAFs"
-            )
+            warnings.append("No edges in skeleton - bottom-up requires edges for PAFs")
             return PipelineRecommendation(
                 recommended="centroid",
                 reason="No skeleton edges available for bottom-up",
@@ -241,7 +239,9 @@ def _recommend_scale(stats: DatasetStats) -> Tuple[float, str]:
         return (1.0, "Image size suitable for full resolution")
 
 
-def _recommend_batch_size(stats: DatasetStats, backbone: BackboneType) -> Tuple[int, str]:
+def _recommend_batch_size(
+    stats: DatasetStats, backbone: BackboneType
+) -> Tuple[int, str]:
     """Recommend batch size based on estimated memory usage.
 
     Args:
