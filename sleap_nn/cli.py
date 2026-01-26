@@ -738,6 +738,112 @@ def system():
     print_system_info()
 
 
+@cli.command()
+@click.argument("slp_path", type=click.Path(exists=True))
+@click.option("-o", "--output", type=str, help="Output config YAML path")
+@click.option(
+    "-v",
+    "--view",
+    type=click.Choice(["side", "top"]),
+    help="Camera view type (affects rotation augmentation)",
+)
+@click.option(
+    "--pipeline",
+    type=click.Choice(
+        [
+            "single_instance",
+            "centroid",
+            "centered_instance",
+            "bottomup",
+            "multi_class_bottomup",
+            "multi_class_topdown",
+        ]
+    ),
+    help="Override pipeline type",
+)
+@click.option("--backbone", type=str, help="Override backbone architecture")
+@click.option("--batch-size", type=int, help="Override batch size")
+@click.option(
+    "-i", "--interactive", is_flag=True, help="Launch interactive TUI mode"
+)
+@click.option("--analyze-only", is_flag=True, help="Only show dataset analysis")
+@click.option("--show-yaml", is_flag=True, help="Print YAML to stdout")
+def config(
+    slp_path, output, view, pipeline, backbone, batch_size, interactive, analyze_only, show_yaml
+):
+    """Generate training configuration from SLP file.
+
+    Analyzes your labeled data and generates an optimized training
+    configuration with sensible defaults.
+
+    \b
+    Examples:
+        # Auto-generate config
+        sleap-nn config labels.slp -o config.yaml
+
+        # Specify camera view for better augmentation defaults
+        sleap-nn config labels.slp -o config.yaml --view top
+
+        # Launch interactive TUI
+        sleap-nn config labels.slp --interactive
+
+        # Override specific parameters
+        sleap-nn config labels.slp -o config.yaml --batch-size 8
+
+        # Just analyze the data
+        sleap-nn config labels.slp --analyze-only
+    """
+    from rich.console import Console
+
+    from sleap_nn.config_generator import ConfigGenerator, analyze_slp
+
+    console = Console()
+
+    if analyze_only:
+        stats = analyze_slp(slp_path)
+        console.print(str(stats))
+
+        # Also show recommendation
+        from sleap_nn.config_generator import recommend_config
+
+        rec = recommend_config(stats)
+        console.print("\n[bold]Recommendation:[/bold]")
+        console.print(f"  Pipeline: {rec.pipeline.recommended}")
+        console.print(f"  Reason: {rec.pipeline.reason}")
+        if rec.pipeline.warnings:
+            console.print("\n[yellow]Warnings:[/yellow]")
+            for w in rec.pipeline.warnings:
+                console.print(f"  * {w}")
+        return
+
+    if interactive:
+        from sleap_nn.config_generator.tui import launch_tui
+
+        launch_tui(slp_path)
+        return
+
+    # Generate config
+    gen = ConfigGenerator.from_slp(slp_path).auto(view=view)
+
+    if pipeline:
+        gen.pipeline(pipeline)
+    if backbone:
+        gen.backbone(backbone)
+    if batch_size:
+        gen.batch_size(batch_size)
+
+    # Print summary
+    console.print(gen.summary())
+
+    if output:
+        gen.save(output)
+        console.print(f"\n[green]Config saved to: {output}[/green]")
+
+    if show_yaml or not output:
+        console.print("\n[bold]YAML Configuration:[/bold]")
+        console.print(gen.to_yaml())
+
+
 cli.add_command(export_command)
 cli.add_command(predict_command)
 
