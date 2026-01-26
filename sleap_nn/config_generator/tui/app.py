@@ -217,6 +217,7 @@ class ConfigGeneratorApp(App):
 
         Args:
             slp_path: Path to the SLP file to analyze.
+            **kwargs: Additional arguments passed to parent App class.
         """
         super().__init__(**kwargs)
         self.slp_path = Path(slp_path)
@@ -280,7 +281,7 @@ class ConfigGeneratorApp(App):
         with VerticalScroll():
             yield Static("Pipeline Type", classes="section-title")
             with RadioSet(id="pipeline-select"):
-                yield RadioButton("Single Instance", id="pipe-single")
+                yield RadioButton("Single Instance", id="pipe-single", value=True)
                 yield RadioButton("Top-Down: Centroid", id="pipe-centroid")
                 yield RadioButton("Top-Down: Centered Instance", id="pipe-centered")
                 yield RadioButton("Bottom-Up", id="pipe-bottomup")
@@ -733,12 +734,30 @@ class ConfigGeneratorApp(App):
         if event.radio_set.id == "backbone-select":
             self._update_memory_estimate()
 
+        # Update YAML preview when pipeline or backbone changes
+        if event.radio_set.id in ["pipeline-select", "backbone-select"]:
+            self._update_yaml_preview()
+
     @on(Input.Changed)
     def handle_input_change(self, event: Input.Changed) -> None:
         """Handle input field changes."""
         # Update memory estimate for relevant fields
         if event.input.id in ["batch-size-input", "sigma-input"]:
             self._update_memory_estimate()
+
+        # Update YAML preview for all input changes
+        self._update_yaml_preview()
+
+    @on(Switch.Changed)
+    def handle_switch_change(self, event: Switch.Changed) -> None:
+        """Handle switch changes."""
+        self._update_yaml_preview()
+
+    @on(Select.Changed)
+    def handle_select_change(self, event: Select.Changed) -> None:
+        """Handle select changes."""
+        self._update_yaml_preview()
+        self._update_memory_estimate()
 
     def action_quit(self) -> None:
         """Quit the application."""

@@ -517,69 +517,75 @@ class ConfigGenerator:
         }
 
     def _build_head_config(self) -> dict:
-        """Build head configuration based on pipeline type."""
+        """Build head configuration based on pipeline type.
+
+        Returns config with all head types, setting the active one's config
+        and null for all others (matches expected sleap-nn config format).
+        """
         base_confmap = {
             "sigma": self._sigma,
             "output_stride": self._output_stride,
         }
 
+        # Initialize all head types to null
+        head_configs = {
+            "single_instance": None,
+            "centroid": None,
+            "centered_instance": None,
+            "bottomup": None,
+            "multi_class_bottomup": None,
+            "multi_class_topdown": None,
+        }
+
         if self._pipeline == "single_instance":
-            return {"single_instance": {"confmaps": base_confmap}}
+            head_configs["single_instance"] = {"confmaps": base_confmap}
 
         elif self._pipeline == "centroid":
-            cfg = {"confmaps": base_confmap.copy()}
-            if self._anchor_part:
-                cfg["anchor_part"] = self._anchor_part
-            return {"centroid": cfg}
+            cfg = {"confmaps": {**base_confmap, "anchor_part": self._anchor_part}}
+            head_configs["centroid"] = cfg
 
         elif self._pipeline == "centered_instance":
-            cfg = {"confmaps": base_confmap.copy()}
-            if self._anchor_part:
-                cfg["anchor_part"] = self._anchor_part
-            return {"centered_instance": cfg}
+            cfg = {"confmaps": {**base_confmap, "anchor_part": self._anchor_part}}
+            head_configs["centered_instance"] = cfg
 
         elif self._pipeline == "bottomup":
-            return {
-                "bottomup": {
-                    "confmaps": {
-                        **base_confmap,
-                        "loss_weight": 1.0,
-                    },
-                    "pafs": {
-                        "sigma": 15.0,  # PAFs use larger sigma
-                        "output_stride": max(self._output_stride, 4),
-                        "loss_weight": 1.0,
-                    },
-                }
+            head_configs["bottomup"] = {
+                "confmaps": {
+                    **base_confmap,
+                    "loss_weight": 1.0,
+                },
+                "pafs": {
+                    "sigma": 15.0,  # PAFs use larger sigma
+                    "output_stride": max(self._output_stride, 4),
+                    "loss_weight": 1.0,
+                },
             }
 
         elif self._pipeline == "multi_class_bottomup":
-            return {
-                "multi_class_bottomup": {
-                    "confmaps": {**base_confmap, "loss_weight": 1.0},
-                    "pafs": {
-                        "sigma": 15.0,
-                        "output_stride": max(self._output_stride, 4),
-                        "loss_weight": 1.0,
-                    },
-                    "class_vectors": {
-                        "num_fc_layers": 1,
-                        "num_fc_units": 64,
-                    },
-                }
+            head_configs["multi_class_bottomup"] = {
+                "confmaps": {**base_confmap, "loss_weight": 1.0},
+                "pafs": {
+                    "sigma": 15.0,
+                    "output_stride": max(self._output_stride, 4),
+                    "loss_weight": 1.0,
+                },
+                "class_vectors": {
+                    "num_fc_layers": 1,
+                    "num_fc_units": 64,
+                },
             }
 
         elif self._pipeline == "multi_class_topdown":
-            cfg = {"confmaps": base_confmap.copy()}
-            if self._anchor_part:
-                cfg["anchor_part"] = self._anchor_part
-            cfg["class_vectors"] = {
-                "num_fc_layers": 1,
-                "num_fc_units": 64,
+            cfg = {
+                "confmaps": {**base_confmap, "anchor_part": self._anchor_part},
+                "class_vectors": {
+                    "num_fc_layers": 1,
+                    "num_fc_units": 64,
+                },
             }
-            return {"multi_class_topdown": cfg}
+            head_configs["multi_class_topdown"] = cfg
 
-        return {}
+        return head_configs
 
     def _build_trainer_config(self) -> dict:
         """Build trainer configuration section."""
